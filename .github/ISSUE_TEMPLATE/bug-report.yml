@@ -1,0 +1,89 @@
+name: Bug report
+description: Report reproducible incorrect behavior in opencode2-mobile
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, pairing codes, push tokens, server addresses, prompts, file contents, session IDs, or unredacted logs. Report security issues through private vulnerability reporting instead.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - iOS physical device
+        - iOS Simulator
+        - Android physical device
+        - Android Emulator
+    validations:
+      required: true
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation
+      options:
+        - Expo Go
+        - Development build
+        - EAS preview build
+        - Local release build
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: App version or commit
+      placeholder: "0.1.2 or commit SHA"
+    validations:
+      required: true
+
+  - type: input
+    id: opencode-version
+    attributes:
+      label: OpenCode version
+      description: The tested baseline is beta 18050. Do not include a server address.
+      placeholder: "0.0.0-beta-18050"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Use sanitized names and content.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Redacted diagnostics
+      description: Include only the minimum error text or diagnostic counters needed to reproduce the issue.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I removed credentials, addresses, identifiers, user content, and private paths.
+          required: true
+        - label: I searched existing issues for this problem.
+          required: true

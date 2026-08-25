@@ -1,0 +1,48 @@
+name: Feature request
+description: Propose a focused addition or behavior change
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check `TODO.md` and `docs/SPEC.md` before proposing roadmap work. Do not include private deployment details or user content.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should this solve?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful behavior, including relevant iOS and Android differences.
+    validations:
+      required: true
+
+  - type: textarea
+    id: contract
+    attributes:
+      label: OpenCode contract
+      description: Name the documented V2 endpoint or event this relies on, if applicable.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain current workarounds or smaller alternatives.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I checked the existing roadmap and issues.
+          required: true
+        - label: This request does not depend on undocumented OpenCode behavior without calling that out.
+          required: true
