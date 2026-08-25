@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/omnicus/opencode2-mobile/security/advisories/new
+    about: Report credential exposure, authentication bypasses, unsafe routing, or data leakage privately.
+  - name: OpenCode upstream
+    url: https://github.com/anomalyco/opencode/issues
+    about: Report issues in the OpenCode server, CLI, or official client upstream.
