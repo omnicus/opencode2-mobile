@@ -1,0 +1,11 @@
+title = "opencode2-mobile secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Deterministic 32-byte public test vector"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8''']
+paths = ['''apps/mobile/src/notifications/notification-(client|pairing-repository)\.test\.ts''']

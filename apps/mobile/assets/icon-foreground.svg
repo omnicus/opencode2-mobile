@@ -1,0 +1,12 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>OpenCode2 Mobile app icon</title>
+  <defs>
+    <linearGradient id="app-accent" x1="352" y1="592" x2="672" y2="592" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9B00A9"/>
+      <stop offset="1" stop-color="#0A7FD4"/>
+    </linearGradient>
+  </defs>
+  <path fill-rule="evenodd" clip-rule="evenodd" d="M208 208H816V816H208V208ZM352 352V672H672V352H352Z" fill="#F2EEEA"/>
+  <path d="M352 512H672V672H352V512Z" fill="url(#app-accent)"/>
+  <path d="M592 592H688L816 720V816H720L592 688V592Z" fill="#F2EEEA"/>
+</svg>

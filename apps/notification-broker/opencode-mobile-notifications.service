@@ -1,0 +1,13 @@
+[Unit]
+Description=OpenCode2 Mobile notification broker
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/absolute/path/to/node /absolute/path/to/opencode2-mobile/apps/notification-broker/dist/cli.js serve
+Restart=on-failure
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=default.target

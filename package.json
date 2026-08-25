@@ -1,0 +1,33 @@
+{
+  "name": "opencode2-mobile",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": "26.7.0"
+  },
+  "scripts": {
+    "android": "pnpm --filter @opencode2-mobile/mobile android",
+    "build": "pnpm -r --if-present build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check:public": "node scripts/check-public-tree.mjs",
+    "dev": "pnpm go:tailscale",
+    "dev:client": "pnpm --filter @opencode2-mobile/mobile start",
+    "format": "biome format --write .",
+    "go": "pnpm --filter @opencode2-mobile/mobile go",
+    "go:tailscale": "pnpm --filter @opencode2-mobile/mobile go:tailscale",
+    "ios": "pnpm --filter @opencode2-mobile/mobile ios",
+    "lint": "biome check .",
+    "native:doctor": "pnpm --filter @opencode2-mobile/mobile run doctor",
+    "notifications:build": "pnpm --filter @opencode2-mobile/notification-protocol build && pnpm --filter @opencode2-mobile/notification-broker build && pnpm --filter @opencode2-mobile/opencode-notification-plugin build",
+    "notifications:broker": "node apps/notification-broker/dist/cli.js",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm -r typecheck",
+    "build:packages": "pnpm --filter './packages/*' build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.8",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

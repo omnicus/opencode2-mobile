@@ -1,0 +1,27 @@
+{
+  "name": "@opencode2-mobile/opencode-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "react-native": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@opencode-ai/client": "0.0.0-beta-18050"
+  },
+  "devDependencies": {
+    "@opencode2-mobile/test-fixtures": "workspace:*",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}

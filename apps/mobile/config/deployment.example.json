@@ -1,0 +1,11 @@
+{
+  "OPENCODE2_MOBILE_APP_NAME": "OpenCode2 Mobile",
+  "OPENCODE2_MOBILE_APP_SLUG": "opencode2-mobile",
+  "OPENCODE2_MOBILE_APP_SCHEME": "opencode2mobile",
+  "OPENCODE2_MOBILE_EXPO_OWNER": "your-expo-account",
+  "OPENCODE2_MOBILE_EXPO_PROJECT_ID": "00000000-0000-4000-8000-000000000000",
+  "OPENCODE2_MOBILE_IOS_BUNDLE_IDENTIFIER": "com.example.opencode2mobile",
+  "OPENCODE2_MOBILE_ANDROID_PACKAGE": "com.example.opencode2mobile",
+  "OPENCODE2_MOBILE_ALLOW_DEVELOPMENT_HTTP": "false",
+  "GOOGLE_SERVICES_JSON": "./google-services.json"
+}

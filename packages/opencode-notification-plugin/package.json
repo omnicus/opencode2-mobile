@@ -1,0 +1,27 @@
+{
+  "name": "@opencode2-mobile/opencode-notification-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "pnpm --filter @opencode2-mobile/notification-protocol build && vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "0.0.0-beta-18050",
+    "@opencode2-mobile/notification-protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "26.0.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  }
+}
