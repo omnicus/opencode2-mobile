@@ -1,4 +1,5 @@
 import type { SQLInputValue } from "node:sqlite";
+import type { NotificationCategory } from "@opencode2-mobile/notification-protocol";
 
 import type { BrokerDatabase } from "./database.js";
 
@@ -48,6 +49,7 @@ export class ExpoPushWorker {
     for (const row of this.database.nextQueued()) {
       const id = asString(row.id);
       const bindingID = asString(row.binding_id);
+      if (!this.database.canSendQueued(id)) continue;
       if (this.mode === "fake") {
         this.database.markDelivered(id);
         continue;
@@ -55,7 +57,7 @@ export class ExpoPushWorker {
       try {
         const response = await fetch(expoSendUrl, {
           body: JSON.stringify({
-            body: "OpenCode needs your attention.",
+            body: notificationBody(asNotificationCategory(row.notification_category)),
             channelId: "opencode-attention",
             collapseId: asString(row.collapse_id),
             data: JSON.parse(asString(row.push_data_json)),
@@ -145,6 +147,42 @@ export class ExpoPushWorker {
   }
 }
 
+export function notificationBody(category: NotificationCategory) {
+  switch (category) {
+    case "form":
+    case "permission-question":
+      return "OpenCode has a question for you";
+    case "permission-edit":
+      return "Permission to edit files";
+    case "permission-execute":
+      return "Permission to use Code Mode";
+    case "permission-external-directory":
+      return "Permission to access external files";
+    case "permission-glob":
+      return "Permission to search file paths";
+    case "permission-grep":
+      return "Permission to search file contents";
+    case "permission-read":
+      return "Permission to read a file";
+    case "permission-shell":
+      return "Permission to run a command";
+    case "permission-skill":
+      return "Permission to load a skill";
+    case "permission-subagent":
+      return "Permission to start a subagent";
+    case "permission-webfetch":
+      return "Permission to fetch a URL";
+    case "permission-websearch":
+      return "Permission to search the web";
+    case "session-done":
+      return "Session done";
+    case "permission-other":
+      return "Permission requested";
+    case "test":
+      return "OpenCode needs your attention.";
+  }
+}
+
 type ExpoResult = { error?: string; id?: string; status: "error" | "ok" };
 
 function parseTicket(
@@ -188,6 +226,31 @@ function asString(value: SQLInputValue | undefined) {
 function asNumber(value: SQLInputValue | undefined) {
   if (typeof value !== "number") throw new Error("INVALID_BROKER_DATA");
   return value;
+}
+
+function asNotificationCategory(value: SQLInputValue | undefined): NotificationCategory {
+  if (typeof value !== "string") throw new Error("INVALID_BROKER_DATA");
+  switch (value) {
+    case "form":
+    case "permission-edit":
+    case "permission-execute":
+    case "permission-external-directory":
+    case "permission-glob":
+    case "permission-grep":
+    case "permission-other":
+    case "permission-question":
+    case "permission-read":
+    case "permission-shell":
+    case "permission-skill":
+    case "permission-subagent":
+    case "permission-webfetch":
+    case "permission-websearch":
+    case "session-done":
+    case "test":
+      return value;
+    default:
+      throw new Error("INVALID_BROKER_DATA");
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

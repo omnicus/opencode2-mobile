@@ -60,7 +60,7 @@ const config: ExpoConfig = {
       usesNonExemptEncryption: false,
     },
     infoPlist: {
-      NSUserNotificationUsageDescription: `${appName} notifies you when an OpenCode session needs a permission or form response.`,
+      NSUserNotificationUsageDescription: `${appName} notifies you when OpenCode needs a permission or form response, or finishes a session.`,
       NSLocalNetworkUsageDescription: `${appName} connects to development servers that you approve on your private network.`,
       NSAppTransportSecurity: {
         NSAllowsArbitraryLoads: allowDevelopmentHttp,

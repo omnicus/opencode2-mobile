@@ -1,8 +1,11 @@
+import type { NotificationDeliveryState } from "@opencode2-mobile/notification-protocol";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   ScrollView,
   Share,
@@ -16,6 +19,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
+import { sendNotificationDeviceCommand } from "../notifications/notification-client";
+import {
+  getNotificationPairingByConnectionID,
+  type NotificationPairing,
+  readNotificationPairingSecret,
+} from "../notifications/notification-pairing-repository";
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
@@ -227,17 +236,85 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
 }
 
 export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
+  const db = useSQLiteContext();
   const appLock = useAppLock();
   const runtime = useConnectionRuntime();
   const connections = useConnections();
   const selected = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
+  const [notificationPairing, setNotificationPairing] = useState<NotificationPairing>();
+  const [notificationState, setNotificationState] = useState<NotificationDeliveryState>();
+  const [notificationLoading, setNotificationLoading] = useState(true);
+  const [notificationBusy, setNotificationBusy] = useState(false);
+  const [notificationError, setNotificationError] = useState(false);
   const navigate = (section: Section) =>
     section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section);
 
   async function shareDiagnostics() {
     await Share.share({ message: runtime.getDiagnosticsText() });
+  }
+
+  useEffect(() => {
+    let active = true;
+    async function refresh() {
+      setNotificationLoading(true);
+      setNotificationError(false);
+      try {
+        const pairing = connections.selectedProfileId
+          ? await getNotificationPairingByConnectionID(db, connections.selectedProfileId)
+          : undefined;
+        if (!active) return;
+        setNotificationPairing(pairing);
+        if (!pairing) {
+          setNotificationState(undefined);
+          return;
+        }
+        const secret = await readNotificationPairingSecret(pairing);
+        const state = await sendNotificationDeviceCommand({
+          bindingID: pairing.bindingID,
+          brokerOrigin: pairing.brokerOrigin,
+          deviceKey: secret.deviceKey,
+          operation: "status",
+        });
+        if (active) setNotificationState(state);
+      } catch {
+        if (active) {
+          setNotificationState(undefined);
+          setNotificationError(true);
+        }
+      } finally {
+        if (active) setNotificationLoading(false);
+      }
+    }
+    void refresh();
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") void refresh();
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [connections.selectedProfileId, db]);
+
+  async function setNotificationsEnabled(enabled: boolean) {
+    if (!notificationPairing) return;
+    setNotificationBusy(true);
+    setNotificationError(false);
+    try {
+      const secret = await readNotificationPairingSecret(notificationPairing);
+      const state = await sendNotificationDeviceCommand({
+        bindingID: notificationPairing.bindingID,
+        brokerOrigin: notificationPairing.brokerOrigin,
+        deviceKey: secret.deviceKey,
+        operation: enabled ? "enable" : "pause",
+      });
+      setNotificationState(state);
+    } catch {
+      setNotificationError(true);
+    } finally {
+      setNotificationBusy(false);
+    }
   }
 
   return (
@@ -267,6 +344,43 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         {appLock.error ? (
           <Text accessibilityRole="alert" style={styles.errorText}>
             {appLock.error}
+          </Text>
+        ) : null}
+
+        <View style={styles.settingCard}>
+          <View style={styles.settingText}>
+            <Text style={styles.cardTitle}>Mobile notifications</Text>
+            <Text style={styles.cardCopy}>
+              {notificationLoading
+                ? "Reading the shared broker setting."
+                : !notificationPairing
+                  ? "Pair this connection for notifications before enabling delivery."
+                  : notificationState?.enabled
+                    ? "Enabled for every phone paired with this notification broker."
+                    : notificationState
+                      ? "Paused. New requests will not create mobile notifications."
+                      : "The shared broker setting is unavailable."}
+            </Text>
+          </View>
+          {notificationLoading ? (
+            <ActivityIndicator
+              accessibilityLabel="Loading mobile notification setting"
+              color={palette.signal}
+            />
+          ) : (
+            <Switch
+              accessibilityLabel="Send mobile notifications"
+              disabled={!notificationPairing || !notificationState || notificationBusy}
+              onValueChange={(enabled) => void setNotificationsEnabled(enabled)}
+              thumbColor={notificationState?.enabled ? palette.signal : palette.dim}
+              trackColor={{ false: palette.border, true: palette.signalDark }}
+              value={notificationState?.enabled ?? false}
+            />
+          )}
+        </View>
+        {notificationError ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            The notification broker setting could not be read or updated.
           </Text>
         ) : null}
 

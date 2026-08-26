@@ -12,6 +12,7 @@ affiliated with the OpenCode team or Anomaly.
 - [Specification](docs/SPEC.md)
 - [Deployment configuration](docs/CONFIGURATION.md)
 - [Self-hosted push notifications](docs/NOTIFICATIONS.md)
+- [Enable server push with an agent](docs/PUSH_AGENT_RUNBOOK.md)
 - [Implementation TODO](TODO.md)
 
 ## Architecture
@@ -30,7 +31,8 @@ the signed-build workflow and pairing trust model.
 
 The app supports saved connections, followed projects, session management,
 paginated transcripts, text prompts, permission and form responses, encrypted
-drafts, and optional self-hosted notifications. It stores Basic or Bearer
+drafts, and optional self-hosted permission, form, and session-completion
+notifications. It stores Basic or Bearer
 credentials only in SecureStore. `TODO.md` tracks the remaining product and
 device-verification work.
 

@@ -128,7 +128,7 @@ test("does not unlock after authentication finishes in the background", async ()
   expect(screen.getByText("OpenCode2 Mobile is locked.")).toBeOnTheScreen();
 });
 
-test("unlocks after a successful native prompt returns through inactive", async () => {
+test("keeps unlock busy until a successful native prompt returns through inactive", async () => {
   let resolveAuthentication: ((result: "AUTHENTICATED") => void) | undefined;
   mockAuthenticate.mockImplementation(
     () =>
@@ -152,6 +152,7 @@ test("unlocks after a successful native prompt returns through inactive", async 
     await Promise.resolve();
   });
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "AUTHENTICATING" })).toBeDisabled();
 
   Object.defineProperty(AppState, "currentState", { configurable: true, value: "active" });
   act(() => appStateListener?.("active"));

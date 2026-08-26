@@ -1,10 +1,11 @@
-import { readFile } from "node:fs/promises";
-
 import { Plugin } from "@opencode-ai/plugin";
 import {
+  type NotificationCategory,
   type NotificationPluginEvent,
   parseNotificationPluginEvent,
 } from "@opencode2-mobile/notification-protocol";
+
+import { readBrokerAccess } from "./broker.js";
 
 const queueStorageKey = "notification-outbox-v1";
 const droppedStorageKey = "notification-outbox-dropped-v1";
@@ -12,10 +13,9 @@ const maximumQueueSize = 1_000;
 
 export default Plugin.define({
   id: "opencode-mobile-notifications",
+  tui: true,
   async setup(ctx) {
-    const options = parseOptions(ctx.options);
-    const ingestToken = (await readFile(options.tokenFile, "utf8")).trim();
-    if (!/^[A-Za-z0-9_-]{40,100}$/.test(ingestToken)) throw new Error("INVALID_INGEST_TOKEN");
+    const access = await readBrokerAccess(ctx.options);
     let queue = parseStoredQueue(await ctx.storage.get(queueStorageKey));
     let droppedEvents = parseDroppedCount(await ctx.storage.get(droppedStorageKey));
     let stopped = false;
@@ -37,10 +37,10 @@ export default Plugin.define({
         const batch = queue.slice(0, 100);
         let response: Response;
         try {
-          response = await fetch(`${options.brokerOrigin}/v1/plugin/events`, {
+          response = await fetch(`${access.brokerOrigin}/v1/plugin/events`, {
             body: JSON.stringify({ events: batch, v: 1 }),
             headers: {
-              Authorization: `Bearer ${ingestToken}`,
+              Authorization: `Bearer ${access.ingestToken}`,
               "Content-Type": "application/json",
             },
             method: "POST",
@@ -60,12 +60,20 @@ export default Plugin.define({
     };
     const enqueue = async (event: NotificationPluginEvent) => {
       if (
-        queue.some((queued) => queued.eventID === event.eventID && queued.state === event.state)
+        queue.some(
+          (queued) =>
+            queued.eventID === event.eventID &&
+            (queued.kind === "session-done" ||
+              event.kind === "session-done" ||
+              queued.state === event.state),
+        )
       ) {
         return;
       }
       if (queue.length >= maximumQueueSize) {
-        const resolvedIndex = queue.findIndex((queued) => queued.state === "resolved");
+        const resolvedIndex = queue.findIndex(
+          (queued) => queued.kind === "interaction" && queued.state === "resolved",
+        );
         queue = queue.toSpliced(resolvedIndex >= 0 ? resolvedIndex : 0, 1);
         droppedEvents += 1;
         await ctx.storage.set(droppedStorageKey, droppedEvents);
@@ -110,8 +118,10 @@ export function normalizeOpenCodeNotificationEvent(
   const location = parseEventLocation(value.location);
   if (value.type === "permission.asked") {
     return safePluginEvent({
+      category: permissionCategory(data.action),
       eventID: value.id,
       interaction: "permission",
+      kind: "interaction",
       observedAtMs: value.created,
       requestID: data.id,
       sessionID: data.sessionID,
@@ -121,8 +131,10 @@ export function normalizeOpenCodeNotificationEvent(
   }
   if (value.type === "permission.replied") {
     return safePluginEvent({
+      category: "permission-other",
       eventID: value.id,
       interaction: "permission",
+      kind: "interaction",
       observedAtMs: value.created,
       requestID: data.requestID,
       sessionID: data.sessionID,
@@ -133,8 +145,10 @@ export function normalizeOpenCodeNotificationEvent(
   if (value.type === "form.created" && isRecord(data.form)) {
     const sessionID = data.form.sessionID;
     return safePluginEvent({
+      category: "form",
       eventID: value.id,
       interaction: "form",
+      kind: "interaction",
       ...(sessionID === "global" && location ? { location } : {}),
       observedAtMs: value.created,
       requestID: data.form.id,
@@ -146,8 +160,10 @@ export function normalizeOpenCodeNotificationEvent(
   if (value.type === "form.replied" || value.type === "form.cancelled") {
     const sessionID = data.sessionID;
     return safePluginEvent({
+      category: "form",
       eventID: value.id,
       interaction: "form",
+      kind: "interaction",
       ...(sessionID === "global" && location ? { location } : {}),
       observedAtMs: value.created,
       requestID: data.id,
@@ -156,7 +172,38 @@ export function normalizeOpenCodeNotificationEvent(
       v: 1,
     });
   }
+  if (value.type === "session.execution.succeeded") {
+    return safePluginEvent({
+      category: "session-done",
+      eventID: value.id,
+      kind: "session-done",
+      observedAtMs: value.created,
+      sessionID: data.sessionID,
+      v: 1,
+    });
+  }
   return undefined;
+}
+
+const permissionCategories = new Map<string, NotificationCategory>([
+  ["edit", "permission-edit"],
+  ["execute", "permission-execute"],
+  ["external_directory", "permission-external-directory"],
+  ["glob", "permission-glob"],
+  ["grep", "permission-grep"],
+  ["question", "permission-question"],
+  ["read", "permission-read"],
+  ["shell", "permission-shell"],
+  ["skill", "permission-skill"],
+  ["subagent", "permission-subagent"],
+  ["webfetch", "permission-webfetch"],
+  ["websearch", "permission-websearch"],
+]);
+
+function permissionCategory(value: unknown) {
+  return typeof value === "string"
+    ? (permissionCategories.get(value) ?? "permission-other")
+    : "permission-other";
 }
 
 function safePluginEvent(value: unknown) {
@@ -186,27 +233,6 @@ function parseEventLocation(value: unknown) {
     directory: value.directory,
     ...(typeof value.workspaceID === "string" ? { workspaceID: value.workspaceID } : {}),
   };
-}
-
-function parseOptions(value: Readonly<Record<string, unknown>>) {
-  const brokerOrigin = value.brokerOrigin;
-  const tokenFile = value.tokenFile;
-  if (typeof brokerOrigin !== "string" || typeof tokenFile !== "string") {
-    throw new Error("NOTIFICATION_PLUGIN_OPTIONS_REQUIRED");
-  }
-  const url = new URL(brokerOrigin);
-  if (
-    url.protocol !== "http:" ||
-    (url.hostname !== "127.0.0.1" && url.hostname !== "localhost" && url.hostname !== "::1") ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  ) {
-    throw new Error("INVALID_NOTIFICATION_BROKER_ORIGIN");
-  }
-  return { brokerOrigin: url.origin, tokenFile };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

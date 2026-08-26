@@ -474,7 +474,8 @@ without exposing credentials or depending on undocumented endpoints.
 - [ ] Add deep links for connection, project, session, file, and pending request.
 - [ ] Add share-sheet input for text, images, and files.
 - [ ] Add app quick actions for new session and recent sessions.
-- [ ] Add local best-effort completion and blocked-work notifications.
+- [ ] Add local best-effort completion and blocked-work notifications. Remote
+      successful completion is covered by self-hosted push.
 - [x] Define and implement the self-hosted push architecture.
 - [ ] Add privacy-mode app-switcher shielding.
 - [x] Add optional biometric lock.

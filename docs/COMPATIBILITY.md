@@ -499,3 +499,47 @@ prompt, path, or server content. A full host reboot, forced provider-token
 rotation, Android revocation/re-pairing, and device-log review remain open. The
 device-log review could not run because Android platform tools were unavailable
 on the test host.
+
+## 2026-08-26: physical iPhone notification controls probe
+
+### Stack
+
+- Mobile runtime: signed EAS preview build with an iOS EAS Update using Hermes
+- Expo SDK: 54.0.37
+- React Native: 0.81.5
+- OpenCode server: beta 18286
+- OpenCode plugin and mobile client contract: beta 18050
+- Delivery: self-hosted Linux broker, Expo Push Service, and APNs
+
+### Results
+
+| Probe | Result |
+| --- | --- |
+| Deliver banner, sound, and notification-list entry while app is backgrounded | Pass |
+| Wake the locked screen, present the notification, and play sound | Pass |
+| Suppress banner, sound, badge, and notification-list entry while app is foregrounded | Pass |
+| Pause from mobile and observe the broker state | Pass |
+| Suppress delivery while paused and avoid replay after enabling | Pass |
+| Enable delivery and receive a new post-resume notification | Pass |
+| Load TUI status, pause, and enable commands from the command palette and slash completion | Pass |
+| Reflect TUI changes after reopening mobile Settings | Pass |
+| Preserve paused state and suppression across a broker restart | Pass |
+| Route and settle a real permission in mobile and the TUI | Pass |
+| Cold-start from a permission notification and route to the owning session | Pass |
+| Route a global form at an exact non-followed location and submit it | Pass after fix |
+
+The first global-form probe opened Pending but showed zero requests. The
+notification location had been combined with ordinary event locations and then
+filtered out because its project was not followed. Notification-owned locations
+now remain explicit, while ordinary event locations retain the followed-project
+filter. A focused provider regression test failed before the change and passed
+after it. The corrected preview update then passed on the same physical iPhone.
+
+The tested OpenCode beta did not resolve the local package directory as a server
+plugin, and registering a keymap layer directly during TUI plugin setup failed
+before the keymap provider mounted. The tested configuration loads the compiled
+server and TUI files separately. The TUI commands register from a provider-backed
+slot component.
+
+The probe recorded no address, credential, token, pairing code, identifier,
+prompt, path, form response, or server content.

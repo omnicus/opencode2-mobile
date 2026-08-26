@@ -27,8 +27,10 @@ networks or encrypted overlays such as Tailscale.
 
 Notification pairing codes are two-minute bearer bootstrap secrets. Display a
 code only in a trusted terminal, scan it immediately, and revoke unexpected
-device registrations. Expo, APNs, and FCM receive generic text and encrypted
-routing data, not OpenCode credentials.
+device registrations. Expo, APNs, and FCM receive text selected from a finite
+notification-category allowlist and encrypted routing data, not OpenCode
+credentials. Raw permission actions, resources, paths, prompts, form titles,
+session titles, errors, and identifiers are excluded from visible text.
 
 OpenCode's built-in `/pair` QR is different: it contains the server's actual
 Basic-auth password. Do not capture, log, or share it. The self-hosted broker's

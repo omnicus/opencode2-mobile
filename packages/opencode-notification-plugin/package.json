@@ -8,6 +8,11 @@
       "types": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./tui": {
+      "types": "./src/tui.ts",
+      "import": "./dist/tui.js",
+      "default": "./dist/tui.js"
     }
   },
   "scripts": {

@@ -54,6 +54,7 @@ const defaultListProjectSessions: ListProjectSessionsCall = async (_client, proj
 const mockListProjectSessions = jest.fn<ListProjectSessionsCall>(defaultListProjectSessions);
 const mockReplyPermission = jest.fn<ReplyPermissionCall>();
 let mockEventLocations: LocationRef[] = [];
+let mockAttentionLocations: LocationRef[] = [];
 let mockRevision = 1;
 let mockStatus: "connected" | "offline" = "connected";
 let mockConnectionUpdatedAtMs = 1;
@@ -109,6 +110,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
 }));
 jest.mock("./connection-runtime-context", () => ({
   useConnectionRuntime: () => ({
+    attentionLocations: mockAttentionLocations,
     connectionId: "connection-1",
     connectionUpdatedAtMs: mockConnectionUpdatedAtMs,
     eventLocations: mockEventLocations,
@@ -121,6 +123,7 @@ jest.mock("./connection-runtime-context", () => ({
 beforeEach(() => {
   jest.useFakeTimers();
   mockEventLocations = [];
+  mockAttentionLocations = [];
   mockRevision = 1;
   mockStatus = "connected";
   mockConnectionUpdatedAtMs = 1;
@@ -299,6 +302,50 @@ test("starts a fresh reconciliation revision and includes event locations", asyn
       true,
     ),
   );
+
+  view.unmount();
+  queryClient.clear();
+});
+
+test("keeps a notification-owned global form visible outside followed projects", async () => {
+  mockAttentionLocations = [{ directory: "/outside" }];
+  mockListPermissions.mockImplementation(async (_client, location) => ({
+    data: [],
+    location: mockResolvedLocation(location.directory, "project-outside"),
+  }));
+  mockGetOpenCodeLocation.mockImplementation(async (_client, location) =>
+    mockResolvedLocation(location.directory, "project-outside"),
+  );
+  mockListForms.mockImplementation(async (_client, location) => ({
+    data:
+      location.directory === "/outside"
+        ? [
+            {
+              fields: [{ key: "result", type: "string" as const }],
+              id: "frm_global",
+              sessionID: "global",
+              title: "Notification routing test",
+            },
+          ]
+        : [],
+    location: mockResolvedLocation(location.directory, "project-outside"),
+  }));
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { networkMode: "always" },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+
+  await waitFor(() => expect(screen.getByText(/^complete:1:/)).toBeOnTheScreen());
+  expect(mockListForms.mock.calls.some((call) => call[1].directory === "/outside")).toBe(true);
 
   view.unmount();
   queryClient.clear();

@@ -30,6 +30,9 @@ try {
   else if (command === "serve") await serve();
   else if (command === "pair") await pair(arguments_);
   else if (command === "devices") devices();
+  else if (command === "status") status();
+  else if (command === "enable") setEnabled(true);
+  else if (command === "pause") setEnabled(false);
   else if (command === "revoke") revoke(arguments_);
   else if (command === "test") test(arguments_);
   else usage(1);
@@ -141,6 +144,21 @@ function devices() {
         `${String(row.binding_id).slice(0, 8)}  ${String(row.name)}  ${String(row.platform)}  ${row.disabled_at_ms === null ? "active" : "disabled"}\n`,
       );
     }
+  });
+}
+
+function status() {
+  withDatabase((database) => {
+    process.stdout.write(
+      `Mobile notifications: ${database.deliveryState().enabled ? "enabled" : "paused"}\n`,
+    );
+  });
+}
+
+function setEnabled(enabled: boolean) {
+  withDatabase((database) => {
+    database.setDeliveryEnabled(enabled);
+    process.stdout.write(`Mobile notifications ${enabled ? "enabled" : "paused"}.\n`);
   });
 }
 
@@ -257,6 +275,9 @@ function usage(exitCode: number): never {
   opencode-mobile-notifications serve
   opencode-mobile-notifications pair --name NAME --opencode-origin URL [--auth none|basic|bearer] [--allow-http]
   opencode-mobile-notifications devices
+  opencode-mobile-notifications status
+  opencode-mobile-notifications enable
+  opencode-mobile-notifications pause
   opencode-mobile-notifications revoke BINDING_ID
   opencode-mobile-notifications test BINDING_ID
 `);

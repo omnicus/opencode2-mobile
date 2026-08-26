@@ -27,23 +27,33 @@ import {
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldPlaySound: true,
+    shouldPlaySound: false,
     shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowBanner: false,
+    shouldShowList: false,
   }),
 });
 
-type PendingRoute = {
-  bindingID: string;
-  connectionId: string;
-  eventID: string;
-  expiresAtMs: number;
-  interaction: "form" | "permission";
-  location?: { directory: string; workspaceID?: string };
-  requestID: string;
-  sessionID: string;
-};
+type PendingRoute =
+  | {
+      bindingID: string;
+      connectionId: string;
+      eventID: string;
+      expiresAtMs: number;
+      interaction: "form" | "permission";
+      kind: "interaction";
+      location?: { directory: string; workspaceID?: string };
+      requestID: string;
+      sessionID: string;
+    }
+  | {
+      bindingID: string;
+      connectionId: string;
+      eventID: string;
+      expiresAtMs: number;
+      kind: "session-done";
+      sessionID: string;
+    };
 
 export function NotificationRoutingProvider({ children }: { children: ReactNode }) {
   const db = useSQLiteContext();
@@ -103,16 +113,28 @@ export function NotificationRoutingProvider({ children }: { children: ReactNode 
           return;
         }
         processingEvents.current.add(replayKey);
-        setPending({
-          bindingID: pairing.bindingID,
-          connectionId: pairing.connectionId,
-          eventID: route.eventID,
-          expiresAtMs: route.expiresAtMs,
-          interaction: route.interaction,
-          ...(route.location ? { location: route.location } : {}),
-          requestID: route.requestID,
-          sessionID: route.sessionID,
-        });
+        setPending(
+          route.kind === "session-done"
+            ? {
+                bindingID: pairing.bindingID,
+                connectionId: pairing.connectionId,
+                eventID: route.eventID,
+                expiresAtMs: route.expiresAtMs,
+                kind: "session-done",
+                sessionID: route.sessionID,
+              }
+            : {
+                bindingID: pairing.bindingID,
+                connectionId: pairing.connectionId,
+                eventID: route.eventID,
+                expiresAtMs: route.expiresAtMs,
+                interaction: route.interaction,
+                kind: "interaction",
+                ...(route.location ? { location: route.location } : {}),
+                requestID: route.requestID,
+                sessionID: route.sessionID,
+              },
+        );
         if (connections.selectedProfileId !== pairing.connectionId) {
           await connections.select(pairing.connectionId);
         }
@@ -155,7 +177,22 @@ export function NotificationRoutingProvider({ children }: { children: ReactNode 
         processingEvents.current.delete(`${route.bindingID}\u0000${route.eventID}`);
         if (active) setPending(undefined);
       };
-      if (route.sessionID === "global") {
+      if (route.kind === "session-done") {
+        const session = await getOpenCodeSession(restClient, route.sessionID);
+        if (!active) return;
+        queryClient.setQueryData(
+          openCodeQueryKeys.session(route.connectionId, session.location, session.id),
+          session,
+        );
+        await waitForNavigation();
+        if (active) {
+          rootNavigationRef.navigate("Session", {
+            connectionId: route.connectionId,
+            location: session.location,
+            sessionID: session.id,
+          });
+        }
+      } else if (route.sessionID === "global") {
         if (!route.location) throw new Error("NOTIFICATION_LOCATION_REQUIRED");
         const forms = await listOpenCodeFormRequests(restClient, route.location);
         queryClient.setQueryData(

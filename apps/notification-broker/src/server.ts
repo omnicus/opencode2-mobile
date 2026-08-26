@@ -117,6 +117,8 @@ async function handlePublic(
     if (request.method === "POST" && request.url?.startsWith("/v1/device/")) {
       const operation = request.url.slice("/v1/device/".length);
       if (
+        operation !== "enable" &&
+        operation !== "pause" &&
         operation !== "status" &&
         operation !== "token" &&
         operation !== "test" &&
@@ -142,13 +144,17 @@ async function handlePublic(
       if (command.operation !== operation) throw new HttpError(400, "OPERATION_MISMATCH");
       if (operation === "token" && command.expoPushToken) {
         database.updateDeviceToken(input.bindingID, command.expoPushToken);
+      } else if (operation === "enable") {
+        database.setDeliveryEnabled(true);
+      } else if (operation === "pause") {
+        database.setDeliveryEnabled(false);
       } else if (operation === "test") {
         database.enqueueTest(input.bindingID);
         void worker.tick();
       } else if (operation === "revoke") {
         database.revokeDevice(input.bindingID);
       }
-      writeJson(response, 200, { ok: true, operation });
+      writeJson(response, 200, database.deliveryState());
       return;
     }
     throw new HttpError(404, "NOT_FOUND");
@@ -165,15 +171,26 @@ async function handlePlugin(
 ) {
   setHeaders(response);
   try {
-    if (request.method !== "POST" || request.url !== "/v1/plugin/events") {
-      throw new HttpError(404, "NOT_FOUND");
-    }
     const authorization = request.headers.authorization;
     if (
       !authorization?.startsWith("Bearer ") ||
       !secureTokenEquals(authorization.slice(7), pluginToken)
     ) {
       throw new HttpError(401, "UNAUTHORIZED");
+    }
+    if (request.method === "GET" && request.url === "/v1/plugin/status") {
+      writeJson(response, 200, database.deliveryState());
+      return;
+    }
+    if (
+      request.method === "POST" &&
+      (request.url === "/v1/plugin/enable" || request.url === "/v1/plugin/pause")
+    ) {
+      writeJson(response, 200, database.setDeliveryEnabled(request.url.endsWith("/enable")));
+      return;
+    }
+    if (request.method !== "POST" || request.url !== "/v1/plugin/events") {
+      throw new HttpError(404, "NOT_FOUND");
     }
     const body = await readJson(request, 64 * 1_024);
     if (!isRecord(body) || !Array.isArray(body.events) || body.events.length > 100) {
