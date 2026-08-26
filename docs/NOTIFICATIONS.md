@@ -1,7 +1,8 @@
 # Self-hosted push notifications
 
 The self-hosted notification flow can pair one phone with an OpenCode V2
-connection and send generic permission or form alerts through Expo Push Service.
+connection and send sanitized permission, form, and successful session-completion
+alerts through Expo Push Service.
 
 ```text
 OpenCode V2 plugin
@@ -19,10 +20,18 @@ and stores it in an encrypted, short-lived bootstrap challenge so the phone can
 save it to SecureStore. The built-in OpenCode `/pair` flow instead sends the
 credential to the broker once for same-host validation before creating that
 challenge. Consumed challenges remain encrypted for bounded idempotent pairing
-retries and are then pruned. Expo, APNs, and FCM see generic notification text
-plus an encrypted routing envelope. The phone unlocks first, decrypts the route,
-selects the paired connection, and fetches the session from OpenCode before
-navigating.
+retries and are then pruned. Expo, APNs, and FCM see text selected from a finite
+category allowlist plus an encrypted routing envelope. They never receive raw
+permission actions, resources, paths, prompts, form titles, session titles,
+errors, or identifiers in the visible text. The phone unlocks first, decrypts
+the route, selects the paired connection, and fetches the session from OpenCode
+before navigating.
+
+Permission categories use short phrases such as `Permission to run a command`,
+`Permission to edit files`, or `Permission to search the web`. Unknown plugin
+actions fall back to `Permission requested`. Forms use `OpenCode has a question
+for you`. A `session.execution.succeeded` event uses `Session done`; idle, failed,
+and interrupted events do not produce that notification.
 
 ## Requirements
 
@@ -76,7 +85,7 @@ OpenCode.
 {
   "plugins": [
     {
-      "package": "file:///absolute/path/opencode2-mobile/packages/opencode-notification-plugin",
+      "package": "/absolute/path/opencode2-mobile/packages/opencode-notification-plugin/dist/index.js",
       "options": {
         "brokerOrigin": "http://127.0.0.1:37101",
         "tokenFile": "/home/user/.local/state/opencode-mobile-notifications/plugin.token"
@@ -87,14 +96,37 @@ OpenCode.
 ```
 
 The package is pinned to `@opencode-ai/plugin@0.0.0-beta-18050`. It subscribes to
-`permission.asked`, `permission.replied`, `form.created`, `form.replied`, and
-`form.cancelled`. It stores a sanitized retry queue in plugin storage before it
-posts to the broker.
+`permission.asked`, `permission.replied`, `form.created`, `form.replied`,
+`form.cancelled`, and `session.execution.succeeded`. It converts permission
+actions to a finite category before storing a sanitized retry queue in plugin
+storage and posting it to the broker.
 
 The V2 plugin context has no permission or form snapshot list operation. The
 plugin cannot send retroactive notifications for requests created before plugin
 installation, and a server crash before an event reaches plugin storage can lose
 that notification. The app still reconciles authoritative state after every tap.
+
+For controls in a locally installed OpenCode TUI, add the compiled TUI entry to
+`~/.config/opencode/cli.json` with the same options:
+
+```json
+{
+  "plugins": [
+    {
+      "package": "/absolute/path/opencode2-mobile/packages/opencode-notification-plugin/dist/tui.js",
+      "options": {
+        "brokerOrigin": "http://127.0.0.1:37101",
+        "tokenFile": "/home/user/.local/state/opencode-mobile-notifications/plugin.token"
+      }
+    }
+  ]
+}
+```
+
+The local source package directory is not a valid server plugin entry in the
+tested OpenCode beta. Configure the two compiled files explicitly, rebuild after
+changes, restart the OpenCode service for server-plugin changes, and reopen the
+TUI for TUI-plugin changes.
 
 ## Start and pair
 
@@ -193,9 +225,24 @@ Useful broker commands:
 
 ```sh
 fnm exec --using=26.7.0 pnpm notifications:broker -- devices
+fnm exec --using=26.7.0 pnpm notifications:broker -- status
+fnm exec --using=26.7.0 pnpm notifications:broker -- pause
+fnm exec --using=26.7.0 pnpm notifications:broker -- enable
 fnm exec --using=26.7.0 pnpm notifications:broker -- test DEVICE_ID_PREFIX
 fnm exec --using=26.7.0 pnpm notifications:broker -- revoke DEVICE_ID_PREFIX
 ```
+
+The broker owns one persisted delivery switch shared by OpenCode2 Mobile and the
+OpenCode TUI plugin. The mobile Settings screen reads and changes it for the
+selected paired connection. In the TUI, use `/notifications-status`,
+`/notifications-pause`, or `/notifications-enable`, or run the matching command
+from the command palette. Pausing discards pushes that have not yet been sent and
+does not replay requests after notifications are enabled again. A push already
+submitted to Expo, APNs, or FCM cannot be recalled.
+
+OpenCode2 Mobile does not present a banner, notification-list entry, badge, or
+sound when a push arrives while the app is in the foreground. Background and
+locked-device presentation remains controlled by the operating system.
 
 Set `OPENCODE_MOBILE_PUSH_MODE=fake` when starting the broker to exercise pairing,
 event ingestion, encryption, and the durable outbox without calling Expo.

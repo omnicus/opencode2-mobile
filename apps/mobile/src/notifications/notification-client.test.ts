@@ -25,19 +25,37 @@ test("posts a device command when Hermes does not provide AbortSignal.timeout", 
     value: undefined,
   });
   const fetch = jest.fn(async () => ({
-    json: async () => ({ ok: true, operation: "status" }),
+    json: async () => ({ enabled: true, updatedAtMs: 1_000, v: 1 }),
     ok: true,
   }));
   globalThis.fetch = fetch as unknown as typeof globalThis.fetch;
 
-  await sendNotificationDeviceCommand({
-    bindingID: "binding-1",
-    brokerOrigin: "https://push.test",
-    deviceKey: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
-    operation: "status",
-  });
+  await expect(
+    sendNotificationDeviceCommand({
+      bindingID: "binding-1",
+      brokerOrigin: "https://push.test",
+      deviceKey: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      operation: "status",
+    }),
+  ).resolves.toEqual({ enabled: true, updatedAtMs: 1_000, v: 1 });
 
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test("rejects malformed shared notification state", async () => {
+  globalThis.fetch = jest.fn(async () => ({
+    json: async () => ({ enabled: "yes", updatedAtMs: 1_000, v: 1 }),
+    ok: true,
+  })) as unknown as typeof globalThis.fetch;
+
+  await expect(
+    sendNotificationDeviceCommand({
+      bindingID: "binding-1",
+      brokerOrigin: "https://push.test",
+      deviceKey: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      operation: "status",
+    }),
+  ).rejects.toThrow("INVALID_NOTIFICATION_STATE");
 });
 
 test("prepares the first non-loopback URL from an OpenCode pair QR", () => {

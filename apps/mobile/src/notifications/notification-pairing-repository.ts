@@ -243,6 +243,17 @@ export async function getNotificationPairingByBindingID(db: SQLiteDatabase, bind
   return row ? decodePairing(row) : undefined;
 }
 
+export async function getNotificationPairingByConnectionID(
+  db: SQLiteDatabase,
+  connectionId: string,
+) {
+  const row = await db.getFirstAsync<NotificationPairingRow>(
+    "SELECT * FROM notification_pairings WHERE connection_id = ?",
+    connectionId,
+  );
+  return row ? decodePairing(row) : undefined;
+}
+
 export async function readNotificationPairingSecret(pairing: NotificationPairing) {
   if (!(await SecureStore.isAvailableAsync())) throw new Error("SECURE_STORE_UNAVAILABLE");
   const value = await SecureStore.getItemAsync(pairing.secretRef, notificationSecretStoreOptions);

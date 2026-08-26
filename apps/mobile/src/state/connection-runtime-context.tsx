@@ -43,6 +43,7 @@ import {
 } from "./transcript-performance";
 
 type ConnectionRuntimeContextValue = {
+  attentionLocations: LocationRef[];
   cacheMetadata?: ConnectionCacheMetadata;
   connectionId?: string;
   connectionUpdatedAtMs?: number;
@@ -68,6 +69,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
   const [cacheMetadata, setCacheMetadata] = useState<ConnectionCacheMetadata>();
   const [serverVersion, setServerVersion] = useState<string>();
   const [eventLocations, setEventLocations] = useState<LocationRef[]>([]);
+  const [attentionLocations, setAttentionLocations] = useState<LocationRef[]>([]);
   const [reconciliationRevision, setReconciliationRevision] = useState(0);
   const [restClientState, setRestClientState] = useState<{
     client: OpenCodeClient;
@@ -80,6 +82,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
     (profile) => profile.id === connections.selectedProfileId,
   );
   const includeAttentionLocation = useCallback((location: LocationRef) => {
+    setAttentionLocations((current) => appendEventLocation(current, location));
     setEventLocations((current) => appendEventLocation(current, location));
   }, []);
 
@@ -94,6 +97,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
       setCacheMetadata(undefined);
       setServerVersion(undefined);
       setEventLocations([]);
+      setAttentionLocations([]);
       setReconciliationRevision(0);
       setRestClientState(undefined);
       return;
@@ -117,6 +121,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
     setCacheMetadata(undefined);
     setServerVersion(undefined);
     setEventLocations([]);
+    setAttentionLocations([]);
     setReconciliationRevision(0);
     setRestClientState(undefined);
     void readConnectionCacheMetadata(selected.id, selected.updatedAtMs)
@@ -243,6 +248,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
   return (
     <ConnectionRuntimeContext
       value={{
+        attentionLocations,
         ...(cacheMetadata ? { cacheMetadata } : {}),
         ...(selected ? { connectionId: selected.id } : {}),
         ...(selected ? { connectionUpdatedAtMs: selected.updatedAtMs } : {}),

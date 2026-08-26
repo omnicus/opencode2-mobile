@@ -6,7 +6,9 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import {
   decodeNotificationBytes,
   encodeNotificationBytes,
+  type NotificationCategory,
   type NotificationConnectionBootstrap,
+  type NotificationDeliveryState,
   type NotificationPairingCode,
   type NotificationPairingResponse,
   type NotificationPluginEvent,
@@ -90,7 +92,7 @@ export class BrokerDatabase {
       ) STRICT;
       CREATE TABLE IF NOT EXISTS plugin_events (
         event_id TEXT NOT NULL,
-        state TEXT NOT NULL CHECK (state IN ('pending', 'resolved')),
+        state TEXT NOT NULL CHECK (state IN ('emitted', 'pending', 'resolved')),
         observed_at_ms INTEGER NOT NULL,
         PRIMARY KEY (event_id, state)
       ) STRICT;
@@ -99,6 +101,7 @@ export class BrokerDatabase {
         binding_id TEXT NOT NULL REFERENCES devices(binding_id) ON DELETE CASCADE,
         event_id TEXT NOT NULL,
         interaction_key TEXT,
+        notification_category TEXT NOT NULL DEFAULT 'permission-other',
         push_data_json TEXT NOT NULL,
         collapse_id TEXT NOT NULL,
         state TEXT NOT NULL CHECK (state IN ('queued', 'ticketed', 'delivered', 'failed')),
@@ -117,6 +120,13 @@ export class BrokerDatabase {
         used_at_ms INTEGER NOT NULL,
         PRIMARY KEY (binding_id, nonce_id)
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS notification_settings (
+        singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+        enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+        updated_at_ms INTEGER NOT NULL
+      ) STRICT;
+      INSERT OR IGNORE INTO notification_settings(singleton, enabled, updated_at_ms)
+      VALUES (1, 1, 0);
     `);
     this.migratePreReleaseSchema();
     if (path !== ":memory:") {
@@ -135,6 +145,7 @@ export class BrokerDatabase {
       ["pairing_challenges", "paired_at_ms", "INTEGER"],
       ["pairing_challenges", "binding_id", "TEXT"],
       ["outbox", "interaction_key", "TEXT"],
+      ["outbox", "notification_category", "TEXT NOT NULL DEFAULT 'permission-other'"],
     ] as const;
     const missing = additions.filter(([table, column]) => {
       const columns = this.database.prepare(`PRAGMA table_info(${table})`).all() as Array<{
@@ -142,11 +153,35 @@ export class BrokerDatabase {
       }>;
       return !columns.some((candidate) => candidate.name === column);
     });
-    if (missing.length === 0) return;
+    const pluginEventsSql = this.database
+      .prepare("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'plugin_events'")
+      .get() as { sql: string };
+    const rebuildPluginEvents = !pluginEventsSql.sql.includes("'emitted'");
+    if (missing.length === 0 && !rebuildPluginEvents) return;
     this.database.exec("BEGIN IMMEDIATE");
     try {
       for (const [table, column, type] of missing) {
         this.database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      }
+      if (
+        missing.some(([table, column]) => table === "outbox" && column === "notification_category")
+      ) {
+        this.database
+          .prepare("UPDATE outbox SET notification_category = 'test' WHERE event_id LIKE 'test:%'")
+          .run();
+      }
+      if (rebuildPluginEvents) {
+        this.database.exec(`
+          ALTER TABLE plugin_events RENAME TO plugin_events_before_completion;
+          CREATE TABLE plugin_events (
+            event_id TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('emitted', 'pending', 'resolved')),
+            observed_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (event_id, state)
+          ) STRICT;
+          INSERT INTO plugin_events SELECT * FROM plugin_events_before_completion;
+          DROP TABLE plugin_events_before_completion;
+        `);
       }
       this.database.exec("COMMIT");
     } catch (error) {
@@ -319,13 +354,19 @@ export class BrokerDatabase {
 
   acceptPluginEvent(value: unknown) {
     const event = parseNotificationPluginEvent(value);
+    const eventState = event.kind === "session-done" ? "emitted" : event.state;
     this.transaction(() => {
       const inserted = this.database
         .prepare(
           "INSERT OR IGNORE INTO plugin_events(event_id, state, observed_at_ms) VALUES (?, ?, ?)",
         )
-        .run(event.eventID, event.state, event.observedAtMs);
-      if (inserted.changes === 0 || event.state === "resolved") return;
+        .run(event.eventID, eventState, event.observedAtMs);
+      if (
+        inserted.changes === 0 ||
+        (event.kind === "interaction" && event.state === "resolved") ||
+        !this.deliveryState().enabled
+      )
+        return;
       const devices = this.database
         .prepare(
           `SELECT * FROM devices
@@ -333,9 +374,12 @@ export class BrokerDatabase {
            ORDER BY created_at_ms ASC LIMIT 32`,
         )
         .all(event.observedAtMs) as unknown as DeviceRow[];
-      for (const device of devices) this.enqueueInteraction(device, event);
+      for (const device of devices) {
+        if (event.kind === "session-done") this.enqueueSessionDone(device, event);
+        else this.enqueueInteraction(device, event);
+      }
     });
-    if (event.state === "resolved") {
+    if (event.kind === "interaction" && event.state === "resolved") {
       this.database
         .prepare(
           `UPDATE outbox SET state = 'failed', push_data_json = '{}', last_error_code = 'RESOLVED'
@@ -397,6 +441,7 @@ export class BrokerDatabase {
 
   enqueueTest(bindingID: string, now = Date.now()) {
     const device = this.getEnabledDevice(bindingID);
+    if (!this.deliveryState().enabled) return;
     const route: NotificationRoutingEnvelope = {
       bindingID,
       expiresAtMs: now + 24 * 60 * 60_000,
@@ -404,7 +449,7 @@ export class BrokerDatabase {
       kind: "test",
       v: 1,
     };
-    this.enqueueRoute(device, `test:${randomUUID()}`, route, now);
+    this.enqueueRoute(device, `test:${randomUUID()}`, route, "test", now);
   }
 
   listDevices() {
@@ -416,15 +461,55 @@ export class BrokerDatabase {
       .all();
   }
 
+  deliveryState(): NotificationDeliveryState {
+    const row = this.database
+      .prepare("SELECT enabled, updated_at_ms FROM notification_settings WHERE singleton = 1")
+      .get() as { enabled: number; updated_at_ms: number };
+    return { enabled: row.enabled === 1, updatedAtMs: row.updated_at_ms, v: 1 };
+  }
+
+  setDeliveryEnabled(enabled: boolean, now = Date.now()) {
+    this.transaction(() => {
+      this.database
+        .prepare(
+          "UPDATE notification_settings SET enabled = ?, updated_at_ms = ? WHERE singleton = 1",
+        )
+        .run(enabled ? 1 : 0, now);
+      if (!enabled) {
+        this.database
+          .prepare(
+            `UPDATE outbox SET state = 'failed', push_data_json = '{}', last_error_code = 'PAUSED'
+             WHERE state = 'queued'`,
+          )
+          .run();
+      }
+    });
+    return this.deliveryState();
+  }
+
   nextQueued(limit = 25, now = Date.now()) {
     return this.database
       .prepare(
         `SELECT o.*, d.expo_token_nonce, d.expo_token_ciphertext
-         FROM outbox o JOIN devices d ON d.binding_id = o.binding_id
+          FROM outbox o JOIN devices d ON d.binding_id = o.binding_id
+          JOIN notification_settings s ON s.singleton = 1 AND s.enabled = 1
          WHERE o.state = 'queued' AND o.next_attempt_at_ms <= ? AND d.disabled_at_ms IS NULL
          ORDER BY o.created_at_ms ASC LIMIT ?`,
       )
       .all(now, limit) as Array<Record<string, SQLInputValue>>;
+  }
+
+  canSendQueued(id: string) {
+    return Boolean(
+      this.database
+        .prepare(
+          `SELECT 1 FROM outbox o
+           JOIN devices d ON d.binding_id = o.binding_id
+           JOIN notification_settings s ON s.singleton = 1 AND s.enabled = 1
+           WHERE o.id = ? AND o.state = 'queued' AND d.disabled_at_ms IS NULL`,
+        )
+        .get(id),
+    );
   }
 
   nextReceipts(limit = 100, now = Date.now()) {
@@ -451,7 +536,7 @@ export class BrokerDatabase {
     this.database
       .prepare(
         `UPDATE outbox SET state = 'ticketed', ticket_id = ?, receipt_due_at_ms = ?,
-         attempts = attempts + 1 WHERE id = ?`,
+          attempts = attempts + 1 WHERE id = ? AND state = 'queued'`,
       )
       .run(ticketID, now + 15 * 60_000, id);
   }
@@ -467,9 +552,14 @@ export class BrokerDatabase {
   }
 
   markRetry(id: string, errorCode: string, now = Date.now()) {
-    const row = this.database.prepare("SELECT attempts FROM outbox WHERE id = ?").get(id) as
-      | { attempts: number }
-      | undefined;
+    if (!this.deliveryState().enabled) {
+      this.markFailed(id, "PAUSED");
+      return;
+    }
+    const row = this.database
+      .prepare("SELECT attempts FROM outbox WHERE id = ? AND state = 'queued'")
+      .get(id) as { attempts: number } | undefined;
+    if (!row) return;
     const attempts = (row?.attempts ?? 0) + 1;
     const delay = Math.min(15 * 60_000, 2 ** Math.min(attempts, 8) * 1_000);
     this.database
@@ -528,7 +618,10 @@ export class BrokerDatabase {
     return device;
   }
 
-  private enqueueInteraction(device: DeviceRow, event: NotificationPluginEvent) {
+  private enqueueInteraction(
+    device: DeviceRow,
+    event: Extract<NotificationPluginEvent, { kind: "interaction" }>,
+  ) {
     const route: NotificationRoutingEnvelope = {
       bindingID: device.binding_id,
       eventID: event.eventID,
@@ -541,13 +634,37 @@ export class BrokerDatabase {
       sessionID: event.sessionID,
       v: 1,
     };
-    this.enqueueRoute(device, event.eventID, route, event.observedAtMs, interactionKey(event));
+    this.enqueueRoute(
+      device,
+      event.eventID,
+      route,
+      event.category,
+      event.observedAtMs,
+      interactionKey(event),
+    );
+  }
+
+  private enqueueSessionDone(
+    device: DeviceRow,
+    event: Extract<NotificationPluginEvent, { kind: "session-done" }>,
+  ) {
+    const route: NotificationRoutingEnvelope = {
+      bindingID: device.binding_id,
+      eventID: event.eventID,
+      expiresAtMs: event.observedAtMs + 7 * 24 * 60 * 60_000,
+      issuedAtMs: event.observedAtMs,
+      kind: "session-done",
+      sessionID: event.sessionID,
+      v: 1,
+    };
+    this.enqueueRoute(device, event.eventID, route, event.category, event.observedAtMs);
   }
 
   private enqueueRoute(
     device: DeviceRow,
     eventID: string,
     route: NotificationRoutingEnvelope,
+    category: NotificationCategory,
     now: number,
     interactionKeyValue?: string,
   ) {
@@ -567,15 +684,17 @@ export class BrokerDatabase {
     this.database
       .prepare(
         `INSERT OR IGNORE INTO outbox (
-          id, binding_id, event_id, interaction_key, push_data_json, collapse_id, state,
+          id, binding_id, event_id, interaction_key, notification_category, push_data_json,
+          collapse_id, state,
           next_attempt_at_ms, created_at_ms
-        ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?)`,
       )
       .run(
         randomUUID(),
         device.binding_id,
         eventID,
         interactionKeyValue ?? null,
+        category,
         JSON.stringify(pushData),
         collapseID,
         now,
@@ -596,7 +715,7 @@ export class BrokerDatabase {
   }
 }
 
-function interactionKey(event: NotificationPluginEvent) {
+function interactionKey(event: Extract<NotificationPluginEvent, { kind: "interaction" }>) {
   return `${event.interaction}\u0000${event.sessionID}\u0000${event.requestID}`;
 }
 

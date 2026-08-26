@@ -60,7 +60,8 @@ The first usable build includes:
 - Markdown, reasoning, tool calls, tool results, errors, and retries.
 - Permission and form interactions supported by the V2 contract, including
   string options used for question-like controls.
-- Self-hosted, encrypted push notifications for permission and form attention.
+- Self-hosted, encrypted push notifications for permission and form attention
+  and successful session completion.
 - Foreground/background lifecycle recovery.
 - Phone-first iOS and Android layouts that remain usable on tablets.
 
@@ -118,8 +119,9 @@ truth.
 
 The optional notification broker is not an OpenCode proxy. The app still sends
 all OpenCode API requests directly to the saved server. A V2 plugin projects only
-opaque interaction identifiers and the exact location required to route global
-forms. The broker owns one-time pairing, device registrations, an encrypted
+opaque routing identifiers, a finite notification category, and the exact
+location required to route global forms. The broker owns one-time pairing,
+device registrations, an encrypted
 durable outbox, Expo tickets and receipts, token replacement, and revocation. It
 does not use an OpenCode credential during normal notification processing. Its
 local pairing CLI accepts the credential and stores it in an encrypted,
@@ -188,8 +190,10 @@ directly to OpenCode.
 - Secrets: Expo SecureStore. Never store credentials in SQLite, AsyncStorage,
   logs, crash reports, deep links, or analytics.
 - Push: `expo-notifications` in signed preview or development builds. Visible
-  text is generic. Routing data is encrypted per device and treated as a
-  volatile hint.
+  text comes from a finite allowlist of permission, form, completion, and test
+  phrases. Raw actions, resources, paths, prompts, titles, errors, and identifiers
+  are excluded. Routing data is encrypted per device and treated as a volatile
+  hint.
 - Transport limits: JSON responses and individual SSE events are capped at 16
   MiB. Reject JSON with an oversized declared `Content-Length` before reading
   the body. React Native's global fetch buffers responses, so if the server omits
@@ -531,10 +535,10 @@ actions.
 - Persist unsent drafts as encrypted content. Attachment persistence is added
   with the version 1.0 attachment workflow.
 - Do not rely on timers, sockets, or event streams continuing in the background.
-- Optional remote permission and form attention uses the self-hosted OpenCode V2
-  plugin and broker described in section 5. The broker contacts Expo Push
-  Service without retaining OpenCode credentials, and the app treats every
-  notification as a hint before an authoritative REST fetch.
+- Optional remote permission, form, and successful session-completion alerts use
+  the self-hosted OpenCode V2 plugin and broker described in section 5. The broker
+  contacts Expo Push Service without retaining OpenCode credentials, and the app
+  treats every notification as a hint before an authoritative REST fetch.
 - Widgets and Live Activities remain optional version 1.0 work.
 
 ## 14. Reliability and performance

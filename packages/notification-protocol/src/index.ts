@@ -9,6 +9,23 @@ export const notificationPairingLifetimeMs = 2 * 60_000;
 
 export type NotificationAuthMode = "basic" | "bearer" | "none";
 export type NotificationInteraction = "form" | "permission";
+export type NotificationCategory =
+  | "form"
+  | "permission-edit"
+  | "permission-execute"
+  | "permission-external-directory"
+  | "permission-glob"
+  | "permission-grep"
+  | "permission-other"
+  | "permission-question"
+  | "permission-read"
+  | "permission-shell"
+  | "permission-skill"
+  | "permission-subagent"
+  | "permission-webfetch"
+  | "permission-websearch"
+  | "session-done"
+  | "test";
 
 export type NotificationPairingCode = {
   allowDevelopmentHttp: boolean;
@@ -96,22 +113,42 @@ export type NotificationRoutingEnvelope =
     }
   | {
       bindingID: string;
+      eventID: string;
+      expiresAtMs: number;
+      issuedAtMs: number;
+      kind: "session-done";
+      sessionID: string;
+      v: 1;
+    }
+  | {
+      bindingID: string;
       expiresAtMs: number;
       issuedAtMs: number;
       kind: "test";
       v: 1;
     };
 
-export type NotificationPluginEvent = {
-  eventID: string;
-  interaction: NotificationInteraction;
-  location?: { directory: string; workspaceID?: string };
-  observedAtMs: number;
-  requestID: string;
-  sessionID: string;
-  state: "pending" | "resolved";
-  v: 1;
-};
+export type NotificationPluginEvent =
+  | {
+      category: Exclude<NotificationCategory, "session-done" | "test">;
+      eventID: string;
+      interaction: NotificationInteraction;
+      kind: "interaction";
+      location?: { directory: string; workspaceID?: string };
+      observedAtMs: number;
+      requestID: string;
+      sessionID: string;
+      state: "pending" | "resolved";
+      v: 1;
+    }
+  | {
+      category: "session-done";
+      eventID: string;
+      kind: "session-done";
+      observedAtMs: number;
+      sessionID: string;
+      v: 1;
+    };
 
 export type NotificationDeviceRequest = {
   bindingID: string;
@@ -124,7 +161,13 @@ export type NotificationDeviceCommand = {
   atMs: number;
   expoPushToken?: string;
   nonceID: string;
-  operation: "revoke" | "status" | "test" | "token";
+  operation: "enable" | "pause" | "revoke" | "status" | "test" | "token";
+  v: 1;
+};
+
+export type NotificationDeliveryState = {
+  enabled: boolean;
+  updatedAtMs: number;
   v: 1;
 };
 
@@ -304,6 +347,14 @@ export function parseNotificationRoutingEnvelope(value: unknown): NotificationRo
     v: 1 as const,
   };
   if (value.kind === "test") return { ...base, kind: "test" };
+  if (value.kind === "session-done") {
+    return {
+      ...base,
+      eventID: parseIdentifier(value.eventID, 160, "INVALID_NOTIFICATION_ROUTE"),
+      kind: "session-done",
+      sessionID: parseSessionID(value.sessionID, "INVALID_NOTIFICATION_ROUTE"),
+    };
+  }
   if (value.kind !== "interaction") throw new Error("INVALID_NOTIFICATION_ROUTE");
   const interaction = parseInteraction(value.interaction, "INVALID_NOTIFICATION_ROUTE");
   const sessionID = parseSessionOwner(value.sessionID, "INVALID_NOTIFICATION_ROUTE");
@@ -324,6 +375,19 @@ export function parseNotificationRoutingEnvelope(value: unknown): NotificationRo
 
 export function parseNotificationPluginEvent(value: unknown): NotificationPluginEvent {
   if (!isRecord(value) || value.v !== 1) throw new Error("INVALID_PLUGIN_EVENT");
+  if (value.kind === "session-done") {
+    if (value.category !== undefined && value.category !== "session-done") {
+      throw new Error("INVALID_PLUGIN_EVENT");
+    }
+    return {
+      category: "session-done",
+      eventID: parseIdentifier(value.eventID, 160, "INVALID_PLUGIN_EVENT"),
+      kind: "session-done",
+      observedAtMs: parseTimestamp(value.observedAtMs, "INVALID_PLUGIN_EVENT"),
+      sessionID: parseSessionID(value.sessionID, "INVALID_PLUGIN_EVENT"),
+      v: 1,
+    };
+  }
   const interaction = parseInteraction(value.interaction, "INVALID_PLUGIN_EVENT");
   const state = value.state;
   if (state !== "pending" && state !== "resolved") throw new Error("INVALID_PLUGIN_EVENT");
@@ -333,8 +397,10 @@ export function parseNotificationPluginEvent(value: unknown): NotificationPlugin
     throw new Error("INVALID_PLUGIN_EVENT");
   }
   return {
+    category: parseInteractionCategory(value.category, interaction, "INVALID_PLUGIN_EVENT"),
     eventID: parseIdentifier(value.eventID, 160, "INVALID_PLUGIN_EVENT"),
     interaction,
+    kind: "interaction",
     ...(location ? { location } : {}),
     observedAtMs: parseTimestamp(value.observedAtMs, "INVALID_PLUGIN_EVENT"),
     requestID: parseRequestID(value.requestID, interaction, "INVALID_PLUGIN_EVENT"),
@@ -360,6 +426,8 @@ export function parseNotificationDeviceCommand(value: unknown): NotificationDevi
   if (!isRecord(value) || value.v !== 1) throw new Error("INVALID_DEVICE_COMMAND");
   const operation = value.operation;
   if (
+    operation !== "enable" &&
+    operation !== "pause" &&
     operation !== "revoke" &&
     operation !== "status" &&
     operation !== "test" &&
@@ -374,6 +442,15 @@ export function parseNotificationDeviceCommand(value: unknown): NotificationDevi
       : {}),
     nonceID: parseIdentifier(value.nonceID, 128, "INVALID_DEVICE_COMMAND"),
     operation,
+    v: 1,
+  };
+}
+
+export function parseNotificationDeliveryState(value: unknown): NotificationDeliveryState {
+  if (!isRecord(value) || value.v !== 1) throw new Error("INVALID_NOTIFICATION_STATE");
+  return {
+    enabled: parseBoolean(value.enabled, "INVALID_NOTIFICATION_STATE"),
+    updatedAtMs: parseTimestamp(value.updatedAtMs, "INVALID_NOTIFICATION_STATE"),
     v: 1,
   };
 }
@@ -464,6 +541,42 @@ function parseSessionOwner(value: unknown, error: string) {
   const id = parseIdentifier(value, 160, error);
   if (id !== "global" && !id.startsWith("ses")) throw new Error(error);
   return id;
+}
+
+function parseSessionID(value: unknown, error: string) {
+  const id = parseIdentifier(value, 160, error);
+  if (!id.startsWith("ses")) throw new Error(error);
+  return id;
+}
+
+function parseInteractionCategory(
+  value: unknown,
+  interaction: NotificationInteraction,
+  error: string,
+): Exclude<NotificationCategory, "session-done" | "test"> {
+  if (interaction === "form") {
+    if (value !== undefined && value !== "form") throw new Error(error);
+    return "form";
+  }
+  if (value === undefined) return "permission-other";
+  if (
+    value !== "permission-edit" &&
+    value !== "permission-execute" &&
+    value !== "permission-external-directory" &&
+    value !== "permission-glob" &&
+    value !== "permission-grep" &&
+    value !== "permission-other" &&
+    value !== "permission-question" &&
+    value !== "permission-read" &&
+    value !== "permission-shell" &&
+    value !== "permission-skill" &&
+    value !== "permission-subagent" &&
+    value !== "permission-webfetch" &&
+    value !== "permission-websearch"
+  ) {
+    throw new Error(error);
+  }
+  return value;
 }
 
 function parseExpoPushToken(value: unknown, error: string) {

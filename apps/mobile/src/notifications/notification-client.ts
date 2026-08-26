@@ -13,6 +13,7 @@ import {
   notificationPushAdditionalData,
   openNotificationJson,
   parseNotificationConnectionBootstrap,
+  parseNotificationDeliveryState,
   parseNotificationPairingCode,
   parseNotificationPairingIssueRequest,
   parseNotificationPairingResponse,
@@ -165,7 +166,7 @@ export async function sendNotificationDeviceCommand(input: {
     operation: input.operation,
     v: 1,
   };
-  await postJson(
+  return postJson(
     `${input.brokerOrigin}/v1/device/${input.operation}`,
     {
       bindingID: input.bindingID,
@@ -178,7 +179,7 @@ export async function sendNotificationDeviceCommand(input: {
       nonce: encodeNotificationBytes(nonce),
       v: 1,
     },
-    parseOk,
+    parseNotificationDeliveryState,
   );
 }
 
@@ -233,11 +234,6 @@ function assertUsableBroker(code: NotificationPairingCode) {
   if (isUnusableDeviceHost(new URL(code.openCodeOrigin).hostname)) {
     throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
   }
-}
-
-function parseOk(value: unknown) {
-  if (!isRecord(value) || value.ok !== true) throw new Error("INVALID_BROKER_RESPONSE");
-  return value;
 }
 
 function isUnusableDeviceHost(hostname: string) {

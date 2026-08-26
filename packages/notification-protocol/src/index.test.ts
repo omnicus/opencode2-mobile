@@ -6,8 +6,10 @@ import {
   notificationPushAdditionalData,
   openNotificationJson,
   parseNotificationConnectionBootstrap,
+  parseNotificationDeliveryState,
   parseNotificationPairingCode,
   parseNotificationPairingIssueRequest,
+  parseNotificationPluginEvent,
   parseNotificationRoutingEnvelope,
   parseOpenCodeDevicePairingCode,
   sealNotificationJson,
@@ -69,6 +71,66 @@ describe("notification protocol", () => {
         v: 1,
       }),
     ).toThrow("INVALID_NOTIFICATION_ROUTE");
+  });
+
+  it("parses session completion routes and plugin events", () => {
+    expect(
+      parseNotificationRoutingEnvelope({
+        bindingID: "binding-1",
+        eventID: "evt_done",
+        expiresAtMs: 2_000,
+        issuedAtMs: 1_000,
+        kind: "session-done",
+        sessionID: "ses_1",
+        v: 1,
+      }),
+    ).toMatchObject({ kind: "session-done", sessionID: "ses_1" });
+    expect(
+      parseNotificationPluginEvent({
+        category: "session-done",
+        eventID: "evt_done",
+        kind: "session-done",
+        observedAtMs: 1_000,
+        sessionID: "ses_1",
+        v: 1,
+      }),
+    ).toMatchObject({ category: "session-done", kind: "session-done" });
+  });
+
+  it("defaults old queued interactions safely and rejects arbitrary categories", () => {
+    expect(
+      parseNotificationPluginEvent({
+        eventID: "evt_old",
+        interaction: "permission",
+        observedAtMs: 1_000,
+        requestID: "per_1",
+        sessionID: "ses_1",
+        state: "pending",
+        v: 1,
+      }),
+    ).toMatchObject({ category: "permission-other", kind: "interaction" });
+    expect(() =>
+      parseNotificationPluginEvent({
+        category: "permission-private-action",
+        eventID: "evt_1",
+        interaction: "permission",
+        observedAtMs: 1_000,
+        requestID: "per_1",
+        sessionID: "ses_1",
+        state: "pending",
+        v: 1,
+      }),
+    ).toThrow("INVALID_PLUGIN_EVENT");
+    expect(() =>
+      parseNotificationPluginEvent({
+        category: "permission-shell",
+        eventID: "evt_done",
+        kind: "session-done",
+        observedAtMs: 1_000,
+        sessionID: "ses_1",
+        v: 1,
+      }),
+    ).toThrow("INVALID_PLUGIN_EVENT");
   });
 
   it("validates pairing origins and key sizes", () => {
@@ -159,5 +221,16 @@ describe("notification protocol", () => {
         v: 1,
       }),
     ).toMatchObject({ auth: { mode: "bearer", token: "  exact token  " } });
+  });
+
+  it("validates shared notification delivery state", () => {
+    expect(parseNotificationDeliveryState({ enabled: false, updatedAtMs: 1_000, v: 1 })).toEqual({
+      enabled: false,
+      updatedAtMs: 1_000,
+      v: 1,
+    });
+    expect(() =>
+      parseNotificationDeliveryState({ enabled: "false", updatedAtMs: 1_000, v: 1 }),
+    ).toThrow("INVALID_NOTIFICATION_STATE");
   });
 });

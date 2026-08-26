@@ -377,6 +377,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
       : [];
   });
   const discoveredLocations = uniqueLocations([
+    ...runtime.attentionLocations,
     ...projectLocations,
     ...rootSessions.map((session) => session.location),
     ...Object.values(activeAncestryQuery.data?.sessions ?? {})

@@ -68,6 +68,7 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "background") {
         if (unlockInProgressRef.current) unlockBackgroundedRef.current = true;
+        if (pendingUnlockRef.current) setBusy(false);
         pendingUnlockRef.current = false;
       }
       if (nextState !== "active") {
@@ -75,6 +76,7 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
       } else if (pendingUnlockRef.current && !unlockBackgroundedRef.current) {
         pendingUnlockRef.current = false;
         setLocked(false);
+        setBusy(false);
       }
     });
     return () => subscription.remove();
@@ -139,7 +141,10 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (AppState.currentState === "active") setLocked(false);
-    else pendingUnlockRef.current = true;
+    else {
+      pendingUnlockRef.current = true;
+      setBusy(true);
+    }
   }
 
   function retryPreferenceLoad() {
