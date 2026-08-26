@@ -48,6 +48,26 @@ test("dismisses the keyboard and collapses the composer after sending", () => {
   dismissKeyboard.mockRestore();
 });
 
+test("closes before publishing an immediate active-session transition", () => {
+  let composerClosed = false;
+  const dismissKeyboard = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => {
+    composerClosed = true;
+  });
+  const onSubmit = jest.fn(() => {
+    expect(composerClosed).toBe(true);
+  });
+  render(<ComposerHarness onSubmit={onSubmit} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent.changeText(input, "Ship it");
+  fireEvent(input, "focus");
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText("Prompt").props.numberOfLines).toBe(1);
+  dismissKeyboard.mockRestore();
+});
+
 test("keeps controls collapsed until the editor is focused", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
 

@@ -1,7 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode2-mobile/opencode-adapter";
-
+import { eventRequiresConnectionSnapshot } from "./connection-event-query-bridge";
 import {
   ConnectionTransportCoordinator,
   type ConnectionTransportCoordinatorOptions,
@@ -183,6 +183,35 @@ test("reconciles coordinator-owned roots for an uncertain event type", async () 
 
   expect(onUncertain).toHaveBeenCalledTimes(1);
   expect(onSnapshot).toHaveBeenCalledTimes(2);
+});
+
+test("keeps a healthy generation live for installation advisory events", async () => {
+  const stream = createEventStream();
+  const onSnapshot = jest.fn();
+  const statuses: ConnectionTransportStatus[] = [];
+  const coordinator = createCoordinator({
+    eventClient: { event: { subscribe: stream.subscribe } } as never,
+    onSnapshot,
+    onStatus: (status) => statuses.push(status),
+    restClient: createSnapshotClient(true).client,
+    shouldReconcileEvent: eventRequiresConnectionSnapshot,
+  });
+  coordinator.start();
+  await flush();
+  const settledStatuses = [...statuses];
+
+  stream.push({
+    data: {},
+    id: "event-installation",
+    type: "installation.update-available",
+  } as unknown as OpenCodeEvent);
+  await flush();
+
+  expect(statuses).toEqual(settledStatuses);
+  expect(statuses.at(-1)).toBe("connected");
+  expect(stream.generations).toBe(1);
+  expect(onSnapshot).toHaveBeenCalledTimes(1);
+  coordinator.stop();
 });
 
 test("rejects malformed authoritative snapshots", async () => {

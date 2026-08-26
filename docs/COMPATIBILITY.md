@@ -543,3 +543,40 @@ slot component.
 
 The probe recorded no address, credential, token, pairing code, identifier,
 prompt, path, form response, or server content.
+
+## 2026-08-26: physical iPhone command-event stability
+
+### Stack
+
+- Mobile runtime: signed EAS preview build with an iOS EAS Update using Hermes
+- Expo SDK: 54.0.37
+- React Native: 0.81.5
+- OpenCode server: beta 18286
+- Mobile client contract: beta 18050
+
+### Results
+
+| Probe | Result |
+| --- | --- |
+| Capture payload-free event types during shell-backed TUI work | Pass |
+| Keep the server event stream open throughout each command burst | Pass |
+| Avoid connection-wide invalidation for `shell.created`, `shell.exited`, and `shell.deleted` | Pass |
+| Avoid connection-wide invalidation for `vcs.branch.updated` | Pass |
+| Keep `installation.update-available` on the current healthy stream generation | Pass |
+| Keep the Live indicator stable during read-only Git work | Pass |
+| Keep the session list stable during file creation, patching, reading, hashing, deletion, and Git work | Pass |
+| Remove the temporary probe file without changing repository files | Pass |
+
+The beta 18286 event trace showed a shell lifecycle burst for every shell-backed
+TUI tool call. The beta 18050 mobile classifier did not know these event types,
+so it fell back to connection-wide invalidation and repeatedly refetched the
+session list. The mobile bridge now treats the shell lifecycle and branch-change
+events as advisory for the current foundation UI. An available-update advisory
+also no longer replaces a healthy stream; `installation.updated`, real stream
+failure, durable sequence uncertainty, foreground recovery, and network recovery
+retain their reconciliation behavior.
+
+The signed iPhone applied the preview update and showed no Live or session-list
+flicker during the controlled command checks. The trace and report retained no
+command text, address, credential, path, prompt, identifier, event payload, file
+content, or server content.

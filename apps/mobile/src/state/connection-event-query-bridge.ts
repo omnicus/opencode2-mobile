@@ -259,11 +259,11 @@ export function reduceActiveSessions(
 }
 
 export function eventRequiresConnectionSnapshot(event: OpenCodeEvent) {
-  return event.type.startsWith("installation.");
+  return event.type === "installation.updated";
 }
 
 function eventInvalidationRoot(event: OpenCodeEvent): InvalidationRoot | undefined {
-  if (event.type === "server.connected" || event.type === "filesystem.changed") return undefined;
+  if (advisoryLocationEventTypes.has(event.type)) return undefined;
   if (inboxEventTypes.has(event.type)) return "inbox";
   if (event.type === "session.status" || event.type === "session.execution.started") {
     return undefined;
@@ -283,6 +283,15 @@ function eventInvalidationRoot(event: OpenCodeEvent): InvalidationRoot | undefin
   if (event.type.startsWith("installation.")) return "health";
   return "connection";
 }
+
+const advisoryLocationEventTypes = new Set<string>([
+  "filesystem.changed",
+  "server.connected",
+  "shell.created",
+  "shell.deleted",
+  "shell.exited",
+  "vcs.branch.updated",
+]);
 
 const inboxEventTypes = new Set<string>([
   "session.inbox.enqueued",

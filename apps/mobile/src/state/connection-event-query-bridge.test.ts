@@ -174,6 +174,34 @@ test("does not refetch connection queries for file-change hints", () => {
   queryClient.clear();
 });
 
+test("does not refetch connection queries for shell and VCS advisory events", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const scheduled: Array<() => void> = [];
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) => {
+    scheduled.push(callback);
+  });
+
+  for (const [index, type] of [
+    "shell.created",
+    "shell.exited",
+    "shell.deleted",
+    "vcs.branch.updated",
+  ].entries()) {
+    bridge.apply({
+      created: index + 1,
+      data: {},
+      id: `event-shell-${index}`,
+      location: { directory: "/workspace" },
+      type,
+    } as unknown as OpenCodeEvent);
+  }
+
+  expect(scheduled).toHaveLength(0);
+  expect(invalidate).not.toHaveBeenCalled();
+  queryClient.clear();
+});
+
 test("falls back to connection reconciliation for an unknown session event", () => {
   const queryClient = new QueryClient();
   const invalidate = jest.spyOn(queryClient, "invalidateQueries");
