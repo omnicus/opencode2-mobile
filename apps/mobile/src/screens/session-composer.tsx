@@ -1,6 +1,6 @@
 import type { AgentInfo, ModelInfo, ModelRef } from "@opencode2-mobile/opencode-adapter";
-import { useDeferredValue, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useDeferredValue, useState } from "react";
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
 import { palette, radius, space, typeRamp } from "../theme";
@@ -43,7 +43,6 @@ export function SessionComposer({
   onModelChange: (model: ModelRef) => void;
   onSubmit: () => void;
 }) {
-  const inputRef = useRef<TextInput>(null);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -69,7 +68,8 @@ export function SessionComposer({
   function submit() {
     if (!canSubmit) return;
     onSubmit();
-    requestAnimationFrame(() => inputRef.current?.focus());
+    setFocused(false);
+    Keyboard.dismiss();
   }
 
   return (
@@ -91,7 +91,6 @@ export function SessionComposer({
             onFocus={() => setFocused(true)}
             placeholder={active ? "Add a follow-up" : "Ask OpenCode"}
             placeholderTextColor={palette.dim}
-            ref={inputRef}
             returnKeyType="default"
             scrollEnabled={expanded}
             selectionColor={palette.signal}

@@ -2,6 +2,7 @@ import { expect, jest, test } from "@jest/globals";
 import type { AgentInfo, ModelInfo, ModelRef } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import { useState } from "react";
+import { Keyboard } from "react-native";
 
 import type { PromptDelivery } from "./prompt-admission-model";
 import { SessionComposer } from "./session-composer";
@@ -29,6 +30,22 @@ test("keeps the native prompt multiline and submits through an explicit control"
   fireEvent.press(screen.getByRole("button", { name: "Send" }));
 
   expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
+test("dismisses the keyboard and collapses the composer after sending", () => {
+  const dismissKeyboard = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent.changeText(input, "Ship it");
+  fireEvent(input, "focus");
+  expect(input.props.numberOfLines).toBe(4);
+
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+
+  expect(dismissKeyboard).toHaveBeenCalledTimes(1);
+  expect(screen.getByLabelText("Prompt").props.numberOfLines).toBe(1);
+  dismissKeyboard.mockRestore();
 });
 
 test("keeps controls collapsed until the editor is focused", () => {
