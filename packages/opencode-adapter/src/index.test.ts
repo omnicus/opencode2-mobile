@@ -12,6 +12,7 @@ import {
   createOpenCodeSession,
   createRedirectSafeOpenCodeFetch,
   getCurrentOpenCodeProject,
+  getDefaultOpenCodeAgent,
   getDefaultOpenCodeLocation,
   getDefaultOpenCodeModel,
   getOpenCodeFormState,
@@ -414,6 +415,43 @@ it("validates and forwards location-scoped agent and model choices", async () =>
   await expect(listOpenCodeModels(client, { directory: "/workspace" })).rejects.toThrow(
     "MALFORMED_MODEL_LIST",
   );
+});
+
+it("resolves the highest-priority configured default agent", async () => {
+  const api = createFakeOpenCodeApi({
+    configEntries: [
+      { info: { default_agent: "plan" }, path: "/global/opencode.json", type: "document" },
+      { path: "/workspace/.opencode", type: "directory" },
+      { path: "/workspace/.opencode/agents", type: "agents" },
+      { info: {}, path: "/workspace/opencode.json", type: "document" },
+      {
+        info: { default_agent: "review" },
+        path: "/workspace/.opencode/opencode.json",
+        type: "document",
+      },
+    ],
+  });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+
+  await expect(
+    getDefaultOpenCodeAgent(client, { directory: "/workspace", workspaceID: "wrk_test" }),
+  ).resolves.toBe("review");
+  expect(api.requests.at(-1)).toMatchObject({
+    path: "/api/config",
+    query: {
+      "location[directory]": ["/workspace"],
+      "location[workspace]": ["wrk_test"],
+    },
+  });
+});
+
+it("returns null when no config document defines a default agent", async () => {
+  const api = createFakeOpenCodeApi({
+    configEntries: [{ info: {}, path: "/workspace/opencode.json", type: "document" }],
+  });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+
+  await expect(getDefaultOpenCodeAgent(client, { directory: "/workspace" })).resolves.toBeNull();
 });
 
 it("forwards composer and execution operations and returns generated inbox values", async () => {

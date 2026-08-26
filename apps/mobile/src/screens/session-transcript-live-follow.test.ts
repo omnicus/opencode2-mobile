@@ -42,6 +42,13 @@ test("does not mistake layout compensation for user scrolling", () => {
     }),
   ).toBe(true);
   expect(
+    resolveTranscriptLiveFollow(false, {
+      isAtLiveEdge: true,
+      type: "scroll",
+      userScrollSessionActive: false,
+    }),
+  ).toBe(false);
+  expect(
     resolveTranscriptLiveFollow(true, {
       isAtLiveEdge: false,
       type: "user-scroll-end",

@@ -2,6 +2,7 @@ import {
   backgroundOpenCodeSession,
   cancelOpenCodeSessionInboxItem,
   classifyOpenCodeError,
+  getDefaultOpenCodeAgent,
   getDefaultOpenCodeModel,
   getOpenCodeSessionMessage,
   interruptOpenCodeSession,
@@ -141,6 +142,14 @@ export function useSessionExecution({
     },
     queryKey: [...openCodeQueryKeys.models(scopedConnectionId, location), "default"],
   });
+  const defaultAgentQuery = useQuery({
+    enabled,
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return getDefaultOpenCodeAgent(client, location, { signal });
+    },
+    queryKey: [...openCodeQueryKeys.agents(scopedConnectionId, location), "default"],
+  });
   const active = Boolean(activeSessionsQuery.data?.[sessionID]);
   const executionStateReady = activeSessionsQuery.isSuccess && inboxQuery.isSuccess;
   const inbox = inboxQuery.data ?? [];
@@ -155,6 +164,12 @@ export function useSessionExecution({
   const models = (modelsQuery.data?.data ?? []).filter(
     (candidate) => candidate.enabled && candidate.status !== "deprecated",
   );
+  const selectedAgent = resolveSessionAgent(
+    session?.agent,
+    defaultAgentQuery.data,
+    agents.map((agent) => agent.id),
+  );
+  const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
 
   const updateAdmissions = useCallback(
     (update: (current: PromptAdmission[]) => PromptAdmission[]) => {
@@ -734,8 +749,9 @@ export function useSessionExecution({
     background: () => mutateControl("background"),
     wait: () => mutateControl("wait"),
     reconcileAdmission: (admissionID: string) => void reconcileAdmission(admissionID),
-    selectedAgent: session?.agent,
-    selectedModel: session?.model ?? modelRef(defaultModelQuery.data?.data),
+    selectedAgent,
+    selectedModel:
+      session?.model ?? selectedAgentInfo?.model ?? modelRef(defaultModelQuery.data?.data),
   };
 
   function mutateInbox(action: "cancel" | "queue" | "steer", inboxID: string) {
@@ -761,6 +777,17 @@ export function useSessionExecution({
       requestSessionID: sessionID,
     });
   }
+}
+
+export function resolveSessionAgent(
+  sessionAgent: string | undefined,
+  configuredDefault: string | null | undefined,
+  availableAgentIDs: readonly string[],
+) {
+  if (sessionAgent) return sessionAgent;
+  if (configuredDefault && availableAgentIDs.includes(configuredDefault)) return configuredDefault;
+  if (availableAgentIDs.includes("build")) return "build";
+  return availableAgentIDs[0];
 }
 
 function modelRef(model: { id: string; providerID: string } | null | undefined) {

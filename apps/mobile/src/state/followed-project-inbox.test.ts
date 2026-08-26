@@ -270,6 +270,36 @@ test("keeps existing recent rows stable across competing timestamp updates", () 
   ).toEqual(["ses_second", "ses_first"]);
 });
 
+test("inserts newly discovered sessions by recency without reordering existing rows", () => {
+  const first = session("ses_first", 3, "project-a");
+  const second = session("ses_second", 2, "project-a");
+  const previous = buildFollowedInboxSections({
+    activeSessionIDs: [],
+    ancestrySessions: {},
+    forms: [],
+    permissions: [],
+    projects: [],
+    rootSessions: [first, second],
+  });
+  const next = buildFollowedInboxSections({
+    activeSessionIDs: [],
+    ancestrySessions: {},
+    forms: [],
+    permissions: [],
+    projects: [],
+    rootSessions: [
+      session("ses_new", 4, "project-a"),
+      first,
+      second,
+      session("ses_older", 1, "project-a"),
+    ],
+  });
+
+  expect(
+    stabilizeFollowedInboxSections(next, previous).recent.map((row) => row.session.id),
+  ).toEqual(["ses_new", "ses_first", "ses_second", "ses_older"]);
+});
+
 function session(id: string, updated: number, projectID: string): SessionInfo {
   return {
     cost: 0,

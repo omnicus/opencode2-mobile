@@ -1,16 +1,11 @@
 import {
-  createOpenCodeSession,
   getDefaultOpenCodeLocation,
   getOpenCodeLocation,
   getOpenCodeSession,
   type LocationRef,
-  listOpenCodeAgents,
   listOpenCodeMessages,
-  listOpenCodeModels,
   listOpenCodeProjects,
-  type ProjectListOutput,
   removeOpenCodeSession,
-  renameOpenCodeSession,
   type SessionInfo,
   type SessionMessageInfo,
   type SessionMessagesResponse,
@@ -23,6 +18,7 @@ import { useCallback, useDeferredValue, useEffect, useRef, useState } from "reac
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Keyboard,
   type KeyboardEvent,
@@ -39,7 +35,6 @@ import {
   View,
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
-import { ModalSheet } from "../components/modal-sheet";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -70,27 +65,21 @@ import {
   resolveTranscriptLiveFollow,
   type TranscriptLiveFollowEvent,
 } from "./session-transcript-live-follow";
-import {
-  countRunningBackgroundSubagents,
-  flattenTranscriptPages,
-  sanitizeTranscriptText,
-} from "./session-transcript-model";
+import { flattenTranscriptPages } from "./session-transcript-model";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
 import {
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
-  projectDirectories,
 } from "./workspace-screen-model";
 
 type WorkspaceProps = NativeStackScreenProps<RootStackParamList, "Workspace">;
 type SessionProps = NativeStackScreenProps<RootStackParamList, "Session">;
-type Project = ProjectListOutput[number];
 
 const messagePageSize = 40;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
-const liveEdgeThreshold = 48;
+const liveEdgeThreshold = 2;
 const userScrollSettleMs = 160;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
 
@@ -107,16 +96,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const client = runtime.restClient;
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [selectedDirectory, setSelectedDirectory] = useState<string>();
-  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
-  const [projectSearch, setProjectSearch] = useState("");
   const [sessionSearch, setSessionSearch] = useState("");
-  const [createOpen, setCreateOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [selectedAgentId, setSelectedAgentId] = useState<string>();
-  const [selectedModelKey, setSelectedModelKey] = useState<string>();
-  const [formError, setFormError] = useState<string>();
   const [refreshing, setRefreshing] = useState(false);
-  const createAbortRef = useRef<AbortController>(null);
   const removeAbortRef = useRef<AbortController>(null);
   const refreshGenerationRef = useRef(0);
   const deferredSessionSearch = useDeferredValue(sessionSearch.trim());
@@ -125,13 +106,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     void connectionId;
     setSelectedProjectId(undefined);
     setSelectedDirectory(undefined);
-    setProjectPickerOpen(false);
-    setProjectSearch("");
     setSessionSearch("");
-    setCreateOpen(false);
-    setSelectedAgentId(undefined);
-    setSelectedModelKey(undefined);
-    setFormError(undefined);
     refreshGenerationRef.current += 1;
     setRefreshing(false);
   }, [connectionId]);
@@ -181,8 +156,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     workspaceSelection.preferencesLoading,
   ]);
 
-  const selectedProject = projects.find((project) => project.id === selectedProjectId);
-  const directories = projectDirectories(selectedProject, defaultProjectId, defaultDirectory);
   const requestedLocation = selectedDirectory
     ? ({ directory: selectedDirectory } satisfies LocationRef)
     : undefined;
@@ -198,7 +171,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     ),
   });
   const location = locationQuery.data;
-  const queryLocation = location ?? unresolvedLocation;
   const mutationScope = `${connectionId ?? ""}\u0000${location?.directory ?? ""}\u0000${location?.workspaceID ?? ""}`;
 
   useEffect(() => {
@@ -208,7 +180,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   useEffect(() => {
     void mutationScope;
     return () => {
-      createAbortRef.current?.abort();
       removeAbortRef.current?.abort();
     };
   }, [mutationScope]);
@@ -217,104 +188,16 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     workspaceSelection.setLocation(location);
   }, [location, workspaceSelection.setLocation]);
 
-  const agentsQuery = useQuery({
-    enabled: Boolean(client && connectionId && location),
-    queryFn: ({ signal }) => {
-      if (!client || !location) throw new Error("LOCATION_NOT_RESOLVED");
-      return listOpenCodeAgents(client, location, { signal });
-    },
-    queryKey: openCodeQueryKeys.agents(connectionId ?? "unselected", queryLocation),
-  });
-  const modelsQuery = useQuery({
-    enabled: Boolean(client && connectionId && location),
-    queryFn: ({ signal }) => {
-      if (!client || !location) throw new Error("LOCATION_NOT_RESOLVED");
-      return listOpenCodeModels(client, location, { signal });
-    },
-    queryKey: openCodeQueryKeys.models(connectionId ?? "unselected", queryLocation),
-  });
   const inboxItems = workspaceInboxItems(workspaceSelection.inbox, Boolean(deferredSessionSearch));
   const ambiguousProjectIDs = ambiguousInboxProjectIDs(workspaceSelection.inbox);
   const sessionCount =
     workspaceSelection.inbox.needsYou.length +
     workspaceSelection.inbox.working.length +
     workspaceSelection.inbox.recent.length;
-  const agents = (agentsQuery.data?.data ?? []).filter(
-    (candidate) => !candidate.hidden && candidate.mode !== "subagent",
-  );
-  const models = (modelsQuery.data?.data ?? []).filter(
-    (candidate) => candidate.enabled && candidate.status !== "deprecated",
-  );
-  const selectedAgent = agents.find((candidate) => candidate.id === selectedAgentId);
-  const selectedModel = models.find(
-    (candidate) => modelKey(candidate.providerID, candidate.id) === selectedModelKey,
-  );
-  const normalizedProjectSearch = projectSearch.trim().toLocaleLowerCase();
-  const visibleProjects = normalizedProjectSearch
-    ? projects.filter((project) =>
-        `${project.name ?? ""}\n${project.canonical}\n${project.id}`
-          .toLocaleLowerCase()
-          .includes(normalizedProjectSearch),
-      )
-    : projects;
-  const visibleLocationProjects = visibleProjects.filter((project) =>
-    workspaceSelection.followedProjectIds.includes(project.id),
-  );
   const selectedConnection = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      if (!client || !connectionId || !location) throw new Error("LOCATION_NOT_RESOLVED");
-      const controller = new AbortController();
-      createAbortRef.current?.abort();
-      createAbortRef.current = controller;
-      const nextTitle = title.trim();
-      try {
-        return await createOpenCodeSession(
-          client,
-          location,
-          {
-            ...(nextTitle ? { title: nextTitle } : {}),
-            ...(selectedAgent ? { agent: selectedAgent.id } : {}),
-            ...(selectedModel
-              ? { model: { id: selectedModel.id, providerID: selectedModel.providerID } }
-              : {}),
-          },
-          { signal: controller.signal },
-        );
-      } catch (error) {
-        if (controller.signal.aborted) throw new Error("REQUEST_ABORTED");
-        throw error;
-      } finally {
-        if (createAbortRef.current === controller) createAbortRef.current = null;
-      }
-    },
-    onError: (error) => {
-      if (error instanceof Error && error.message === "REQUEST_ABORTED") return;
-      setFormError("The session could not be created. Check the selected location and connection.");
-    },
-    onSuccess: (session) => {
-      if (!connectionId || !location) return;
-      queryClient.setQueryData(
-        openCodeQueryKeys.session(connectionId, location, session.id),
-        session,
-      );
-      void queryClient.invalidateQueries({
-        queryKey: openCodeQueryKeys.connection(connectionId),
-      });
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => undefined,
-      );
-      setFormError(undefined);
-      setCreateOpen(false);
-      setTitle("");
-      setSelectedAgentId(undefined);
-      setSelectedModelKey(undefined);
-      navigation.navigate("Session", { connectionId, location, sessionID: session.id });
-    },
-  });
   const removeMutation = useMutation({
     mutationFn: async (session: SessionInfo) => {
       if (!client || !connectionId) throw new Error("CONNECTION_NOT_READY");
@@ -379,25 +262,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       );
     },
   });
-
-  function selectProject(project: Project) {
-    setSelectedProjectId(project.id);
-    setSelectedDirectory(
-      project.id === defaultProjectId && defaultDirectory ? defaultDirectory : project.canonical,
-    );
-    setSessionSearch("");
-    setFormError(undefined);
-    void Haptics.selectionAsync().catch(() => undefined);
-  }
-
-  function selectDirectory(directory: string) {
-    setSelectedDirectory(directory);
-    setSessionSearch("");
-    setFormError(undefined);
-    setProjectPickerOpen(false);
-    setCreateOpen(true);
-    void Haptics.selectionAsync().catch(() => undefined);
-  }
 
   async function refresh() {
     if (refreshing) return;
@@ -465,10 +329,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             </Text>
           </View>
           <HeaderAction
-            accessibilityHint="Opens new session setup"
+            accessibilityHint="Choose a project for a new session"
             emphasized
             label="New"
-            onPress={() => setCreateOpen(true)}
+            onPress={() => navigation.navigate("NewSession")}
           />
         </View>
       ) : null}
@@ -514,10 +378,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
               />
             ) : null}
             <HeaderAction
-              accessibilityHint="Opens new session setup"
+              accessibilityHint="Choose a project for a new session"
               emphasized
               label="New"
-              onPress={() => setCreateOpen(true)}
+              onPress={() => navigation.navigate("NewSession")}
             />
           </>
         ) : null}
@@ -529,7 +393,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             : "Waiting for current server data."}
         </Text>
       ) : null}
-
       <View style={styles.searchField}>
         <TextInput
           accessibilityLabel="Search sessions"
@@ -562,207 +425,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         </View>
       ) : null}
     </View>
-  );
-
-  const locationSheet = (
-    <ModalSheet
-      onClose={() => {
-        setProjectPickerOpen(false);
-        setCreateOpen(true);
-      }}
-      subtitle="Choose where new sessions start"
-      title="Session location"
-      visible={projectPickerOpen}
-    >
-      <TextInput
-        accessibilityLabel="Filter followed projects"
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardAppearance="dark"
-        onChangeText={setProjectSearch}
-        placeholder="Filter followed projects"
-        placeholderTextColor={palette.dim}
-        style={styles.input}
-        value={projectSearch}
-      />
-      <View accessibilityRole="radiogroup" style={styles.sheetSection}>
-        <Text style={styles.sheetSectionLabel}>Followed projects</Text>
-        {projectsQuery.isPending ? <ActivityIndicator color={palette.signal} /> : null}
-        {projectsQuery.isError ? <InlineError message="Projects could not be loaded." /> : null}
-        {visibleLocationProjects.map((project) => (
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: project.id === selectedProjectId }}
-            key={project.id}
-            onPress={() => selectProject(project)}
-            style={({ pressed }) => [
-              styles.sheetRow,
-              project.id === selectedProjectId && styles.sheetRowSelected,
-              pressed && styles.pressed,
-            ]}
-          >
-            <View style={styles.sheetRowCopy}>
-              <Text style={styles.sheetRowTitle}>{projectLabel(project)}</Text>
-              <Text numberOfLines={largeText ? 3 : 1} style={styles.sheetRowSubtitle}>
-                {project.canonical}
-              </Text>
-            </View>
-            <Text style={styles.selectionMark}>
-              {project.id === selectedProjectId ? "Selected" : ""}
-            </Text>
-          </Pressable>
-        ))}
-        {!projectsQuery.isPending && visibleLocationProjects.length === 0 ? (
-          <Text style={styles.muted}>No matching followed projects.</Text>
-        ) : null}
-      </View>
-      {selectedProject ? (
-        <View accessibilityRole="radiogroup" style={styles.sheetSection}>
-          <Text style={styles.sheetSectionLabel}>Location</Text>
-          {directories.map((directory, index) => (
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ checked: directory === selectedDirectory }}
-              key={directory}
-              onPress={() => selectDirectory(directory)}
-              style={({ pressed }) => [
-                styles.sheetRow,
-                directory === selectedDirectory && styles.sheetRowSelected,
-                pressed && styles.pressed,
-              ]}
-            >
-              <View style={styles.sheetRowCopy}>
-                <Text style={styles.sheetRowTitle}>
-                  {index === 0 ? "Current checkout" : "Worktree"}
-                </Text>
-                <Text numberOfLines={largeText ? 4 : 2} style={styles.sheetRowSubtitle}>
-                  {directory}
-                </Text>
-              </View>
-              <Text style={styles.selectionMark}>
-                {directory === selectedDirectory ? "Selected" : ""}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : null}
-      <ActionButton
-        label="Manage followed projects"
-        onPress={() => {
-          setProjectPickerOpen(false);
-          navigation.navigate("FollowedProjects");
-        }}
-        secondary
-      />
-    </ModalSheet>
-  );
-
-  const newSessionSheet = (
-    <ModalSheet
-      onClose={() => setCreateOpen(false)}
-      {...(selectedProject ? { subtitle: projectLabel(selectedProject) } : {})}
-      title="New session"
-      visible={createOpen}
-    >
-      <View style={styles.newSessionIntro}>
-        <Text
-          maxFontSizeMultiplier={displayTitleMaxFontSizeMultiplier}
-          style={styles.newSessionPrompt}
-        >
-          What needs doing?
-        </Text>
-        <Text style={styles.newSessionCopy}>
-          Name the task now. You can send the first message from the session transcript.
-        </Text>
-      </View>
-      <TextInput
-        accessibilityLabel="Session title optional"
-        keyboardAppearance="dark"
-        multiline
-        onChangeText={setTitle}
-        placeholder="Session title (optional)"
-        placeholderTextColor={palette.dim}
-        style={styles.titleInput}
-        textAlignVertical="top"
-        value={title}
-      />
-      <Pressable
-        accessibilityLabel="Change new session location"
-        accessibilityRole="button"
-        onPress={() => {
-          setCreateOpen(false);
-          setProjectPickerOpen(true);
-        }}
-        style={({ pressed }) => [
-          styles.contextRow,
-          largeText && styles.contextRowLargeText,
-          pressed && styles.pressed,
-        ]}
-      >
-        <View style={styles.contextRowCopy}>
-          <Text style={styles.contextLabel}>Location</Text>
-          <Text numberOfLines={largeText ? 3 : 1} style={styles.contextValue}>
-            {selectedProject ? projectLabel(selectedProject) : "Choose a followed project"}
-          </Text>
-          {selectedDirectory ? (
-            <Text numberOfLines={largeText ? 3 : 1} style={styles.pathText}>
-              {selectedDirectory}
-            </Text>
-          ) : null}
-        </View>
-        {locationQuery.isPending ? (
-          <ActivityIndicator
-            accessibilityLabel="Resolving selected location"
-            color={palette.signal}
-            size="small"
-          />
-        ) : (
-          <Text
-            dynamicTypeRamp={typeRamp.control}
-            style={[styles.scopeAction, largeText && styles.scopeActionLargeText]}
-          >
-            {selectedDirectory ? "Change" : "Choose"}
-          </Text>
-        )}
-      </Pressable>
-      {locationQuery.isError ? (
-        <InlineError message="The server could not resolve this location." />
-      ) : null}
-      <OptionPicker
-        label="Agent"
-        loading={agentsQuery.isFetching}
-        onSelect={setSelectedAgentId}
-        options={agents.map((candidate) => ({
-          description: candidate.description ?? candidate.id,
-          key: candidate.id,
-          label: candidate.name,
-        }))}
-        selectedKey={selectedAgentId}
-        selectedLabel={selectedAgent?.name}
-      />
-      <OptionPicker
-        label="Model"
-        loading={modelsQuery.isFetching}
-        onSelect={setSelectedModelKey}
-        options={models.map((candidate) => ({
-          description: `${candidate.providerID} / ${candidate.id}`,
-          key: modelKey(candidate.providerID, candidate.id),
-          label: candidate.name,
-        }))}
-        selectedKey={selectedModelKey}
-        selectedLabel={selectedModel?.name}
-      />
-      {agentsQuery.isError || modelsQuery.isError ? (
-        <InlineError message="Agent or model choices could not be loaded. Server defaults remain available." />
-      ) : null}
-      {formError ? <InlineError message={formError} /> : null}
-      <ActionButton
-        disabled={createMutation.isPending || !location}
-        fullWidth
-        label={createMutation.isPending ? "Creating" : "Create session"}
-        onPress={() => createMutation.mutate()}
-      />
-    </ModalSheet>
   );
 
   return (
@@ -835,32 +497,26 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         updateCellsBatchingPeriod={40}
         windowSize={7}
       />
-      {locationSheet}
-      {newSessionSheet}
     </ShellFrame>
   );
 }
 
 export function SessionScreen({ navigation, route }: SessionProps) {
-  const db = useSQLiteContext();
   const runtime = useConnectionRuntime();
   const workspaceSelection = useWorkspaceSelection();
-  const connections = useConnections();
-  const queryClient = useQueryClient();
-  const { fontScale, height: windowHeight } = useWindowDimensions();
+  const { fontScale } = useWindowDimensions();
+  const screenHeight = Dimensions.get("screen").height;
   const largeText = usesLargeTextLayout(fontScale);
-  const { connectionId: routeConnectionId, location, sessionID } = route.params;
+  const { connectionId: routeConnectionId, focusComposer, location, sessionID } = route.params;
   const connectionId = runtime.connectionId;
   const client = runtime.restClient;
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState<string>();
   const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
   const [latestJumpPending, setLatestJumpPending] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(66);
   const [composerDockScreenBottom, setComposerDockScreenBottom] = useState(0);
   const [composerKeyboardOffset, setComposerKeyboardOffset] = useState(0);
   const composerDockRef = useRef<View>(null);
-  const measuredComposerDockWindowHeightRef = useRef<number | undefined>(undefined);
+  const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
   const transcriptListRef = useRef<FlatList<SessionMessageInfo>>(null);
   const liveFollowEnabledRef = useRef(true);
   const latestJumpPendingRef = useRef(false);
@@ -868,11 +524,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const userScrollSettleTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const followFrameRef = useRef<number>(null);
   const lastScrollOffsetRef = useRef(0);
-  const renameAbortRef = useRef<AbortController>(null);
-  const removeAbortRef = useRef<AbortController>(null);
-  const selectedConnection = connections.profiles.find(
-    (profile) => profile.id === connections.selectedProfileId,
-  );
   const sessionQuery = useQuery({
     enabled: Boolean(client && connectionId === routeConnectionId),
     queryFn: ({ signal }) => {
@@ -922,7 +573,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     (request) => request.sessionID === sessionID,
   );
   const sessionForms = workspaceSelection.forms.filter((form) => form.sessionID === sessionID);
-  const runningBackgroundSubagents = countRunningBackgroundSubagents(messages);
   const sessionMutationScope = `${routeConnectionId}\u0000${sessionID}`;
   const transcriptPageCount = messagesQuery.data?.pages.length ?? 0;
   const canLoadOlder = Boolean(
@@ -944,13 +594,15 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   }, [location, workspaceSelection.setLocation]);
 
   useEffect(() => {
+    if (Platform.OS !== "ios") return;
+
     function updateKeyboardFrame(event: KeyboardEvent) {
       Keyboard.scheduleLayoutAnimation(event);
       setComposerKeyboardOffset(
         getComposerDockKeyboardOffset(
           composerDockScreenBottom,
           event.endCoordinates.screenY,
-          Platform.OS === "ios" ? iosKeyboardTransparentTopInset : 0,
+          iosKeyboardTransparentTopInset,
         ),
       );
     }
@@ -961,18 +613,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     }
 
     const frameSubscriptions = [
-      Keyboard.addListener(
-        Platform.OS === "ios" ? "keyboardWillChangeFrame" : "keyboardDidShow",
-        updateKeyboardFrame,
-      ),
-      ...(Platform.OS === "ios"
-        ? [Keyboard.addListener("keyboardDidShow", updateKeyboardFrame)]
-        : []),
+      Keyboard.addListener("keyboardWillChangeFrame", updateKeyboardFrame),
+      Keyboard.addListener("keyboardDidShow", updateKeyboardFrame),
     ];
-    const hideSubscription = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      clearKeyboardFrame,
-    );
+    const hideSubscription = Keyboard.addListener("keyboardWillHide", clearKeyboardFrame);
     return () => {
       for (const subscription of frameSubscriptions) subscription.remove();
       hideSubscription.remove();
@@ -1004,144 +648,12 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         cancelAnimationFrame(followFrameRef.current);
         followFrameRef.current = null;
       }
-      renameAbortRef.current?.abort();
-      removeAbortRef.current?.abort();
     };
   }, [sessionMutationScope]);
 
   useEffect(() => {
-    if (session) setTitle(session.title ?? "");
-  }, [session]);
-
-  useEffect(() => {
     recordTranscriptResidentSet(transcriptPageCount, messages.length);
   }, [messages.length, transcriptPageCount]);
-
-  const renameMutation = useMutation({
-    mutationFn: async () => {
-      const nextTitle = title.trim();
-      if (!nextTitle) throw new Error("TITLE_REQUIRED");
-      if (!client || connectionId !== routeConnectionId) throw new Error("CONNECTION_NOT_READY");
-      const controller = new AbortController();
-      renameAbortRef.current?.abort();
-      renameAbortRef.current = controller;
-      try {
-        await renameOpenCodeSession(client, sessionID, nextTitle, { signal: controller.signal });
-        return nextTitle;
-      } catch (caught) {
-        if (controller.signal.aborted) throw new Error("REQUEST_ABORTED");
-        throw caught;
-      } finally {
-        if (renameAbortRef.current === controller) renameAbortRef.current = null;
-      }
-    },
-    onError: (caught) => {
-      if (caught instanceof Error && caught.message === "REQUEST_ABORTED") return;
-      setError(
-        caught instanceof Error && caught.message === "TITLE_REQUIRED"
-          ? "Enter a session title."
-          : "The session could not be renamed.",
-      );
-    },
-    onSuccess: (nextTitle) => {
-      setError(undefined);
-      queryClient.setQueryData<SessionInfo>(
-        openCodeQueryKeys.session(connectionId ?? "unselected", location, sessionID),
-        (current) => (current ? { ...current, title: nextTitle } : current),
-      );
-      if (connectionId) {
-        void queryClient.invalidateQueries({
-          queryKey: openCodeQueryKeys.connection(connectionId),
-        });
-      }
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-        () => undefined,
-      );
-    },
-  });
-  const removeMutation = useMutation({
-    mutationFn: async () => {
-      if (!client || connectionId !== routeConnectionId) throw new Error("CONNECTION_NOT_READY");
-      const controller = new AbortController();
-      removeAbortRef.current?.abort();
-      removeAbortRef.current = controller;
-      try {
-        const sessionIds = await loadOpenCodeSessionTreeIds(
-          client,
-          location,
-          sessionID,
-          controller.signal,
-        );
-        await removeOpenCodeSession(client, sessionID, { signal: controller.signal });
-        const cleanupSucceeded = await deleteSessionLocalState(
-          db,
-          routeConnectionId,
-          sessionIds,
-        ).then(
-          () => true,
-          () => false,
-        );
-        return { cleanupSucceeded, sessionIds };
-      } catch (caught) {
-        if (controller.signal.aborted) throw new Error("REQUEST_ABORTED");
-        throw caught;
-      } finally {
-        if (removeAbortRef.current === controller) removeAbortRef.current = null;
-      }
-    },
-    onError: (caught) => {
-      if (caught instanceof Error && caught.message === "REQUEST_ABORTED") return;
-      setError("The session could not be deleted.");
-    },
-    onSuccess: ({ cleanupSucceeded, sessionIds }) => {
-      if (connectionId) {
-        for (const deletedSessionID of sessionIds) {
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.session(connectionId, location, deletedSessionID),
-          });
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.messageRoot(connectionId, location, deletedSessionID),
-          });
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.inbox(connectionId, location, deletedSessionID),
-          });
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.promptAdmissions(connectionId, location, deletedSessionID),
-          });
-        }
-        void queryClient.invalidateQueries({
-          queryKey: openCodeQueryKeys.connection(connectionId),
-        });
-      }
-      draft.clearDraft();
-      if (!cleanupSucceeded) {
-        Alert.alert(
-          "Local cleanup incomplete",
-          "The server deleted the session, but encrypted local state could not be removed. Removing this connection profile will clear it.",
-        );
-      }
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(
-        () => undefined,
-      );
-      navigation.popTo("Workspace");
-    },
-  });
-
-  function confirmDelete() {
-    const host = selectedConnection?.name ?? "selected server";
-    const project = session?.projectID ?? "current project";
-    const childWarning = session?.parentID
-      ? "This is a child session."
-      : "Deleting a parent also deletes all child sessions.";
-    Alert.alert(
-      "Delete session?",
-      `Host: ${host}\nProject: ${project}\nLocation: ${location.directory}\n\n${childWarning}`,
-      [
-        { style: "cancel", text: "Cancel" },
-        { onPress: () => removeMutation.mutate(), style: "destructive", text: "Delete" },
-      ],
-    );
-  }
 
   function transitionLiveFollow(event: TranscriptLiveFollowEvent) {
     const next = resolveTranscriptLiveFollow(liveFollowEnabledRef.current, event);
@@ -1253,15 +765,15 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   function measureComposerDock() {
     if (
       !needsComposerDockMeasurement(
-        measuredComposerDockWindowHeightRef.current,
-        windowHeight,
+        measuredComposerDockScreenHeightRef.current,
+        screenHeight,
         composerKeyboardOffset > 0,
       )
     ) {
       return;
     }
     composerDockRef.current?.measureInWindow((_x, y, _width, height) => {
-      measuredComposerDockWindowHeightRef.current = windowHeight;
+      measuredComposerDockScreenHeightRef.current = screenHeight;
       const screenBottom = y + height;
       setComposerDockScreenBottom((current) =>
         Math.abs(current - screenBottom) < 1 ? current : screenBottom,
@@ -1325,11 +837,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                   }
                 />
               </View>
-            ) : (
-              <View style={styles.transcriptState}>
-                <Text style={styles.muted}>No messages in this session.</Text>
-              </View>
-            )
+            ) : null
           }
           ListFooterComponent={
             <View style={styles.detailHeader}>
@@ -1337,102 +845,14 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               {sessionQuery.isError ? (
                 <InlineError message="The session could not be loaded." />
               ) : null}
-              {session ? (
-                <>
-                  <Text style={styles.eyebrow}>SESSION</Text>
-                  <Text
-                    accessibilityRole="header"
-                    dynamicTypeRamp={typeRamp.heading}
-                    maxFontSizeMultiplier={displayTitleMaxFontSizeMultiplier}
-                    style={styles.title}
-                  >
-                    {sanitizeTranscriptText(session.title || "Untitled session", 512)}
-                  </Text>
-                  <View style={styles.badges}>
-                    {session.parentID ? <Badge label="CHILD" /> : <Badge label="ROOT" />}
-                    {workspaceSelection.blockedSessionIds.has(session.id) ? (
-                      <Badge label="BLOCKED" />
-                    ) : null}
-                    {session.time.archived ? <Badge label="ARCHIVED" muted /> : null}
-                    {runtime.status !== "connected" ? <Badge label="STALE" muted /> : null}
-                  </View>
-                  <Text selectable style={styles.pathText}>
-                    {sanitizeTranscriptText(session.location.directory, 1_024)}
-                  </Text>
-
-                  <View style={styles.sectionCard}>
-                    <Text dynamicTypeRamp={typeRamp.caption} style={styles.sectionLabel}>
-                      RENAME
-                    </Text>
-                    <TextInput
-                      accessibilityLabel="Session title"
-                      keyboardAppearance="dark"
-                      onChangeText={setTitle}
-                      style={styles.input}
-                      value={title}
-                    />
-                    {error ? <InlineError message={error} /> : null}
-                    <ActionButton
-                      disabled={renameMutation.isPending || title.trim() === (session.title ?? "")}
-                      label={renameMutation.isPending ? "SAVING" : "SAVE TITLE"}
-                      onPress={() => renameMutation.mutate()}
-                    />
-                  </View>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityState={{ disabled: removeMutation.isPending }}
-                    disabled={removeMutation.isPending}
-                    onPress={confirmDelete}
-                    style={({ pressed }) => [styles.deleteButton, pressed && styles.pressed]}
-                  >
-                    <Text style={styles.deleteLabel}>
-                      {removeMutation.isPending ? "DELETING" : "DELETE SESSION"}
-                    </Text>
-                  </Pressable>
-                </>
+              {canLoadOlder ? (
+                <SmallButton
+                  label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
+                  onPress={() => {
+                    if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
+                  }}
+                />
               ) : null}
-
-              <View
-                accessibilityLabel="Transcript controls"
-                style={[styles.transcriptHeading, largeText && styles.transcriptHeadingLargeText]}
-              >
-                <View>
-                  <Text dynamicTypeRamp={typeRamp.caption} style={styles.sectionLabel}>
-                    TRANSCRIPT
-                  </Text>
-                  <Text style={styles.transcriptCount}>
-                    {messages.length} {messages.length === 1 ? "message" : "messages"} loaded
-                  </Text>
-                  {runningBackgroundSubagents > 0 ? (
-                    <Text accessibilityLiveRegion="polite" style={styles.backgroundCount}>
-                      {runningBackgroundSubagents}{" "}
-                      {runningBackgroundSubagents === 1
-                        ? "background subagent running"
-                        : "background subagents running"}
-                    </Text>
-                  ) : null}
-                </View>
-                <View
-                  style={[styles.transcriptActions, largeText && styles.transcriptActionsLargeText]}
-                >
-                  <SmallButton
-                    label={messagesQuery.isRefetching ? "Refreshing" : "Refresh"}
-                    onPress={() => {
-                      if (!messagesQuery.isRefetching) {
-                        void Promise.all([sessionQuery.refetch(), messagesQuery.refetch()]);
-                      }
-                    }}
-                  />
-                  {canLoadOlder ? (
-                    <SmallButton
-                      label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
-                      onPress={() => {
-                        if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
-                      }}
-                    />
-                  ) : null}
-                </View>
-              </View>
               {!canLoadOlder && messagesQuery.hasNextPage ? (
                 <Text style={styles.transcriptLimit}>
                   Older messages are not loaded on this device.
@@ -1523,6 +943,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               draft={draft.draft}
               editable={draft.loaded}
               error={execution.error ?? draft.error}
+              focusOnMount={focusComposer}
               largeText={largeText}
               model={execution.selectedModel}
               models={execution.models}
@@ -1718,23 +1139,11 @@ function SessionEmptyState({
   );
 }
 
-function Badge({ label, muted }: { label: string; muted?: boolean }) {
-  return (
-    <View style={[styles.badge, muted && styles.badgeMuted]}>
-      <Text
-        dynamicTypeRamp={typeRamp.caption}
-        style={[styles.badgeLabel, muted && styles.badgeLabelMuted]}
-      >
-        {label}
-      </Text>
-    </View>
-  );
-}
-
 function HeaderAction({
   accessibilityHint,
   accessibilityLabel,
   attention,
+  disabled,
   emphasized,
   label,
   onPress,
@@ -1742,6 +1151,7 @@ function HeaderAction({
   accessibilityHint: string;
   accessibilityLabel?: string;
   attention?: boolean;
+  disabled?: boolean;
   emphasized?: boolean;
   label: string;
   onPress: () => void;
@@ -1751,11 +1161,14 @@ function HeaderAction({
       accessibilityHint={accessibilityHint}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
+      accessibilityState={{ disabled: Boolean(disabled) }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.headerAction,
         attention && styles.headerActionAttention,
         emphasized && styles.headerActionEmphasized,
+        disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
@@ -1787,110 +1200,12 @@ function SmallButton({ label, onPress }: { label: string; onPress: () => void })
   );
 }
 
-function OptionPicker({
-  label,
-  loading,
-  onSelect,
-  options,
-  selectedKey,
-  selectedLabel,
-}: {
-  label: string;
-  loading: boolean;
-  onSelect: (key: string | undefined) => void;
-  options: { description: string; key: string; label: string }[];
-  selectedKey: string | undefined;
-  selectedLabel: string | undefined;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const normalizedSearch = search.trim().toLocaleLowerCase();
-  const visible = (
-    normalizedSearch
-      ? options.filter((option) =>
-          `${option.label}\n${option.description}`.toLocaleLowerCase().includes(normalizedSearch),
-        )
-      : options
-  ).slice(0, 50);
-
-  return (
-    <View style={styles.optionPicker}>
-      <View style={styles.sectionHeading}>
-        <View style={styles.headingCopy}>
-          <Text style={styles.contextLabel}>{label}</Text>
-          <Text style={styles.pickerTitle}>{selectedLabel ?? "Server default"}</Text>
-        </View>
-        <SmallButton label={open ? "Close" : "Choose"} onPress={() => setOpen((value) => !value)} />
-      </View>
-      {open ? (
-        <View style={styles.optionList}>
-          <TextInput
-            accessibilityLabel={`Filter ${label.toLocaleLowerCase()} choices`}
-            autoCapitalize="none"
-            autoCorrect={false}
-            keyboardAppearance="dark"
-            onChangeText={setSearch}
-            placeholder={`Filter ${label.toLocaleLowerCase()}`}
-            placeholderTextColor={palette.dim}
-            style={styles.input}
-            value={search}
-          />
-          <Pressable
-            accessibilityRole="radio"
-            accessibilityState={{ checked: selectedKey === undefined }}
-            onPress={() => {
-              onSelect(undefined);
-              setOpen(false);
-            }}
-            style={styles.pickerRow}
-          >
-            <Text style={styles.pickerTitle}>Server default</Text>
-          </Pressable>
-          {loading ? <ActivityIndicator color={palette.signal} /> : null}
-          {visible.map((option) => (
-            <Pressable
-              accessibilityRole="radio"
-              accessibilityState={{ checked: option.key === selectedKey }}
-              key={option.key}
-              onPress={() => {
-                onSelect(option.key);
-                setOpen(false);
-              }}
-              style={[styles.pickerRow, option.key === selectedKey && styles.pickerRowSelected]}
-            >
-              <Text style={styles.pickerTitle}>{option.label}</Text>
-              <Text numberOfLines={2} style={styles.pathText}>
-                {option.description}
-              </Text>
-            </Pressable>
-          ))}
-          {!loading && visible.length === 0 ? (
-            <Text style={styles.muted}>No matching choices.</Text>
-          ) : null}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
 function InlineError({ message }: { message: string }) {
   return (
     <Text accessibilityRole="alert" style={styles.error}>
       {message}
     </Text>
   );
-}
-
-function projectLabel(project: Project) {
-  return project.name?.trim() || basename(project.canonical) || project.id;
-}
-
-function basename(path: string) {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-}
-
-function modelKey(providerID: string, id: string) {
-  return `${providerID}\u0000${id}`;
 }
 
 function formatSessionTime(value: number) {
@@ -2051,6 +1366,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
   },
   deleteLabel: { color: palette.danger, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
+  disabled: { opacity: 0.45 },
   detailContent: {
     alignSelf: "center",
     maxWidth: 720,

@@ -18,12 +18,14 @@ import { palette, space, typeRamp, usesLargeTextLayout } from "../theme";
 export function ModalSheet({
   children,
   onClose,
+  scrollable = true,
   subtitle,
   title,
   visible,
 }: {
   children: ReactNode;
   onClose: () => void;
+  scrollable?: boolean;
   subtitle?: string;
   title: string;
   visible: boolean;
@@ -87,13 +89,17 @@ export function ModalSheet({
               </Text>
             </Pressable>
           </View>
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-            keyboardShouldPersistTaps="handled"
-          >
-            {children}
-          </ScrollView>
+          {scrollable ? (
+            <ScrollView
+              contentContainerStyle={styles.content}
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              keyboardShouldPersistTaps="handled"
+            >
+              {children}
+            </ScrollView>
+          ) : (
+            <View style={styles.fixedContent}>{children}</View>
+          )}
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
@@ -104,6 +110,7 @@ const styles = StyleSheet.create({
   closeButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.sm },
   closeLabel: { color: palette.signal, fontSize: 16, fontWeight: "700" },
   content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },
+  fixedContent: { flex: 1, gap: space.md, padding: space.lg, paddingBottom: space.xl },
   header: {
     alignItems: "center",
     borderBottomColor: palette.border,

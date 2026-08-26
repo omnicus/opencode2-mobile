@@ -148,10 +148,13 @@ test("selects a server agent and model variant", () => {
 
   fireEvent(screen.getByLabelText("Prompt"), "focus");
   fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  expect(screen.getByLabelText("Agent results").props.inverted).toBe(true);
+  fireEvent.changeText(screen.getByLabelText("Search agents"), "build");
   fireEvent.press(screen.getByRole("button", { name: "Build" }));
   expect(onAgentChange).toHaveBeenCalledWith("build");
 
   fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
+  expect(screen.getByLabelText("Model results").props.inverted).toBe(true);
   fireEvent.press(screen.getByRole("button", { name: /Model One \/ deep/ }));
   expect(onModelChange).toHaveBeenCalledWith({
     id: "model-1",

@@ -7,11 +7,11 @@ import type {
 type Project = ProjectListOutput[number];
 
 export function needsComposerDockMeasurement(
-  measuredWindowHeight: number | undefined,
-  windowHeight: number,
+  measuredScreenHeight: number | undefined,
+  screenHeight: number,
   keyboardVisible: boolean,
 ) {
-  return !keyboardVisible && measuredWindowHeight !== windowHeight;
+  return !keyboardVisible && measuredScreenHeight !== screenHeight;
 }
 
 export function getComposerDockKeyboardOffset(

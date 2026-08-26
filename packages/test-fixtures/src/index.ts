@@ -1,5 +1,6 @@
 export type FakeOpenCodeApiOptions = {
   agents?: unknown[];
+  configEntries?: unknown[];
   eventFrame?: string;
   failures?: Record<string, { body: unknown; status: number }>;
   forms?: unknown[];
@@ -98,6 +99,9 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     }
     if (url.pathname === "/api/agent") {
       return json({ location: resolvedLocation(options, url), data: options.agents ?? [] });
+    }
+    if (url.pathname === "/api/config") {
+      return json(options.configEntries ?? []);
     }
     if (url.pathname === "/api/model") {
       return json({ location: resolvedLocation(options, url), data: options.models ?? [] });

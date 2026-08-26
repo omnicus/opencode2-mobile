@@ -191,6 +191,33 @@ export async function listOpenCodeAgents(
   return output;
 }
 
+export async function getDefaultOpenCodeAgent(
+  client: OpenCodeClient,
+  location: LocationRef,
+  options?: OpenCodeRequestOptions,
+) {
+  const entries = await client.config.get({ location: locationInput(location) }, options);
+  if (!Array.isArray(entries)) throw new Error("MALFORMED_CONFIG_LIST");
+  let defaultAgent: string | undefined;
+  for (const entry of entries) {
+    if (
+      !isRecord(entry) ||
+      !["agents", "claude", "directory", "document"].includes(String(entry.type))
+    ) {
+      throw new Error("MALFORMED_CONFIG_LIST");
+    }
+    if (entry.type !== "document") continue;
+    if (!isRecord(entry.info)) throw new Error("MALFORMED_CONFIG_LIST");
+    const candidate = entry.info.default_agent;
+    if (candidate === undefined) continue;
+    if (typeof candidate !== "string" || !candidate.trim()) {
+      throw new Error("MALFORMED_CONFIG_LIST");
+    }
+    defaultAgent = candidate;
+  }
+  return defaultAgent ?? null;
+}
+
 export async function listOpenCodeModels(
   client: OpenCodeClient,
   location: LocationRef,

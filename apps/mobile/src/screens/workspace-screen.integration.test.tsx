@@ -391,10 +391,12 @@ test("keeps session-list chrome stable during background location updates", asyn
   queryClient.clear();
 });
 
-test("uses one location picker and keeps the phone session header compact", async () => {
+test("opens project selection before creating a session", async () => {
+  const navigation = { navigate: jest.fn() };
+  mockWorkspaceRefetch.mockClear();
   const queryClient = new QueryClient({
     defaultOptions: {
-      mutations: { networkMode: "always" },
+      mutations: { gcTime: Infinity, networkMode: "always" },
       queries: { gcTime: Infinity, retry: false },
     },
   });
@@ -402,7 +404,7 @@ test("uses one location picker and keeps the phone session header compact", asyn
     <QueryClientProvider client={queryClient}>
       <WorkspaceSelectionProvider>
         <WorkspaceScreen
-          navigation={{ navigate: jest.fn() } as never}
+          navigation={navigation as never}
           route={{ key: "workspace", name: "Workspace" } as never}
         />
       </WorkspaceSelectionProvider>
@@ -417,17 +419,11 @@ test("uses one location picker and keeps the phone session header compact", asyn
   expect(screen.getByText("Recent")).toBeOnTheScreen();
   expect(screen.queryByText("Succeeded")).toBeNull();
 
-  fireEvent.press(screen.getByRole("button", { name: "New" }));
-  expect(await screen.findByRole("header", { name: "New session" })).toBeOnTheScreen();
-  fireEvent.changeText(screen.getByLabelText("Session title optional"), "Fix the session list");
-  expect(screen.getByRole("button", { name: "Create session" })).toBeEnabled();
-  fireEvent.press(screen.getByLabelText("Change new session location"));
-  expect(await screen.findByRole("header", { name: "Session location" })).toBeOnTheScreen();
-  expect(screen.queryByText("Inbox projects")).toBeNull();
-  expect(screen.getByText("Followed projects")).toBeOnTheScreen();
-  expect(screen.queryByRole("header", { name: "New session" })).toBeNull();
-  fireEvent.press(screen.getByLabelText("Close Session location"));
-  expect(await screen.findByRole("header", { name: "New session" })).toBeOnTheScreen();
+  const newButton = screen.getByRole("button", { name: "New" });
+  expect(newButton).toBeEnabled();
+  fireEvent.press(newButton);
+  expect(navigation.navigate).toHaveBeenCalledWith("NewSession");
+  expect(mockWorkspaceRefetch).not.toHaveBeenCalled();
 
   view.unmount();
   queryClient.clear();
@@ -503,8 +499,10 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   await expect(mockListMessages.mock.results.at(-1)?.value).resolves.toMatchObject({
     data: expect.any(Array),
   });
-  await screen.findByRole("header", { name: "Transcript session" });
   await screen.findByText("Current question");
+  expect(screen.queryByRole("header", { name: "Transcript session" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "DELETE SESSION" })).toBeNull();
+  expect(screen.queryByLabelText("Transcript controls")).toBeNull();
   expect(screen.getByText("Newest answer")).toBeOnTheScreen();
   expect(screen.getByText("note.txt")).toBeOnTheScreen();
   expect(screen.getByText("Private reasoning")).toBeOnTheScreen();
@@ -532,13 +530,16 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
     },
   });
   const liveEdgeEvent = scrollEvent(0);
+  const justAwayFromLiveEdge = scrollEvent(3);
   fireEvent(transcript, "scrollBeginDrag", liveEdgeEvent);
-  fireEvent.scroll(transcript, scrollEvent(120));
+  fireEvent.scroll(transcript, justAwayFromLiveEdge);
+  fireEvent(transcript, "momentumScrollEnd", justAwayFromLiveEdge);
   expect(screen.getByRole("button", { name: "Scroll to latest" })).toHaveStyle({
     position: "relative",
   });
   expect(screen.getByText("Latest").props.dynamicTypeRamp).toBe("footnote");
 
+  fireEvent(transcript, "scrollBeginDrag", justAwayFromLiveEdge);
   fireEvent.scroll(transcript, liveEdgeEvent);
   expect(screen.getByRole("button", { name: "Scroll to latest" })).toBeOnTheScreen();
   fireEvent(transcript, "momentumScrollEnd", liveEdgeEvent);
@@ -548,7 +549,8 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
 
   fireEvent(transcript, "scrollBeginDrag", liveEdgeEvent);
-  fireEvent.scroll(transcript, scrollEvent(120));
+  fireEvent.scroll(transcript, justAwayFromLiveEdge);
+  fireEvent(transcript, "momentumScrollEnd", justAwayFromLiveEdge);
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_200);
   expect(scrollToOffset).not.toHaveBeenCalled();
@@ -623,8 +625,7 @@ test("shows running background subagents and opens their child sessions", async 
     </QueryClientProvider>,
   );
 
-  expect(await screen.findByText("1 background subagent running")).toBeOnTheScreen();
-  expect(screen.getByText("Inspect event handling")).toBeOnTheScreen();
+  expect(await screen.findByText("Inspect event handling")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Open child" }));
   expect(push).toHaveBeenCalledWith("Session", {
     connectionId: "connection-1",
@@ -760,7 +761,6 @@ test("remeasures the transcript when the system font scale changes", async () =>
   try {
     await screen.findByText("Newest answer");
     expect(screen.UNSAFE_getByType(FlatList).props.extraData).toBe(defaultFontScale);
-    expect(screen.getByLabelText("Transcript controls")).toHaveStyle({ flexDirection: "row" });
     expect(screen.getByRole("button", { name: /Thought/ })).toHaveStyle({
       flexDirection: "row",
     });
@@ -797,18 +797,12 @@ test("remeasures the transcript when the system font scale changes", async () =>
     });
 
     expect(screen.UNSAFE_getByType(FlatList).props.extraData).toBe(accessibilityFontScale);
-    expect(screen.getByLabelText("Transcript controls")).toHaveStyle({
-      flexDirection: "column",
-    });
     expect(screen.getByRole("button", { name: /Thought/ })).toHaveStyle({
       flexDirection: "column",
     });
     expect(screen.queryByText("Detailed reasoning\nSecond step")).toBeNull();
     expect(screen.getByText("Test server").props.numberOfLines).toBeUndefined();
     expect(screen.getByText("Test server")).toHaveStyle({ flex: 0, width: "100%" });
-    expect(
-      screen.getByRole("header", { name: "Transcript session" }).props.maxFontSizeMultiplier,
-    ).toBe(1.4);
 
     const awayFromLiveEdge = {
       nativeEvent: {
