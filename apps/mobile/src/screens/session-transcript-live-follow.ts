@@ -22,6 +22,6 @@ export function resolveTranscriptLiveFollow(current: boolean, event: TranscriptL
       return event.userScrollSessionActive ? event.isAtLiveEdge : current;
     case "scroll":
       if (event.userScrollSessionActive) return false;
-      return event.isAtLiveEdge ? true : current;
+      return current;
   }
 }

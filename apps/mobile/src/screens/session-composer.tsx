@@ -1,6 +1,16 @@
 import type { AgentInfo, ModelInfo, ModelRef } from "@opencode2-mobile/opencode-adapter";
-import { useDeferredValue, useRef, useState } from "react";
-import { Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+  FlatList,
+  Keyboard,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
 import { palette, radius, space, typeRamp } from "../theme";
@@ -17,6 +27,7 @@ export function SessionComposer({
   draft,
   editable = true,
   error,
+  focusOnMount,
   largeText,
   model,
   models,
@@ -34,6 +45,7 @@ export function SessionComposer({
   draft: string;
   editable?: boolean | undefined;
   error?: string | undefined;
+  focusOnMount?: boolean | undefined;
   largeText: boolean;
   model?: ModelRef | undefined;
   models: ModelInfo[];
@@ -45,10 +57,12 @@ export function SessionComposer({
 }) {
   const inputRef = useRef<TextInput>(null);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
+  const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
   const deferredModelSearch = useDeferredValue(modelSearch.trim().toLocaleLowerCase());
+  const deferredAgentSearch = useDeferredValue(agentSearch.trim().toLocaleLowerCase());
   const selectedAgent = agents.find((candidate) => candidate.id === agent);
   const selectedModel = models.find(
     (candidate) => candidate.id === model?.id && candidate.providerID === model.providerID,
@@ -60,11 +74,24 @@ export function SessionComposer({
           .includes(deferredModelSearch),
       )
     : models;
+  const visibleAgents = deferredAgentSearch
+    ? agents.filter((candidate) =>
+        `${candidate.name}\n${candidate.id}\n${candidate.description ?? ""}`
+          .toLocaleLowerCase()
+          .includes(deferredAgentSearch),
+      )
+    : agents;
   const expanded = largeText || focused || agentPickerOpen || modelPickerOpen;
   const canSubmit =
     !disabled &&
     draft.trim().length > 0 &&
     (!active || delivery === "queue" || delivery === "steer");
+
+  useEffect(() => {
+    if (!focusOnMount || !editable) return;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editable, focusOnMount]);
 
   function submit() {
     if (!canSubmit) return;
@@ -84,6 +111,7 @@ export function SessionComposer({
           <TextInput
             accessibilityHint="Enter inserts a new line. Use the Send button to submit."
             accessibilityLabel="Prompt"
+            autoFocus={focusOnMount}
             editable={editable}
             maxLength={maximumDraftLength}
             multiline
@@ -143,7 +171,10 @@ export function SessionComposer({
               />
               <SelectorButton
                 label={selectedAgent?.name ?? agent ?? "Choose agent"}
-                onPress={() => setAgentPickerOpen(true)}
+                onPress={() => {
+                  setAgentSearch("");
+                  setAgentPickerOpen(true);
+                }}
                 prefix="Agent"
               />
               {draft.length > 0 ? (
@@ -170,30 +201,101 @@ export function SessionComposer({
 
       <ModalSheet
         onClose={() => setAgentPickerOpen(false)}
+        scrollable={false}
         subtitle="Primary agents available at this session location"
         title="Choose agent"
         visible={agentPickerOpen}
       >
-        {agents.map((candidate) => (
-          <OptionButton
-            {...(candidate.description ? { description: candidate.description } : {})}
-            key={candidate.id}
-            label={candidate.name}
-            onPress={() => {
-              onAgentChange(candidate.id);
-              setAgentPickerOpen(false);
-            }}
-            selected={candidate.id === agent}
-          />
-        ))}
+        <FlatList
+          accessibilityLabel="Agent results"
+          contentContainerStyle={styles.pickerListContent}
+          data={visibleAgents}
+          inverted
+          ItemSeparatorComponent={OptionSeparator}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="always"
+          keyExtractor={(candidate) => candidate.id}
+          ListEmptyComponent={<EmptyResults label="No matching agents" />}
+          renderItem={({ item: candidate }) => (
+            <OptionButton
+              {...(candidate.description ? { description: candidate.description } : {})}
+              label={candidate.name}
+              onPress={() => {
+                onAgentChange(candidate.id);
+                setAgentPickerOpen(false);
+              }}
+              selected={candidate.id === agent}
+            />
+          )}
+          style={styles.pickerList}
+        />
+        <TextInput
+          accessibilityLabel="Search agents"
+          onChangeText={setAgentSearch}
+          placeholder="Search agents"
+          placeholderTextColor={palette.dim}
+          style={styles.searchInput}
+          value={agentSearch}
+        />
       </ModalSheet>
 
       <ModalSheet
         onClose={() => setModelPickerOpen(false)}
+        scrollable={false}
         subtitle="Enabled models and variants from the server catalog"
         title="Choose model"
         visible={modelPickerOpen}
       >
+        <FlatList
+          accessibilityLabel="Model results"
+          contentContainerStyle={styles.pickerListContent}
+          data={visibleModels}
+          inverted
+          ItemSeparatorComponent={OptionSeparator}
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+          keyboardShouldPersistTaps="always"
+          keyExtractor={(candidate) => `${candidate.providerID}/${candidate.id}`}
+          ListEmptyComponent={<EmptyResults label="No matching models" />}
+          renderItem={({ item: candidate }) => (
+            <View style={styles.modelGroup}>
+              <OptionButton
+                description={candidate.providerID}
+                label={candidate.name}
+                onPress={() => {
+                  onModelChange({ id: candidate.id, providerID: candidate.providerID });
+                  setModelPickerOpen(false);
+                }}
+                selected={
+                  candidate.id === model?.id &&
+                  candidate.providerID === model.providerID &&
+                  model.variant === undefined
+                }
+              />
+              {candidate.variants.map((variant) => (
+                <OptionButton
+                  compact
+                  description={`${candidate.providerID} variant`}
+                  key={variant.id}
+                  label={`${candidate.name} / ${variant.id}`}
+                  onPress={() => {
+                    onModelChange({
+                      id: candidate.id,
+                      providerID: candidate.providerID,
+                      variant: variant.id,
+                    });
+                    setModelPickerOpen(false);
+                  }}
+                  selected={
+                    candidate.id === model?.id &&
+                    candidate.providerID === model.providerID &&
+                    variant.id === model.variant
+                  }
+                />
+              ))}
+            </View>
+          )}
+          style={styles.pickerList}
+        />
         <TextInput
           accessibilityLabel="Search models"
           onChangeText={setModelSearch}
@@ -202,46 +304,20 @@ export function SessionComposer({
           style={styles.searchInput}
           value={modelSearch}
         />
-        {visibleModels.map((candidate) => (
-          <View key={`${candidate.providerID}/${candidate.id}`} style={styles.modelGroup}>
-            <OptionButton
-              description={candidate.providerID}
-              label={candidate.name}
-              onPress={() => {
-                onModelChange({ id: candidate.id, providerID: candidate.providerID });
-                setModelPickerOpen(false);
-              }}
-              selected={
-                candidate.id === model?.id &&
-                candidate.providerID === model.providerID &&
-                model.variant === undefined
-              }
-            />
-            {candidate.variants.map((variant) => (
-              <OptionButton
-                compact
-                description={`${candidate.providerID} variant`}
-                key={variant.id}
-                label={`${candidate.name} / ${variant.id}`}
-                onPress={() => {
-                  onModelChange({
-                    id: candidate.id,
-                    providerID: candidate.providerID,
-                    variant: variant.id,
-                  });
-                  setModelPickerOpen(false);
-                }}
-                selected={
-                  candidate.id === model?.id &&
-                  candidate.providerID === model.providerID &&
-                  variant.id === model.variant
-                }
-              />
-            ))}
-          </View>
-        ))}
       </ModalSheet>
     </View>
+  );
+}
+
+function OptionSeparator() {
+  return <View style={styles.optionSeparator} />;
+}
+
+function EmptyResults({ label }: { label: string }) {
+  return (
+    <Text dynamicTypeRamp={typeRamp.control} style={styles.emptyResults}>
+      {label}
+    </Text>
   );
 }
 
@@ -396,6 +472,7 @@ const styles = StyleSheet.create({
   deliveryRow: { flexDirection: "row", gap: space.xs },
   editorRow: { alignItems: "center", flexDirection: "row", minWidth: 0 },
   editorRowExpanded: { alignItems: "stretch" },
+  emptyResults: { color: palette.dim, paddingVertical: space.lg, textAlign: "center" },
   error: { color: palette.danger, fontSize: 13, lineHeight: 18 },
   input: {
     color: palette.ink,
@@ -423,6 +500,9 @@ const styles = StyleSheet.create({
   optionDescription: { color: palette.dim, fontSize: 12, marginTop: 3 },
   optionLabel: { color: palette.ink, fontSize: 15, fontWeight: "700" },
   optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
+  optionSeparator: { height: space.xs },
+  pickerList: { flex: 1 },
+  pickerListContent: { flexGrow: 1, justifyContent: "flex-start" },
   pressed: { opacity: 0.62 },
   searchInput: {
     borderColor: palette.border,

@@ -320,5 +320,9 @@ function preserveSectionOrder(next: FollowedInboxRow[], previous: FollowedInboxR
     nextByID.delete(row.session.id);
     return [current];
   });
-  return [...stable, ...next.filter((row) => nextByID.has(row.session.id))];
+  for (const row of next.filter((candidate) => nextByID.has(candidate.session.id))) {
+    const index = stable.findIndex((current) => compareSessions(row.session, current.session) < 0);
+    stable.splice(index < 0 ? stable.length : index, 0, row);
+  }
+  return stable;
 }

@@ -7,7 +7,7 @@ import {
   projectDirectories,
 } from "./workspace-screen-model";
 
-test("measures the keyboard dock once per window size", () => {
+test("measures the keyboard dock once per physical screen size", () => {
   expect(needsComposerDockMeasurement(undefined, 2_000, false)).toBe(true);
   expect(needsComposerDockMeasurement(2_000, 2_000, false)).toBe(false);
   expect(needsComposerDockMeasurement(2_000, 1_000, false)).toBe(true);

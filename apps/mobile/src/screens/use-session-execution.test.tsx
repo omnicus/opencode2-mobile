@@ -17,7 +17,7 @@ import type { ReactNode } from "react";
 
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import type { PromptAdmission } from "./prompt-admission-model";
-import { useSessionExecution } from "./use-session-execution";
+import { resolveSessionAgent, useSessionExecution } from "./use-session-execution";
 
 const mockLocation = { directory: "/workspace" } satisfies LocationRef;
 const mockAdmissionDb = {
@@ -55,6 +55,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   backgroundOpenCodeSession: (...args: unknown[]) => mockBackground(...args),
   cancelOpenCodeSessionInboxItem: (...args: unknown[]) => mockCancel(...args),
   classifyOpenCodeError: (error: unknown) => mockClassifyError(error),
+  getDefaultOpenCodeAgent: jest.fn(async () => null),
   getDefaultOpenCodeModel: jest.fn(async () => ({ data: null, location: mockLocation })),
   getOpenCodeSessionMessage: (...args: unknown[]) => mockGetMessage(...args),
   interruptOpenCodeSession: (...args: unknown[]) => mockInterrupt(...args),
@@ -106,6 +107,13 @@ afterEach(() => {
 
 afterAll(() => {
   notifyManager.setNotifyFunction((callback) => callback());
+});
+
+test("resolves session, configured, and build agent defaults in priority order", () => {
+  expect(resolveSessionAgent("review", "plan", ["build", "plan", "review"])).toBe("review");
+  expect(resolveSessionAgent(undefined, "plan", ["build", "plan"])).toBe("plan");
+  expect(resolveSessionAgent(undefined, "missing", ["review", "build"])).toBe("build");
+  expect(resolveSessionAgent(undefined, undefined, ["review"])).toBe("review");
 });
 
 test("admits only once when the send control is tapped twice before rerender", async () => {

@@ -27,6 +27,10 @@ jest.mock("../screens/followed-projects-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
   return { FollowedProjectsScreen: () => <Text>Followed projects screen</Text> };
 });
+jest.mock("../screens/new-session-screen", () => {
+  const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { NewSessionScreen: () => <Text>New session screen</Text> };
+});
 jest.mock("./workspace-header-actions", () => ({ WorkspaceHeaderActions: () => null }));
 jest.mock("../screens/workspace-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
@@ -34,10 +38,6 @@ jest.mock("../screens/workspace-screen", () => {
     SessionScreen: () => <Text>Session screen</Text>,
     WorkspaceScreen: () => <Text>Workspace shell</Text>,
   };
-});
-jest.mock("../screens/followed-projects-screen", () => {
-  const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
-  return { FollowedProjectsScreen: () => <Text>Followed projects screen</Text> };
 });
 jest.mock("../screens/connection-screen", () => {
   const { Pressable, Text } = jest.requireActual<typeof import("react-native")>("react-native");
@@ -118,6 +118,11 @@ test("pushes session detail and presents workspace management routes over it", a
       sessionID: "ses_test",
     }),
   );
+  expect(await screen.findByText("Session screen")).toBeOnTheScreen();
+
+  act(() => navigation.navigate("NewSession"));
+  expect(await screen.findByText("New session screen")).toBeOnTheScreen();
+  act(() => navigation.goBack());
   expect(await screen.findByText("Session screen")).toBeOnTheScreen();
 
   act(() => navigation.navigate("Pending"));

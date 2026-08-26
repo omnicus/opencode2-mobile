@@ -23,6 +23,7 @@ import {
 } from "../screens/app-shell";
 import { ConnectionScreen } from "../screens/connection-screen";
 import { FollowedProjectsScreen } from "../screens/followed-projects-screen";
+import { NewSessionScreen } from "../screens/new-session-screen";
 import { NotificationPairingScreen } from "../screens/notification-pairing-screen";
 import { SessionScreen, WorkspaceScreen } from "../screens/workspace-screen";
 import { palette } from "../theme";
@@ -31,8 +32,14 @@ import { WorkspaceHeaderActions } from "./workspace-header-actions";
 export type RootStackParamList = {
   Connections: undefined;
   FollowedProjects: undefined;
+  NewSession: undefined;
   Pending: undefined;
-  Session: { connectionId: string; location: LocationRef; sessionID: string };
+  Session: {
+    connectionId: string;
+    focusComposer?: boolean;
+    location: LocationRef;
+    sessionID: string;
+  };
   Settings: undefined;
   Workspace: undefined;
 };
@@ -140,6 +147,11 @@ export function RootNavigation() {
               }),
           title: "Session",
         })}
+      />
+      <Stack.Screen
+        component={NewSessionScreen}
+        name="NewSession"
+        options={{ headerShown: false, presentation: "modal", title: "New session" }}
       />
       <Stack.Screen
         component={PendingInteractionsScreen}
