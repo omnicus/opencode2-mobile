@@ -35,6 +35,7 @@ import {
   View,
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
+import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -802,6 +803,58 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     );
   }
 
+  const composerDockContent = (
+    <View onLayout={measureComposerContent}>
+      <SessionExecutionPanel
+        active={execution.active}
+        admissions={execution.admissions}
+        busyAction={execution.busyAction}
+        formRequests={
+          sessionForms.length > 0 ? (
+            <FormRequestList
+              client={client}
+              connectionId={connectionId}
+              formLocations={workspaceSelection.formLocations}
+              forms={sessionForms}
+              location={location}
+            />
+          ) : undefined
+        }
+        inbox={execution.inbox}
+        onAllowRetry={execution.allowRetry}
+        onCancelInbox={execution.cancelInbox}
+        onCheckAdmission={execution.reconcileAdmission}
+        onInterrupt={execution.interrupt}
+        onQueueInbox={execution.queueInbox}
+        onReplyPermission={workspaceSelection.replyPermission}
+        onSteerInbox={execution.steerInbox}
+        permissionReplyError={workspaceSelection.permissionReplyError}
+        permissions={sessionPermissions}
+        projectedMessageIds={execution.projectedMessageIds}
+        replyingPermissionId={workspaceSelection.replyingPermissionId}
+      />
+      <SessionComposer
+        active={execution.active}
+        agent={execution.selectedAgent}
+        agents={execution.agents}
+        delivery={execution.delivery}
+        disabled={execution.submitDisabled || !draft.loaded}
+        draft={draft.draft}
+        editable={draft.loaded}
+        error={execution.error ?? draft.error}
+        focusOnMount={focusComposer}
+        largeText={largeText}
+        model={execution.selectedModel}
+        models={execution.models}
+        onAgentChange={execution.switchAgent}
+        onDeliveryChange={execution.setDelivery}
+        onDraftChange={draft.setDraft}
+        onModelChange={execution.switchModel}
+        onSubmit={() => execution.submit(draft.draft)}
+      />
+    </View>
+  );
+
   return (
     <ShellFrame
       active="Workspace"
@@ -899,62 +952,23 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           </Pressable>
         ) : null}
         <View pointerEvents="none" style={{ height: composerDockHeight }} />
-        <View
-          accessibilityLabel="Keyboard composer dock"
-          onLayout={measureComposerDock}
-          ref={composerDockRef}
-          style={[styles.composerDock, { bottom: composerKeyboardOffset }]}
-        >
-          <View onLayout={measureComposerContent}>
-            <SessionExecutionPanel
-              active={execution.active}
-              admissions={execution.admissions}
-              busyAction={execution.busyAction}
-              formRequests={
-                sessionForms.length > 0 ? (
-                  <FormRequestList
-                    client={client}
-                    connectionId={connectionId}
-                    formLocations={workspaceSelection.formLocations}
-                    forms={sessionForms}
-                    location={location}
-                  />
-                ) : undefined
-              }
-              inbox={execution.inbox}
-              onAllowRetry={execution.allowRetry}
-              onCancelInbox={execution.cancelInbox}
-              onCheckAdmission={execution.reconcileAdmission}
-              onInterrupt={execution.interrupt}
-              onQueueInbox={execution.queueInbox}
-              onReplyPermission={workspaceSelection.replyPermission}
-              onSteerInbox={execution.steerInbox}
-              permissionReplyError={workspaceSelection.permissionReplyError}
-              permissions={sessionPermissions}
-              projectedMessageIds={execution.projectedMessageIds}
-              replyingPermissionId={workspaceSelection.replyingPermissionId}
-            />
-            <SessionComposer
-              active={execution.active}
-              agent={execution.selectedAgent}
-              agents={execution.agents}
-              delivery={execution.delivery}
-              disabled={execution.submitDisabled || !draft.loaded}
-              draft={draft.draft}
-              editable={draft.loaded}
-              error={execution.error ?? draft.error}
-              focusOnMount={focusComposer}
-              largeText={largeText}
-              model={execution.selectedModel}
-              models={execution.models}
-              onAgentChange={execution.switchAgent}
-              onDeliveryChange={execution.setDelivery}
-              onDraftChange={draft.setDraft}
-              onModelChange={execution.switchModel}
-              onSubmit={() => execution.submit(draft.draft)}
-            />
+        {Platform.OS === "android" ? (
+          <KeyboardStickyView
+            accessibilityLabel="Keyboard composer dock"
+            style={styles.composerDock}
+          >
+            {composerDockContent}
+          </KeyboardStickyView>
+        ) : (
+          <View
+            accessibilityLabel="Keyboard composer dock"
+            onLayout={measureComposerDock}
+            ref={composerDockRef}
+            style={[styles.composerDock, { bottom: composerKeyboardOffset }]}
+          >
+            {composerDockContent}
           </View>
-        </View>
+        )}
       </View>
     </ShellFrame>
   );

@@ -580,3 +580,27 @@ The signed iPhone applied the preview update and showed no Live or session-list
 flicker during the controlled command checks. The trace and report retained no
 command text, address, credential, path, prompt, identifier, event payload, file
 content, or server content.
+
+## 2026-08-27: physical Android 17 composer probe
+
+### Stack
+
+- Mobile runtime: signed EAS preview build using Hermes
+- Device: Pixel 8 Pro running Android 17
+- Expo SDK: 54.0.37
+- React Native: 0.81.5
+- Keyboard controller: 1.18.5
+
+### Results
+
+| Probe | Result |
+| --- | --- |
+| Install and launch preview version 0.1.4, build 6 | Pass |
+| Focus the session composer and show the software keyboard | Pass |
+| Keep the composer visible directly above the keyboard | Pass |
+
+The prior build relied on activity resize and hid the composer behind the
+keyboard on this device. The corrected build keeps the transcript container
+fixed and moves only the composer dock from native keyboard inset animation
+frames. The probe recorded no address, credential, identifier, path, prompt, or
+server content.

@@ -2,8 +2,9 @@ import { NavigationContainer, type Theme } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SQLiteProvider } from "expo-sqlite";
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, Share, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { applicationName } from "./application-name";
@@ -48,28 +49,43 @@ const navigationTheme: Theme = {
 };
 
 export default function App() {
+  const application = (
+    <SafeAreaProvider>
+      <SQLiteProvider databaseName={mobileDatabaseName} onInit={migrateMobileDatabase}>
+        <AppLockProvider>
+          <QueryClientProvider client={queryClient}>
+            <ConnectionsProvider>
+              <ConnectionRuntimeProvider>
+                <FollowedProjectsProvider>
+                  <NotificationRoutingProvider>
+                    <NavigationContainer ref={rootNavigationRef} theme={navigationTheme}>
+                      <RootNavigation />
+                    </NavigationContainer>
+                  </NotificationRoutingProvider>
+                </FollowedProjectsProvider>
+              </ConnectionRuntimeProvider>
+            </ConnectionsProvider>
+          </QueryClientProvider>
+        </AppLockProvider>
+      </SQLiteProvider>
+    </SafeAreaProvider>
+  );
+
   return (
     <RootErrorBoundary>
       <GestureHandlerRootView style={styles.appRoot}>
-        <SafeAreaProvider>
-          <SQLiteProvider databaseName={mobileDatabaseName} onInit={migrateMobileDatabase}>
-            <AppLockProvider>
-              <QueryClientProvider client={queryClient}>
-                <ConnectionsProvider>
-                  <ConnectionRuntimeProvider>
-                    <FollowedProjectsProvider>
-                      <NotificationRoutingProvider>
-                        <NavigationContainer ref={rootNavigationRef} theme={navigationTheme}>
-                          <RootNavigation />
-                        </NavigationContainer>
-                      </NotificationRoutingProvider>
-                    </FollowedProjectsProvider>
-                  </ConnectionRuntimeProvider>
-                </ConnectionsProvider>
-              </QueryClientProvider>
-            </AppLockProvider>
-          </SQLiteProvider>
-        </SafeAreaProvider>
+        {Platform.OS === "android" ? (
+          <KeyboardProvider
+            navigationBarTranslucent
+            preload={false}
+            preserveEdgeToEdge
+            statusBarTranslucent
+          >
+            {application}
+          </KeyboardProvider>
+        ) : (
+          application
+        )}
       </GestureHandlerRootView>
     </RootErrorBoundary>
   );
