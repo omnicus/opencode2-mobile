@@ -13,6 +13,7 @@ jest.mock("../security/draft-key-store", () => ({
   readConnectionDraftKey: async () => mockDraftKey,
 }));
 
+import { encryptSessionDraft } from "./draft-crypto";
 import {
   cleanupPendingDraftKeyDeletions,
   deleteSessionDraft,
@@ -39,14 +40,21 @@ test("writes only encrypted draft bytes to SQLite and reads them back", async ()
   await writeSessionDraft(writeDb, {
     connectionId: "connection-1",
     content: "private draft",
+    mentions: [
+      {
+        id: "release",
+        mention: { end: 8, start: 0, text: "@release" },
+        type: "skill",
+      },
+    ],
     revision: 7,
     sessionId: "session-1",
   });
 
   expect(JSON.stringify(runAsync.mock.calls)).not.toContain("private draft");
   const parameters = runAsync.mock.calls[0];
-  const nonce = parameters?.[5];
-  const ciphertext = parameters?.[6];
+  const nonce = parameters?.[6];
+  const ciphertext = parameters?.[7];
   expect(nonce).toBeInstanceOf(Uint8Array);
   expect(ciphertext).toBeInstanceOf(Uint8Array);
   expect(String(parameters?.[0])).toContain("excluded.revision >= session_drafts.revision");
@@ -56,6 +64,7 @@ test("writes only encrypted draft bytes to SQLite and reads them back", async ()
     getFirstAsync: jest.fn(async () => ({
       ciphertext,
       nonce,
+      payload_version: 2,
       revision: 7,
       schema_version: 1,
       updated_at_ms: 42,
@@ -63,7 +72,36 @@ test("writes only encrypted draft bytes to SQLite and reads them back", async ()
   } as unknown as SQLiteDatabase;
   await expect(readSessionDraft(readDb, "connection-1", "session-1")).resolves.toEqual({
     content: "private draft",
+    mentions: [
+      {
+        id: "release",
+        mention: { end: 8, start: 0, text: "@release" },
+        type: "skill",
+      },
+    ],
     revision: 7,
+    updatedAtMs: 42,
+  });
+});
+
+test("reads pre-mention encrypted drafts as plain text", async () => {
+  const legacyDraft = 'opencode-mobile-draft:2\n{"content":"still plain text"}';
+  const encrypted = encryptSessionDraft(legacyDraft, mockDraftKey, "connection-1", "session-1");
+  const db = {
+    getFirstAsync: jest.fn(async () => ({
+      ciphertext: encrypted.ciphertext,
+      nonce: encrypted.nonce,
+      payload_version: 1,
+      revision: 3,
+      schema_version: 1,
+      updated_at_ms: 42,
+    })),
+  } as unknown as SQLiteDatabase;
+
+  await expect(readSessionDraft(db, "connection-1", "session-1")).resolves.toEqual({
+    content: legacyDraft,
+    mentions: [],
+    revision: 3,
     updatedAtMs: 42,
   });
 });

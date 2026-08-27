@@ -339,9 +339,11 @@ const messageReconciliationEventTypes = new Set<string>([
   "session.execution.interrupted",
   "session.compaction.ended",
   "session.compaction.failed",
+  "session.message.content.updated",
   "session.revert.staged",
   "session.revert.cleared",
   "session.revert.committed",
+  "session.step.streamed",
 ]);
 
 function addActiveSession(sessions: Record<string, SessionActive>, sessionId: string) {

@@ -1,5 +1,7 @@
 import {
+  type CommandInfo,
   type FileDiffInfo,
+  type FileSystemEntry,
   type FormAnswer,
   type FormState,
   type LocationGetOutput,
@@ -15,9 +17,10 @@ import {
   type SessionMessageInfo,
   type SessionMessagesResponse,
   type SessionsResponse,
+  type SkillInfo,
 } from "@opencode-ai/client";
 
-export const openCodeClientContractVersion = "0.0.0-beta-18050";
+export const openCodeClientContractVersion = "0.0.0-beta-18387";
 
 export type OpenCodeClientOptions = {
   authorization?: string;
@@ -150,6 +153,13 @@ export type OpenCodeSessionPromptOptions = Omit<
   delivery: SessionInboxDelivery;
   id: string;
 };
+type GeneratedSessionCommandInput = Parameters<OpenCodeClient["session"]["command"]>[0];
+export type OpenCodeSessionCommandOptions = Omit<
+  GeneratedSessionCommandInput,
+  "command" | "sessionID"
+> & {
+  command: string;
+};
 
 export async function getDefaultOpenCodeLocation(
   client: OpenCodeClient,
@@ -231,6 +241,19 @@ export async function listOpenCodeAgents(
   return output;
 }
 
+export async function listOpenCodeCommands(
+  client: OpenCodeClient,
+  location: LocationRef,
+  options?: OpenCodeRequestOptions,
+) {
+  const output = await client.command.list({ location: locationInput(location) }, options);
+  validateResolvedLocation(output.location);
+  if (!Array.isArray(output.data) || !output.data.every(isValidCommand)) {
+    throw new Error("MALFORMED_COMMAND_LIST");
+  }
+  return output;
+}
+
 export async function getDefaultOpenCodeAgent(
   client: OpenCodeClient,
   location: LocationRef,
@@ -267,6 +290,41 @@ export async function listOpenCodeModels(
   validateResolvedLocation(output.location);
   if (!Array.isArray(output.data) || !output.data.every(isValidModel)) {
     throw new Error("MALFORMED_MODEL_LIST");
+  }
+  return output;
+}
+
+export async function listOpenCodeSkills(
+  client: OpenCodeClient,
+  location: LocationRef,
+  options?: OpenCodeRequestOptions,
+) {
+  const output = await client.skill.list({ location: locationInput(location) }, options);
+  validateResolvedLocation(output.location);
+  if (!Array.isArray(output.data) || !output.data.every(isValidSkill)) {
+    throw new Error("MALFORMED_SKILL_LIST");
+  }
+  return output;
+}
+
+export async function findOpenCodeFiles(
+  client: OpenCodeClient,
+  location: LocationRef,
+  query: string,
+  options?: OpenCodeRequestOptions & { limit?: number },
+) {
+  const limit = Math.min(Math.max(options?.limit ?? 20, 1), 100);
+  const output = await client.file.find(
+    { limit, location: locationInput(location), query, type: "file" },
+    options?.signal ? { signal: options.signal } : undefined,
+  );
+  validateResolvedLocation(output.location);
+  if (
+    !Array.isArray(output.data) ||
+    output.data.length > limit ||
+    !output.data.every((entry) => isValidFileSystemEntry(entry) && entry.type === "file")
+  ) {
+    throw new Error("MALFORMED_FILE_FIND");
   }
   return output;
 }
@@ -442,6 +500,15 @@ export async function promptOpenCodeSession(
     throw new Error("MALFORMED_INBOX_ITEM");
   }
   return inbox;
+}
+
+export async function runOpenCodeSessionCommand(
+  client: OpenCodeClient,
+  sessionID: string,
+  input: OpenCodeSessionCommandOptions,
+  options?: OpenCodeRequestOptions,
+) {
+  await client.session.command({ ...input, sessionID }, options);
 }
 
 export async function listOpenCodeSessionInbox(
@@ -925,6 +992,37 @@ function isValidAgent(agent: unknown) {
   );
 }
 
+function isValidCommand(command: unknown): command is CommandInfo {
+  return (
+    isRecord(command) &&
+    typeof command.name === "string" &&
+    Boolean(command.name) &&
+    isOptionalString(command.description) &&
+    Object.keys(command).every((key) => key === "name" || key === "description")
+  );
+}
+
+function isValidFileSystemEntry(entry: unknown): entry is FileSystemEntry {
+  return (
+    isRecord(entry) &&
+    typeof entry.path === "string" &&
+    isSafeRelativeFilePath(entry.path) &&
+    (entry.type === "file" || entry.type === "directory")
+  );
+}
+
+function isSafeRelativeFilePath(path: string) {
+  const normalized = path.replaceAll("\\", "/");
+  return (
+    Boolean(normalized) &&
+    !normalized.startsWith("/") &&
+    !/^[A-Za-z]:\//.test(normalized) &&
+    normalized
+      .split("/")
+      .every((segment) => Boolean(segment) && segment !== "." && segment !== "..")
+  );
+}
+
 function isValidModel(model: unknown) {
   return (
     isRecord(model) &&
@@ -942,6 +1040,21 @@ function isValidModel(model: unknown) {
       model.status === "alpha" ||
       model.status === "beta" ||
       model.status === "deprecated")
+  );
+}
+
+function isValidSkill(skill: unknown): skill is SkillInfo {
+  return (
+    isRecord(skill) &&
+    typeof skill.id === "string" &&
+    Boolean(skill.id) &&
+    typeof skill.name === "string" &&
+    Boolean(skill.name) &&
+    isOptionalString(skill.description) &&
+    (skill.slash === undefined || typeof skill.slash === "boolean") &&
+    (skill.autoinvoke === undefined || typeof skill.autoinvoke === "boolean") &&
+    typeof skill.location === "string" &&
+    typeof skill.content === "string"
   );
 }
 
@@ -1164,7 +1277,7 @@ function assertSessionAndFormIds(sessionID: string, formID: string) {
 }
 
 function isValidFormOwner(value: unknown) {
-  // Beta 18050 temporarily uses "global" for MCP elicitations without a session owner.
+  // MCP elicitations can use "global" when no session owns the form.
   return typeof value === "string" && (value === "global" || /^ses/.test(value));
 }
 
@@ -1227,8 +1340,20 @@ export function classifyOpenCodeError(error: unknown) {
   ) {
     return "INVALID_REQUEST" as const;
   }
-  if (hasTagInCause(error, "SessionNotFoundError") || hasTagInCause(error, "FormNotFoundError")) {
+  if (
+    hasTagInCause(error, "SessionNotFoundError") ||
+    hasTagInCause(error, "ProjectNotFoundError") ||
+    hasTagInCause(error, "FormNotFoundError") ||
+    hasTagInCause(error, "CommandNotFoundError") ||
+    hasTagInCause(error, "SkillNotFoundError")
+  ) {
     return "NOT_FOUND" as const;
+  }
+  if (
+    hasTagInCause(error, "CommandEvaluationError") ||
+    hasTagInCause(error, "CommandExecutionError")
+  ) {
+    return "INVALID_REQUEST" as const;
   }
   if (hasTagInCause(error, "MessageNotFoundError")) return "MESSAGE_NOT_FOUND" as const;
   if (hasAbortCause(error)) return "TIMEOUT" as const;
@@ -1694,7 +1819,9 @@ export type OpenCodeClient = ReturnType<typeof createOpenCodeClient>;
 export type {
   AgentInfo,
   AgentListOutput,
+  CommandInfo,
   FileDiffInfo,
+  FileSystemEntry,
   FormAnswer,
   FormField,
   FormInfo,
@@ -1720,5 +1847,6 @@ export type {
   SessionMessageInfo,
   SessionMessagesResponse,
   SessionsResponse,
+  SkillInfo,
 } from "@opencode-ai/client";
 export type { OpenCodeEvent };

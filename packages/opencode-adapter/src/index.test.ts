@@ -11,6 +11,7 @@ import {
   createOpenCodeClient,
   createOpenCodeSession,
   createRedirectSafeOpenCodeFetch,
+  findOpenCodeFiles,
   getCurrentOpenCodeProject,
   getDefaultOpenCodeAgent,
   getDefaultOpenCodeLocation,
@@ -24,6 +25,7 @@ import {
   interruptOpenCodeSession,
   listActiveOpenCodeSessions,
   listOpenCodeAgents,
+  listOpenCodeCommands,
   listOpenCodeFormRequests,
   listOpenCodeMessages,
   listOpenCodeModels,
@@ -31,6 +33,7 @@ import {
   listOpenCodeProjectSessions,
   listOpenCodeSessionInbox,
   listOpenCodeSessions,
+  listOpenCodeSkills,
   normalizeOpenCodeBaseUrl,
   openEventStreamGeneration,
   probeEventStream,
@@ -42,6 +45,7 @@ import {
   renameOpenCodeSession,
   replyOpenCodeForm,
   replyOpenCodePermissionRequest,
+  runOpenCodeSessionCommand,
   startEventStreamProbe,
   steerOpenCodeSessionInboxItem,
   switchOpenCodeSessionAgent,
@@ -480,6 +484,155 @@ it("validates and forwards location-scoped agent and model choices", async () =>
   );
 });
 
+it("lists location-scoped commands and skills through the generated client", async () => {
+  const api = createFakeOpenCodeApi({
+    commands: [{ description: "Review changes", name: "review" }],
+    location: {
+      directory: "/workspace",
+      project: { canonical: "/workspace", directory: "/workspace", id: "project-1" },
+      workspaceID: "wrk_test",
+    },
+    skills: [
+      {
+        content: "Skill content",
+        id: "release",
+        location: "/workspace/.opencode/skills/release.md",
+        name: "Release",
+        slash: true,
+      },
+    ],
+  });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+  const location = { directory: "/workspace", workspaceID: "wrk_test" };
+
+  await expect(listOpenCodeCommands(client, location)).resolves.toMatchObject({
+    data: [{ name: "review" }],
+  });
+  await expect(listOpenCodeSkills(client, location)).resolves.toMatchObject({
+    data: [{ id: "release", slash: true }],
+  });
+  expect(api.requests.slice(-2).map((request) => request.query)).toEqual([
+    {
+      "location[directory]": ["/workspace"],
+      "location[workspace]": ["wrk_test"],
+    },
+    {
+      "location[directory]": ["/workspace"],
+      "location[workspace]": ["wrk_test"],
+    },
+  ]);
+
+  await runOpenCodeSessionCommand(client, "ses_test", {
+    command: "review",
+    delivery: "queue",
+    text: "src/index.ts",
+  });
+  expect(api.requests.at(-1)).toMatchObject({
+    jsonBody: {
+      command: "review",
+      delivery: "queue",
+      text: "src/index.ts",
+    },
+    path: "/api/session/ses_test/command",
+  });
+
+  await expect(interruptOpenCodeSession(client, "ses_test", false)).resolves.toEqual({
+    interrupted: true,
+  });
+  expect(api.requests.at(-1)).toMatchObject({
+    path: "/api/session/ses_test/interrupt",
+    query: { continue: ["false"] },
+  });
+});
+
+it("finds bounded files at an exact location", async () => {
+  const api = createFakeOpenCodeApi({
+    files: [{ path: "src/index.ts", type: "file" }],
+  });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+
+  await expect(
+    findOpenCodeFiles(client, { directory: "/workspace", workspaceID: "wrk_test" }, "index", {
+      limit: 20,
+    }),
+  ).resolves.toMatchObject({ data: [{ path: "src/index.ts" }] });
+  expect(api.requests.at(-1)).toMatchObject({
+    path: "/api/fs/find",
+    query: {
+      limit: ["20"],
+      "location[directory]": ["/workspace"],
+      "location[workspace]": ["wrk_test"],
+      query: ["index"],
+      type: ["file"],
+    },
+  });
+});
+
+it("rejects malformed command and skill catalogs", async () => {
+  const location = {
+    directory: "/workspace",
+    project: { canonical: "/workspace", directory: "/workspace", id: "project-1" },
+  };
+  const client = {
+    command: { list: vi.fn(async () => ({ data: [{ name: "" }], location })) },
+    skill: {
+      list: vi.fn(async () => ({ data: [{ id: "release", name: "Release" }], location })),
+    },
+  } as unknown as ReturnType<typeof createOpenCodeClient>;
+
+  await expect(listOpenCodeCommands(client, { directory: "/workspace" })).rejects.toThrow(
+    "MALFORMED_COMMAND_LIST",
+  );
+  await expect(listOpenCodeSkills(client, { directory: "/workspace" })).rejects.toThrow(
+    "MALFORMED_SKILL_LIST",
+  );
+});
+
+it("rejects malformed or over-limit file search results", async () => {
+  const location = {
+    directory: "/workspace",
+    project: { canonical: "/workspace", directory: "/workspace", id: "project-1" },
+  };
+  const client = {
+    file: {
+      find: vi
+        .fn()
+        .mockResolvedValueOnce({ data: [{ path: "src" }], location })
+        .mockResolvedValueOnce({
+          data: [
+            { path: "one.ts", type: "file" },
+            { path: "two.ts", type: "file" },
+          ],
+          location,
+        }),
+    },
+  } as unknown as ReturnType<typeof createOpenCodeClient>;
+
+  await expect(findOpenCodeFiles(client, { directory: "/workspace" }, "src")).rejects.toThrow(
+    "MALFORMED_FILE_FIND",
+  );
+  await expect(
+    findOpenCodeFiles(client, { directory: "/workspace" }, "src", { limit: 1 }),
+  ).rejects.toThrow("MALFORMED_FILE_FIND");
+});
+
+it.each(["../secret.txt", "src/../../secret.txt", "/etc/passwd", "C:/outside.txt", "//host/share"])(
+  "rejects an out-of-location file search path: %s",
+  async (path) => {
+    const location = {
+      directory: "/workspace",
+      project: { canonical: "/workspace", directory: "/workspace", id: "project-1" },
+    };
+    const client = {
+      file: { find: vi.fn(async () => ({ data: [{ path, type: "file" }], location })) },
+    } as unknown as ReturnType<typeof createOpenCodeClient>;
+
+    await expect(findOpenCodeFiles(client, { directory: "/workspace" }, "file")).rejects.toThrow(
+      "MALFORMED_FILE_FIND",
+    );
+  },
+);
+
 it("resolves the highest-priority configured default agent", async () => {
   const api = createFakeOpenCodeApi({
     configEntries: [
@@ -517,7 +670,7 @@ it("returns null when no config document defines a default agent", async () => {
   await expect(getDefaultOpenCodeAgent(client, { directory: "/workspace" })).resolves.toBeNull();
 });
 
-it("forwards composer and execution operations and returns generated inbox values", async () => {
+it("forwards composer and execution operations", async () => {
   const item = {
     delivery: "queue" as const,
     id: "msg_admission",
@@ -529,6 +682,7 @@ it("forwards composer and execution operations and returns generated inbox value
   const switchAgent = vi.fn(async () => undefined);
   const switchModel = vi.fn(async () => undefined);
   const prompt = vi.fn(async () => item);
+  const command = vi.fn(async () => undefined);
   const permissionReply = vi.fn(async () => undefined);
   const list = vi.fn(async () => [item]);
   const projectedMessage = {
@@ -541,13 +695,14 @@ it("forwards composer and execution operations and returns generated inbox value
   const cancel = vi.fn(async () => undefined);
   const steer = vi.fn(async () => undefined);
   const queue = vi.fn(async () => undefined);
-  const interrupt = vi.fn(async () => undefined);
+  const interrupt = vi.fn(async () => ({ interrupted: true }));
   const background = vi.fn(async () => undefined);
   const wait = vi.fn(async () => undefined);
   const client = {
     permission: { reply: permissionReply },
     session: {
       background,
+      command,
       inbox: { cancel, list, queue, steer },
       interrupt,
       message,
@@ -570,6 +725,18 @@ it("forwards composer and execution operations and returns generated inbox value
       options,
     ),
   ).resolves.toBe(item);
+  await expect(
+    runOpenCodeSessionCommand(
+      client,
+      "ses_test",
+      {
+        command: "review",
+        delivery: "queue",
+        text: "src unicode-æ",
+      },
+      options,
+    ),
+  ).resolves.toBeUndefined();
   await expect(listOpenCodeSessionInbox(client, "ses_test", options)).resolves.toEqual([item]);
   await expect(
     getOpenCodeSessionMessage(client, "ses_test", "msg_admission", options),
@@ -577,7 +744,9 @@ it("forwards composer and execution operations and returns generated inbox value
   await cancelOpenCodeSessionInboxItem(client, "ses_test", "msg_admission", options);
   await steerOpenCodeSessionInboxItem(client, "ses_test", "msg_admission", options);
   await queueOpenCodeSessionInboxItem(client, "ses_test", "msg_admission", options);
-  await interruptOpenCodeSession(client, "ses_test", true, options);
+  await expect(interruptOpenCodeSession(client, "ses_test", true, options)).resolves.toEqual({
+    interrupted: true,
+  });
   await backgroundOpenCodeSession(client, "ses_test", options);
   await waitForOpenCodeSession(client, "ses_test", options);
   await replyOpenCodePermissionRequest(client, "ses_test", "per_test", "once", options);
@@ -586,6 +755,15 @@ it("forwards composer and execution operations and returns generated inbox value
   expect(switchModel).toHaveBeenCalledWith({ model, sessionID: "ses_test" }, options);
   expect(prompt).toHaveBeenCalledWith(
     { delivery: "queue", id: "msg_admission", sessionID: "ses_test", text: "Hello" },
+    options,
+  );
+  expect(command).toHaveBeenCalledWith(
+    {
+      command: "review",
+      delivery: "queue",
+      sessionID: "ses_test",
+      text: "src unicode-æ",
+    },
     options,
   );
   expect(list).toHaveBeenCalledWith({ sessionID: "ses_test" }, options);
@@ -786,8 +964,23 @@ it("recognizes an unauthorized error wrapped by the generated client", () => {
     classifyOpenCodeError(new Error("transport", { cause: { _tag: "SessionNotFoundError" } })),
   ).toBe("NOT_FOUND");
   expect(
+    classifyOpenCodeError(new Error("transport", { cause: { _tag: "ProjectNotFoundError" } })),
+  ).toBe("NOT_FOUND");
+  expect(
     classifyOpenCodeError(new Error("transport", { cause: { _tag: "FormNotFoundError" } })),
   ).toBe("NOT_FOUND");
+  expect(
+    classifyOpenCodeError(new Error("transport", { cause: { _tag: "CommandNotFoundError" } })),
+  ).toBe("NOT_FOUND");
+  expect(
+    classifyOpenCodeError(new Error("transport", { cause: { _tag: "SkillNotFoundError" } })),
+  ).toBe("NOT_FOUND");
+  expect(
+    classifyOpenCodeError(new Error("transport", { cause: { _tag: "CommandEvaluationError" } })),
+  ).toBe("INVALID_REQUEST");
+  expect(
+    classifyOpenCodeError(new Error("transport", { cause: { _tag: "CommandExecutionError" } })),
+  ).toBe("INVALID_REQUEST");
   expect(
     classifyOpenCodeError(new Error("transport", { cause: { _tag: "MessageNotFoundError" } })),
   ).toBe("MESSAGE_NOT_FOUND");

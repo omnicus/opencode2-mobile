@@ -180,7 +180,9 @@ export function SessionExecutionPanel({
           </Text>
           <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
             {admission.status === "unknown-delivery"
-              ? "The server may have admitted this prompt. Check inbox and transcript state before sending it again."
+              ? admission.kind === "command"
+                ? "The server may have run this command. Check the transcript before sending it again."
+                : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."
               : "Waiting for the durable inbox item or projected message."}
           </Text>
           {admission.status === "unknown-delivery" ? (

@@ -19,6 +19,9 @@ export const openCodeQueryKeys = {
   agents(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "agents"] as const;
   },
+  commands(connectionId: string, location: LocationRef) {
+    return [...locationKey(connectionId, location), "commands"] as const;
+  },
   connection(connectionId: string) {
     return connectionKey(connectionId);
   },
@@ -27,6 +30,9 @@ export const openCodeQueryKeys = {
   },
   forms(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "forms"] as const;
+  },
+  fileFind(connectionId: string, location: LocationRef, query: string, limit: number) {
+    return [...locationKey(connectionId, location), "file-find", query, limit] as const;
   },
   followedProjectSessions(
     connectionId: string,
@@ -158,6 +164,9 @@ export const openCodeQueryKeys = {
           ? "parent:root"
           : parameters.parentID,
     ] as const;
+  },
+  skills(connectionId: string, location: LocationRef) {
+    return [...locationKey(connectionId, location), "skills"] as const;
   },
 };
 

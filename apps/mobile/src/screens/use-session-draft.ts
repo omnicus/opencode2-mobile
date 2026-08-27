@@ -5,6 +5,7 @@ import { AppState } from "react-native";
 import {
   deleteSessionDraft,
   readSessionDraft,
+  type SessionDraftMention,
   writeSessionDraft,
 } from "../storage/draft-repository";
 
@@ -14,10 +15,12 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
   const db = useSQLiteContext();
   const scope = `${connectionId}\u0000${sessionId}`;
   const [draft, setDraftState] = useState("");
+  const [mentions, setMentions] = useState<SessionDraftMention[]>([]);
   const [error, setError] = useState<string>();
   const [loaded, setLoaded] = useState(false);
   const [revision, setRevision] = useState(0);
   const latestRef = useRef("");
+  const latestMentionsRef = useRef<SessionDraftMention[]>([]);
   const revisionRef = useRef(0);
   const revisionsByScopeRef = useRef(new Map<string, number>());
   const scopeRef = useRef(scope);
@@ -27,7 +30,7 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
   const writeChainRef = useRef<Promise<void>>(Promise.resolve());
 
   const enqueue = useCallback(
-    (content: string, contentRevision: number) => {
+    (content: string, contentMentions: SessionDraftMention[], contentRevision: number) => {
       const operation = writeChainRef.current
         .catch(() => undefined)
         .then(async () => {
@@ -35,6 +38,7 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
             await writeSessionDraft(db, {
               connectionId,
               content,
+              mentions: contentMentions,
               revision: contentRevision,
               sessionId,
             });
@@ -64,17 +68,21 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
     }
     if (!dirtyRef.current) return;
     dirtyRef.current = false;
-    void enqueue(latestRef.current, revisionsByScopeRef.current.get(scope) ?? 0).catch(
-      () => undefined,
-    );
+    void enqueue(
+      latestRef.current,
+      latestMentionsRef.current,
+      revisionsByScopeRef.current.get(scope) ?? 0,
+    ).catch(() => undefined);
   }, [enqueue, scope]);
 
   useEffect(() => {
     let active = true;
     latestRef.current = "";
+    latestMentionsRef.current = [];
     revisionRef.current = revisionsByScopeRef.current.get(scope) ?? 0;
     dirtyRef.current = false;
     setDraftState("");
+    setMentions([]);
     setError(undefined);
     setLoaded(false);
     setRevision(revisionRef.current);
@@ -84,9 +92,11 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
         const content = stored?.content ?? "";
         const storedRevision = stored?.revision ?? 0;
         latestRef.current = content;
+        latestMentionsRef.current = stored?.mentions ?? [];
         revisionRef.current = storedRevision;
         revisionsByScopeRef.current.set(scope, storedRevision);
         setDraftState(content);
+        setMentions(stored?.mentions ?? []);
         setRevision(storedRevision);
       })
       .catch(() => {
@@ -106,13 +116,18 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
     };
   }, [connectionId, db, flush, scope, sessionId]);
 
-  function setDraft(content: string) {
+  function setDraft(
+    content: string,
+    contentMentions: SessionDraftMention[] = latestMentionsRef.current,
+  ) {
     latestRef.current = content;
+    latestMentionsRef.current = contentMentions;
     const nextRevision = (revisionsByScopeRef.current.get(scope) ?? 0) + 1;
     revisionRef.current = nextRevision;
     revisionsByScopeRef.current.set(scope, nextRevision);
     dirtyRef.current = true;
     setDraftState(content);
+    setMentions(contentMentions);
     setRevision(revisionRef.current);
     if (writeTimerRef.current !== null) clearTimeout(writeTimerRef.current);
     writeTimerRef.current = setTimeout(flush, draftWriteDelayMs);
@@ -130,12 +145,14 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
       }
       if (scopeRef.current === scope) {
         latestRef.current = "";
+        latestMentionsRef.current = [];
         revisionRef.current = nextRevision;
         dirtyRef.current = false;
         setDraftState("");
+        setMentions([]);
         setRevision(nextRevision);
       }
-      void enqueue("", nextRevision).catch(() => undefined);
+      void enqueue("", [], nextRevision).catch(() => undefined);
     },
     [enqueue, scope],
   );
@@ -153,10 +170,10 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
         writeTimerRef.current = null;
         dirtyRef.current = false;
       }
-      await enqueue(content, expectedRevision);
+      await enqueue(content, latestMentionsRef.current, expectedRevision);
     },
     [enqueue, scope],
   );
 
-  return { clearDraft, draft, error, loaded, persistDraft, revision, setDraft };
+  return { clearDraft, draft, error, loaded, mentions, persistDraft, revision, setDraft };
 }

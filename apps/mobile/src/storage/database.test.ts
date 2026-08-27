@@ -12,7 +12,7 @@ test("creates the current mobile database schema", async () => {
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(9);
+  expect(execAsync).toHaveBeenCalledTimes(11);
   expect(execAsync.mock.calls[1]?.[0]).toContain("CREATE TABLE IF NOT EXISTS connection_profiles");
   expect(execAsync.mock.calls[2]?.[0]).toContain("CREATE TABLE IF NOT EXISTS app_preferences");
   expect(execAsync.mock.calls[3]?.[0]).toContain("CREATE TABLE IF NOT EXISTS session_drafts");
@@ -31,6 +31,10 @@ test("creates the current mobile database schema", async () => {
   expect(execAsync.mock.calls[7]?.[0]).toContain("PRAGMA user_version = 7");
   expect(execAsync.mock.calls[8]?.[0]).toContain("pending_notification_revocations");
   expect(execAsync.mock.calls[8]?.[0]).toContain("PRAGMA user_version = 8");
+  expect(execAsync.mock.calls[9]?.[0]).toContain("ADD COLUMN payload_version");
+  expect(execAsync.mock.calls[9]?.[0]).toContain("PRAGMA user_version = 9");
+  expect(execAsync.mock.calls[10]?.[0]).toContain("ADD COLUMN submission_kind");
+  expect(execAsync.mock.calls[10]?.[0]).toContain("PRAGMA user_version = 10");
 });
 
 test("migrates an existing profile database to app-lock preferences", async () => {
@@ -42,7 +46,7 @@ test("migrates an existing profile database to app-lock preferences", async () =
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(8);
+  expect(execAsync).toHaveBeenCalledTimes(10);
   expect(execAsync.mock.calls[1]?.[0]).toContain("CREATE TABLE IF NOT EXISTS app_preferences");
   expect(execAsync.mock.calls[1]?.[0]).not.toContain("connection_profiles");
   expect(execAsync.mock.calls[2]?.[0]).toContain("CREATE TABLE IF NOT EXISTS session_drafts");
@@ -61,7 +65,7 @@ test("migrates app-lock databases to encrypted draft storage", async () => {
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(7);
+  expect(execAsync).toHaveBeenCalledTimes(9);
   expect(execAsync.mock.calls[1]?.[0]).toContain("ciphertext BLOB NOT NULL");
   expect(execAsync.mock.calls[1]?.[0]).toContain("ON DELETE CASCADE");
   expect(execAsync.mock.calls[1]?.[0]).not.toContain("app_preferences");
@@ -80,7 +84,7 @@ test("migrates encrypted draft databases to unresolved admission storage", async
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(6);
+  expect(execAsync).toHaveBeenCalledTimes(8);
   expect(execAsync.mock.calls[1]?.[0]).toContain("status IN ('submitting', 'unknown-delivery')");
   expect(execAsync.mock.calls[1]?.[0]).toContain("ADD COLUMN revision");
   expect(execAsync.mock.calls[2]?.[0]).toContain("followed_projects");
@@ -96,7 +100,7 @@ test("migrates admission databases to followed project preferences", async () =>
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(5);
+  expect(execAsync).toHaveBeenCalledTimes(7);
   expect(execAsync.mock.calls[1]?.[0]).toContain("followed_project_preferences");
   expect(execAsync.mock.calls[1]?.[0]).toContain("PRIMARY KEY (connection_id, project_id)");
   expect(execAsync.mock.calls[1]?.[0]).toContain("UNIQUE (connection_id, position)");
@@ -112,7 +116,7 @@ test("migrates followed project databases to notification pairing storage", asyn
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(4);
+  expect(execAsync).toHaveBeenCalledTimes(6);
   expect(execAsync.mock.calls[1]?.[0]).toContain("pending_notification_secret_deletions");
   expect(execAsync.mock.calls[1]?.[0]).toContain("BEGIN IMMEDIATE");
   expect(execAsync.mock.calls[1]?.[0]).toContain("COMMIT");
@@ -128,7 +132,7 @@ test("migrates notification pairings to handled event replay storage", async () 
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(3);
+  expect(execAsync).toHaveBeenCalledTimes(5);
   expect(execAsync.mock.calls[1]?.[0]).toContain("handled_notification_events");
   expect(execAsync.mock.calls[1]?.[0]).toContain("ON DELETE CASCADE");
   expect(execAsync.mock.calls[1]?.[0]).toContain("COMMIT");
@@ -144,16 +148,50 @@ test("migrates handled events to pending notification revocation storage", async
 
   await migrateMobileDatabase(db);
 
-  expect(execAsync).toHaveBeenCalledTimes(2);
+  expect(execAsync).toHaveBeenCalledTimes(4);
   expect(execAsync.mock.calls[1]?.[0]).toContain("pending_notification_revocations");
   expect(execAsync.mock.calls[1]?.[0]).toContain("PRAGMA user_version = 8");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("COMMIT");
+});
+
+test("migrates legacy encrypted drafts to explicit payload versioning", async () => {
+  const execAsync = jest.fn<(source: string) => Promise<void>>(async () => undefined);
+  const db = {
+    execAsync,
+    getFirstAsync: jest.fn(async () => ({ user_version: 8 })),
+  } as unknown as SQLiteDatabase;
+
+  await migrateMobileDatabase(db);
+
+  expect(execAsync).toHaveBeenCalledTimes(3);
+  expect(execAsync.mock.calls[1]?.[0]).toContain("ADD COLUMN payload_version");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("DEFAULT 1");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("BEGIN IMMEDIATE");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("PRAGMA user_version = 9");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("COMMIT");
+});
+
+test("migrates admission recovery metadata to distinguish commands", async () => {
+  const execAsync = jest.fn<(source: string) => Promise<void>>(async () => undefined);
+  const db = {
+    execAsync,
+    getFirstAsync: jest.fn(async () => ({ user_version: 9 })),
+  } as unknown as SQLiteDatabase;
+
+  await migrateMobileDatabase(db);
+
+  expect(execAsync).toHaveBeenCalledTimes(2);
+  expect(execAsync.mock.calls[1]?.[0]).toContain("ADD COLUMN submission_kind");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("DEFAULT 'prompt'");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("BEGIN IMMEDIATE");
+  expect(execAsync.mock.calls[1]?.[0]).toContain("PRAGMA user_version = 10");
   expect(execAsync.mock.calls[1]?.[0]).toContain("COMMIT");
 });
 
 test("rejects a database created by a newer app", async () => {
   const db = {
     execAsync: jest.fn(async () => undefined),
-    getFirstAsync: jest.fn(async () => ({ user_version: 9 })),
+    getFirstAsync: jest.fn(async () => ({ user_version: 11 })),
   } as unknown as SQLiteDatabase;
 
   await expect(migrateMobileDatabase(db)).rejects.toThrow("DATABASE_VERSION_TOO_NEW");

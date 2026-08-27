@@ -22,6 +22,7 @@ test("creates a stable caller-owned message ID before transmission", () => {
     delivery: "queue",
     durable: false,
     id: "msg_12345678123442348234123456789abc",
+    kind: "prompt",
     status: "submitting",
     submittedAtMs: 42,
   });

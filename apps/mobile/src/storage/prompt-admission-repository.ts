@@ -5,6 +5,7 @@ export type PersistedPromptAdmission = {
   draftRevision: number;
   durable: false;
   id: string;
+  kind: "command" | "prompt";
   status: "submitting" | "unknown-delivery";
   submittedAtMs: number;
 };
@@ -13,6 +14,7 @@ type PromptAdmissionRow = {
   admission_id: string;
   delivery: "queue" | "steer" | null;
   draft_revision: number;
+  submission_kind: "command" | "prompt";
   status: "submitting" | "unknown-delivery";
   submitted_at_ms: number;
 };
@@ -23,7 +25,7 @@ export async function listUnresolvedPromptAdmissions(
   sessionId: string,
 ): Promise<PersistedPromptAdmission[]> {
   const rows = await db.getAllAsync<PromptAdmissionRow>(
-    `SELECT admission_id, delivery, draft_revision, status, submitted_at_ms
+    `SELECT admission_id, delivery, draft_revision, status, submission_kind, submitted_at_ms
      FROM unresolved_prompt_admissions
      WHERE connection_id = ? AND session_id = ?
      ORDER BY submitted_at_ms ASC
@@ -36,6 +38,7 @@ export async function listUnresolvedPromptAdmissions(
     draftRevision: row.draft_revision,
     durable: false,
     id: row.admission_id,
+    kind: row.submission_kind,
     status: "unknown-delivery",
     submittedAtMs: row.submitted_at_ms,
   }));
@@ -51,12 +54,13 @@ export async function writeUnresolvedPromptAdmission(
     await txn.runAsync(
       `INSERT INTO unresolved_prompt_admissions (
         connection_id, session_id, admission_id, schema_version, status,
-        delivery, draft_revision, submitted_at_ms
-      ) VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+        delivery, draft_revision, submission_kind, submitted_at_ms
+      ) VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
       ON CONFLICT(connection_id, session_id, admission_id) DO UPDATE SET
         status = excluded.status,
         delivery = excluded.delivery,
         draft_revision = excluded.draft_revision,
+        submission_kind = excluded.submission_kind,
         submitted_at_ms = excluded.submitted_at_ms`,
       connectionId,
       sessionId,
@@ -64,6 +68,7 @@ export async function writeUnresolvedPromptAdmission(
       admission.status,
       admission.delivery ?? null,
       admission.draftRevision,
+      admission.kind,
       admission.submittedAtMs,
     );
     await txn.runAsync(

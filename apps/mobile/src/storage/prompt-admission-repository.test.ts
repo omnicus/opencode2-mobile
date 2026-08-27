@@ -20,6 +20,7 @@ test("stores only content-free unresolved admission metadata", async () => {
     draftRevision: 3,
     durable: false,
     id: "msg_test",
+    kind: "command",
     status: "unknown-delivery",
     submittedAtMs: 10,
   });
@@ -32,6 +33,7 @@ test("stores only content-free unresolved admission metadata", async () => {
     "unknown-delivery",
     "queue",
     3,
+    "command",
     10,
   ]);
   expect(String(runAsync.mock.calls[1]?.[0])).toContain("LIMIT 20");
@@ -67,6 +69,7 @@ test("decodes unresolved admission rows and deletes a confirmed ID", async () =>
         admission_id: "msg_test",
         delivery: "steer",
         draft_revision: 2,
+        submission_kind: "prompt",
         status: "submitting",
         submitted_at_ms: 10,
       },
@@ -80,6 +83,7 @@ test("decodes unresolved admission rows and deletes a confirmed ID", async () =>
       draftRevision: 2,
       durable: false,
       id: "msg_test",
+      kind: "prompt",
       status: "unknown-delivery",
       submittedAtMs: 10,
     },

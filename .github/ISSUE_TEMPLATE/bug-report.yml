@@ -54,8 +54,8 @@ body:
     id: opencode-version
     attributes:
       label: OpenCode version
-      description: The tested baseline is beta 18050. Do not include a server address.
-      placeholder: "0.0.0-beta-18050"
+      description: The tested baseline is beta 18387. Do not include a server address.
+      placeholder: "0.0.0-beta-18387"
     validations:
       required: true
 

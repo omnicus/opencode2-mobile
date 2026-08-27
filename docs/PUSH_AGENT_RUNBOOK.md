@@ -77,10 +77,10 @@ host and identify the first boundary that remains unverified.
 
 - Linux with a user-level systemd session.
 - OpenCode V2 running under the same account as the broker.
-- OpenCode `0.0.0-beta-18286`, the server version used for the latest physical
-  probe. The plugin dependency and mobile API contract remain pinned to beta
-  18050. If the installed server differs, report it and ask whether the internal
-  deployment owner has approved that version before continuing.
+- OpenCode `0.0.0-beta-18387`, matching the plugin dependency and mobile API
+  contract. The latest physical notification probe used beta 18286. If the
+  installed server differs, report it and ask whether the internal deployment
+  owner has approved that version before continuing.
 - Node `26.7.0`, pnpm `11.21.0`, Git, and `fnm` or another way to run the pinned
   Node release.
 - A phone-reachable broker origin. Prefer HTTPS. Private Tailscale or LAN HTTP is

@@ -34,6 +34,37 @@ test("does not collide across connections or workspace locations", () => {
   expect(first).not.toEqual(workspace);
 });
 
+test("scopes composer catalogs and file searches to the exact location", () => {
+  const location = { directory: "/workspace", workspaceID: "wrk_test" };
+
+  expect(openCodeQueryKeys.commands("connection-1", location)).toEqual([
+    "opencode",
+    "connection-1",
+    "location",
+    "/workspace",
+    "wrk_test",
+    "commands",
+  ]);
+  expect(openCodeQueryKeys.skills("connection-1", location)).toEqual([
+    "opencode",
+    "connection-1",
+    "location",
+    "/workspace",
+    "wrk_test",
+    "skills",
+  ]);
+  expect(openCodeQueryKeys.fileFind("connection-1", location, "src/index", 20)).toEqual([
+    "opencode",
+    "connection-1",
+    "location",
+    "/workspace",
+    "wrk_test",
+    "file-find",
+    "src/index",
+    20,
+  ]);
+});
+
 test("separates working-tree and branch diffs within one location", () => {
   const location = { directory: "/workspace", workspaceID: "wrk_test" };
   expect(openCodeQueryKeys.vcsDiff("connection-1", location, "working")).toEqual([
