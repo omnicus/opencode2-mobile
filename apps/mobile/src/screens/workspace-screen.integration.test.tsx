@@ -2,8 +2,10 @@ import { expect, jest, test } from "@jest/globals";
 import {
   getOpenCodeLocation,
   getOpenCodeSession,
+  listOpenCodeAgents,
   listOpenCodeMessages,
   type PermissionRequest,
+  type SessionInfo,
   type SessionMessageInfo,
   type SessionMessagesResponse,
 } from "@opencode2-mobile/opencode-adapter";
@@ -235,6 +237,7 @@ jest.mock("react-native-keyboard-controller", () => {
 
 const mockGetSession = jest.mocked(getOpenCodeSession);
 const mockGetLocation = jest.mocked(getOpenCodeLocation);
+const mockListAgents = jest.mocked(listOpenCodeAgents);
 const mockListMessages = jest.mocked(listOpenCodeMessages);
 
 test("moves only the Android composer dock with the keyboard", async () => {
@@ -612,6 +615,131 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   view.unmount();
   queryClient.clear();
   scrollToOffset.mockRestore();
+});
+
+test("waits for and adopts a moved session's authoritative location", async () => {
+  const routeLocation = { directory: "/workspace" };
+  const movedLocation = { directory: "/workspace/moved" };
+  const movedSession = {
+    cost: 0,
+    id: "ses_moved",
+    location: movedLocation,
+    projectID: "project-1",
+    time: { created: 1, updated: 3 },
+    title: "Moved session",
+    tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
+  } satisfies SessionInfo;
+  let resolveSession: ((session: SessionInfo) => void) | undefined;
+  const pendingSession = new Promise<SessionInfo>((resolve) => {
+    resolveSession = resolve;
+  });
+  const previousGetSession = mockGetSession.getMockImplementation();
+  const previousListMessages = mockListMessages.getMockImplementation();
+  mockGetSession.mockImplementation(() => pendingSession);
+  mockListMessages.mockImplementation(async () => ({
+    cursor: {},
+    data: [
+      {
+        agent: "build",
+        content: [
+          {
+            id: "tool-patch",
+            name: "patch",
+            state: {
+              content: [{ text: "Applied", type: "text" }],
+              input: { patchText: "*** Begin Patch\n*** End Patch" },
+              status: "completed",
+            },
+            time: { completed: 2, created: 1 },
+            type: "tool",
+          },
+        ],
+        id: "msg_edit",
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 1 },
+        type: "assistant",
+      },
+    ],
+  }));
+  mockListMessages.mockClear();
+  mockListAgents.mockClear();
+  mockSetLocation.mockClear();
+  const push = jest.fn();
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { networkMode: "always" },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), push } as never}
+        route={{
+          key: "session-moved",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: routeLocation,
+            sessionID: "ses_moved",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+
+  try {
+    await waitFor(() => expect(mockGetSession).toHaveBeenCalled());
+    expect(screen.getByLabelText("Prompt").props.editable).toBe(false);
+    expect(mockListMessages).not.toHaveBeenCalled();
+    expect(mockListAgents).not.toHaveBeenCalled();
+    expect(mockSetLocation).not.toHaveBeenCalled();
+
+    await act(async () => resolveSession?.(movedSession));
+
+    await waitFor(() => expect(mockListMessages).toHaveBeenCalled());
+    await waitFor(() => expect(mockListAgents).toHaveBeenCalled());
+    expect(mockListAgents).toHaveBeenLastCalledWith(
+      expect.anything(),
+      movedLocation,
+      expect.objectContaining({ signal: expect.anything() }),
+    );
+    expect(mockSetLocation).toHaveBeenLastCalledWith(movedLocation);
+    expect(screen.getByLabelText("Prompt").props.editable).toBe(true);
+    expect(
+      queryClient.getQueryData(
+        openCodeQueryKeys.session("connection-1", movedLocation, "ses_moved"),
+      ),
+    ).toEqual(movedSession);
+    expect(
+      queryClient.getQueryData(
+        openCodeQueryKeys.messages("connection-1", routeLocation, "ses_moved", {
+          limit: 40,
+          order: "desc",
+        }),
+      ),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(
+        openCodeQueryKeys.messages("connection-1", movedLocation, "ses_moved", {
+          limit: 40,
+          order: "desc",
+        }),
+      ),
+    ).toBeDefined();
+
+    fireEvent.press(await screen.findByRole("button", { name: "Review current changes" }));
+    expect(push).toHaveBeenCalledWith("Diff", {
+      connectionId: "connection-1",
+      location: movedLocation,
+      mode: "working",
+    });
+  } finally {
+    view.unmount();
+    queryClient.clear();
+    if (previousGetSession) mockGetSession.mockImplementation(previousGetSession);
+    if (previousListMessages) mockListMessages.mockImplementation(previousListMessages);
+  }
 });
 
 test("shows running background subagents and opens their child sessions", async () => {
