@@ -10,7 +10,7 @@ import {
 import { type InfiniteData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
-import { Dimensions, FlatList, RefreshControl } from "react-native";
+import { Dimensions, FlatList, Platform, RefreshControl } from "react-native";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
 import { SessionScreen, WorkspaceScreen } from "./workspace-screen";
@@ -220,10 +220,55 @@ jest.mock("react-native-gesture-handler/ReanimatedSwipeable", () => ({
   __esModule: true,
   default: ({ children }: { children: ReactNode }) => children,
 }));
+jest.mock("react-native-keyboard-controller", () => {
+  const React = jest.requireActual<typeof import("react")>("react");
+  const { View } = jest.requireActual<typeof import("react-native")>("react-native");
+  return {
+    KeyboardStickyView: ({ children, ...props }: { children: ReactNode }) =>
+      React.createElement(View, { ...props, testID: "keyboard-sticky-view" }, children),
+  };
+});
 
 const mockGetSession = jest.mocked(getOpenCodeSession);
 const mockGetLocation = jest.mocked(getOpenCodeLocation);
 const mockListMessages = jest.mocked(listOpenCodeMessages);
+
+test("moves only the Android composer dock with the keyboard", async () => {
+  const platformOS = Platform.OS;
+  Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { networkMode: "always" },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        route={{
+          key: "session-android-keyboard",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+
+  try {
+    await screen.findByLabelText("Keyboard composer dock");
+    expect(screen.getByTestId("keyboard-sticky-view")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Keyboard-aware session")).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+    Object.defineProperty(Platform, "OS", { configurable: true, value: platformOS });
+  }
+});
 
 test("shows a permission blocking the open session and can reply", async () => {
   mockWorkspacePermissions = [
