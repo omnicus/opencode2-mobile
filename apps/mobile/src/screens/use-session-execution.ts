@@ -9,12 +9,15 @@ import {
   type LocationRef,
   listActiveOpenCodeSessions,
   listOpenCodeAgents,
+  listOpenCodeCommands,
   listOpenCodeModels,
   listOpenCodeSessionInbox,
+  listOpenCodeSkills,
   type ModelRef,
   type OpenCodeClient,
   promptOpenCodeSession,
   queueOpenCodeSessionInboxItem,
+  runOpenCodeSessionCommand,
   type SessionInfo,
   type SessionMessageInfo,
   steerOpenCodeSessionInboxItem,
@@ -51,6 +54,7 @@ import {
   type PromptDelivery,
   reconcilePromptAdmission,
 } from "./prompt-admission-model";
+import type { ComposerSubmitIntent } from "./session-composer-model";
 
 type SessionExecutionOptions = {
   client: OpenCodeClient | undefined;
@@ -126,6 +130,14 @@ export function useSessionExecution({
     },
     queryKey: openCodeQueryKeys.agents(scopedConnectionId, location),
   });
+  const commandsQuery = useQuery({
+    enabled,
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return listOpenCodeCommands(client, location, { signal });
+    },
+    queryKey: openCodeQueryKeys.commands(scopedConnectionId, location),
+  });
   const modelsQuery = useQuery({
     enabled,
     queryFn: ({ signal }) => {
@@ -133,6 +145,14 @@ export function useSessionExecution({
       return listOpenCodeModels(client, location, { signal });
     },
     queryKey: openCodeQueryKeys.models(scopedConnectionId, location),
+  });
+  const skillsQuery = useQuery({
+    enabled,
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return listOpenCodeSkills(client, location, { signal });
+    },
+    queryKey: openCodeQueryKeys.skills(scopedConnectionId, location),
   });
   const defaultModelQuery = useQuery({
     enabled,
@@ -203,6 +223,7 @@ export function useSessionExecution({
     const confirmedAdmissions: PromptAdmission[] = [];
     updateAdmissions((current) =>
       current.map((admission) => {
+        if (admission.kind === "command") return admission;
         const inboxItem = inboxById.get(admission.id);
         const projectedMessage = projectedMessagesById.get(admission.id);
         const serverAdmittedAtMs = inboxItem?.timeCreated ?? projectedMessage?.time.created;
@@ -246,7 +267,7 @@ export function useSessionExecution({
     updateAdmissions,
   ]);
 
-  const promptMutation = useMutation({
+  const submissionMutation = useMutation({
     mutationFn: async ({
       admission,
       requestClient,
@@ -254,6 +275,7 @@ export function useSessionExecution({
       persistSubmittedDraft,
       requestSessionID,
       text,
+      intent,
     }: {
       admission: PromptAdmission;
       admissionKey: QueryKey;
@@ -266,6 +288,7 @@ export function useSessionExecution({
       requestSessionID: string;
       requestScope: string;
       text: string;
+      intent: ComposerSubmitIntent;
     }) => {
       return withController(controllersRef.current, async (signal) => {
         if (admission.draftRevision === undefined) {
@@ -290,17 +313,37 @@ export function useSessionExecution({
         } catch {
           throw new Error("PROMPT_ADMISSION_PERSISTENCE_FAILED");
         }
-        return promptOpenCodeSession(
+        if (intent.type === "command") {
+          await runOpenCodeSessionCommand(
+            requestClient,
+            requestSessionID,
+            {
+              ...(intent.agents ? { agents: intent.agents } : {}),
+              command: intent.command,
+              delivery: admission.delivery ?? "steer",
+              ...(intent.files ? { files: intent.files } : {}),
+              ...(intent.skills ? { skills: intent.skills } : {}),
+              text: intent.arguments ?? "",
+            },
+            { signal },
+          );
+          return { type: "command" as const };
+        }
+        const item = await promptOpenCodeSession(
           requestClient,
           requestSessionID,
           {
             delivery: admission.delivery ?? "steer",
+            ...(intent.agents ? { agents: intent.agents } : {}),
+            ...(intent.files ? { files: intent.files } : {}),
             id: admission.id,
             resume: true,
+            ...(intent.skills ? { skills: intent.skills } : {}),
             text,
           },
           { signal },
         );
+        return { item, type: "inbox" as const };
       });
     },
     networkMode: "always",
@@ -313,6 +356,7 @@ export function useSessionExecution({
         requestConnectionID,
         requestSessionID,
         requestScope,
+        intent,
       },
     ) => {
       const scopeIsCurrent = executionScopeRef.current === requestScope;
@@ -329,7 +373,7 @@ export function useSessionExecution({
       }
       if (caught instanceof Error && caught.message === "PROMPT_ADMISSION_PERSISTENCE_FAILED") {
         updateAdmissionAt(queryClient, submittedAdmissionKey, admission.id, markPromptCancelled);
-        if (scopeIsCurrent) setError("The prompt could not be saved safely and was not sent.");
+        if (scopeIsCurrent) setError("The submission could not be saved safely and was not sent.");
         return;
       }
       const classification = classifyOpenCodeError(caught);
@@ -345,20 +389,27 @@ export function useSessionExecution({
           requestSessionID,
           admission.id,
         ).catch(() => undefined);
-        if (scopeIsCurrent) setError("The server rejected this prompt before admission.");
+        if (scopeIsCurrent) {
+          setError(
+            intent.type === "command"
+              ? "The server rejected this command."
+              : "The server rejected this prompt before admission.",
+          );
+        }
         return;
       }
-      updateAdmissionAt(
-        queryClient,
-        submittedAdmissionKey,
-        admission.id,
-        markPromptDeliveryUnknown,
-      );
+      updateAdmissionAt(queryClient, submittedAdmissionKey, admission.id, (current) => {
+        const unknown = markPromptDeliveryUnknown(current);
+        return intent.type === "command" ? markPromptRetryOffered(unknown) : unknown;
+      });
       if (scopeIsCurrent) {
+        const label = submissionLabel(intent);
         setError(
           classification === "CONFLICT"
-            ? "The server reported an admission conflict. Check delivery before sending again."
-            : "The response was lost. The prompt may have been admitted; check delivery before sending again.",
+            ? `The server reported a ${label} conflict. Check delivery before sending again.`
+            : intent.type === "command"
+              ? "The response was lost. The command may have run; check the transcript before sending again."
+              : "The response was lost. The prompt may have been admitted; check delivery before sending again.",
         );
       }
       void reconcileSubmission();
@@ -367,7 +418,7 @@ export function useSessionExecution({
       submittingRef.current = false;
     },
     onSuccess: (
-      item,
+      result,
       {
         admission,
         admissionKey: submittedAdmissionKey,
@@ -378,6 +429,25 @@ export function useSessionExecution({
         requestScope,
       },
     ) => {
+      if (result.type === "command") {
+        updateAdmissionsAt(queryClient, submittedAdmissionKey, (current) =>
+          current.filter((candidate) => candidate.id !== admission.id),
+        );
+        void deleteUnresolvedPromptAdmission(
+          db,
+          requestConnectionID,
+          requestSessionID,
+          admission.id,
+        ).catch(() => undefined);
+        if (executionScopeRef.current === requestScope) setError(undefined);
+        confirmAdmission(admission.draftRevision ?? 0);
+        void reconcile();
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+          () => undefined,
+        );
+        return;
+      }
+      const item = result.item;
       updateAdmissionAt(queryClient, submittedAdmissionKey, admission.id, (current) =>
         markPromptConfirmationHandled(markPromptAdmitted(current, item.delivery, item.timeCreated)),
       );
@@ -528,14 +598,16 @@ export function useSessionExecution({
       requestSessionID: string;
     }) => {
       if (executionScopeRef.current === requestScope) setBusyAction(action);
-      await withController(controllersRef.current, (signal) => {
+      await withController(controllersRef.current, async (signal) => {
         if (action === "interrupt") {
-          return interruptOpenCodeSession(requestClient, requestSessionID, false, { signal });
+          await interruptOpenCodeSession(requestClient, requestSessionID, false, { signal });
+          return;
         }
         if (action === "background") {
-          return backgroundOpenCodeSession(requestClient, requestSessionID, { signal });
+          await backgroundOpenCodeSession(requestClient, requestSessionID, { signal });
+          return;
         }
-        return waitForOpenCodeSession(requestClient, requestSessionID, { signal });
+        await waitForOpenCodeSession(requestClient, requestSessionID, { signal });
       });
       return action;
     },
@@ -574,14 +646,14 @@ export function useSessionExecution({
     );
   }
 
-  function submit(text: string) {
+  function submit(text: string, intent: ComposerSubmitIntent = { type: "prompt" }) {
     if (
       !client ||
       !draftReady ||
       !executionStateReady ||
       (active && !delivery) ||
       submittingRef.current ||
-      promptMutation.isPending ||
+      submissionMutation.isPending ||
       unresolvedAdmission
     ) {
       return;
@@ -590,9 +662,10 @@ export function useSessionExecution({
     const admission = {
       ...createPromptAdmission(active ? delivery : "steer"),
       draftRevision,
+      kind: intent.type,
     };
     updateAdmissions((current) => [...current, admission]);
-    promptMutation.mutate({
+    submissionMutation.mutate({
       admission,
       admissionKey,
       confirmAdmission: onAdmissionConfirmed,
@@ -604,6 +677,7 @@ export function useSessionExecution({
       requestSessionID: sessionID,
       requestScope: executionScope,
       text,
+      intent,
     });
   }
 
@@ -619,6 +693,17 @@ export function useSessionExecution({
     if (!client) return;
     const requestScope = executionScope;
     setError(undefined);
+    const admission = admissions.find((candidate) => candidate.id === admissionID);
+    if (admission?.kind === "command") {
+      await reconcile();
+      updateAdmission(admissionID, markPromptRetryOffered);
+      if (executionScopeRef.current === requestScope) {
+        setError(
+          "Command delivery cannot be identified after a lost response. Check the transcript before allowing another attempt.",
+        );
+      }
+      return;
+    }
     const [inboxResult, messageResult] = await Promise.allSettled([
       withController(controllersRef.current, (signal) =>
         listOpenCodeSessionInbox(client, sessionID, { signal }),
@@ -704,16 +789,24 @@ export function useSessionExecution({
     admissions,
     agents,
     busyAction,
+    commands: commandsQuery.data?.data ?? [],
+    completionLoading: commandsQuery.isPending,
+    completionUnavailable: commandsQuery.isError,
     defaultModel: defaultModelQuery.data?.data ?? undefined,
     delivery,
     error,
     inbox,
     models,
+    mentionAgents: (agentsQuery.data?.data ?? []).filter(
+      (candidate) => !candidate.hidden && candidate.mode !== "primary",
+    ),
+    mentionLoading: agentsQuery.isPending || skillsQuery.isPending,
+    mentionUnavailable: agentsQuery.isError || skillsQuery.isError,
     projectedMessageIds,
     setDelivery,
     submit,
     submitDisabled:
-      promptMutation.isPending ||
+      submissionMutation.isPending ||
       switchAgentMutation.isPending ||
       switchModelMutation.isPending ||
       unresolvedAdmission ||
@@ -722,6 +815,7 @@ export function useSessionExecution({
       !admissionsQuery.isSuccess ||
       !draftReady ||
       !enabled,
+    skills: skillsQuery.data?.data ?? [],
     switchAgent: (agent: string) => {
       if (!client) return;
       switchAgentMutation.mutate({
@@ -839,6 +933,10 @@ function currentAdmissionRevision(admissions: PromptAdmission[], admissionID: st
   return admissions.find((admission) => admission.id === admissionID)?.draftRevision ?? 0;
 }
 
+function submissionLabel(intent: ComposerSubmitIntent) {
+  return intent.type === "prompt" ? "prompt" : intent.type;
+}
+
 function unresolvedPromptAdmission(admission: PromptAdmission) {
   if (admission.draftRevision === undefined) {
     throw new Error("PROMPT_ADMISSION_PERSISTENCE_FAILED");
@@ -848,6 +946,7 @@ function unresolvedPromptAdmission(admission: PromptAdmission) {
     draftRevision: admission.draftRevision,
     durable: false as const,
     id: admission.id,
+    kind: admission.kind,
     status:
       admission.status === "submitting" ? ("submitting" as const) : ("unknown-delivery" as const),
     submittedAtMs: admission.submittedAtMs,

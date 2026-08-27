@@ -52,6 +52,7 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
   const admission: PromptAdmission = {
     durable: false,
     id: "msg_unknown",
+    kind: "prompt",
     status: "unknown-delivery",
     submittedAtMs: 1,
   };
@@ -89,6 +90,7 @@ test("only offers a duplicate-risk retry after an explicit empty reconciliation"
   const admission: PromptAdmission = {
     durable: false,
     id: "msg_unknown",
+    kind: "prompt",
     retryOffered: true,
     status: "unknown-delivery",
     submittedAtMs: 1,
@@ -107,6 +109,31 @@ test("only offers a duplicate-risk retry after an explicit empty reconciliation"
 
   fireEvent.press(screen.getByRole("button", { name: "Allow retry (may duplicate)" }));
   expect(callbacks.onAllowRetry).toHaveBeenCalledWith("msg_unknown");
+});
+
+test("explains that command recovery cannot identify delivery", () => {
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[
+        {
+          durable: false,
+          id: "msg_command",
+          kind: "command",
+          retryOffered: true,
+          status: "unknown-delivery",
+          submittedAtMs: 1,
+        },
+      ]}
+      inbox={[]}
+      permissionReplyError={false}
+      permissions={[]}
+      {...callbacks}
+      projectedMessageIds={new Set()}
+    />,
+  );
+
+  expect(screen.getByText(/server may have run this command/i)).toBeOnTheScreen();
 });
 
 test("shows and replies to a permission blocking the current session", () => {

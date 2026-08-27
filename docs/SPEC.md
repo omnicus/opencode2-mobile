@@ -21,7 +21,7 @@ contracts or create a second provider abstraction.
   mobile application.
 - The event stream is volatile. Events can be lost during disconnection,
   background suspension, server restart, or overflow.
-- The installed client is `0.0.0-beta-18050`. Recheck the `@beta` tag before
+- The installed client is `0.0.0-beta-18387`. Recheck the `@beta` tag before
   each integration milestone, but do not reject a server only because its
   application version differs.
 - A server reachable at `127.0.0.1` on a development computer is not reachable

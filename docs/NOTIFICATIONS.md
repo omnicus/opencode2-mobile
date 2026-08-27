@@ -95,7 +95,7 @@ OpenCode.
 }
 ```
 
-The package is pinned to `@opencode-ai/plugin@0.0.0-beta-18050`. It subscribes to
+The package is pinned to `@opencode-ai/plugin@0.0.0-beta-18387`. It subscribes to
 `permission.asked`, `permission.replied`, `form.created`, `form.replied`,
 `form.cancelled`, and `session.execution.succeeded`. It converts permission
 actions to a finite category before storing a sanitized retry queue in plugin

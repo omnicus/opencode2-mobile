@@ -12,6 +12,39 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-08-27: beta 18387 generated-client upgrade
+
+### Stack
+
+- OpenCode client, protocol, and schema: `0.0.0-beta-18387`
+- OpenCode notification plugin: `0.0.0-beta-18387`
+- Installed OpenCode CLI: `0.0.0-beta-18387`
+- Shared service used for the catalog probe: `0.0.0-beta-18371`
+
+### Results
+
+| Probe | Result |
+| --- | --- |
+| Install matching client, protocol, schema, AI, and plugin packages | Pass |
+| Compile the adapter, mobile app, and notification plugin against the generated types | Pass |
+| List commands at the exact repository location | Pass |
+| Receive built-in and configured command records with names and optional descriptions | Pass |
+| Send command arguments as `text` and accept the generated client's `204` response | Pass in the deterministic fake API |
+| Keep a lost command response behind an explicit duplicate-risk retry guard | Pass |
+| Route beta 18387 step-streamed and message-content events to exact-session reconciliation | Pass |
+| Decode the beta 18387 interrupt response | Pass in the deterministic fake API |
+| Run all 292 mobile tests | Pass |
+| Export iOS and Android Hermes bundles | Pass |
+| Run Expo Doctor | Pass, 18/18 checks |
+
+Beta 18387 removes command templates from `Command.Info`. The command endpoint
+also replaces `arguments`, client message IDs, and inbox responses with `text`
+and a `204` response. Prompt admission IDs remain stable and reconcilable.
+Command delivery cannot be identified after a response is lost, so the app
+refreshes server state, preserves the draft, and requires an explicit retry.
+The catalog probe recorded no address, credential, identifier, path, prompt, or
+server content.
+
 ## 2026-08-24: local beta 18050 interaction-scope probes
 
 ### Result

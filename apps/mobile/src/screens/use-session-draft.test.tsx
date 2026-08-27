@@ -5,9 +5,19 @@ import { useSessionDraft } from "./use-session-draft";
 
 const mockDeleteDraft = jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
 const mockReadDraft = jest.fn<
-  (
-    ...args: unknown[]
-  ) => Promise<{ content: string; revision: number; updatedAtMs: number } | undefined>
+  (...args: unknown[]) => Promise<
+    | {
+        content: string;
+        mentions: Array<{
+          id: string;
+          mention: { end: number; start: number; text: string };
+          type: "skill";
+        }>;
+        revision: number;
+        updatedAtMs: number;
+      }
+    | undefined
+  >
 >(async () => undefined);
 const mockWriteDraft = jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
 const mockDatabase = {};
@@ -41,18 +51,54 @@ test("does not clear text edited after the submitted draft revision", async () =
   expect(hook.result.current.draft).toBe("");
 });
 
-test("restores a durable revision and clears that exact submitted draft", async () => {
-  mockReadDraft.mockResolvedValueOnce({ content: "Submitted", revision: 7, updatedAtMs: 10 });
+test("restores a durable revision and structured mentions", async () => {
+  const mentions = [
+    {
+      id: "release",
+      mention: { end: 8, start: 0, text: "@release" },
+      type: "skill" as const,
+    },
+  ];
+  mockReadDraft.mockResolvedValueOnce({
+    content: "@release Submitted",
+    mentions,
+    revision: 7,
+    updatedAtMs: 10,
+  });
   const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
   await waitFor(() => expect(hook.result.current.loaded).toBe(true));
 
   expect(hook.result.current.revision).toBe(7);
+  expect(hook.result.current.mentions).toEqual(mentions);
   act(() => hook.result.current.clearDraft(7));
 
   await waitFor(() =>
     expect(mockDeleteDraft).toHaveBeenCalledWith(mockDatabase, "connection-1", "ses_a"),
   );
   expect(hook.result.current.draft).toBe("");
+  expect(hook.result.current.mentions).toEqual([]);
+});
+
+test("writes mention metadata with the encrypted draft", async () => {
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  const mentions = [
+    {
+      id: "release",
+      mention: { end: 8, start: 0, text: "@release" },
+      type: "skill" as const,
+    },
+  ];
+
+  act(() => hook.result.current.setDraft("@release ", mentions));
+  await act(async () => {
+    await hook.result.current.persistDraft("@release ", hook.result.current.revision);
+  });
+
+  expect(mockWriteDraft).toHaveBeenCalledWith(
+    mockDatabase,
+    expect.objectContaining({ content: "@release ", mentions }),
+  );
 });
 
 test("a late confirmation only clears the draft scope that submitted it", async () => {

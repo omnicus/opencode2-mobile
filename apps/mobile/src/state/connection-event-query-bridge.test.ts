@@ -106,6 +106,32 @@ test("reconciles one transcript after execution completes", () => {
   queryClient.clear();
 });
 
+test.each(["session.step.streamed", "session.message.content.updated"] as const)(
+  "%s reconciles only the affected transcript",
+  (type) => {
+    const queryClient = new QueryClient();
+    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+    const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+      callback(),
+    );
+    const location = { directory: "/workspace" };
+    const affectedKey = openCodeQueryKeys.messages("connection-1", location, "session-1", {});
+    const otherKey = openCodeQueryKeys.messages("connection-1", location, "session-2", {});
+    queryClient.setQueryData(affectedKey, []);
+    queryClient.setQueryData(otherKey, []);
+
+    bridge.apply(messageReconciliationEvent(type));
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    const predicate = invalidate.mock.calls[0]?.[0]?.predicate;
+    const affected = queryClient.getQueryCache().find({ queryKey: affectedKey });
+    const other = queryClient.getQueryCache().find({ queryKey: otherKey });
+    expect(affected && predicate?.(affected)).toBe(true);
+    expect(other && predicate?.(other)).toBe(false);
+    queryClient.clear();
+  },
+);
+
 test("does not write active-session state for transcript deltas", () => {
   const queryClient = new QueryClient();
   const setQueryData = jest.spyOn(queryClient, "setQueryData");
@@ -510,6 +536,22 @@ function sessionExecutionSucceededEvent(id: string) {
     location: { directory: "/first" },
     type: "session.execution.succeeded",
   } satisfies OpenCodeEvent;
+}
+
+function messageReconciliationEvent(
+  type: "session.step.streamed" | "session.message.content.updated",
+) {
+  return {
+    created: 1,
+    data:
+      type === "session.step.streamed"
+        ? { assistantMessageID: "message-1", sessionID: "session-1" }
+        : { content: [], messageID: "message-1", sessionID: "session-1" },
+    durable: { aggregateID: "session-1", seq: 1, version: 1 as const },
+    id: `event-${type}`,
+    location: { directory: "/workspace" },
+    type,
+  } as OpenCodeEvent;
 }
 
 function transcriptEvent(id: string, type: string, data: Record<string, unknown>) {

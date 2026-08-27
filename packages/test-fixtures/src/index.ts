@@ -1,8 +1,10 @@
 export type FakeOpenCodeApiOptions = {
   agents?: unknown[];
+  commands?: unknown[];
   configEntries?: unknown[];
   eventFrame?: string;
   failures?: Record<string, { body: unknown; status: number }>;
+  files?: unknown[];
   forms?: unknown[];
   location?: {
     directory: string;
@@ -16,6 +18,7 @@ export type FakeOpenCodeApiOptions = {
   permissions?: unknown[];
   projects?: unknown[];
   sessions?: FakeSession[];
+  skills?: unknown[];
   vcs?: unknown;
   vcsDiff?: unknown[];
 };
@@ -111,17 +114,26 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     if (url.pathname === "/api/agent") {
       return json({ location: resolvedLocation(options, url), data: options.agents ?? [] });
     }
+    if (url.pathname === "/api/command") {
+      return json({ location: resolvedLocation(options, url), data: options.commands ?? [] });
+    }
     if (url.pathname === "/api/config") {
       return json(options.configEntries ?? []);
     }
     if (url.pathname === "/api/model") {
       return json({ location: resolvedLocation(options, url), data: options.models ?? [] });
     }
+    if (url.pathname === "/api/skill") {
+      return json({ location: resolvedLocation(options, url), data: options.skills ?? [] });
+    }
     if (url.pathname === "/api/permission/request") {
       return json({ location: resolvedLocation(options, url), data: options.permissions ?? [] });
     }
     if (url.pathname === "/api/form/request") {
       return json({ location: resolvedLocation(options, url), data: pendingForms });
+    }
+    if (url.pathname === "/api/fs/find") {
+      return json({ location: resolvedLocation(options, url), data: options.files ?? [] });
     }
     const formMatch = url.pathname.match(
       /^\/api\/session\/([^/]+)\/form\/([^/]+)\/(state|reply|cancel)$/,
@@ -252,6 +264,14 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
         },
         data,
       });
+    }
+    const commandMatch = url.pathname.match(/^\/api\/session\/([^/]+)\/command$/);
+    if (commandMatch && method === "POST") {
+      return new Response(null, { status: 204 });
+    }
+    const interruptMatch = url.pathname.match(/^\/api\/session\/([^/]+)\/interrupt$/);
+    if (interruptMatch && method === "POST") {
+      return json({ interrupted: true });
     }
     const sessionMatch = url.pathname.match(/^\/api\/session\/([^/]+)$/);
     if (sessionMatch && method === "GET") {

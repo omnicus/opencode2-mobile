@@ -1,4 +1,12 @@
-import type { AgentInfo, ModelInfo, ModelRef } from "@opencode2-mobile/opencode-adapter";
+import type {
+  AgentInfo,
+  CommandInfo,
+  FileSystemEntry,
+  LocationRef,
+  ModelInfo,
+  ModelRef,
+  SkillInfo,
+} from "@opencode2-mobile/opencode-adapter";
 import { useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   FlatList,
@@ -15,6 +23,19 @@ import {
 import { ModalSheet } from "../components/modal-sheet";
 import { palette, radius, space, typeRamp } from "../theme";
 import type { PromptDelivery } from "./prompt-admission-model";
+import {
+  applyMentionCompletion,
+  applySlashCompletion,
+  type ComposerMention,
+  type ComposerSubmitIntent,
+  findMentionTrigger,
+  listMentionCompletions,
+  listSlashCompletions,
+  type MentionCompletion,
+  rebaseComposerMentions,
+  resolveComposerSubmitIntent,
+  type SlashCompletion,
+} from "./session-composer-model";
 
 const maximumDraftLength = 32_000;
 
@@ -22,6 +43,9 @@ export function SessionComposer({
   active,
   agent,
   agents,
+  commands,
+  completionLoading,
+  completionUnavailable,
   delivery,
   disabled,
   draft,
@@ -29,17 +53,28 @@ export function SessionComposer({
   error,
   focusOnMount,
   largeText,
+  location,
+  mentionAgents,
+  mentionFiles,
+  mentionLoading,
+  mentions,
+  mentionUnavailable,
   model,
   models,
   onAgentChange,
   onDeliveryChange,
   onDraftChange,
   onModelChange,
+  onMentionSearchChange,
   onSubmit,
+  skills,
 }: {
   active: boolean;
   agent?: string | undefined;
   agents: AgentInfo[];
+  commands: CommandInfo[];
+  completionLoading?: boolean | undefined;
+  completionUnavailable?: boolean | undefined;
   delivery?: PromptDelivery | undefined;
   disabled?: boolean | undefined;
   draft: string;
@@ -47,13 +82,21 @@ export function SessionComposer({
   error?: string | undefined;
   focusOnMount?: boolean | undefined;
   largeText: boolean;
+  location: LocationRef;
+  mentionAgents: AgentInfo[];
+  mentionFiles: FileSystemEntry[];
+  mentionLoading?: boolean | undefined;
+  mentions: ComposerMention[];
+  mentionUnavailable?: boolean | undefined;
   model?: ModelRef | undefined;
   models: ModelInfo[];
   onAgentChange: (agent: string) => void;
   onDeliveryChange: (delivery: PromptDelivery) => void;
-  onDraftChange: (draft: string) => void;
+  onDraftChange: (draft: string, mentions: ComposerMention[]) => void;
   onModelChange: (model: ModelRef) => void;
-  onSubmit: () => void;
+  onMentionSearchChange: (query: string | undefined) => void;
+  onSubmit: (intent: ComposerSubmitIntent) => void;
+  skills: SkillInfo[];
 }) {
   const inputRef = useRef<TextInput>(null);
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
@@ -61,6 +104,7 @@ export function SessionComposer({
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelSearch, setModelSearch] = useState("");
+  const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
   const deferredModelSearch = useDeferredValue(modelSearch.trim().toLocaleLowerCase());
   const deferredAgentSearch = useDeferredValue(agentSearch.trim().toLocaleLowerCase());
   const selectedAgent = agents.find((candidate) => candidate.id === agent);
@@ -82,8 +126,23 @@ export function SessionComposer({
       )
     : agents;
   const expanded = largeText || focused || agentPickerOpen || modelPickerOpen;
+  const completions = listSlashCompletions(draft, commands);
+  const mentionTrigger = findMentionTrigger(draft, selection);
+  const mentionCompletions = mentionTrigger
+    ? listMentionCompletions(mentionTrigger.query, mentionAgents, skills, mentionFiles)
+    : [];
+  const submitIntent = resolveComposerSubmitIntent(draft, commands, mentions, location);
+  const slashCatalogPending = completionLoading && draft.startsWith("/");
+  const slashCatalogUnavailable = completionUnavailable && draft.startsWith("/");
+  const submitHint = slashCatalogPending
+    ? "Wait for commands to load."
+    : slashCatalogUnavailable
+      ? "Commands are unavailable."
+      : undefined;
   const canSubmit =
     !disabled &&
+    !slashCatalogPending &&
+    !slashCatalogUnavailable &&
     draft.trim().length > 0 &&
     (!active || delivery === "queue" || delivery === "steer");
 
@@ -93,12 +152,52 @@ export function SessionComposer({
     return () => cancelAnimationFrame(frame);
   }, [editable, focusOnMount]);
 
+  useEffect(() => {
+    if (!focused) {
+      setSelection({ end: draft.length, start: draft.length });
+      return;
+    }
+    setSelection((current) =>
+      current.end <= draft.length ? current : { end: draft.length, start: draft.length },
+    );
+  }, [draft, focused]);
+
+  useEffect(() => {
+    onMentionSearchChange(mentionTrigger?.query);
+  }, [mentionTrigger?.query, onMentionSearchChange]);
+
+  useEffect(
+    () => () => {
+      onMentionSearchChange(undefined);
+    },
+    [onMentionSearchChange],
+  );
+
   function submit() {
     if (!canSubmit) return;
     inputRef.current?.blur();
     setFocused(false);
     Keyboard.dismiss();
-    onSubmit();
+    onSubmit(submitIntent);
+  }
+
+  function changeDraft(nextDraft: string) {
+    onDraftChange(nextDraft, rebaseComposerMentions(draft, nextDraft, mentions, selection));
+  }
+
+  function selectCompletion(completion: (typeof completions)[number]) {
+    const nextDraft = applySlashCompletion(draft, completion);
+    onDraftChange(nextDraft, mentions);
+    setSelection({ end: nextDraft.length, start: nextDraft.length });
+    inputRef.current?.focus();
+  }
+
+  function selectMention(completion: MentionCompletion) {
+    if (!mentionTrigger) return;
+    const next = applyMentionCompletion(draft, mentionTrigger, completion, mentions);
+    onDraftChange(next.draft, next.mentions);
+    setSelection(next.selection);
+    inputRef.current?.focus();
   }
 
   return (
@@ -117,14 +216,16 @@ export function SessionComposer({
             multiline
             numberOfLines={expanded ? 4 : 1}
             onBlur={() => setFocused(false)}
-            onChangeText={onDraftChange}
+            onChangeText={changeDraft}
             onFocus={() => setFocused(true)}
+            onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
             placeholder={active ? "Add a follow-up" : "Ask OpenCode"}
             placeholderTextColor={palette.dim}
             ref={inputRef}
             returnKeyType="default"
             scrollEnabled={expanded}
             selectionColor={palette.signal}
+            selection={selection}
             style={[styles.input, expanded ? styles.inputExpanded : styles.inputCollapsed]}
             submitBehavior="newline"
             textAlignVertical={expanded ? "top" : "center"}
@@ -135,10 +236,68 @@ export function SessionComposer({
               active={active}
               canSubmit={canSubmit}
               delivery={delivery}
+              disabledHint={submitHint}
               onPress={submit}
             />
           ) : null}
         </View>
+
+        {expanded && /^\/[^\s/]*$/.test(draft) ? (
+          <ScrollView
+            accessibilityLabel="Command suggestions"
+            contentContainerStyle={styles.completionListContent}
+            keyboardShouldPersistTaps="always"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            style={styles.completionList}
+          >
+            {completions.length > 0 ? (
+              completions.map((completion) => (
+                <CompletionButton
+                  completion={completion}
+                  key={`command:${completion.name}`}
+                  onPress={() => selectCompletion(completion)}
+                />
+              ))
+            ) : (
+              <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionState}>
+                {completionLoading
+                  ? "Loading commands"
+                  : completionUnavailable
+                    ? "Commands are unavailable"
+                    : "No matching commands"}
+              </Text>
+            )}
+          </ScrollView>
+        ) : null}
+
+        {expanded && mentionTrigger ? (
+          <ScrollView
+            accessibilityLabel="File, skill, and agent suggestions"
+            contentContainerStyle={styles.completionListContent}
+            keyboardShouldPersistTaps="always"
+            nestedScrollEnabled
+            showsVerticalScrollIndicator={false}
+            style={styles.completionList}
+          >
+            {mentionCompletions.map((completion) => (
+              <MentionButton
+                completion={completion}
+                key={mentionCompletionKey(completion)}
+                onPress={() => selectMention(completion)}
+              />
+            ))}
+            {mentionCompletions.length === 0 || mentionLoading || mentionUnavailable ? (
+              <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionState}>
+                {mentionLoading
+                  ? "Searching files, skills, and agents"
+                  : mentionUnavailable
+                    ? "Some mention results are unavailable"
+                    : "No matching files, skills, or agents"}
+              </Text>
+            ) : null}
+          </ScrollView>
+        ) : null}
 
         {expanded && active ? (
           <View accessibilityLabel="Prompt delivery" style={styles.deliveryRow}>
@@ -187,6 +346,7 @@ export function SessionComposer({
               active={active}
               canSubmit={canSubmit}
               delivery={delivery}
+              disabledHint={submitHint}
               onPress={submit}
             />
           </View>
@@ -313,6 +473,99 @@ function OptionSeparator() {
   return <View style={styles.optionSeparator} />;
 }
 
+function CompletionButton({
+  completion,
+  onPress,
+}: {
+  completion: SlashCompletion;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityHint={
+        completion.label !== completion.name || completion.description
+          ? [completion.label, completion.description].filter(Boolean).join(". ")
+          : undefined
+      }
+      accessibilityLabel={`/${completion.name}, command`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.completion, pressed && styles.pressed]}
+    >
+      <View style={styles.completionHeading}>
+        <Text dynamicTypeRamp={typeRamp.control} numberOfLines={1} style={styles.completionName}>
+          /{completion.name}
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
+          COMMAND
+        </Text>
+      </View>
+      {completion.label !== completion.name || completion.description ? (
+        <Text dynamicTypeRamp={typeRamp.caption} numberOfLines={2} style={styles.completionDetail}>
+          {[
+            completion.label !== completion.name ? completion.label : undefined,
+            completion.description,
+          ]
+            .filter(Boolean)
+            .join(" / ")}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function MentionButton({
+  completion,
+  onPress,
+}: {
+  completion: MentionCompletion;
+  onPress: () => void;
+}) {
+  const value =
+    completion.type === "file"
+      ? completion.path
+      : completion.type === "agent"
+        ? completion.name
+        : completion.id;
+  return (
+    <Pressable
+      accessibilityHint={
+        completion.label !== value || completion.description
+          ? [completion.label, completion.description].filter(Boolean).join(". ")
+          : undefined
+      }
+      accessibilityLabel={`@${value}, ${completion.type}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.completion, pressed && styles.pressed]}
+    >
+      <View style={styles.completionHeading}>
+        <Text dynamicTypeRamp={typeRamp.control} numberOfLines={1} style={styles.completionName}>
+          @{value}
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
+          {completion.type.toUpperCase()}
+        </Text>
+      </View>
+      {completion.label !== value || completion.description ? (
+        <Text dynamicTypeRamp={typeRamp.caption} numberOfLines={2} style={styles.completionDetail}>
+          {[completion.label !== value ? completion.label : undefined, completion.description]
+            .filter(Boolean)
+            .join(" / ")}
+        </Text>
+      ) : null}
+    </Pressable>
+  );
+}
+
+function mentionCompletionKey(completion: MentionCompletion) {
+  return completion.type === "file"
+    ? `file:${completion.path}`
+    : completion.type === "agent"
+      ? `agent:${completion.name}`
+      : `skill:${completion.id}`;
+}
+
 function EmptyResults({ label }: { label: string }) {
   return (
     <Text dynamicTypeRamp={typeRamp.control} style={styles.emptyResults}>
@@ -325,16 +578,20 @@ function SendButton({
   active,
   canSubmit,
   delivery,
+  disabledHint,
   onPress,
 }: {
   active: boolean;
   canSubmit: boolean;
   delivery?: PromptDelivery | undefined;
+  disabledHint?: string | undefined;
   onPress: () => void;
 }) {
   return (
     <Pressable
-      accessibilityHint={active && !delivery ? "Choose steer or queue before sending." : undefined}
+      accessibilityHint={
+        disabledHint ?? (active && !delivery ? "Choose steer or queue before sending." : undefined)
+      }
       accessibilityRole="button"
       accessibilityState={{ disabled: !canSubmit }}
       disabled={!canSubmit}
@@ -455,6 +712,23 @@ function modelLabel(model: ModelInfo | undefined, ref: ModelRef | undefined) {
 }
 
 const styles = StyleSheet.create({
+  completion: {
+    backgroundColor: palette.background,
+    borderColor: palette.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    gap: 2,
+    minHeight: 48,
+    paddingHorizontal: space.sm,
+    paddingVertical: 7,
+  },
+  completionDetail: { color: palette.dim, fontSize: 12, lineHeight: 16 },
+  completionHeading: { alignItems: "center", flexDirection: "row", gap: space.xs },
+  completionKind: { color: palette.dim, fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  completionList: { maxHeight: 220 },
+  completionListContent: { gap: 4 },
+  completionName: { color: palette.ink, flex: 1, fontSize: 14, fontWeight: "800" },
+  completionState: { color: palette.dim, paddingVertical: space.sm, textAlign: "center" },
   count: { alignSelf: "center", color: palette.dim, fontSize: 10, paddingHorizontal: space.xs },
   deliveryButton: {
     alignItems: "center",

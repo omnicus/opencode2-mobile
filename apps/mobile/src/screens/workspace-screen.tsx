@@ -1,4 +1,5 @@
 import {
+  findOpenCodeFiles,
   getDefaultOpenCodeLocation,
   getOpenCodeLocation,
   getOpenCodeSession,
@@ -83,6 +84,7 @@ const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
 const userScrollSettleMs = 160;
+const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
@@ -517,6 +519,8 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const [composerDockHeight, setComposerDockHeight] = useState(66);
   const [composerDockScreenBottom, setComposerDockScreenBottom] = useState(0);
   const [composerKeyboardOffset, setComposerKeyboardOffset] = useState(0);
+  const [mentionSearch, setMentionSearch] = useState<string>();
+  const deferredMentionSearch = useDeferredValue(mentionSearch);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
   const transcriptListRef = useRef<FlatList<SessionMessageInfo>>(null);
@@ -564,6 +568,24 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       order: "desc",
     }),
   });
+  const mentionFilesQuery = useQuery({
+    enabled: Boolean(
+      client && connectionId === routeConnectionId && deferredMentionSearch !== undefined,
+    ),
+    queryFn: ({ signal }) => {
+      if (!client || deferredMentionSearch === undefined) throw new Error("CONNECTION_NOT_READY");
+      return findOpenCodeFiles(client, sessionLocation, deferredMentionSearch, {
+        limit: mentionFileLimit,
+        signal,
+      });
+    },
+    queryKey: openCodeQueryKeys.fileFind(
+      routeConnectionId,
+      sessionLocation,
+      deferredMentionSearch ?? "",
+      mentionFileLimit,
+    ),
+  });
   const currentBranch = vcsQuery.data?.data.branch.current;
   const branch = currentBranch
     ? ({
@@ -583,7 +605,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     connectionId,
     draftReady: draft.loaded,
     draftRevision: draft.revision,
-    location,
+    location: sessionLocation,
     messages,
     onAdmissionConfirmed: draft.clearDraft,
     persistDraft: draft.persistDraft,
@@ -866,6 +888,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         active={execution.active}
         agent={execution.selectedAgent}
         agents={execution.agents}
+        commands={execution.commands}
+        completionLoading={execution.completionLoading}
+        completionUnavailable={execution.completionUnavailable}
         delivery={execution.delivery}
         disabled={execution.submitDisabled || !draft.loaded}
         draft={draft.draft}
@@ -873,13 +898,27 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         error={execution.error ?? draft.error}
         focusOnMount={focusComposer}
         largeText={largeText}
+        location={sessionLocation}
+        mentionAgents={execution.mentionAgents}
+        mentionFiles={
+          deferredMentionSearch === mentionSearch ? (mentionFilesQuery.data?.data ?? []) : []
+        }
+        mentionLoading={
+          execution.mentionLoading ||
+          (mentionSearch !== undefined &&
+            (mentionFilesQuery.isPending || deferredMentionSearch !== mentionSearch))
+        }
+        mentions={draft.mentions}
+        mentionUnavailable={execution.mentionUnavailable || mentionFilesQuery.isError}
         model={execution.selectedModel}
         models={execution.models}
         onAgentChange={execution.switchAgent}
         onDeliveryChange={execution.setDelivery}
         onDraftChange={draft.setDraft}
         onModelChange={execution.switchModel}
-        onSubmit={() => execution.submit(draft.draft)}
+        onMentionSearchChange={setMentionSearch}
+        onSubmit={(intent) => execution.submit(draft.draft, intent)}
+        skills={execution.skills}
       />
     </View>
   );

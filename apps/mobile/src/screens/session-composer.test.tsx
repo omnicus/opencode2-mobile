@@ -1,13 +1,24 @@
 import { expect, jest, test } from "@jest/globals";
-import type { AgentInfo, ModelInfo, ModelRef } from "@opencode2-mobile/opencode-adapter";
+import type {
+  AgentInfo,
+  CommandInfo,
+  FileSystemEntry,
+  ModelInfo,
+  ModelRef,
+  SkillInfo,
+} from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import { useState } from "react";
 import { Keyboard } from "react-native";
 
 import type { PromptDelivery } from "./prompt-admission-model";
 import { SessionComposer } from "./session-composer";
+import type { ComposerMention, ComposerSubmitIntent } from "./session-composer-model";
 
-const agents = [{ hidden: false, id: "build", mode: "primary", name: "Build" }] as AgentInfo[];
+const agents = [
+  { hidden: false, id: "build", mode: "primary", name: "Build" },
+  { hidden: false, id: "explore", mode: "subagent", name: "Explore" },
+] as AgentInfo[];
 const models = [
   {
     enabled: true,
@@ -18,6 +29,24 @@ const models = [
     variants: [{ id: "deep" }],
   },
 ] as ModelInfo[];
+const commands = [{ description: "Review changes", name: "review" }] as CommandInfo[];
+const skills = [
+  {
+    content: "Release instructions",
+    id: "release",
+    location: "/workspace/.opencode/skills/release.md",
+    name: "Release workflow",
+    slash: true,
+  },
+  {
+    content: "Automatic context",
+    id: "automatic",
+    location: "/workspace/.opencode/skills/automatic.md",
+    name: "Automatic",
+    slash: false,
+  },
+] as SkillInfo[];
+const files = [{ path: "src/index.ts", type: "file" }] as FileSystemEntry[];
 
 test("keeps the native prompt multiline and submits through an explicit control", () => {
   const onSubmit = jest.fn();
@@ -113,15 +142,22 @@ test("keeps the editor read-only until its encrypted draft has loaded", () => {
     <SessionComposer
       active={false}
       agents={agents}
+      commands={commands}
       draft=""
       editable={false}
       largeText={false}
+      location={{ directory: "/workspace" }}
+      mentionAgents={agents}
+      mentionFiles={files}
+      mentions={[]}
       models={models}
       onAgentChange={jest.fn()}
       onDeliveryChange={jest.fn()}
       onDraftChange={jest.fn()}
       onModelChange={jest.fn()}
+      onMentionSearchChange={jest.fn()}
       onSubmit={jest.fn()}
+      skills={skills}
     />,
   );
 
@@ -135,14 +171,21 @@ test("selects a server agent and model variant", () => {
     <SessionComposer
       active={false}
       agents={agents}
+      commands={commands}
       draft=""
       largeText={false}
+      location={{ directory: "/workspace" }}
+      mentionAgents={agents}
+      mentionFiles={files}
+      mentions={[]}
       models={models}
       onAgentChange={onAgentChange}
       onDeliveryChange={jest.fn()}
       onDraftChange={jest.fn()}
       onModelChange={onModelChange}
+      onMentionSearchChange={jest.fn()}
       onSubmit={jest.fn()}
+      skills={skills}
     />,
   );
 
@@ -163,26 +206,128 @@ test("selects a server agent and model variant", () => {
   });
 });
 
-function ComposerHarness({ active = false, onSubmit }: { active?: boolean; onSubmit: () => void }) {
+test("completes and submits a command with multiline Unicode arguments", () => {
+  const onSubmit = jest.fn<(intent: ComposerSubmitIntent) => void>();
+  render(<ComposerHarness onSubmit={onSubmit} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent(input, "focus");
+  fireEvent.changeText(input, "/rev");
+  expect(screen.getByLabelText("Command suggestions")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "/review, command" }));
+  expect(screen.getByLabelText("Prompt").props.value).toBe("/review ");
+  fireEvent.changeText(screen.getByLabelText("Prompt"), "/review src/æ.ts\nfocus errors");
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+
+  expect(onSubmit).toHaveBeenCalledWith({
+    arguments: "src/æ.ts\nfocus errors",
+    command: "review",
+    type: "command",
+  });
+});
+
+test("keeps slash search command-only", () => {
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent(input, "focus");
+  fireEvent.changeText(input, "/");
+
+  expect(screen.getByRole("button", { name: "/review, command" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: /release/ })).not.toBeOnTheScreen();
+});
+
+test("does not submit a slash command with arguments before the catalog loads", () => {
+  const onSubmit = jest.fn();
+  render(<ComposerHarness completionLoading onSubmit={onSubmit} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent.changeText(input, "/review src/index.ts");
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+test("does not submit slash input when the command catalog is unavailable", () => {
+  const onSubmit = jest.fn();
+  render(<ComposerHarness completionUnavailable onSubmit={onSubmit} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent.changeText(input, "/review src/index.ts");
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  expect(onSubmit).not.toHaveBeenCalled();
+});
+
+test("searches files, skills, and agents with at and submits a structured skill mention", () => {
+  const onSubmit = jest.fn<(intent: ComposerSubmitIntent) => void>();
+  render(<ComposerHarness onSubmit={onSubmit} />);
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent(input, "focus");
+  fireEvent.changeText(input, "Ask @");
+  fireEvent(input, "selectionChange", {
+    nativeEvent: { selection: { end: 5, start: 5 } },
+  });
+
+  expect(screen.getByLabelText("File, skill, and agent suggestions")).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "@src/index.ts, file" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "@Explore, agent" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "@release, skill" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "@release, skill" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+
+  expect(onSubmit).toHaveBeenCalledWith({
+    skills: [{ id: "release", mention: { end: 12, start: 4, text: "@release" } }],
+    type: "prompt",
+  });
+});
+
+function ComposerHarness({
+  active = false,
+  completionLoading = false,
+  completionUnavailable = false,
+  onSubmit,
+}: {
+  active?: boolean;
+  completionLoading?: boolean;
+  completionUnavailable?: boolean;
+  onSubmit: (intent: ComposerSubmitIntent) => void;
+}) {
   const [draft, setDraft] = useState("");
   const [delivery, setDelivery] = useState<PromptDelivery>();
   const [agent, setAgent] = useState<string>();
   const [model, setModel] = useState<ModelRef>();
+  const [mentions, setMentions] = useState<ComposerMention[]>([]);
   return (
     <SessionComposer
       active={active}
       agent={agent}
       agents={agents}
+      commands={commands}
+      completionLoading={completionLoading}
+      completionUnavailable={completionUnavailable}
       delivery={delivery}
       draft={draft}
       largeText={false}
+      location={{ directory: "/workspace" }}
+      mentionAgents={agents}
+      mentionFiles={files}
+      mentions={mentions}
       model={model}
       models={models}
       onAgentChange={setAgent}
       onDeliveryChange={setDelivery}
-      onDraftChange={setDraft}
+      onDraftChange={(content, nextMentions) => {
+        setDraft(content);
+        setMentions(nextMentions);
+      }}
       onModelChange={setModel}
+      onMentionSearchChange={jest.fn()}
       onSubmit={onSubmit}
+      skills={skills}
     />
   );
 }

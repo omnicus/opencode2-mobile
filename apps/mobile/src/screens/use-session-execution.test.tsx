@@ -29,6 +29,7 @@ const mockAdmissionDb = {
 };
 const mockBackground = jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
 const mockCancel = jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
+const mockCommand = jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
 const mockGetMessage = jest.fn<(...args: unknown[]) => Promise<SessionMessageInfo>>();
 const mockInterrupt = jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined);
 const mockListActive = jest.fn<
@@ -37,8 +38,14 @@ const mockListActive = jest.fn<
 const mockListAgents = jest.fn<
   (...args: unknown[]) => Promise<{ data: []; location: LocationRef }>
 >(async () => ({ data: [], location: mockLocation }));
+const mockListCommands = jest.fn<
+  (...args: unknown[]) => Promise<{ data: []; location: LocationRef }>
+>(async () => ({ data: [], location: mockLocation }));
 const mockListInbox = jest.fn<(...args: unknown[]) => Promise<SessionInboxInfo[]>>(async () => []);
 const mockListModels = jest.fn<
+  (...args: unknown[]) => Promise<{ data: []; location: LocationRef }>
+>(async () => ({ data: [], location: mockLocation }));
+const mockListSkills = jest.fn<
   (...args: unknown[]) => Promise<{ data: []; location: LocationRef }>
 >(async () => ({ data: [], location: mockLocation }));
 const mockPrompt = jest.fn<(...args: unknown[]) => Promise<SessionInboxInfo>>();
@@ -61,10 +68,13 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   interruptOpenCodeSession: (...args: unknown[]) => mockInterrupt(...args),
   listActiveOpenCodeSessions: (...args: unknown[]) => mockListActive(...args),
   listOpenCodeAgents: (...args: unknown[]) => mockListAgents(...args),
+  listOpenCodeCommands: (...args: unknown[]) => mockListCommands(...args),
   listOpenCodeModels: (...args: unknown[]) => mockListModels(...args),
   listOpenCodeSessionInbox: (...args: unknown[]) => mockListInbox(...args),
+  listOpenCodeSkills: (...args: unknown[]) => mockListSkills(...args),
   promptOpenCodeSession: (...args: unknown[]) => mockPrompt(...args),
   queueOpenCodeSessionInboxItem: (...args: unknown[]) => mockQueue(...args),
+  runOpenCodeSessionCommand: (...args: unknown[]) => mockCommand(...args),
   steerOpenCodeSessionInboxItem: (...args: unknown[]) => mockSteer(...args),
   switchOpenCodeSessionAgent: (...args: unknown[]) => mockSwitchAgent(...args),
   switchOpenCodeSessionModel: (...args: unknown[]) => mockSwitchModel(...args),
@@ -260,11 +270,95 @@ test("requires explicit active-turn delivery and applies inbox and execution con
   await waitFor(() => expect(mockWait).toHaveBeenCalledTimes(1));
 });
 
+test("submits a command through the command endpoint with the existing admission guard", async () => {
+  const clearDraft = jest.fn();
+  const hook = renderExecutionHook({ onAdmissionConfirmed: clearDraft });
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+
+  act(() =>
+    hook.result.current.submit("/review src/æ.ts\nthen tests", {
+      arguments: "src/æ.ts\nthen tests",
+      command: "review",
+      type: "command",
+    }),
+  );
+
+  await waitFor(() => expect(mockCommand).toHaveBeenCalledTimes(1));
+  expect(mockCommand.mock.calls[0]?.[2]).toMatchObject({
+    command: "review",
+    delivery: "steer",
+    text: "src/æ.ts\nthen tests",
+  });
+  expect(mockPrompt).not.toHaveBeenCalled();
+  await waitFor(() => expect(clearDraft).toHaveBeenCalledTimes(1));
+});
+
+test("offers an explicit duplicate-risk retry when a command response is lost", async () => {
+  mockCommand.mockRejectedValueOnce(new TypeError("Network request failed"));
+  const clearDraft = jest.fn();
+  const hook = renderExecutionHook({ onAdmissionConfirmed: clearDraft });
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+
+  act(() =>
+    hook.result.current.submit("/review", {
+      command: "review",
+      type: "command",
+    }),
+  );
+
+  await waitFor(() => expect(hook.result.current.admissions[0]?.status).toBe("unknown-delivery"));
+  expect(hook.result.current.admissions[0]).toMatchObject({
+    kind: "command",
+    retryOffered: true,
+  });
+  expect(hook.result.current.submitDisabled).toBe(true);
+  expect(clearDraft).not.toHaveBeenCalled();
+
+  const admissionID = hook.result.current.admissions[0]?.id ?? "";
+  act(() => hook.result.current.reconcileAdmission(admissionID));
+  await waitFor(() => expect(hook.result.current.error).toMatch(/cannot be identified/i));
+  expect(mockGetMessage).not.toHaveBeenCalled();
+});
+
+test("submits structured file, skill, and agent mentions through the prompt endpoint", async () => {
+  mockPrompt.mockImplementation(async (...args) => {
+    const input = args[2] as { delivery: "queue" | "steer"; id: string };
+    return userInbox(input.id, input.delivery);
+  });
+  const clearDraft = jest.fn();
+  const hook = renderExecutionHook({ onAdmissionConfirmed: clearDraft });
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+
+  act(() =>
+    hook.result.current.submit("Check @src/index.ts with @Explore and @release", {
+      agents: [{ mention: { end: 33, start: 25, text: "@Explore" }, name: "Explore" }],
+      files: [
+        {
+          mention: { end: 19, start: 6, text: "@src/index.ts" },
+          name: "src/index.ts",
+          uri: "file:///workspace/src/index.ts",
+        },
+      ],
+      skills: [{ id: "release", mention: { end: 46, start: 38, text: "@release" } }],
+      type: "prompt",
+    }),
+  );
+
+  await waitFor(() => expect(mockPrompt).toHaveBeenCalledTimes(1));
+  expect(mockPrompt.mock.calls[0]?.[2]).toMatchObject({
+    agents: [{ name: "Explore" }],
+    files: [{ uri: "file:///workspace/src/index.ts" }],
+    skills: [{ id: "release" }],
+  });
+  await waitFor(() => expect(clearDraft).toHaveBeenCalledTimes(1));
+});
+
 test("restores an unresolved admission after restart and reconciles it from the inbox", async () => {
   const queryClient = createQueryClient();
   const admission = {
     durable: false,
     id: "msg_reconnected",
+    kind: "prompt",
     status: "unknown-delivery",
     submittedAtMs: 1,
   } satisfies PromptAdmission;
@@ -273,6 +367,7 @@ test("restores an unresolved admission after restart and reconciles it from the 
       admission_id: admission.id,
       delivery: null,
       draft_revision: 0,
+      submission_kind: "prompt",
       status: "submitting",
       submitted_at_ms: 1,
     },
@@ -294,6 +389,7 @@ test("does not clear a newer draft when a handled admission is restored", async 
     delivery: "queue",
     durable: true,
     id: "msg_handled",
+    kind: "prompt",
     status: "queued",
     submittedAtMs: 1,
   } satisfies PromptAdmission;

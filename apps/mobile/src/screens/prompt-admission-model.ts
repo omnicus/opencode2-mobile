@@ -1,6 +1,7 @@
 import * as Crypto from "expo-crypto";
 
 export type PromptDelivery = "queue" | "steer";
+export type PromptAdmissionKind = "command" | "prompt";
 
 export type PromptAdmissionStatus =
   | "submitting"
@@ -19,6 +20,7 @@ export type PromptAdmission = {
   draftRevision?: number;
   durable: boolean;
   id: string;
+  kind: PromptAdmissionKind;
   retryOffered?: boolean;
   serverAdmittedAtMs?: number;
   status: PromptAdmissionStatus;
@@ -43,6 +45,7 @@ export function createPromptAdmission(
     ...(delivery ? { delivery } : {}),
     durable: false,
     id: `msg_${randomUUID().replaceAll("-", "")}`,
+    kind: "prompt",
     status: "submitting",
     submittedAtMs: now(),
   };

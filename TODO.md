@@ -64,7 +64,7 @@ Android, and CI checks an empty native application.
 ## 2. React Native client compatibility spike
 
 - [x] Check the V2 client docs and replace the pinned `@next` build with tested
-      beta 18050.
+      beta 18387.
 - [x] Record the exact tested OpenCode application versions and behavioral
       compatibility probes; report differing versions without rejecting a server
       that passes those probes.
@@ -398,8 +398,8 @@ against OpenCode.
 
 - [ ] Add native hardware-keyboard commands without changing multiline Enter
       behavior.
-- [ ] Add command and skill completion.
-- [ ] Add file, agent, and skill mentions.
+- [x] Add command completion.
+- [x] Add file, agent, and skill mentions.
 - [ ] Add phone-file attachments using bounded inline data URLs and server-file
       attachments using server-accessible file URLs.
 - [ ] Implement filesystem find, list, and read through generated operations.
