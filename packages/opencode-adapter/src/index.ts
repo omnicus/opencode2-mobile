@@ -1,4 +1,5 @@
 import {
+  type FileDiffInfo,
   type FormAnswer,
   type FormState,
   type LocationGetOutput,
@@ -165,6 +166,45 @@ export async function getOpenCodeLocation(
   return validateResolvedLocation(
     await client.location.get({ location: locationInput(location) }, options),
   );
+}
+
+export async function getOpenCodeVcs(
+  client: OpenCodeClient,
+  location: LocationRef,
+  options?: OpenCodeRequestOptions,
+) {
+  const response = await client.vcs.get({ location: locationInput(location) }, options);
+  validateResolvedLocation(response.location);
+  if (
+    !isRecord(response.data) ||
+    !isRecord(response.data.branch) ||
+    !isOptionalString(response.data.branch.current) ||
+    !isOptionalString(response.data.branch.default)
+  ) {
+    throw new Error("MALFORMED_VCS_INFO");
+  }
+  return response;
+}
+
+export async function getOpenCodeVcsDiff(
+  client: OpenCodeClient,
+  location: LocationRef,
+  mode: "branch" | "working",
+  options?: OpenCodeRequestOptions & { context?: number },
+) {
+  const response = await client.vcs.diff(
+    {
+      location: locationInput(location),
+      mode,
+      ...(options?.context === undefined ? {} : { context: options.context }),
+    },
+    options?.signal ? { signal: options.signal } : undefined,
+  );
+  validateResolvedLocation(response.location);
+  if (!Array.isArray(response.data) || !response.data.every(isValidFileDiff)) {
+    throw new Error("MALFORMED_VCS_DIFF");
+  }
+  return response;
 }
 
 export async function listOpenCodeProjects(
@@ -1132,6 +1172,25 @@ function isOptionalNullableString(value: unknown) {
   return value === undefined || value === null || typeof value === "string";
 }
 
+function isOptionalString(value: unknown) {
+  return value === undefined || typeof value === "string";
+}
+
+function isValidFileDiff(value: unknown): value is FileDiffInfo {
+  return (
+    isRecord(value) &&
+    typeof value.file === "string" &&
+    typeof value.patch === "string" &&
+    typeof value.additions === "number" &&
+    Number.isInteger(value.additions) &&
+    value.additions >= 0 &&
+    typeof value.deletions === "number" &&
+    Number.isInteger(value.deletions) &&
+    value.deletions >= 0 &&
+    (value.status === "added" || value.status === "deleted" || value.status === "modified")
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -1635,6 +1694,7 @@ export type OpenCodeClient = ReturnType<typeof createOpenCodeClient>;
 export type {
   AgentInfo,
   AgentListOutput,
+  FileDiffInfo,
   FormAnswer,
   FormField,
   FormInfo,

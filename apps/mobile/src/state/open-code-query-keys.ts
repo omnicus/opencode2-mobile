@@ -140,6 +140,12 @@ export const openCodeQueryKeys = {
   sessionRoot(connectionId: string, location: LocationRef) {
     return sessionRootKey(connectionId, location);
   },
+  vcs(connectionId: string, location: LocationRef) {
+    return [...locationKey(connectionId, location), "vcs"] as const;
+  },
+  vcsDiff(connectionId: string, location: LocationRef, mode: "branch" | "working") {
+    return [...locationKey(connectionId, location), "vcs-diff", mode] as const;
+  },
   sessions(connectionId: string, location: LocationRef, parameters: SessionListKeyParameters) {
     return [
       ...sessionRootKey(connectionId, location),

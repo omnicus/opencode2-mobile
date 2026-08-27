@@ -19,6 +19,8 @@ import {
   getOpenCodeLocation,
   getOpenCodeSession,
   getOpenCodeSessionMessage,
+  getOpenCodeVcs,
+  getOpenCodeVcsDiff,
   interruptOpenCodeSession,
   listActiveOpenCodeSessions,
   listOpenCodeAgents,
@@ -337,6 +339,67 @@ it("validates default and explicit resolved locations", async () => {
     "MALFORMED_LOCATION",
   );
   expect(locationGet).toHaveBeenNthCalledWith(1, undefined, undefined);
+});
+
+it("validates and forwards location-scoped VCS information", async () => {
+  const api = createFakeOpenCodeApi({ vcs: { branch: { current: "feature/mobile" } } });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+
+  await expect(
+    getOpenCodeVcs(client, { directory: "/workspace", workspaceID: "wrk_test" }),
+  ).resolves.toMatchObject({ data: { branch: { current: "feature/mobile" } } });
+  expect(api.requests.at(-1)).toMatchObject({
+    path: "/api/vcs",
+    query: {
+      "location[directory]": ["/workspace"],
+      "location[workspace]": ["wrk_test"],
+    },
+  });
+
+  const malformedApi = createFakeOpenCodeApi({ vcs: { branch: { current: null } } });
+  const malformedClient = createOpenCodeClient({
+    baseUrl: "https://fake.invalid",
+    fetch: malformedApi.fetch,
+  });
+  await expect(getOpenCodeVcs(malformedClient, { directory: "/workspace" })).rejects.toThrow(
+    "MALFORMED_VCS_INFO",
+  );
+});
+
+it("validates and forwards location-scoped working-tree diffs", async () => {
+  const diff = {
+    additions: 2,
+    deletions: 1,
+    file: "src/app.ts",
+    patch: "@@ -1 +1 @@\n-old\n+new",
+    status: "modified",
+  };
+  const api = createFakeOpenCodeApi({ vcsDiff: [diff] });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+
+  await expect(
+    getOpenCodeVcsDiff(client, { directory: "/workspace", workspaceID: "wrk_test" }, "working", {
+      context: 5,
+    }),
+  ).resolves.toMatchObject({ data: [diff] });
+  expect(api.requests.at(-1)).toMatchObject({
+    path: "/api/vcs/diff",
+    query: {
+      context: ["5"],
+      "location[directory]": ["/workspace"],
+      "location[workspace]": ["wrk_test"],
+      mode: ["working"],
+    },
+  });
+
+  const malformedApi = createFakeOpenCodeApi({ vcsDiff: [{ ...diff, additions: -1 }] });
+  const malformedClient = createOpenCodeClient({
+    baseUrl: "https://fake.invalid",
+    fetch: malformedApi.fetch,
+  });
+  await expect(
+    getOpenCodeVcsDiff(malformedClient, { directory: "/workspace" }, "working"),
+  ).rejects.toThrow("MALFORMED_VCS_DIFF");
 });
 
 it("validates and forwards location-scoped agent and model choices", async () => {

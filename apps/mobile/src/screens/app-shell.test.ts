@@ -1,5 +1,6 @@
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import * as Clipboard from "expo-clipboard";
 import { createElement } from "react";
 import { Dimensions, Text } from "react-native";
 
@@ -19,6 +20,7 @@ jest.mock("../security/app-lock-context", () => ({ useAppLock: jest.fn() }));
 jest.mock("../state/connection-runtime-context", () => ({ useConnectionRuntime: jest.fn() }));
 jest.mock("../state/workspace-selection-context", () => ({ useWorkspaceSelection: jest.fn() }));
 jest.mock("./form-request-list", () => ({ FormRequestList: () => null }));
+jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => undefined) }));
 
 test("communicates every transport status without relying on color", () => {
   expect(getConnectionPresentation("connected", 0).label).toBe("LIVE");
@@ -93,6 +95,70 @@ test("uses native navigation on phones and retains the tablet rail", () => {
   } finally {
     Dimensions.set({ screen: originalScreen, window: originalWindow });
   }
+});
+
+test("reveals and copies the full session branch name", async () => {
+  jest.mocked(useConnections).mockReturnValue({
+    profiles: [{ id: "connection-1", name: "Test server" }],
+    selectedProfileId: "connection-1",
+  } as never);
+  jest
+    .mocked(useConnectionRuntime)
+    .mockReturnValue({ reconnectAttempt: 0, status: "connected" } as never);
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    attentionCoverage: { completeness: "complete" },
+    pendingCount: 0,
+  } as never);
+  const branchName = "docs/a-very-long-mobile-workflow-screenshots-branch";
+
+  const view = render(
+    createElement(
+      ShellFrame,
+      {
+        active: "Workspace",
+        branch: { name: branchName, state: "known" },
+        navigate: jest.fn(),
+      },
+      createElement(Text, null, "Session content"),
+    ),
+  );
+
+  fireEvent.press(screen.getByRole("button", { name: `Current branch, ${branchName}` }));
+  expect(screen.getByRole("header", { name: "Current branch" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Copy branch name" }));
+  await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith(branchName));
+  expect(screen.getByRole("button", { name: "Copied" })).toBeOnTheScreen();
+  view.unmount();
+});
+
+test("reveals and copies the full server name", async () => {
+  jest.mocked(useConnections).mockReturnValue({
+    profiles: [{ id: "connection-1", name: "A server name too long for the metadata bar" }],
+    selectedProfileId: "connection-1",
+  } as never);
+  jest.mocked(useConnectionRuntime).mockReturnValue({
+    reconnectAttempt: 0,
+    status: "connected",
+  } as never);
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    attentionCoverage: { completeness: "complete" },
+    pendingCount: 0,
+  } as never);
+  const serverName = "A server name too long for the metadata bar";
+
+  const view = render(
+    createElement(
+      ShellFrame,
+      { active: "Workspace", navigate: jest.fn() },
+      createElement(Text, null, "Session content"),
+    ),
+  );
+
+  fireEvent.press(screen.getByRole("button", { name: `Server, ${serverName}` }));
+  expect(screen.getByRole("header", { name: "Server name" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Copy server name" }));
+  await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith(serverName));
+  view.unmount();
 });
 
 test("allows a permission owned by a background child session from Pending", () => {

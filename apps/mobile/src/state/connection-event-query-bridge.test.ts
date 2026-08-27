@@ -174,7 +174,7 @@ test("does not refetch connection queries for file-change hints", () => {
   queryClient.clear();
 });
 
-test("does not refetch connection queries for shell and VCS advisory events", () => {
+test("does not refetch connection queries for shell advisory events", () => {
   const queryClient = new QueryClient();
   const invalidate = jest.spyOn(queryClient, "invalidateQueries");
   const scheduled: Array<() => void> = [];
@@ -182,12 +182,7 @@ test("does not refetch connection queries for shell and VCS advisory events", ()
     scheduled.push(callback);
   });
 
-  for (const [index, type] of [
-    "shell.created",
-    "shell.exited",
-    "shell.deleted",
-    "vcs.branch.updated",
-  ].entries()) {
+  for (const [index, type] of ["shell.created", "shell.exited", "shell.deleted"].entries()) {
     bridge.apply({
       created: index + 1,
       data: {},
@@ -199,6 +194,33 @@ test("does not refetch connection queries for shell and VCS advisory events", ()
 
   expect(scheduled).toHaveLength(0);
   expect(invalidate).not.toHaveBeenCalled();
+  queryClient.clear();
+});
+
+test("invalidates VCS information only for the affected location", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const affectedKey = openCodeQueryKeys.vcs("connection-1", { directory: "/workspace" });
+  const otherKey = openCodeQueryKeys.vcs("connection-1", { directory: "/other" });
+  queryClient.setQueryData(affectedKey, { data: { branch: { current: "old" } } });
+  queryClient.setQueryData(otherKey, { data: { branch: { current: "other" } } });
+
+  bridge.apply({
+    created: 1,
+    data: { branch: "feature/mobile" },
+    id: "event-vcs",
+    location: { directory: "/workspace" },
+    type: "vcs.branch.updated",
+  });
+
+  const predicate = invalidate.mock.calls[0]?.[0]?.predicate;
+  const affected = queryClient.getQueryCache().find({ queryKey: affectedKey });
+  const other = queryClient.getQueryCache().find({ queryKey: otherKey });
+  expect(affected && predicate?.(affected)).toBe(true);
+  expect(other && predicate?.(other)).toBe(false);
   queryClient.clear();
 });
 

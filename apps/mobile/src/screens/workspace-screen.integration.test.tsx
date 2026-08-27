@@ -52,6 +52,10 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
     tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
   })),
   getOpenCodeSessionMessage: jest.fn(),
+  getOpenCodeVcs: jest.fn(async () => ({
+    data: { branch: { current: "docs/mobile-workflow-screenshots" } },
+    location,
+  })),
   interruptOpenCodeSession: jest.fn(),
   listActiveOpenCodeSessions: jest.fn(async () => ({})),
   listOpenCodeAgents: jest.fn(async () => ({ data: [], location })),

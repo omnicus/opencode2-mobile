@@ -31,10 +31,12 @@ type ToolOutput = Extract<AssistantTool["state"], { status: "completed" }>["cont
 export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   largeText = false,
   message,
+  onOpenDiff,
   onOpenSubagent,
 }: {
   largeText?: boolean;
   message: SessionMessageInfo;
+  onOpenDiff?: (() => void) | undefined;
   onOpenSubagent?: ((sessionID: string) => void) | undefined;
 }) {
   useEffect(() => {
@@ -64,6 +66,18 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
                 <ExplorationDisclosure
                   key={item.key}
                   largeText={largeText}
+                  onOpenSubagent={onOpenSubagent}
+                  tools={item.tools}
+                />
+              );
+            }
+            if (item.type === "tools") {
+              return (
+                <ToolGroupDisclosure
+                  category={item.category}
+                  key={item.key}
+                  largeText={largeText}
+                  onOpenDiff={onOpenDiff}
                   onOpenSubagent={onOpenSubagent}
                   tools={item.tools}
                 />
@@ -106,6 +120,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
               <ToolDisclosure
                 key={key}
                 largeText={largeText}
+                onOpenDiff={onOpenDiff}
                 onOpenSubagent={onOpenSubagent}
                 tool={part}
               />
@@ -127,7 +142,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           {message.content.length === 0 && !message.error ? (
             <Text style={styles.statusText}>No projected content</Text>
           ) : null}
-          <AssistantFooter message={message} />
+          {hasNarrativeContent(message) ? <AssistantFooter message={message} /> : null}
         </View>
       );
     }
@@ -206,26 +221,44 @@ function AttachmentLabels({
 
 type AssistantPresentationItem =
   | { key: string; part: AssistantPart; type: "part" }
-  | { key: string; tools: AssistantTool[]; type: "exploration" };
+  | { key: string; tools: AssistantTool[]; type: "exploration" }
+  | { category: ToolGroupCategory; key: string; tools: AssistantTool[]; type: "tools" };
+type ToolCategory = "edit" | "exploration" | "other" | "shell" | "skill";
+type ToolGroupCategory = Exclude<ToolCategory, "exploration">;
 
 function groupAssistantParts(content: AssistantMessage["content"]): AssistantPresentationItem[] {
   const items: AssistantPresentationItem[] = [];
   let textOrdinal = 0;
   let reasoningOrdinal = 0;
-  let exploration: AssistantTool[] = [];
-  const flushExploration = () => {
-    const first = exploration[0];
-    if (first)
-      items.push({ key: `exploration:${first.id}`, tools: exploration, type: "exploration" });
-    exploration = [];
+  let tools: AssistantTool[] = [];
+  const flushTools = () => {
+    let start = 0;
+    while (start < tools.length) {
+      const category = toolCategory(tools[start] as AssistantTool);
+      let end = start + 1;
+      while (end < tools.length && toolCategory(tools[end] as AssistantTool) === category) end += 1;
+      const run = tools.slice(start, end);
+      const first = run[0] as AssistantTool;
+      if (category === "exploration") {
+        items.push({ key: `exploration:${first.id}`, tools: run, type: "exploration" });
+      } else if (run.length > 1 && run.every((tool) => tool.state.status === "completed")) {
+        items.push({ category, key: `tools:${first.id}`, tools: run, type: "tools" });
+      } else {
+        for (const tool of run) {
+          items.push({ key: `tool:${tool.id}`, part: tool, type: "part" });
+        }
+      }
+      start = end;
+    }
+    tools = [];
   };
 
   for (const part of content) {
-    if (part.type === "tool" && isExplorationTool(part)) {
-      exploration.push(part);
+    if (part.type === "tool" && !getSubagentPresentation(part)) {
+      tools.push(part);
       continue;
     }
-    flushExploration();
+    flushTools();
     if (part.type === "tool") {
       items.push({ key: `tool:${part.id}`, part, type: "part" });
       continue;
@@ -238,8 +271,12 @@ function groupAssistantParts(content: AssistantMessage["content"]): AssistantPre
     reasoningOrdinal += 1;
     items.push({ key: `reasoning:${reasoningOrdinal}`, part, type: "part" });
   }
-  flushExploration();
+  flushTools();
   return items;
+}
+
+function hasNarrativeContent(message: AssistantMessage) {
+  return message.content.some((part) => part.type === "text" || part.type === "reasoning");
 }
 
 function withOccurrenceKeys(labels: string[]) {
@@ -291,14 +328,59 @@ function ExplorationDisclosure({
   );
 }
 
+function ToolGroupDisclosure({
+  category,
+  largeText,
+  onOpenDiff,
+  onOpenSubagent,
+  tools,
+}: {
+  category: ToolGroupCategory;
+  largeText: boolean;
+  onOpenDiff?: (() => void) | undefined;
+  onOpenSubagent?: ((sessionID: string) => void) | undefined;
+  tools: AssistantTool[];
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const { detail, label } = toolGroupPresentation(category, tools);
+  const canExpand = tools.some(canExpandTool);
+  return (
+    <View style={styles.activity}>
+      <ActivityHeader
+        canExpand={canExpand}
+        detail={detail}
+        expanded={expanded}
+        label={label}
+        largeText={largeText}
+        onPress={() => setExpanded((current) => !current)}
+      />
+      {expanded
+        ? tools.map((tool) => (
+            <ToolDisclosure
+              key={tool.id}
+              largeText={largeText}
+              nested
+              onOpenDiff={onOpenDiff}
+              onOpenSubagent={onOpenSubagent}
+              tool={tool}
+            />
+          ))
+        : null}
+      {category === "edit" && onOpenDiff ? <DiffAction onPress={onOpenDiff} /> : null}
+    </View>
+  );
+}
+
 function ToolDisclosure({
   largeText,
   nested = false,
+  onOpenDiff,
   onOpenSubagent,
   tool,
 }: {
   largeText: boolean;
   nested?: boolean;
+  onOpenDiff?: (() => void) | undefined;
   onOpenSubagent?: ((sessionID: string) => void) | undefined;
   tool: AssistantTool;
 }) {
@@ -315,7 +397,12 @@ function ToolDisclosure({
       : [];
   const error = tool.state.status === "error" ? tool.state.error.message : undefined;
   const presentation = toolPresentation(tool);
-  const canExpand = content.length > 0 || Boolean(error) || presentation.files.length > 0;
+  const canExpand = canExpandTool(tool);
+  const category = toolCategory(tool);
+  const label =
+    !nested && tool.state.status === "completed"
+      ? completedToolLabel(category, presentation.label)
+      : presentation.label;
   const visibleContent = content.slice(0, maxToolOutputs);
   return (
     <View style={[styles.activity, nested && styles.activityNested]}>
@@ -323,7 +410,7 @@ function ToolDisclosure({
         canExpand={canExpand}
         detail={presentation.detail}
         expanded={expanded}
-        label={presentation.label}
+        label={label}
         largeText={largeText}
         onPress={() => setExpanded((current) => !current)}
       />
@@ -339,6 +426,11 @@ function ToolDisclosure({
             </Text>
           ))
         : null}
+      {expanded && presentation.command ? (
+        <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.outputText}>
+          {`$ ${presentation.command}`}
+        </Text>
+      ) : null}
       {expanded
         ? keyToolContent(visibleContent).map(({ item, key }) =>
             item.type === "text" ? (
@@ -361,7 +453,22 @@ function ToolDisclosure({
         <Text style={styles.omittedText}>Additional tool output omitted on this device.</Text>
       ) : null}
       {expanded && error ? <ExpandableText error style={styles.errorText} text={error} /> : null}
+      {!nested && category === "edit" && onOpenDiff ? <DiffAction onPress={onOpenDiff} /> : null}
     </View>
+  );
+}
+
+function DiffAction({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.diffAction, pressed && styles.pressed]}
+    >
+      <Text dynamicTypeRamp={typeRamp.control} style={styles.diffActionLabel}>
+        Review current changes
+      </Text>
+    </Pressable>
   );
 }
 
@@ -430,10 +537,15 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
           canExpand={canExpand}
           detail={detail}
           expanded={expanded}
-          label="Shell"
+          label={message.status === "exited" ? "Ran" : "Shell"}
           largeText={largeText}
           onPress={() => setExpanded((current) => !current)}
         />
+        {expanded ? (
+          <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.outputText}>
+            {`$ ${message.command}`}
+          </Text>
+        ) : null}
         {expanded && message.output?.output ? (
           <ExpandableText style={styles.outputText} text={message.output.output} />
         ) : null}
@@ -496,7 +608,7 @@ function SubagentCard({
   return (
     <View
       accessibilityLabel={`Subagent ${presentation.title}. ${stateLabel}`}
-      style={styles.subagent}
+      style={[styles.subagent, presentation.state === "completed" && styles.subagentCompleted]}
     >
       <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.subagentLabel}>
@@ -839,9 +951,57 @@ const patchToolNames = new Set([
   "write",
 ]);
 const shellToolNames = new Set(["bash", "command", "exec", "shell", "terminal"]);
+const skillToolNames = new Set(["skill", "use_skill"]);
 
-function isExplorationTool(tool: AssistantTool) {
-  return explorationToolNames.has(tool.name.trim().toLocaleLowerCase());
+function toolCategory(tool: AssistantTool): ToolCategory {
+  const name = tool.name.trim().toLocaleLowerCase();
+  if (explorationToolNames.has(name)) return "exploration";
+  if (patchToolNames.has(name)) return "edit";
+  if (shellToolNames.has(name)) return "shell";
+  if (skillToolNames.has(name)) return "skill";
+  return "other";
+}
+
+function toolGroupPresentation(category: ToolGroupCategory, tools: AssistantTool[]) {
+  if (category === "edit") {
+    const files = new Set(tools.flatMap((tool) => toolPresentation(tool).files));
+    return {
+      detail:
+        files.size > 0
+          ? `${files.size} ${files.size === 1 ? "file" : "files"}`
+          : `${tools.length} edits`,
+      label: "Edited",
+    };
+  }
+  if (category === "shell") {
+    return { detail: `${tools.length} commands`, label: "Ran shell" };
+  }
+  if (category === "skill") {
+    const skills = [...new Set(tools.map((tool) => toolPresentation(tool).detail).filter(Boolean))];
+    return {
+      detail: skills.length > 0 ? skills.join(", ") : `${tools.length} uses`,
+      label: "Used Skill",
+    };
+  }
+
+  const labels: string[] = [];
+  for (const tool of tools) {
+    const label = capitalize(toolPresentation(tool).label);
+    if (!labels.includes(label)) labels.push(label);
+  }
+  const visibleLabels = labels.slice(0, 3);
+  const omittedLabels = labels.length - visibleLabels.length;
+  return {
+    detail: `${tools.length} calls`,
+    label: `Used ${visibleLabels.join(", ")}${omittedLabels > 0 ? `, +${omittedLabels}` : ""}`,
+  };
+}
+
+function completedToolLabel(category: ToolCategory, fallback: string) {
+  if (category === "edit") return "Edited";
+  if (category === "shell") return "Ran";
+  if (category === "skill") return "Used Skill";
+  return `Used ${capitalize(fallback)}`;
 }
 
 function toolPresentation(tool: AssistantTool) {
@@ -849,6 +1009,7 @@ function toolPresentation(tool: AssistantTool) {
   const input = toolInputRecord(tool);
   const files = patchToolNames.has(name) ? patchFiles(input) : [];
   const status = toolStatusLabel(tool);
+  let command: string | undefined;
   let label = tool.name.trim() || "Tool";
   let detail: string | undefined;
 
@@ -863,14 +1024,25 @@ function toolPresentation(tool: AssistantTool) {
     detail = files.length > 1 ? `${files.length} files` : files[0];
   } else if (shellToolNames.has(name)) {
     label = "Shell";
-    detail = firstInputString(input, ["command", "cmd"]);
+    command = firstInputString(input, ["command", "cmd"]);
+    detail = command;
+  } else if (skillToolNames.has(name)) {
+    label = "Skill";
+    detail = firstInputString(input, ["name", "skill"]);
   }
 
   return {
+    command,
     detail: [detail, status].filter(Boolean).join(" · ") || undefined,
     files,
     label,
   };
+}
+
+function canExpandTool(tool: AssistantTool) {
+  if (tool.state.status === "error") return true;
+  if (tool.state.status !== "completed") return false;
+  return Boolean(tool.state.content?.length || toolPresentation(tool).files.length);
 }
 
 function toolInputRecord(tool: AssistantTool): Record<string, unknown> | undefined {
@@ -971,6 +1143,10 @@ function basename(path: string) {
 
 function sentenceCase(value: string) {
   return value ? `${value[0]?.toLocaleUpperCase()}${value.slice(1).toLocaleLowerCase()}` : value;
+}
+
+function capitalize(value: string) {
+  return value ? `${value[0]?.toLocaleUpperCase()}${value.slice(1)}` : value;
 }
 
 function subagentStateLabel(state: SubagentPresentation["state"]) {
@@ -1113,6 +1289,13 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   disclosureLabelLargeText: { flex: 0, width: "100%" },
+  diffAction: {
+    alignSelf: "flex-start",
+    justifyContent: "center",
+    minHeight: 44,
+    paddingRight: space.md,
+  },
+  diffActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 21 },
   markdownBlockSpacing: { marginTop: space.sm },
   notice: {
@@ -1144,6 +1327,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: space.xs,
     padding: 12,
+  },
+  subagentCompleted: {
+    backgroundColor: "transparent",
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.border,
+    borderRadius: 0,
+    borderWidth: 0,
+    gap: 2,
+    paddingHorizontal: 0,
+    paddingVertical: 8,
   },
   subagentAction: { justifyContent: "center", minHeight: 44, paddingRight: space.md },
   subagentActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },

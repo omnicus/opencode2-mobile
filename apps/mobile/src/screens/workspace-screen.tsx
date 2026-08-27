@@ -2,6 +2,7 @@ import {
   getDefaultOpenCodeLocation,
   getOpenCodeLocation,
   getOpenCodeSession,
+  getOpenCodeVcs,
   type LocationRef,
   listOpenCodeMessages,
   listOpenCodeProjects,
@@ -533,6 +534,16 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     },
     queryKey: openCodeQueryKeys.session(connectionId ?? "unselected", location, sessionID),
   });
+  const session = sessionQuery.data;
+  const sessionLocation = session?.location ?? location;
+  const vcsQuery = useQuery({
+    enabled: Boolean(client && connectionId === routeConnectionId),
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return getOpenCodeVcs(client, sessionLocation, { signal });
+    },
+    queryKey: openCodeQueryKeys.vcs(connectionId ?? "unselected", sessionLocation),
+  });
   const messagesQuery = useInfiniteQuery({
     enabled: Boolean(client && connectionId === routeConnectionId),
     getNextPageParam: (lastPage: SessionMessagesResponse) => lastPage.cursor.next ?? undefined,
@@ -553,7 +564,18 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       order: "desc",
     }),
   });
-  const session = sessionQuery.data;
+  const currentBranch = vcsQuery.data?.data.branch.current;
+  const branch = currentBranch
+    ? ({
+        name: currentBranch,
+        stale: vcsQuery.isError || runtime.status !== "connected",
+        state: "known",
+      } as const)
+    : vcsQuery.isError || runtime.status !== "connected"
+      ? ({ state: "unavailable" } as const)
+      : vcsQuery.isPending
+        ? ({ state: "loading" } as const)
+        : ({ state: "none" } as const);
   const messages = flattenTranscriptPages(messagesQuery.data?.pages);
   const draft = useSessionDraft(routeConnectionId, sessionID);
   const execution = useSessionExecution({
@@ -589,6 +611,13 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     },
     [location, navigation, routeConnectionId],
   );
+  const openDiff = useCallback(() => {
+    navigation.push("Diff", {
+      connectionId: routeConnectionId,
+      location,
+      mode: "working",
+    });
+  }, [location, navigation, routeConnectionId]);
 
   useEffect(() => {
     workspaceSelection.setLocation(location);
@@ -858,6 +887,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   return (
     <ShellFrame
       active="Workspace"
+      branch={branch}
       navigate={(section) =>
         section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section)
       }
@@ -926,6 +956,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             <SessionTranscriptRow
               largeText={largeText}
               message={item}
+              onOpenDiff={openDiff}
               onOpenSubagent={openSubagent}
             />
           )}
