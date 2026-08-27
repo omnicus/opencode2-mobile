@@ -7,6 +7,31 @@ is out of scope.
 opencode2-mobile is an independent mobile client for OpenCode. It is not built by or
 affiliated with the OpenCode team or Anomaly.
 
+## Mobile workflow
+
+Keep track of active and blocked sessions across followed projects.
+
+<p align="center">
+  <img src="docs/images/screenshots/01-sessions.png" alt="Session inbox with active work and a session that needs input" width="600">
+</p>
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <img src="docs/images/screenshots/02-session.png" alt="Coding session with a completed background subagent">
+      <br>Coordinate parent and child agent work.
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/images/screenshots/03-permission.png" alt="Pending shell permission with allow and reject controls">
+      <br>Handle blocked permissions from the phone.
+    </td>
+    <td width="33%" valign="top">
+      <img src="docs/images/screenshots/04-form-request.png" alt="Pending OpenCode form with a read-only command choice">
+      <br>Answer structured forms without returning to the terminal.
+    </td>
+  </tr>
+</table>
+
 ## Project documents
 
 - [Specification](docs/SPEC.md)
