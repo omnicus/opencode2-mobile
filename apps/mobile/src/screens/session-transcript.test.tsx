@@ -136,9 +136,9 @@ test("renders every current message and tool state with large details collapsed"
   expect(screen.queryByText("c2VjcmV0")).toBeNull();
 
   fireEvent.press(screen.getByRole("button", { name: /Retry 2 scheduled/ }));
-  fireEvent.press(screen.getByRole("button", { name: /completed-tool/ }));
+  fireEvent.press(screen.getByRole("button", { name: /completed-tool/i }));
   fireEvent.press(screen.getByRole("button", { name: /error-tool/ }));
-  fireEvent.press(screen.getByRole("button", { name: /Shell/ }));
+  fireEvent.press(screen.getByRole("button", { name: /Ran/ }));
   fireEvent.press(screen.getByRole("button", { name: /Compaction \/ Completed/ }));
 
   expect(screen.getByText("retry")).toBeOnTheScreen();
@@ -249,7 +249,8 @@ test("keeps multiline reasoning in a disclosure", () => {
   expect(screen.getByText("First step\nSecond step")).toBeOnTheScreen();
 });
 
-test("groups assistant activity and places agent metadata in the footer", () => {
+test("groups completed assistant activity and places narrative metadata in the footer", () => {
+  const openDiff = jest.fn();
   render(
     <SessionTranscriptRow
       message={{
@@ -309,6 +310,7 @@ test("groups assistant activity and places agent metadata in the footer", () => 
         time: { completed: 3_000, created: 1_000 },
         type: "assistant",
       }}
+      onOpenDiff={openDiff}
     />,
   );
 
@@ -319,15 +321,49 @@ test("groups assistant activity and places agent metadata in the footer", () => 
   expect(screen.getByText("Read")).toBeOnTheScreen();
   expect(screen.getByText("Grep")).toBeOnTheScreen();
 
-  expect(screen.getByText("Patch")).toBeOnTheScreen();
+  expect(screen.getByText("Edited")).toBeOnTheScreen();
   expect(screen.getByText("2 files")).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: /Patch/ }));
+  fireEvent.press(screen.getByRole("button", { name: /^Edited/ }));
   expect(screen.getAllByText("src/a.ts")).not.toHaveLength(0);
   expect(screen.getByText("src/b.ts")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Review current changes" }));
+  expect(openDiff).toHaveBeenCalledTimes(1);
 
-  expect(screen.getByText("Shell")).toBeOnTheScreen();
+  expect(screen.getByText("Ran")).toBeOnTheScreen();
   expect(screen.getByText("pnpm test")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: /^Ran/ }));
+  expect(screen.getByText("$ pnpm test")).toBeOnTheScreen();
   expect(screen.getByText("Build · model-1 · 2s")).toBeOnTheScreen();
+});
+
+test("hides repeated assistant metadata for a tool-only turn", () => {
+  render(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [
+          {
+            id: "tool-skill",
+            name: "skill",
+            state: {
+              content: [{ text: "Loaded review skill", type: "text" }],
+              input: { name: "review" },
+              status: "completed",
+            },
+            time: { completed: 1_500, created: 1_100 },
+            type: "tool",
+          },
+        ],
+        id: "msg_tool_only",
+        model: { id: "model-1", providerID: "provider" },
+        time: { completed: 1_500, created: 1_000 },
+        type: "assistant",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("Used Skill")).toBeOnTheScreen();
+  expect(screen.queryByText("Build · model-1 · 500ms")).toBeNull();
 });
 
 test("does not render an unchanged transcript row again", () => {
@@ -422,6 +458,11 @@ test("projects injected background results into subagent cards", () => {
 
   expect(screen.getByText("Background task completed: inspect code")).toBeOnTheScreen();
   expect(screen.getByText("COMPLETED")).toBeOnTheScreen();
+  expect(screen.getByLabelText(/Subagent Background task completed/)).toHaveStyle({
+    backgroundColor: "transparent",
+    borderRadius: 0,
+    paddingHorizontal: 0,
+  });
   expect(screen.queryByText(/<task/)).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Show result" }));
   expect(screen.getByText("Useful result")).toBeOnTheScreen();

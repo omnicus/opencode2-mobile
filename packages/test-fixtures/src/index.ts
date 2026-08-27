@@ -16,6 +16,8 @@ export type FakeOpenCodeApiOptions = {
   permissions?: unknown[];
   projects?: unknown[];
   sessions?: FakeSession[];
+  vcs?: unknown;
+  vcsDiff?: unknown[];
 };
 
 export type FakeOpenCodeRequest = {
@@ -96,6 +98,15 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
         directory: requestedDirectory ?? fallback.directory,
         ...(requestedWorkspace ? { workspaceID: requestedWorkspace } : {}),
       });
+    }
+    if (url.pathname === "/api/vcs") {
+      return json({
+        data: options.vcs ?? { branch: {} },
+        location: resolvedLocation(options, url),
+      });
+    }
+    if (url.pathname === "/api/vcs/diff") {
+      return json({ data: options.vcsDiff ?? [], location: resolvedLocation(options, url) });
     }
     if (url.pathname === "/api/agent") {
       return json({ location: resolvedLocation(options, url), data: options.agents ?? [] });

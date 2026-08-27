@@ -1,9 +1,12 @@
+import Feather from "@expo/vector-icons/Feather";
 import type { NotificationDeliveryState } from "@opencode2-mobile/notification-protocol";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import * as Clipboard from "expo-clipboard";
 import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
 import { type ReactNode, useEffect, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   AppState,
   Pressable,
@@ -17,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { ModalSheet } from "../components/modal-sheet";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { sendNotificationDeviceCommand } from "../notifications/notification-client";
@@ -35,6 +39,11 @@ import { permissionActionExplanation } from "./permission-presentation";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Section = "Pending" | "Settings" | "Workspace";
+type SessionBranch = {
+  name?: string;
+  stale?: boolean;
+  state: "known" | "loading" | "none" | "unavailable";
+};
 type ScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreenProps<
   RootStackParamList,
   RouteName
@@ -498,11 +507,13 @@ export function getWorkspaceState(status: ConnectionTransportStatus, hasCache: b
 
 export function ShellFrame({
   active,
+  branch,
   children,
   hideConnectionBar,
   navigate,
 }: {
   active: Section;
+  branch?: SessionBranch;
   children?: ReactNode;
   hideConnectionBar?: boolean;
   navigate: (screen: Section) => void;
@@ -517,6 +528,33 @@ export function ShellFrame({
     (profile) => profile.id === connections.selectedProfileId,
   );
   const connection = getConnectionPresentation(runtime.status, runtime.reconnectAttempt);
+  const [openDetail, setOpenDetail] = useState<"branch" | "server">();
+  const [copyState, setCopyState] = useState<"copied" | "error" | "idle">("idle");
+  const serverName = selected?.name ?? "No server selected";
+  const detailName = openDetail === "branch" ? branch?.name : serverName;
+
+  function showDetail(detail: "branch" | "server") {
+    setCopyState("idle");
+    setOpenDetail(detail);
+  }
+
+  async function copyDetail() {
+    if (!detailName) return;
+    try {
+      await Clipboard.setStringAsync(detailName);
+      setCopyState("copied");
+      AccessibilityInfo.announceForAccessibility(
+        openDetail === "branch" ? "Branch name copied" : "Server name copied",
+      );
+    } catch {
+      setCopyState("error");
+      AccessibilityInfo.announceForAccessibility(
+        openDetail === "branch"
+          ? "Branch name could not be copied"
+          : "Server name could not be copied",
+      );
+    }
+  }
 
   return (
     <SafeAreaView edges={tablet ? ["top", "bottom"] : ["bottom"]} style={styles.safeArea}>
@@ -578,18 +616,108 @@ export function ShellFrame({
                   {connection.label}
                 </Text>
               </View>
-              <Text
-                dynamicTypeRamp={typeRamp.subheading}
-                numberOfLines={largeText ? undefined : 1}
-                style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
+              {branch ? (
+                branch.state === "known" && branch.name ? (
+                  <Pressable
+                    accessibilityHint="Opens details where you can copy the full branch name"
+                    accessibilityLabel={`Current branch, ${branch.name}${branch.stale ? ", may be outdated" : ""}`}
+                    accessibilityRole="button"
+                    onPress={() => showDetail("branch")}
+                    style={({ pressed }) => [
+                      styles.branchControl,
+                      largeText && styles.branchControlLargeText,
+                      pressed && styles.branchControlPressed,
+                    ]}
+                  >
+                    <Feather
+                      accessibilityElementsHidden
+                      color={palette.dim}
+                      importantForAccessibility="no-hide-descendants"
+                      name="git-branch"
+                      size={14}
+                    />
+                    <Text
+                      dynamicTypeRamp={typeRamp.subheading}
+                      ellipsizeMode="middle"
+                      numberOfLines={1}
+                      style={styles.branchName}
+                    >
+                      {branch.name}
+                    </Text>
+                  </Pressable>
+                ) : (
+                  <View style={[styles.branchControl, largeText && styles.branchControlLargeText]}>
+                    <Feather
+                      accessibilityElementsHidden
+                      color={palette.dim}
+                      importantForAccessibility="no-hide-descendants"
+                      name="git-branch"
+                      size={14}
+                    />
+                    <Text dynamicTypeRamp={typeRamp.subheading} style={styles.branchName}>
+                      {branch.state === "loading"
+                        ? "Checking branch"
+                        : branch.state === "none"
+                          ? "No branch"
+                          : "Branch unavailable"}
+                    </Text>
+                  </View>
+                )
+              ) : null}
+              <Pressable
+                accessibilityHint="Opens the full server name"
+                accessibilityLabel={`Server, ${serverName}`}
+                accessibilityRole="button"
+                onPress={() => showDetail("server")}
+                style={({ pressed }) => [
+                  styles.connectionNameControl,
+                  branch && styles.connectionNameControlWithBranch,
+                  largeText && styles.connectionNameControlLargeText,
+                  pressed && styles.branchControlPressed,
+                ]}
               >
-                {selected?.name ?? "No server selected"}
-              </Text>
+                <Text
+                  dynamicTypeRamp={typeRamp.subheading}
+                  numberOfLines={largeText ? undefined : 1}
+                  style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
+                >
+                  {serverName}
+                </Text>
+              </Pressable>
             </View>
           ) : null}
           <View style={styles.content}>{children}</View>
         </View>
       </View>
+      <ModalSheet
+        onClose={() => {
+          setOpenDetail(undefined);
+          setCopyState("idle");
+        }}
+        title={openDetail === "branch" ? "Current branch" : "Server name"}
+        visible={Boolean(openDetail && detailName)}
+      >
+        <Text selectable style={styles.branchDetailName}>
+          {detailName}
+        </Text>
+        {openDetail === "branch" && branch?.stale ? (
+          <Text accessibilityRole="alert" style={styles.branchDetailNote}>
+            This branch may be outdated while the server reconnects.
+          </Text>
+        ) : null}
+        <ActionButton
+          label={
+            copyState === "copied"
+              ? "Copied"
+              : copyState === "error"
+                ? "Try copying again"
+                : openDetail === "branch"
+                  ? "Copy branch name"
+                  : "Copy server name"
+          }
+          onPress={copyDetail}
+        />
+      </ModalSheet>
     </SafeAreaView>
   );
 }
@@ -763,6 +891,26 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     borderWidth: 1,
   },
+  branchControl: {
+    alignItems: "center",
+    flex: 1,
+    flexDirection: "row",
+    gap: space.xs,
+    justifyContent: "center",
+    marginHorizontal: space.sm,
+    minHeight: 44,
+    minWidth: 0,
+  },
+  branchControlLargeText: {
+    flex: 0,
+    justifyContent: "flex-start",
+    marginHorizontal: 0,
+    width: "100%",
+  },
+  branchControlPressed: { opacity: 0.55 },
+  branchDetailName: { color: palette.ink, fontSize: 17, lineHeight: 25 },
+  branchDetailNote: { color: palette.warm, fontSize: 14, lineHeight: 20 },
+  branchName: { color: palette.dim, flexShrink: 1, fontSize: 13, minWidth: 0 },
   actionCard: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -819,12 +967,28 @@ const styles = StyleSheet.create({
   },
   connectionName: {
     color: palette.dim,
-    flex: 1,
     fontSize: 13,
-    marginLeft: space.sm,
     textAlign: "right",
   },
-  connectionNameLargeText: { flex: 0, marginLeft: 0, textAlign: "left", width: "100%" },
+  connectionNameControl: {
+    flex: 1,
+    justifyContent: "center",
+    marginLeft: space.sm,
+    minHeight: 44,
+    minWidth: 0,
+  },
+  connectionNameControlLargeText: {
+    flex: 0,
+    marginLeft: 0,
+    maxWidth: "100%",
+    width: "100%",
+  },
+  connectionNameControlWithBranch: { flex: 0, flexShrink: 1, marginLeft: 0, maxWidth: "30%" },
+  connectionNameLargeText: {
+    flex: 0,
+    textAlign: "left",
+    width: "100%",
+  },
   connectionState: { alignItems: "center", flexDirection: "row" },
   connectionStatus: { color: palette.ink, fontSize: 11, fontWeight: "700" },
   content: { flex: 1 },

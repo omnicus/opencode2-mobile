@@ -22,6 +22,7 @@ import {
   SettingsScreen,
 } from "../screens/app-shell";
 import { ConnectionScreen } from "../screens/connection-screen";
+import { DiffScreen } from "../screens/diff-screen";
 import { FollowedProjectsScreen } from "../screens/followed-projects-screen";
 import { NewSessionScreen } from "../screens/new-session-screen";
 import { NotificationPairingScreen } from "../screens/notification-pairing-screen";
@@ -31,6 +32,11 @@ import { WorkspaceHeaderActions } from "./workspace-header-actions";
 
 export type RootStackParamList = {
   Connections: undefined;
+  Diff: {
+    connectionId: string;
+    location: LocationRef;
+    mode: "branch" | "working";
+  };
   FollowedProjects: undefined;
   NewSession: undefined;
   Pending: undefined;
@@ -147,6 +153,11 @@ export function RootNavigation() {
               }),
           title: "Session",
         })}
+      />
+      <Stack.Screen
+        component={DiffScreen}
+        name="Diff"
+        options={{ headerShown: true, title: "Current changes" }}
       />
       <Stack.Screen
         component={NewSessionScreen}

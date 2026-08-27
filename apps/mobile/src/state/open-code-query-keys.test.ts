@@ -34,6 +34,22 @@ test("does not collide across connections or workspace locations", () => {
   expect(first).not.toEqual(workspace);
 });
 
+test("separates working-tree and branch diffs within one location", () => {
+  const location = { directory: "/workspace", workspaceID: "wrk_test" };
+  expect(openCodeQueryKeys.vcsDiff("connection-1", location, "working")).toEqual([
+    "opencode",
+    "connection-1",
+    "location",
+    "/workspace",
+    "wrk_test",
+    "vcs-diff",
+    "working",
+  ]);
+  expect(openCodeQueryKeys.vcsDiff("connection-1", location, "working")).not.toEqual(
+    openCodeQueryKeys.vcsDiff("connection-1", location, "branch"),
+  );
+});
+
 test("keeps all-parent and root-session list parameters distinct", () => {
   const location = { directory: "/workspace" };
   expect(openCodeQueryKeys.sessions("connection-1", location, {})).not.toEqual(

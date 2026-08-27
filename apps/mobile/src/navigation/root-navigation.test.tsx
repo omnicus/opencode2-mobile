@@ -27,6 +27,10 @@ jest.mock("../screens/followed-projects-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
   return { FollowedProjectsScreen: () => <Text>Followed projects screen</Text> };
 });
+jest.mock("../screens/diff-screen", () => {
+  const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
+  return { DiffScreen: () => <Text>Diff screen</Text> };
+});
 jest.mock("../screens/new-session-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
   return { NewSessionScreen: () => <Text>New session screen</Text> };
@@ -118,6 +122,17 @@ test("pushes session detail and presents workspace management routes over it", a
       sessionID: "ses_test",
     }),
   );
+  expect(await screen.findByText("Session screen")).toBeOnTheScreen();
+
+  act(() =>
+    navigation.navigate("Diff", {
+      connectionId: "connection-1",
+      location: { directory: "/workspace" },
+      mode: "working",
+    }),
+  );
+  expect(await screen.findByText("Diff screen")).toBeOnTheScreen();
+  act(() => navigation.goBack());
   expect(await screen.findByText("Session screen")).toBeOnTheScreen();
 
   act(() => navigation.navigate("NewSession"));
