@@ -33,7 +33,7 @@ later entries supersede them.
 | Keep a lost command response behind an explicit duplicate-risk retry guard | Pass |
 | Route beta 18387 step-streamed and message-content events to exact-session reconciliation | Pass |
 | Decode the beta 18387 interrupt response | Pass in the deterministic fake API |
-| Run all 292 mobile tests | Pass |
+| Run all 293 mobile tests | Pass |
 | Export iOS and Android Hermes bundles | Pass |
 | Run Expo Doctor | Pass, 18/18 checks |
 

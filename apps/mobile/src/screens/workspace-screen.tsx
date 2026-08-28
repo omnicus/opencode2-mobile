@@ -508,12 +508,22 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
 export function SessionScreen({ navigation, route }: SessionProps) {
   const runtime = useConnectionRuntime();
   const workspaceSelection = useWorkspaceSelection();
+  const queryClient = useQueryClient();
   const { fontScale } = useWindowDimensions();
   const screenHeight = Dimensions.get("screen").height;
   const largeText = usesLargeTextLayout(fontScale);
   const { connectionId: routeConnectionId, focusComposer, location, sessionID } = route.params;
   const connectionId = runtime.connectionId;
   const client = runtime.restClient;
+  const routeSessionScope = `${routeConnectionId}\u0000${sessionID}\u0000${location.directory}\u0000${location.workspaceID ?? ""}`;
+  const [sessionQueryScope, setSessionQueryScope] = useState({
+    location,
+    routeSessionScope,
+  });
+  const sessionQueryLocation =
+    sessionQueryScope.routeSessionScope === routeSessionScope
+      ? sessionQueryScope.location
+      : location;
   const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
   const [latestJumpPending, setLatestJumpPending] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(66);
@@ -536,12 +546,19 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return getOpenCodeSession(client, sessionID, { signal });
     },
-    queryKey: openCodeQueryKeys.session(connectionId ?? "unselected", location, sessionID),
+    queryKey: openCodeQueryKeys.session(
+      connectionId ?? "unselected",
+      sessionQueryLocation,
+      sessionID,
+    ),
   });
   const session = sessionQuery.data;
-  const sessionLocation = session?.location ?? location;
+  const sessionLocation = session?.location ?? sessionQueryLocation;
+  const sessionLocationReady = Boolean(
+    sessionQuery.isSuccess && session && locationsEqual(session.location, sessionQueryLocation),
+  );
   const vcsQuery = useQuery({
-    enabled: Boolean(client && connectionId === routeConnectionId),
+    enabled: Boolean(client && connectionId === routeConnectionId && sessionLocationReady),
     queryFn: ({ signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return getOpenCodeVcs(client, sessionLocation, { signal });
@@ -549,7 +566,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     queryKey: openCodeQueryKeys.vcs(connectionId ?? "unselected", sessionLocation),
   });
   const messagesQuery = useInfiniteQuery({
-    enabled: Boolean(client && connectionId === routeConnectionId),
+    enabled: Boolean(client && connectionId === routeConnectionId && sessionLocationReady),
     getNextPageParam: (lastPage: SessionMessagesResponse) => lastPage.cursor.next ?? undefined,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }): Promise<SessionMessagesResponse> => {
@@ -563,14 +580,17 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         { signal },
       );
     },
-    queryKey: openCodeQueryKeys.messages(connectionId ?? "unselected", location, sessionID, {
+    queryKey: openCodeQueryKeys.messages(connectionId ?? "unselected", sessionLocation, sessionID, {
       limit: messagePageSize,
       order: "desc",
     }),
   });
   const mentionFilesQuery = useQuery({
     enabled: Boolean(
-      client && connectionId === routeConnectionId && deferredMentionSearch !== undefined,
+      client &&
+        connectionId === routeConnectionId &&
+        sessionLocationReady &&
+        deferredMentionSearch !== undefined,
     ),
     queryFn: ({ signal }) => {
       if (!client || deferredMentionSearch === undefined) throw new Error("CONNECTION_NOT_READY");
@@ -601,7 +621,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const messages = flattenTranscriptPages(messagesQuery.data?.pages);
   const draft = useSessionDraft(routeConnectionId, sessionID);
   const execution = useSessionExecution({
-    client,
+    client: sessionLocationReady ? client : undefined,
     connectionId,
     draftReady: draft.loaded,
     draftRevision: draft.revision,
@@ -627,23 +647,33 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     (childSessionID: string) => {
       navigation.push("Session", {
         connectionId: routeConnectionId,
-        location,
+        location: sessionLocation,
         sessionID: childSessionID,
       });
     },
-    [location, navigation, routeConnectionId],
+    [navigation, routeConnectionId, sessionLocation],
   );
   const openDiff = useCallback(() => {
     navigation.push("Diff", {
       connectionId: routeConnectionId,
-      location,
+      location: sessionLocation,
       mode: "working",
     });
-  }, [location, navigation, routeConnectionId]);
+  }, [navigation, routeConnectionId, sessionLocation]);
 
   useEffect(() => {
-    workspaceSelection.setLocation(location);
-  }, [location, workspaceSelection.setLocation]);
+    if (!session || locationsEqual(session.location, sessionQueryLocation)) return;
+    queryClient.setQueryData(
+      openCodeQueryKeys.session(routeConnectionId, session.location, sessionID),
+      session,
+    );
+    setSessionQueryScope({ location: session.location, routeSessionScope });
+  }, [queryClient, routeConnectionId, routeSessionScope, session, sessionID, sessionQueryLocation]);
+
+  useEffect(() => {
+    if (!sessionLocationReady) return;
+    workspaceSelection.setLocation(sessionLocation);
+  }, [sessionLocation, sessionLocationReady, workspaceSelection.setLocation]);
 
   useEffect(() => {
     if (Platform.OS !== "ios") return;
@@ -867,7 +897,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               connectionId={connectionId}
               formLocations={workspaceSelection.formLocations}
               forms={sessionForms}
-              location={location}
+              location={sessionLocation}
             />
           ) : undefined
         }
@@ -892,9 +922,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         completionLoading={execution.completionLoading}
         completionUnavailable={execution.completionUnavailable}
         delivery={execution.delivery}
-        disabled={execution.submitDisabled || !draft.loaded}
+        disabled={execution.submitDisabled || !draft.loaded || !sessionLocationReady}
         draft={draft.draft}
-        editable={draft.loaded}
+        editable={draft.loaded && sessionLocationReady}
         error={execution.error ?? draft.error}
         focusOnMount={focusComposer}
         largeText={largeText}
@@ -1307,6 +1337,13 @@ function formatSessionTime(value: number) {
   } catch {
     return "Earlier";
   }
+}
+
+function locationsEqual(first: LocationRef, second: LocationRef) {
+  return (
+    first.directory === second.directory &&
+    (first.workspaceID ?? null) === (second.workspaceID ?? null)
+  );
 }
 
 function sessionAccessibilityLabel(row: FollowedInboxRow) {
