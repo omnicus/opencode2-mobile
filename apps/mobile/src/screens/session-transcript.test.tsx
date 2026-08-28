@@ -1,7 +1,7 @@
 import { afterEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { View } from "react-native";
+import { Alert, Linking, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
 import { SessionTranscriptRow } from "./session-transcript";
@@ -159,6 +159,73 @@ test("reveals large text in bounded steps", () => {
   expect(screen.queryByText(/tail$/)).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Show more" }));
   expect(screen.getByText(/tail$/)).toBeOnTheScreen();
+});
+
+test("opens HTTP and HTTPS transcript URLs as confirmed external links", () => {
+  const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+  const alert = jest
+    .spyOn(Alert, "alert")
+    .mockImplementation((_title, _message, buttons) =>
+      buttons?.find((button) => button.text === "Open")?.onPress?.(),
+    );
+  render(
+    <View>
+      <SessionTranscriptRow
+        message={{
+          id: "msg_links",
+          text: "Read https://example.test/docs, then http://localhost:4096/status.",
+          time: { created: 1 },
+          type: "user",
+        }}
+      />
+      <SessionTranscriptRow
+        message={{
+          agent: "build",
+          content: [{ text: "See **https://assistant.test/guide**.", type: "text" }],
+          id: "msg_assistant_link",
+          model: { id: "model-1", providerID: "provider" },
+          time: { created: 2 },
+          type: "assistant",
+        }}
+      />
+    </View>,
+  );
+
+  const secureLink = screen.getByRole("link", { name: "https://example.test/docs" });
+  expect(secureLink).toHaveStyle({ color: "#B6F26C", textDecorationLine: "underline" });
+  expect(screen.getByRole("link", { name: "http://localhost:4096/status" })).toBeOnTheScreen();
+  expect(screen.getByRole("link", { name: "https://assistant.test/guide" })).toHaveStyle({
+    fontWeight: "800",
+  });
+
+  fireEvent.press(secureLink);
+  expect(alert).toHaveBeenCalledWith(
+    "Open external link?",
+    expect.stringContaining("opens example.test"),
+    expect.any(Array),
+  );
+  expect(open).toHaveBeenCalledWith("https://example.test/docs");
+
+  alert.mockRestore();
+  open.mockRestore();
+});
+
+test("keeps URLs in fenced code blocks inert", () => {
+  render(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [{ text: "```text\nhttps://example.test/code\n```", type: "text" }],
+        id: "msg_code_link",
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 1 },
+        type: "assistant",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("https://example.test/code")).toBeOnTheScreen();
+  expect(screen.queryByRole("link")).toBeNull();
 });
 
 test("renders fenced assistant code without markdown fence markers", () => {

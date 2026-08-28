@@ -1,7 +1,8 @@
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { memo, useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { applicationName } from "../application-name";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import { palette, radius, space, typeRamp } from "../theme";
 import {
@@ -765,9 +766,7 @@ function ExpandableText({
       {markdown ? (
         <MarkdownText style={style} text={visibleText} />
       ) : (
-        <Text dynamicTypeRamp={typeRamp.body} selectable style={style}>
-          {visibleText}
-        </Text>
+        <LinkifiedText style={style} text={visibleText} />
       )}
       {canShowMore ? (
         <Pressable
@@ -840,16 +839,110 @@ function InlineMarkdownText({
   return (
     <Text dynamicTypeRamp={typeRamp.body} selectable style={style}>
       {prefix ? <Text style={prefixStyle}>{`${prefix}  `}</Text> : null}
-      {splitBoldText(text).map((token) =>
-        token.bold ? (
-          <Text key={token.key} style={styles.boldText}>
-            {token.text}
-          </Text>
-        ) : (
-          <Text key={token.key}>{token.text}</Text>
-        ),
-      )}
+      {splitBoldText(text).map((token) => (
+        <LinkifiedTextContent
+          key={token.key}
+          {...(token.bold ? { style: styles.boldText } : {})}
+          text={token.text}
+        />
+      ))}
     </Text>
+  );
+}
+
+function LinkifiedText({ style, text }: { style: object; text: string }) {
+  return (
+    <Text dynamicTypeRamp={typeRamp.body} selectable style={style}>
+      <LinkifiedTextContent text={text} />
+    </Text>
+  );
+}
+
+function LinkifiedTextContent({ style, text }: { style?: object; text: string }) {
+  return splitWebUrls(text).map((token) => {
+    const href = token.href;
+    return href ? (
+      <Text
+        accessibilityRole="link"
+        key={token.key}
+        onPress={() => openTranscriptUrl(href)}
+        style={[style, styles.linkText]}
+      >
+        {token.text}
+      </Text>
+    ) : (
+      <Text key={token.key} style={style}>
+        {token.text}
+      </Text>
+    );
+  });
+}
+
+function splitWebUrls(text: string) {
+  const tokens: { href?: string; key: string; text: string }[] = [];
+  const pattern = /https?:\/\/[^\s<>"']+/gi;
+  let cursor = 0;
+  let ordinal = 0;
+
+  for (const match of text.matchAll(pattern)) {
+    const start = match.index;
+    const candidate = match[0];
+    if (start > cursor) {
+      tokens.push({ key: `text:${ordinal}`, text: text.slice(cursor, start) });
+      ordinal += 1;
+    }
+
+    const { suffix, url } = trimUrlPunctuation(candidate);
+    let href: string | undefined;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "http:" || parsed.protocol === "https:") href = parsed.toString();
+    } catch {
+      // Keep malformed URL-like text selectable without making it actionable.
+    }
+    tokens.push({ ...(href ? { href } : {}), key: `url:${ordinal}`, text: url });
+    ordinal += 1;
+    if (suffix) {
+      tokens.push({ key: `text:${ordinal}`, text: suffix });
+      ordinal += 1;
+    }
+    cursor = start + candidate.length;
+  }
+
+  if (cursor < text.length || tokens.length === 0) {
+    tokens.push({ key: `text:${ordinal}`, text: text.slice(cursor) });
+  }
+  return tokens;
+}
+
+function trimUrlPunctuation(candidate: string) {
+  let end = candidate.length;
+  while (end > 0 && /[.,!?;:]/.test(candidate[end - 1] as string)) end -= 1;
+
+  const pairs = { ")": "(", "]": "[", "}": "{" } as const;
+  while (end > 0) {
+    const closing = candidate[end - 1] as keyof typeof pairs;
+    const opening = pairs[closing];
+    if (!opening) break;
+    const value = candidate.slice(0, end);
+    if (value.split(closing).length <= value.split(opening).length) break;
+    end -= 1;
+  }
+  return { suffix: candidate.slice(end), url: candidate.slice(0, end) };
+}
+
+function openTranscriptUrl(url: string) {
+  const parsed = new URL(url);
+  Alert.alert(
+    "Open external link?",
+    `This leaves ${applicationName} and opens ${parsed.host}. The site will receive your device's network address.`,
+    [
+      { style: "cancel", text: "Cancel" },
+      {
+        onPress: () => void Linking.openURL(parsed.toString()).catch(() => undefined),
+        text: "Open",
+      },
+    ],
   );
 }
 
@@ -1298,6 +1391,7 @@ const styles = StyleSheet.create({
   diffActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 21 },
   markdownBlockSpacing: { marginTop: space.sm },
+  linkText: { color: palette.signal, textDecorationLine: "underline" },
   notice: {
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
