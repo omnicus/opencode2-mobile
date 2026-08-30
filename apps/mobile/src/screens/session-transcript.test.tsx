@@ -277,13 +277,40 @@ test("renders an unfinished code fence while assistant text streams", () => {
   expect(screen.queryByText(/```/)).toBeNull();
 });
 
-test("renders short reasoning inline with bold markdown", () => {
+test("renders finished short reasoning inline with bold markdown", () => {
   render(
     <SessionTranscriptRow
       message={{
         agent: "build",
-        content: [{ text: "**Adding mocks to repository tests**", type: "reasoning" }],
+        content: [
+          {
+            text: "**Adding mocks to repository tests**",
+            time: { completed: 2, created: 1 },
+            type: "reasoning",
+          },
+        ],
         id: "msg_inline_reasoning",
+        model: { id: "model-1", providerID: "provider" },
+        time: { completed: 2, created: 1 },
+        type: "assistant",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("THOUGHT")).toBeOnTheScreen();
+  expect(screen.queryByText("THINKING")).toBeNull();
+  expect(screen.getByText("Adding mocks to repository tests")).toHaveStyle({ fontWeight: "800" });
+  expect(screen.queryByText(/\*\*/)).toBeNull();
+  expect(screen.queryByRole("button", { name: /Thought/ })).toBeNull();
+});
+
+test("labels reasoning as thinking until the part completes", () => {
+  const { rerender } = render(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [{ text: "Checking the failing test", time: { created: 1 }, type: "reasoning" }],
+        id: "msg_streaming_reasoning",
         model: { id: "model-1", providerID: "provider" },
         time: { created: 1 },
         type: "assistant",
@@ -291,10 +318,49 @@ test("renders short reasoning inline with bold markdown", () => {
     />,
   );
 
+  expect(screen.getByText("THINKING")).toBeOnTheScreen();
+  expect(screen.queryByText("THOUGHT")).toBeNull();
+
+  rerender(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [
+          {
+            text: "Checking the failing test",
+            time: { completed: 2, created: 1 },
+            type: "reasoning",
+          },
+        ],
+        id: "msg_streaming_reasoning",
+        model: { id: "model-1", providerID: "provider" },
+        time: { completed: 2, created: 1 },
+        type: "assistant",
+      }}
+    />,
+  );
+
   expect(screen.getByText("THOUGHT")).toBeOnTheScreen();
-  expect(screen.getByText("Adding mocks to repository tests")).toHaveStyle({ fontWeight: "800" });
-  expect(screen.queryByText(/\*\*/)).toBeNull();
-  expect(screen.queryByRole("button", { name: /Thought/ })).toBeNull();
+  expect(screen.queryByText("THINKING")).toBeNull();
+});
+
+test("settles reasoning when the message completes without a part completion time", () => {
+  render(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [{ text: "First step\nSecond step", time: { created: 1 }, type: "reasoning" }],
+        id: "msg_settled_message_reasoning",
+        model: { id: "model-1", providerID: "provider" },
+        time: { completed: 2, created: 1 },
+        type: "assistant",
+      }}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: /Thinking/ })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: /Thought/ }));
+  expect(screen.getByText("First step\nSecond step")).toBeOnTheScreen();
 });
 
 test("keeps multiline reasoning in a disclosure", () => {
@@ -302,10 +368,16 @@ test("keeps multiline reasoning in a disclosure", () => {
     <SessionTranscriptRow
       message={{
         agent: "build",
-        content: [{ text: "First step\nSecond step", type: "reasoning" }],
+        content: [
+          {
+            text: "First step\nSecond step",
+            time: { completed: 2, created: 1 },
+            type: "reasoning",
+          },
+        ],
         id: "msg_multiline_reasoning",
         model: { id: "model-1", providerID: "provider" },
-        time: { created: 1 },
+        time: { completed: 2, created: 1 },
         type: "assistant",
       }}
     />,
@@ -314,6 +386,122 @@ test("keeps multiline reasoning in a disclosure", () => {
   expect(screen.queryByText("First step\nSecond step")).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: /Thought/ }));
   expect(screen.getByText("First step\nSecond step")).toBeOnTheScreen();
+});
+
+test("labels an exploration group as exploring while a search is in flight", () => {
+  const { rerender } = render(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [
+          {
+            id: "tool-read",
+            name: "read",
+            state: {
+              content: [{ text: "source", type: "text" }],
+              input: { path: "src/a.ts" },
+              status: "completed",
+            },
+            time: { completed: 1_400, created: 1_100 },
+            type: "tool",
+          },
+          {
+            id: "tool-grep",
+            name: "grep",
+            state: { input: { pattern: "TODO" }, metadata: {}, status: "running" },
+            time: { created: 1_500 },
+            type: "tool",
+          },
+        ],
+        id: "msg_exploring",
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 1_000 },
+        type: "assistant",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("Exploring")).toBeOnTheScreen();
+  expect(screen.getByText("2 searches · Running")).toBeOnTheScreen();
+  expect(screen.queryByText("Explored")).toBeNull();
+
+  rerender(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        content: [
+          {
+            id: "tool-read",
+            name: "read",
+            state: {
+              content: [{ text: "source", type: "text" }],
+              input: { path: "src/a.ts" },
+              status: "completed",
+            },
+            time: { completed: 1_400, created: 1_100 },
+            type: "tool",
+          },
+          {
+            id: "tool-grep",
+            name: "grep",
+            state: {
+              content: [{ text: "match", type: "text" }],
+              input: { pattern: "TODO" },
+              status: "completed",
+            },
+            time: { completed: 1_700, created: 1_500 },
+            type: "tool",
+          },
+        ],
+        id: "msg_exploring",
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 1_000 },
+        type: "assistant",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("Explored")).toBeOnTheScreen();
+  expect(screen.getByText("2 searches")).toBeOnTheScreen();
+  expect(screen.queryByText("Exploring")).toBeNull();
+});
+
+test("labels a shell message as running until it exits", () => {
+  const { rerender } = render(
+    <SessionTranscriptRow
+      message={{
+        command: "pnpm test",
+        id: "msg_shell_running",
+        output: { cursor: 1, output: "shell output", size: 2, truncated: false },
+        shellID: "shell-2",
+        status: "running",
+        time: { created: 8 },
+        type: "shell",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("Running")).toBeOnTheScreen();
+  expect(screen.getByText("pnpm test · Running")).toBeOnTheScreen();
+  expect(screen.queryByText("Ran")).toBeNull();
+
+  rerender(
+    <SessionTranscriptRow
+      message={{
+        command: "pnpm test",
+        id: "msg_shell_running",
+        output: { cursor: 2, output: "shell output", size: 2, truncated: false },
+        shellID: "shell-2",
+        status: "exited",
+        time: { created: 8 },
+        type: "shell",
+      }}
+    />,
+  );
+
+  expect(screen.getByText("Ran")).toBeOnTheScreen();
+  expect(screen.getByText("pnpm test")).toBeOnTheScreen();
+  expect(screen.queryByText("Running")).toBeNull();
 });
 
 test("groups completed assistant activity and places narrative metadata in the footer", () => {

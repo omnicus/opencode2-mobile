@@ -99,10 +99,11 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
               );
             }
             if (part.type === "reasoning") {
+              const settled = isSettledReasoning(message, part);
               return isInlineReasoning(part.text) ? (
                 <InlineMarkdownText
                   key={key}
-                  prefix="THOUGHT"
+                  prefix={settled ? "THOUGHT" : "THINKING"}
                   prefixStyle={styles.reasoningLabel}
                   style={styles.reasoningText}
                   text={part.text}
@@ -110,7 +111,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
               ) : (
                 <Disclosure
                   key={key}
-                  label="Thought"
+                  label={settled ? "Thought" : "Thinking"}
                   largeText={largeText}
                   markdown
                   text={part.text}
@@ -310,7 +311,7 @@ function ExplorationDisclosure({
         canExpand
         detail={detail}
         expanded={expanded}
-        label="Explored"
+        label={isActivityInFlight(tools) ? "Exploring" : "Explored"}
         largeText={largeText}
         onPress={() => setExpanded((current) => !current)}
       />
@@ -538,7 +539,7 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
           canExpand={canExpand}
           detail={detail}
           expanded={expanded}
-          label={message.status === "exited" ? "Ran" : "Shell"}
+          label={message.status === "running" ? "Running" : "Ran"}
           largeText={largeText}
           onPress={() => setExpanded((current) => !current)}
         />
@@ -1206,6 +1207,10 @@ function activityGroupStatus(tools: AssistantTool[]) {
   return undefined;
 }
 
+function isActivityInFlight(tools: AssistantTool[]) {
+  return tools.some((tool) => tool.state.status === "running" || tool.state.status === "streaming");
+}
+
 function shellStatusLabel(message: ShellMessage) {
   if (message.status === "running") return "Running";
   if (message.status === "timeout") return "Timed out";
@@ -1228,6 +1233,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isInlineReasoning(text: string) {
   return text.length <= maxInlineReasoning && !/[\r\n]/.test(text);
+}
+
+function isSettledReasoning(
+  message: AssistantMessage,
+  part: Extract<AssistantPart, { type: "reasoning" }>,
+) {
+  return part.time?.completed !== undefined || message.time.completed !== undefined;
 }
 
 function basename(path: string) {

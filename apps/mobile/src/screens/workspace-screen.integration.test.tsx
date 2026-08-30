@@ -76,8 +76,16 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
                 agent: "build",
                 content: [
                   { text: "Newest answer", type: "text" },
-                  { text: "Private reasoning", type: "reasoning" },
-                  { text: "Detailed reasoning\nSecond step", type: "reasoning" },
+                  {
+                    text: "Private reasoning",
+                    time: { completed: 4, created: 3 },
+                    type: "reasoning",
+                  },
+                  {
+                    text: "Detailed reasoning\nSecond step",
+                    time: { completed: 5, created: 3 },
+                    type: "reasoning",
+                  },
                 ],
                 id: "msg_assistant",
                 model: { id: "model-1", providerID: "provider" },
