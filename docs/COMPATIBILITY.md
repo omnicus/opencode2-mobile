@@ -577,6 +577,33 @@ slot component.
 The probe recorded no address, credential, token, pairing code, identifier,
 prompt, path, form response, or server content.
 
+## 2026-08-31: OpenCode TUI notification controls probe
+
+### Stack
+
+- Host: Linux
+- OpenCode CLI and server: beta 18721
+- OpenCode notification plugin contract: beta 18387
+- Notification broker: local systemd user service
+
+### Results
+
+| Probe | Result |
+| --- | --- |
+| Load the server and TUI plugins from the compiled `dist` directory | Pass |
+| List status, pause, and enable controls in the command palette | Pass |
+| Invoke enable through authenticated loopback ingress and persist the broker state | Pass |
+| Register controls without opening the TUI sidebar | Pass after fix |
+
+The controls were previously registered from an empty `sidebar.footer` slot.
+OpenCode beta 18721 does not render that slot while the sidebar is closed, so the
+commands were absent. Registering from the always-mounted `app` slot keeps the
+keymap layer under the required TUI provider and makes the commands available on
+startup.
+
+The probe recorded no address, credential, token, identifier, prompt, path, or
+server content.
+
 ## 2026-08-26: physical iPhone command-event stability
 
 ### Stack

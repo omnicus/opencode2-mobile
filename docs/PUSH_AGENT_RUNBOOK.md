@@ -225,7 +225,7 @@ Merge one entry into the existing `plugins` array:
   "$schema": "https://opencode.ai/config.json",
   "plugins": [
     {
-      "package": "/home/user/.local/share/opencode2-mobile/packages/opencode-notification-plugin/dist/index.js",
+      "package": "/home/user/.local/share/opencode2-mobile/packages/opencode-notification-plugin/dist",
       "options": {
         "brokerOrigin": "http://127.0.0.1:37101",
         "tokenFile": "/home/user/.local/state/opencode-mobile-notifications/plugin.token"
@@ -244,7 +244,7 @@ Configure the TUI controls separately in `~/.config/opencode/cli.json`:
 {
   "plugins": [
     {
-      "package": "/home/user/.local/share/opencode2-mobile/packages/opencode-notification-plugin/dist/tui.js",
+      "package": "/home/user/.local/share/opencode2-mobile/packages/opencode-notification-plugin/dist",
       "options": {
         "brokerOrigin": "http://127.0.0.1:37101",
         "tokenFile": "/home/user/.local/state/opencode-mobile-notifications/plugin.token"
@@ -254,8 +254,9 @@ Configure the TUI controls separately in `~/.config/opencode/cli.json`:
 }
 ```
 
-The tested OpenCode beta does not resolve the local source package directory as
-a server plugin. Use the two compiled files shown above.
+The local source package directory has no root `index.js`. Configure the compiled
+`dist` directory shown above; direct `.js` paths are rejected by current OpenCode
+betas.
 
 OpenCode and the broker must share a network namespace. If OpenCode is in a
 container, co-locate the broker there. Do not weaken the plugin's loopback check

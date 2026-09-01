@@ -30,6 +30,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
     mockClientCalls.set(options.baseUrl, count + 1);
     return count % 2 === 0 ? pair.rest : pair.event;
   },
+  openCodeClientContractVersion: "test-contract",
 }));
 
 jest.mock("../connections/connections-context", () => ({
@@ -102,6 +103,10 @@ test("aborts and ignores the old generation when switching connections", async (
     version: "test",
   });
   expect(screen.getByText("connected")).toBeOnTheScreen();
+  expect(screen.getByTestId("runtime-diagnostics").props.children).toContain(
+    "generation_starts=1\ndurable_sequence_gaps=0\nsnapshot_requests=1\nsnapshots_installed=1",
+  );
+  expect(screen.getByTestId("runtime-diagnostics").props.children).toContain("generation=startup");
 
   mockSelectedProfileId = "connection-1";
   view.rerender(
@@ -160,6 +165,49 @@ test("aggregates event bursts without evicting transport status history", () => 
   expect(diagnostics).toHaveLength(5);
 });
 
+test("bounds diagnostic kinds independently and formats redacted transport metadata", () => {
+  let diagnostics: RuntimeDiagnosticEntry[] = [
+    { atMs: 1, kind: "event", value: "session.updated" },
+  ];
+  for (let index = 0; index < 70; index += 1) {
+    diagnostics = appendDiagnostic(diagnostics, {
+      atMs: 300 + index,
+      kind: "event",
+      value: `event.${index}`,
+    });
+    diagnostics = appendDiagnostic(diagnostics, {
+      atMs: 100 + index,
+      kind: "status",
+      value: index % 2 === 0 ? "connecting" : "connected",
+    });
+    diagnostics = appendDiagnostic(diagnostics, {
+      atMs: 200 + index,
+      kind: "generation",
+      value: "durable_gap",
+    });
+  }
+
+  expect(diagnostics.filter((entry) => entry.kind === "event")).toHaveLength(64);
+  expect(diagnostics.filter((entry) => entry.kind === "status")).toHaveLength(64);
+  expect(diagnostics.filter((entry) => entry.kind === "generation")).toHaveLength(64);
+  expect(
+    formatDiagnostics("connected", diagnostics, {
+      appBuild: "7",
+      appVersion: "0.1.4",
+      clientContractVersion: "0.0.0-beta-18387",
+      metrics: {
+        durableSequenceGaps: 12,
+        generationStarts: 14,
+        snapshotRequests: 14,
+        snapshotsInstalled: 10,
+      },
+      serverVersion: "unsafe\nvalue",
+    }),
+  ).toContain(
+    "app_version=0.1.4\napp_build=7\nclient_contract=0.0.0-beta-18387\nserver_version=unknown\ngeneration_starts=14\ndurable_sequence_gaps=12\nsnapshot_requests=14\nsnapshots_installed=10",
+  );
+});
+
 function RuntimeStatus() {
   const runtime = useConnectionRuntime();
   return (
@@ -168,6 +216,7 @@ function RuntimeStatus() {
       <Text>
         {runtime.connectionId}:{runtime.restClient ? "ready" : "none"}
       </Text>
+      <Text testID="runtime-diagnostics">{runtime.getDiagnosticsText()}</Text>
     </>
   );
 }

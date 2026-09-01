@@ -17,6 +17,15 @@ export type ConnectionTransportStatus =
   | "stale"
   | "unauthorized";
 
+export type ConnectionGenerationReason =
+  | "durable_gap"
+  | "event_reconciliation"
+  | "foreground"
+  | "manual_reconcile"
+  | "network_restored"
+  | "retry"
+  | "startup";
+
 export type ConnectionSnapshot = {
   activeSessions: Record<string, SessionActive>;
   health: ServiceHealth;
@@ -30,7 +39,9 @@ export type ConnectionTransportCoordinatorOptions = {
   eventClient: EventClient;
   maxBufferedEvents?: number;
   maxSeenEventIds?: number;
+  onDurableGap?: () => void;
   onEvent: (event: OpenCodeEvent) => void;
+  onGeneration?: (reason: ConnectionGenerationReason) => void;
   onSnapshot: (snapshot: ConnectionSnapshot) => void;
   onStatus: (status: ConnectionTransportStatus, reconnectAttempt: number) => void;
   onUncertain: (event?: OpenCodeEvent) => void;
@@ -50,7 +61,7 @@ export class ConnectionTransportCoordinator {
         controller: AbortController;
         id: number;
         snapshotTimeout: ReturnType<typeof setTimeout> | undefined;
-        uncertain: boolean;
+        uncertainReason: ConnectionGenerationReason | undefined;
       }
     | undefined;
   private readonly durableSequences = new Map<string, number>();
@@ -70,7 +81,7 @@ export class ConnectionTransportCoordinator {
     this.started = true;
     if (!this.online) this.setStatus("offline");
     else if (!this.foreground) this.setStatus("stale");
-    else this.openGeneration();
+    else this.openGeneration("startup");
   }
 
   stop() {
@@ -90,7 +101,7 @@ export class ConnectionTransportCoordinator {
       this.cancelGeneration();
       this.setStatus(this.online ? "stale" : "offline");
     } else if (this.online) {
-      this.openGeneration();
+      this.openGeneration("foreground");
     }
   }
 
@@ -103,15 +114,15 @@ export class ConnectionTransportCoordinator {
       this.cancelGeneration();
       this.setStatus("offline");
     } else if (this.foreground) {
-      this.openGeneration();
+      this.openGeneration("network_restored");
     }
   }
 
   reconcile() {
-    if (this.started && this.online && this.foreground) this.openGeneration();
+    if (this.started && this.online && this.foreground) this.openGeneration("manual_reconcile");
   }
 
-  private openGeneration() {
+  private openGeneration(reason: ConnectionGenerationReason) {
     this.clearRetry();
     this.cancelGeneration();
     const generation = ++this.generation;
@@ -123,8 +134,9 @@ export class ConnectionTransportCoordinator {
         () => this.failGeneration(generation, new Error("SNAPSHOT_TIMEOUT")),
         Math.max(1, this.options.snapshotTimeoutMs ?? 10_000),
       ),
-      uncertain: false,
+      uncertainReason: undefined,
     };
+    this.options.onGeneration?.(reason);
     this.setStatus(this.reconnectAttempt > 0 ? "reconnecting" : "connecting");
 
     const buffer: OpenCodeEvent[] = [];
@@ -153,8 +165,9 @@ export class ConnectionTransportCoordinator {
         }
         buffer.length = 0;
         buffering = false;
-        if (this.activeGeneration?.uncertain) {
-          this.openGeneration();
+        const uncertainReason = this.activeGeneration?.uncertainReason;
+        if (uncertainReason) {
+          this.openGeneration(uncertainReason);
           return;
         }
         this.reconnectAttempt = 0;
@@ -182,8 +195,9 @@ export class ConnectionTransportCoordinator {
           buffer.push(event);
         } else {
           if (!this.applyEvent(event)) return;
-          if (this.activeGeneration?.uncertain) {
-            this.openGeneration();
+          const uncertainReason = this.activeGeneration?.uncertainReason;
+          if (uncertainReason) {
+            this.openGeneration(uncertainReason);
             return;
           }
         }
@@ -214,7 +228,10 @@ export class ConnectionTransportCoordinator {
     if ("durable" in event) {
       const previous = this.durableSequences.get(event.durable.aggregateID);
       if (previous !== undefined && event.durable.seq > previous + 1) {
-        if (this.activeGeneration) this.activeGeneration.uncertain = true;
+        if (this.activeGeneration && !this.activeGeneration.uncertainReason) {
+          this.activeGeneration.uncertainReason = "durable_gap";
+        }
+        this.options.onDurableGap?.();
         this.options.onUncertain(event);
       }
       if (previous !== undefined && event.durable.seq <= previous) return true;
@@ -222,7 +239,7 @@ export class ConnectionTransportCoordinator {
     }
     this.options.onEvent(event);
     if (this.options.shouldReconcileEvent?.(event) && this.activeGeneration) {
-      this.activeGeneration.uncertain = true;
+      this.activeGeneration.uncertainReason ??= "event_reconciliation";
       this.options.onUncertain(event);
     }
     return true;
@@ -261,7 +278,7 @@ export class ConnectionTransportCoordinator {
     const delay = Math.floor((this.options.random ?? Math.random)() * cap);
     this.retryHandle = (this.options.schedule ?? defaultSchedule)(() => {
       this.retryHandle = undefined;
-      if (this.started && this.online && this.foreground) this.openGeneration();
+      if (this.started && this.online && this.foreground) this.openGeneration("retry");
     }, delay);
   }
 

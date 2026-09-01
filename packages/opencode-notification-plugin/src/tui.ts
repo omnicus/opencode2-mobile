@@ -21,7 +21,7 @@ export default Plugin.define({
       }
     };
     return context.ui.slot({
-      append: "sidebar.footer",
+      append: "app",
       render() {
         context.keymap.layer(() => ({
           mode: "global",

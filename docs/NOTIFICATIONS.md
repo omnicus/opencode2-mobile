@@ -85,7 +85,7 @@ OpenCode.
 {
   "plugins": [
     {
-      "package": "/absolute/path/opencode2-mobile/packages/opencode-notification-plugin/dist/index.js",
+      "package": "/absolute/path/opencode2-mobile/packages/opencode-notification-plugin/dist",
       "options": {
         "brokerOrigin": "http://127.0.0.1:37101",
         "tokenFile": "/home/user/.local/state/opencode-mobile-notifications/plugin.token"
@@ -106,14 +106,14 @@ plugin cannot send retroactive notifications for requests created before plugin
 installation, and a server crash before an event reaches plugin storage can lose
 that notification. The app still reconciles authoritative state after every tap.
 
-For controls in a locally installed OpenCode TUI, add the compiled TUI entry to
+For controls in a locally installed OpenCode TUI, add the compiled plugin directory to
 `~/.config/opencode/cli.json` with the same options:
 
 ```json
 {
   "plugins": [
     {
-      "package": "/absolute/path/opencode2-mobile/packages/opencode-notification-plugin/dist/tui.js",
+      "package": "/absolute/path/opencode2-mobile/packages/opencode-notification-plugin/dist",
       "options": {
         "brokerOrigin": "http://127.0.0.1:37101",
         "tokenFile": "/home/user/.local/state/opencode-mobile-notifications/plugin.token"
@@ -123,10 +123,10 @@ For controls in a locally installed OpenCode TUI, add the compiled TUI entry to
 }
 ```
 
-The local source package directory is not a valid server plugin entry in the
-tested OpenCode beta. Configure the two compiled files explicitly, rebuild after
-changes, restart the OpenCode service for server-plugin changes, and reopen the
-TUI for TUI-plugin changes.
+The local source package directory has no root `index.js` and is not a valid
+plugin entry. Configure the compiled `dist` directory, which contains both
+`index.js` and `tui.js`. Rebuild after changes, restart the OpenCode service for
+server-plugin changes, and reopen the TUI for TUI-plugin changes.
 
 ## Start and pair
 
