@@ -3,6 +3,7 @@ import { expect, jest, test } from "@jest/globals";
 import type { OpenCodeClient, OpenCodeEvent } from "@opencode2-mobile/opencode-adapter";
 import { eventRequiresConnectionSnapshot } from "./connection-event-query-bridge";
 import {
+  type ConnectionGenerationReason,
   ConnectionTransportCoordinator,
   type ConnectionTransportCoordinatorOptions,
   type ConnectionTransportStatus,
@@ -37,11 +38,15 @@ test("buffers events until authoritative snapshots are installed", async () => {
 test("deduplicates event IDs and detects durable sequence gaps", async () => {
   const stream = createEventStream();
   const onEvent = jest.fn();
+  const onDurableGap = jest.fn();
   const onSnapshot = jest.fn();
   const onUncertain = jest.fn();
+  const generationReasons: ConnectionGenerationReason[] = [];
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
+    onDurableGap,
     onEvent,
+    onGeneration: (reason) => generationReasons.push(reason),
     onSnapshot,
     onUncertain,
     restClient: createSnapshotClient(true).client,
@@ -57,16 +62,20 @@ test("deduplicates event IDs and detects durable sequence gaps", async () => {
   await flush();
 
   expect(onEvent).toHaveBeenCalledTimes(2);
+  expect(onDurableGap).toHaveBeenCalledTimes(1);
   expect(onUncertain).toHaveBeenCalledTimes(1);
   expect(onSnapshot).toHaveBeenCalledTimes(2);
+  expect(generationReasons).toEqual(["startup", "durable_gap"]);
 });
 
 test("reconnects with bounded full-jitter backoff", async () => {
   const stream = createEventStream();
   const scheduled: Array<{ callback: () => void; delay: number }> = [];
   const statuses: ConnectionTransportStatus[] = [];
+  const generationReasons: ConnectionGenerationReason[] = [];
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
+    onGeneration: (reason) => generationReasons.push(reason),
     onStatus: (status) => statuses.push(status),
     random: () => 0.5,
     restClient: createSnapshotClient(true).client,
@@ -86,6 +95,7 @@ test("reconnects with bounded full-jitter backoff", async () => {
 
   scheduled[0]?.callback();
   expect(stream.generations).toBe(2);
+  expect(generationReasons).toEqual(["startup", "retry"]);
 });
 
 test("bounds the pre-snapshot event buffer and marks state uncertain", async () => {
@@ -167,8 +177,10 @@ test("reconciles coordinator-owned roots for an uncertain event type", async () 
   const stream = createEventStream();
   const onSnapshot = jest.fn();
   const onUncertain = jest.fn();
+  const generationReasons: ConnectionGenerationReason[] = [];
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
+    onGeneration: (reason) => generationReasons.push(reason),
     onSnapshot,
     onUncertain,
     restClient: createSnapshotClient(true).client,
@@ -183,6 +195,7 @@ test("reconciles coordinator-owned roots for an uncertain event type", async () 
 
   expect(onUncertain).toHaveBeenCalledTimes(1);
   expect(onSnapshot).toHaveBeenCalledTimes(2);
+  expect(generationReasons).toEqual(["startup", "event_reconciliation"]);
 });
 
 test("keeps a healthy generation live for installation advisory events", async () => {
@@ -290,8 +303,10 @@ test("reconciles a replacement snapshot after the stream restarts", async () => 
 test("stops streams while backgrounded or offline", async () => {
   const stream = createEventStream();
   const statuses: ConnectionTransportStatus[] = [];
+  const generationReasons: ConnectionGenerationReason[] = [];
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
+    onGeneration: (reason) => generationReasons.push(reason),
     onStatus: (status) => statuses.push(status),
     restClient: createSnapshotClient(true).client,
   });
@@ -310,6 +325,23 @@ test("stops streams while backgrounded or offline", async () => {
 
   coordinator.setOnline(true);
   expect(stream.generations).toBe(3);
+  expect(generationReasons).toEqual(["startup", "foreground", "network_restored"]);
+  coordinator.stop();
+});
+
+test("records explicit reconciliation as a generation reason", async () => {
+  const generationReasons: ConnectionGenerationReason[] = [];
+  const coordinator = createCoordinator({
+    eventClient: { event: { subscribe: createEventStream().subscribe } } as never,
+    onGeneration: (reason) => generationReasons.push(reason),
+    restClient: createSnapshotClient(true).client,
+  });
+
+  coordinator.start();
+  await flush();
+  coordinator.reconcile();
+
+  expect(generationReasons).toEqual(["startup", "manual_reconcile"]);
   coordinator.stop();
 });
 
@@ -317,7 +349,9 @@ function createCoordinator(overrides: Partial<ConnectionTransportCoordinatorOpti
   return new ConnectionTransportCoordinator({
     eventClient: overrides.eventClient ?? ({} as never),
     ...(overrides.maxBufferedEvents ? { maxBufferedEvents: overrides.maxBufferedEvents } : {}),
+    ...(overrides.onDurableGap ? { onDurableGap: overrides.onDurableGap } : {}),
     onEvent: overrides.onEvent ?? (() => undefined),
+    ...(overrides.onGeneration ? { onGeneration: overrides.onGeneration } : {}),
     onSnapshot: overrides.onSnapshot ?? (() => undefined),
     onStatus: overrides.onStatus ?? (() => undefined),
     onUncertain: overrides.onUncertain ?? (() => undefined),

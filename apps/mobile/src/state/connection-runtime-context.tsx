@@ -3,6 +3,7 @@ import {
   type LocationRef,
   type OpenCodeClient,
   type OpenCodeEvent,
+  openCodeClientContractVersion,
 } from "@opencode2-mobile/opencode-adapter";
 import { focusManager, onlineManager, useQueryClient } from "@tanstack/react-query";
 import * as Network from "expo-network";
@@ -17,7 +18,7 @@ import {
 } from "react";
 import { AppState } from "react-native";
 
-import { applicationName } from "../application-name";
+import { applicationBuild, applicationName, applicationVersion } from "../application-name";
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import { useConnections } from "../connections/connections-context";
 import { boundedOpenCodeFetch, expoOpenCodeFetch } from "../expo-open-code-fetch";
@@ -77,6 +78,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
   }>();
   const statusRef = useRef<ConnectionTransportStatus>("idle");
   const diagnosticsRef = useRef<RuntimeDiagnosticEntry[]>([]);
+  const transportMetricsRef = useRef<TransportDiagnosticMetrics>(emptyTransportDiagnosticMetrics());
   const selectedRevisionRef = useRef<{ id: string; updatedAtMs: number } | undefined>(undefined);
   const selected = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
@@ -92,6 +94,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
       selectedRevisionRef.current = undefined;
       statusRef.current = "idle";
       diagnosticsRef.current = [];
+      transportMetricsRef.current = emptyTransportDiagnosticMetrics();
       setStatus("idle");
       setReconnectAttempt(0);
       setCacheMetadata(undefined);
@@ -115,6 +118,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
     }
     statusRef.current = "connecting";
     diagnosticsRef.current = [];
+    transportMetricsRef.current = emptyTransportDiagnosticMetrics();
     resetTranscriptPerformanceMetrics();
     setStatus("connecting");
     setReconnectAttempt(0);
@@ -166,7 +170,20 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
               value: redactedEventType(event),
             });
           },
+          onDurableGap() {
+            transportMetricsRef.current.durableSequenceGaps += 1;
+          },
+          onGeneration(reason) {
+            transportMetricsRef.current.generationStarts += 1;
+            transportMetricsRef.current.snapshotRequests += 1;
+            diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, {
+              atMs: Date.now(),
+              kind: "generation",
+              value: reason,
+            });
+          },
           onSnapshot(snapshot) {
+            transportMetricsRef.current.snapshotsInstalled += 1;
             setServerVersion(snapshot.health.version);
             queryClient.setQueryData(openCodeQueryKeys.health(selected.id), snapshot.health);
             queryClient.setQueryData(openCodeQueryKeys.projects(selected.id), snapshot.projects);
@@ -255,7 +272,13 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
         eventLocations,
         getDiagnosticsText: () =>
           [
-            formatDiagnostics(statusRef.current, diagnosticsRef.current),
+            formatDiagnostics(statusRef.current, diagnosticsRef.current, {
+              appBuild: applicationBuild,
+              appVersion: applicationVersion,
+              clientContractVersion: openCodeClientContractVersion,
+              metrics: transportMetricsRef.current,
+              ...(serverVersion ? { serverVersion } : {}),
+            }),
             formatTranscriptPerformanceDiagnostics(getTranscriptPerformanceMetrics()),
           ].join("\n\n"),
         includeAttentionLocation,
@@ -287,9 +310,26 @@ export type RuntimeDiagnosticEntry = {
   atMs: number;
   attempt?: number;
   count?: number;
-  kind: "event" | "status";
+  kind: "event" | "generation" | "status";
   value: string;
 };
+
+export type TransportDiagnosticMetrics = {
+  durableSequenceGaps: number;
+  generationStarts: number;
+  snapshotRequests: number;
+  snapshotsInstalled: number;
+};
+
+type RuntimeDiagnosticMetadata = {
+  appBuild: string;
+  appVersion: string;
+  clientContractVersion: string;
+  metrics: TransportDiagnosticMetrics;
+  serverVersion?: string;
+};
+
+const maxRuntimeDiagnosticsPerKind = 64;
 
 export function appendDiagnostic(current: RuntimeDiagnosticEntry[], entry: RuntimeDiagnosticEntry) {
   const next = [...current];
@@ -313,9 +353,12 @@ export function appendDiagnostic(current: RuntimeDiagnosticEntry[], entry: Runti
     next.push(entry);
   }
 
-  while (next.length > 64) {
-    const oldestEventIndex = next.findIndex((currentEntry) => currentEntry.kind === "event");
-    next.splice(oldestEventIndex >= 0 ? oldestEventIndex : 0, 1);
+  while (
+    next.filter((currentEntry) => currentEntry.kind === entry.kind).length >
+    maxRuntimeDiagnosticsPerKind
+  ) {
+    const oldestKindIndex = next.findIndex((currentEntry) => currentEntry.kind === entry.kind);
+    next.splice(oldestKindIndex, 1);
   }
   return next;
 }
@@ -323,8 +366,21 @@ export function appendDiagnostic(current: RuntimeDiagnosticEntry[], entry: Runti
 export function formatDiagnostics(
   status: ConnectionTransportStatus,
   diagnostics: RuntimeDiagnosticEntry[],
+  metadata?: RuntimeDiagnosticMetadata,
 ) {
   const lines = [`${applicationName} redacted transport diagnostics`, `current_status=${status}`];
+  if (metadata) {
+    lines.push(
+      `app_version=${redactedDiagnosticValue(metadata.appVersion)}`,
+      `app_build=${redactedDiagnosticValue(metadata.appBuild)}`,
+      `client_contract=${redactedDiagnosticValue(metadata.clientContractVersion)}`,
+      `server_version=${redactedDiagnosticValue(metadata.serverVersion ?? "unknown")}`,
+      `generation_starts=${metadata.metrics.generationStarts}`,
+      `durable_sequence_gaps=${metadata.metrics.durableSequenceGaps}`,
+      `snapshot_requests=${metadata.metrics.snapshotRequests}`,
+      `snapshots_installed=${metadata.metrics.snapshotsInstalled}`,
+    );
+  }
   for (const entry of diagnostics) {
     lines.push(
       `${formatDiagnosticTimestamp(entry.atMs)} ${entry.kind}=${entry.value}${
@@ -333,6 +389,19 @@ export function formatDiagnostics(
     );
   }
   return lines.join("\n");
+}
+
+function emptyTransportDiagnosticMetrics(): TransportDiagnosticMetrics {
+  return {
+    durableSequenceGaps: 0,
+    generationStarts: 0,
+    snapshotRequests: 0,
+    snapshotsInstalled: 0,
+  };
+}
+
+function redactedDiagnosticValue(value: string) {
+  return /^[a-zA-Z0-9][a-zA-Z0-9.+_-]{0,127}$/.test(value) ? value : "unknown";
 }
 
 export function formatDiagnosticTimestamp(atMs: number) {
