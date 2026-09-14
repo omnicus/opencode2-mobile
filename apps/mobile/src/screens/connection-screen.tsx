@@ -506,7 +506,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                 pressed && styles.secondaryButtonPressed,
               ]}
             >
-              <Text style={styles.secondaryLabel}>PAIR SERVER + NOTIFICATIONS</Text>
+              <Text style={styles.secondaryLabel}>PAIR SERVER</Text>
             </Pressable>
           ) : null}
 

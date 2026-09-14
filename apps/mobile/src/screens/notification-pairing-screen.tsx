@@ -9,6 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -89,6 +90,61 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
       }
     }
     setScanning(true);
+  }
+
+  async function pairWithoutNotifications() {
+    if (preview?.kind !== "opencode" || busy) return;
+    await connectDirectly(preview.prepared);
+  }
+
+  async function connectDirectly(
+    prepared: ReturnType<typeof prepareOpenCodeDevicePairing>,
+    notificationFallback = false,
+  ) {
+    setBusy(true);
+    setError(undefined);
+    let stage: PairingStage = "opencode-validation";
+    try {
+      const credential: ConnectionCredential = {
+        mode: "basic",
+        password: prepared.code.password,
+        schemaVersion: 1,
+        username: prepared.code.username,
+      };
+      const baseUrl = normalizeOpenCodeBaseUrl(prepared.openCodeOrigin);
+      const client = createOpenCodeClient({
+        authorization: connectionAuthorizationHeader(credential),
+        baseUrl,
+        fetch: boundedOpenCodeFetch,
+      });
+      const [health] = await Promise.all([
+        client.health.get(),
+        client.server.get(),
+        client.session.list({ limit: 1, order: "desc" }),
+      ]);
+      stage = "connection-save";
+      await connections.save({
+        credential,
+        draft: {
+          allowDevelopmentHttp: prepared.allowDevelopmentHttp,
+          authMode: "basic",
+          baseUrl,
+          name: prepared.name,
+        },
+        health: { checkedAtMs: Date.now(), pid: health.pid, version: health.version },
+      });
+      if (notificationFallback) {
+        Alert.alert(
+          "Server connected",
+          "Notification setup was unavailable. Connected without notifications.",
+        );
+      }
+      onDone();
+    } catch (caught) {
+      setError(pairingErrorMessage(caught, stage));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function pair() {
@@ -190,6 +246,17 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           connectionRollbackFailed = true;
         }
       }
+      if (
+        preview.kind === "opencode" &&
+        !savedConnectionId &&
+        (stage === "push-registration" ||
+          stage === "broker-issue" ||
+          stage === "secure-storage" ||
+          stage === "broker-registration")
+      ) {
+        await connectDirectly(preview.prepared, true);
+        return;
+      }
       setError(
         connectionRollbackFailed
           ? "Pairing failed after saving the connection. Remove it from Connections before retrying."
@@ -220,8 +287,8 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
             </Pressable>
           </View>
           <Text style={styles.copy}>
-            The code configures one OpenCode server and its notification broker. Credentials are
-            decrypted on this phone and stored in the device keychain.
+            Scan an OpenCode /pair code to connect. Notifications are set up when available;
+            otherwise the app connects without them. Credentials are stored in the device keychain.
           </Text>
 
           {scanning ? (
@@ -305,6 +372,20 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
                   </Text>
                 )}
               </Pressable>
+              {preview.kind === "opencode" ? (
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={busy}
+                  onPress={() => void pairWithoutNotifications()}
+                  style={({ pressed }) => [styles.inspectButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.inspectLabel}>
+                    {preview.prepared.allowDevelopmentHttp
+                      ? "APPROVE HTTP + PAIR WITHOUT NOTIFICATIONS"
+                      : "PAIR WITHOUT NOTIFICATIONS"}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
           ) : null}
           {error ? (
