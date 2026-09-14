@@ -43,7 +43,7 @@ Keep track of active and blocked sessions across followed projects.
 ## Architecture
 
 `apps/mobile` contains the Expo application. `packages/opencode-adapter` is the
-only package that imports `@opencode-ai/client`; it never imports the Node-only
+only package that imports `@opencode/client`; it never imports the Node-only
 service entrypoint. The phone connects directly to OpenCode over HTTPS or
 explicitly approved private-network HTTP.
 

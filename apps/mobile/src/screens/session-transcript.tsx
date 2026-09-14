@@ -162,6 +162,18 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
       return <Notice label="Model changed" text={message.model.id} />;
     case "location-switched":
       return <Notice label="Location changed" text={basename(message.location.directory)} />;
+    case "idle":
+      return (
+        <Notice
+          label={
+            message.outcome === "succeeded"
+              ? "Turn completed"
+              : message.outcome === "failed"
+                ? "Turn failed"
+                : "Turn interrupted"
+          }
+        />
+      );
     case "compaction":
       return message.status === "failed" ? (
         <Notice label="Compaction failed" text={message.error.message} />

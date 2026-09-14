@@ -1329,6 +1329,27 @@ it("preserves ascending message order across opaque cursor requests", async () =
   expect(second.data.map(({ id }) => id)).toEqual(["msg_3"]);
 });
 
+it.each(["succeeded", "failed", "interrupted"])(
+  "accepts 2.0.3 idle messages with outcome %s",
+  async (outcome) => {
+    const message = { id: "msg_idle", time: { created: 1 }, type: "idle", outcome };
+    const api = createFakeOpenCodeApi({ messages: { ses_test: [message] } });
+    const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+
+    await expect(listOpenCodeMessages(client, "ses_test")).resolves.toMatchObject({
+      data: [message],
+    });
+  },
+);
+
+it.each([undefined, "unknown", 1])("rejects an invalid idle outcome %s", async (outcome) => {
+  const api = createFakeOpenCodeApi({
+    messages: { ses_test: [{ id: "msg_idle", time: { created: 1 }, type: "idle", outcome }] },
+  });
+  const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+  await expect(listOpenCodeMessages(client, "ses_test")).rejects.toThrow("MALFORMED_MESSAGE_LIST");
+});
+
 it("rejects invalid message pagination and malformed projected messages", async () => {
   const api = createFakeOpenCodeApi({
     failures: {
@@ -1431,6 +1452,22 @@ it("classifies a missing required V2 endpoint as incompatible", async () => {
 
   const error = await client.project.list().catch((caught: unknown) => caught);
   expect(classifyOpenCodeError(error)).toBe("INCOMPATIBLE");
+});
+
+it("receives events on runtimes without Promise.withResolvers", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(Promise, "withResolvers");
+  Reflect.deleteProperty(Promise, "withResolvers");
+  try {
+    const api = createFakeOpenCodeApi();
+    const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+    await expect(probeEventStream(client)).resolves.toEqual({
+      cancellation: true,
+      eventType: "server.connected",
+    });
+  } finally {
+    if (descriptor) Object.defineProperty(Promise, "withResolvers", descriptor);
+    else Reflect.deleteProperty(Promise, "withResolvers");
+  }
 });
 
 it("receives an event and cancels the generated SSE iterator", async () => {
