@@ -63,8 +63,8 @@ Android, and CI checks an empty native application.
 
 ## 2. React Native client compatibility spike
 
-- [x] Check the V2 client docs and replace the pinned `@next` build with tested
-      beta 18387.
+- [x] Check the V2 client docs and pin `@opencode/client@2.0.3`, including idle
+      transcript messages and exact-session reconciliation when a session idles.
 - [x] Record the exact tested OpenCode application versions and behavioral
       compatibility probes; report differing versions without rejecting a server
       that passes those probes.

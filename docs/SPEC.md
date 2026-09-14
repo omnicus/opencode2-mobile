@@ -7,21 +7,21 @@ OpenCode HTTP server, gives users full control of coding sessions from a phone
 or tablet, and uses native platform capabilities where they improve the work.
 
 The app is an independent OpenCode V2 client. It uses the generated
-`@opencode-ai/client` package and the V2 HTTP API. It does not reuse OpenCode V1
+`@opencode/client` package and the V2 HTTP API. It does not reuse OpenCode V1
 contracts or create a second provider abstraction.
 
 ## 2. Current API assumptions
 
-- OpenCode V2 and `@opencode-ai/client` are beta.
+- The mobile adapter targets OpenCode V2 with `@opencode/client@2.0.3`.
 - The published HTTP contract currently reports experimental version `0.0.1`.
 - OpenCode can expose the API directly, commonly on port `4096`.
 - The generated Promise client accepts a base URL, default headers, a custom
   `fetch`, request abort signals, and exposes events as an async iterable.
-- `@opencode-ai/client/service` is Node-only and must not be imported by the
+- `@opencode/client/service` is Node-only and must not be imported by the
   mobile application.
 - The event stream is volatile. Events can be lost during disconnection,
   background suspension, server restart, or overflow.
-- The installed client is `0.0.0-beta-18387`. Recheck the `@beta` tag before
+- The installed client is `2.0.3`. Recheck the published V2 contract before
   each integration milestone, but do not reject a server only because its
   application version differs.
 - A server reachable at `127.0.0.1` on a development computer is not reachable
@@ -103,7 +103,7 @@ Version 1.0 adds the remaining high-value coding controls:
 ```text
 Native iOS or Android application
   | HTTPS or approved private-network development HTTP
-  | @opencode-ai/client REST requests and event stream
+  | @opencode/client REST requests and event stream
   | PTY WebSocket when a terminal is open
   v
 OpenCode V2 HTTP server
@@ -139,10 +139,10 @@ screens and native components
   -> feature hooks and view models
   -> query cache, event reduction, and local device state
   -> OpenCode adapter
-  -> @opencode-ai/client and platform networking
+  -> @opencode/client and platform networking
 ```
 
-Only the OpenCode adapter imports `@opencode-ai/client`. UI code consumes its
+Only the OpenCode adapter imports `@opencode/client`. UI code consumes its
 generated types through narrow feature-facing exports. The adapter may provide
 React Native transport fixes, redacted errors, and compatibility checks, but it
 must not duplicate generated response types.

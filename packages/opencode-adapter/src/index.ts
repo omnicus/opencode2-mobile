@@ -18,9 +18,11 @@ import {
   type SessionMessagesResponse,
   type SessionsResponse,
   type SkillInfo,
-} from "@opencode-ai/client";
+} from "@opencode/client";
 
-export const openCodeClientContractVersion = "0.0.0-beta-18387";
+import { ensurePromiseWithResolvers } from "./promise-with-resolvers";
+
+export const openCodeClientContractVersion = "2.0.3";
 
 export type OpenCodeClientOptions = {
   authorization?: string;
@@ -123,7 +125,8 @@ export function createBoundedOpenCodeFetch(
   };
 }
 
-export function createOpenCodeClient(options: OpenCodeClientOptions) {
+export function createOpenCodeClient(options: OpenCodeClientOptions): OpenCodeClient {
+  ensurePromiseWithResolvers();
   return OpenCode.make({
     baseUrl: normalizeOpenCodeBaseUrl(options.baseUrl),
     ...(options.fetch ? { fetch: options.fetch } : {}),
@@ -748,6 +751,12 @@ function isValidMessage(value: unknown): value is SessionMessageInfo {
   }
 
   switch (value.type) {
+    case "idle":
+      return (
+        value.outcome === "succeeded" ||
+        value.outcome === "failed" ||
+        value.outcome === "interrupted"
+      );
     case "agent-switched":
       return (
         typeof value.agent === "string" &&
@@ -1814,7 +1823,7 @@ function withDeadline<T>(
   });
 }
 
-export type OpenCodeClient = ReturnType<typeof createOpenCodeClient>;
+export type OpenCodeClient = ReturnType<typeof OpenCode.make>;
 
 export type {
   AgentInfo,
@@ -1848,5 +1857,5 @@ export type {
   SessionMessagesResponse,
   SessionsResponse,
   SkillInfo,
-} from "@opencode-ai/client";
+} from "@opencode/client";
 export type { OpenCodeEvent };

@@ -132,6 +132,31 @@ test.each(["session.step.streamed", "session.message.content.updated"] as const)
   },
 );
 
+test("session idle refreshes its transcript without invalidating other sessions", () => {
+  const queryClient = new QueryClient();
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const location = { directory: "/workspace" };
+  const affectedKey = openCodeQueryKeys.messages("connection-1", location, "session-1", {});
+  const otherKey = openCodeQueryKeys.messages("connection-1", location, "session-2", {});
+  const otherConnectionKey = openCodeQueryKeys.messages("connection-2", location, "session-1", {});
+  for (const key of [affectedKey, otherKey, otherConnectionKey]) queryClient.setQueryData(key, []);
+
+  bridge.apply({
+    created: 1,
+    data: { sessionID: "session-1" },
+    id: "event-idle",
+    location,
+    type: "session.idle",
+  });
+
+  expect(queryClient.getQueryState(affectedKey)?.isInvalidated).toBe(true);
+  expect(queryClient.getQueryState(otherKey)?.isInvalidated).toBe(false);
+  expect(queryClient.getQueryState(otherConnectionKey)?.isInvalidated).toBe(false);
+  queryClient.clear();
+});
+
 test("does not write active-session state for transcript deltas", () => {
   const queryClient = new QueryClient();
   const setQueryData = jest.spyOn(queryClient, "setQueryData");

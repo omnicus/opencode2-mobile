@@ -8,6 +8,20 @@ import { SessionTranscriptRow } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
 
+test.each([
+  { outcome: "succeeded", label: "Turn completed" },
+  { outcome: "failed", label: "Turn failed" },
+  { outcome: "interrupted", label: "Turn interrupted" },
+] as const)("renders the idle outcome $outcome", ({ outcome, label }) => {
+  render(
+    <SessionTranscriptRow
+      message={{ id: "msg_idle", time: { created: 1 }, type: "idle", outcome }}
+    />,
+  );
+  expect(screen.getByText(label)).toBeTruthy();
+  expect(screen.queryByText("Unsupported message")).toBeNull();
+});
+
 const messages: SessionMessageInfo[] = [
   { agent: "build", id: "msg_agent", time: { created: 1 }, type: "agent-switched" },
   {

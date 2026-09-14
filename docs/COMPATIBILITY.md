@@ -12,6 +12,63 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-09-14: client 2.0.3 transcript compatibility
+
+### Follow-up: immediate reconnect loop
+
+A later iPhone export confirms client contract 2.0.3 loaded, but all nine
+connection generations failed within zero or one millisecond. No snapshot was
+installed, no server version was learned, and no event was received.
+
+The new client's shared-event iterator calls `Promise.withResolvers()` before
+opening its stream. Removing that method in an adapter regression test produces
+an immediate TypeError. The coordinator cancels the generation on event failure,
+which also cancels the snapshot requests. This reproduces a client-side failure
+consistent with the device trace; the export does not include the exception.
+
+The adapter now installs a fallback only when the method is missing. The same
+test receives `server.connected` and verifies cancellation after the fix.
+The required check sequence passed with 68 adapter tests, 305 mobile tests, and
+both Hermes exports. Expo Doctor passed all 18 checks. A second iOS preview
+update was published for runtime 0.1.4. The user confirmed that the corrected
+update restored the connection on the physical iPhone. Android confirmation
+and a fresh transcript-specific device retest remain pending.
+
+The same transcript and Promise fallback fixes were subsequently published to
+the Android preview channel for runtime 0.1.4, matching the existing version
+0.1.4 build 6. EAS confirmed publication; Android device verification is pending.
+
+### Initial transcript fix
+
+The supplied iPhone diagnostics report app 0.1.4 build 7 using client contract
+beta 18387 against server 2.0.3. The connection reached connected, installed one
+snapshot, and recorded no durable sequence gaps. The screenshot reports
+unsupported transcript data. These artifacts do not include transcript payloads.
+
+The published V2 OpenAPI document and `@opencode/client@2.0.3` both define an
+`idle` transcript message with outcome `succeeded`, `failed`, or `interrupted`.
+A deterministic fake-API reproduction containing just one such message failed
+with `MALFORMED_MESSAGE_LIST` under the previous validator. All three outcomes
+now pass. This confirms a compatibility bug that produces the screenshot's
+error, without establishing the contents of the affected device session.
+
+The adapter now uses `@opencode/client@2.0.3` and its matching protocol and schema
+dependencies. Transcript rows show idle outcomes, and `session.idle` triggers
+an exact-session transcript refresh. Invalid idle outcomes remain rejected.
+
+| Check | Result |
+| --- | --- |
+| Required lint, typecheck, test, build sequence | Pass |
+| Adapter contract tests | Pass, 67 tests |
+| Mobile tests, including idle rendering and scoped reconciliation | Pass, 305 tests |
+| iOS and Android Hermes bundle exports | Pass |
+| Expo Doctor | Pass, 18/18 checks |
+| Updated app on physical iOS and Android against server 2.0.3 | Pending |
+
+The iOS fix was published through EAS Update to the existing preview channel
+for runtime 0.1.4. EAS confirms the published update. Device installation and
+transcript behavior still require an iPhone retest.
+
 ## 2026-08-27: beta 18387 generated-client upgrade
 
 ### Stack

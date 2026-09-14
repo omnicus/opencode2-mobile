@@ -327,6 +327,7 @@ const sessionMetadataEventTypes = new Set<string>([
 ]);
 
 const messageReconciliationEventTypes = new Set<string>([
+  "session.idle",
   "session.agent.selected",
   "session.model.selected",
   "session.moved",
