@@ -41,7 +41,7 @@ export function useLifecycleTransportProbe() {
 
   async function run(
     streamClient: Pick<OpenCodeClient, "event">,
-    restClient: Pick<OpenCodeClient, "health">,
+    restClient: Pick<OpenCodeClient, "server">,
   ) {
     if (active.current) throw new Error("LIFECYCLE_PROBE_ALREADY_RUNNING");
 
@@ -149,7 +149,7 @@ export function useLifecycleTransportProbe() {
 }
 
 function withHealthDeadline(
-  client: Pick<OpenCodeClient, "health">,
+  client: Pick<OpenCodeClient, "server">,
   controller: AbortController,
   timeoutMs: number,
 ) {
@@ -159,7 +159,7 @@ function withHealthDeadline(
       reject(new DOMException("The operation timed out", "AbortError"));
     }, timeoutMs);
 
-    client.health.get({ signal: controller.signal }).then(
+    client.server.status({ signal: controller.signal }).then(
       () => {
         clearTimeout(timeout);
         resolve();

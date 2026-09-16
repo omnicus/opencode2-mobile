@@ -34,9 +34,9 @@ test("cancels on background and opens one fresh stream after foreground health",
       firstEvent: Promise.resolve({ eventType: "server.connected" }),
       stop: recoveryStop,
     });
-  const healthGet = jest.fn(async () => ({ healthy: true, pid: 42, version: "test" }));
+  const healthGet = jest.fn(async () => ({ urls: [], pid: 42, version: "test" }));
   const streamClient = {} as Pick<OpenCodeClient, "event">;
-  const restClient = { health: { get: healthGet } } as Pick<OpenCodeClient, "health">;
+  const restClient = { server: { status: healthGet } } as Pick<OpenCodeClient, "server">;
   const hook = renderHook(() => useLifecycleTransportProbe());
   let run: Promise<unknown> | undefined;
 
@@ -85,8 +85,8 @@ test("removes the AppState listener and stops transport on unmount", async () =>
   });
   const streamClient = {} as Pick<OpenCodeClient, "event">;
   const restClient = {
-    health: { get: jest.fn(async () => ({ healthy: true, pid: 42, version: "test" })) },
-  } as Pick<OpenCodeClient, "health">;
+    server: { status: jest.fn(async () => ({ urls: [], pid: 42, version: "test" })) },
+  } as Pick<OpenCodeClient, "server">;
   const hook = renderHook(() => useLifecycleTransportProbe());
   let run: Promise<unknown> | undefined;
 

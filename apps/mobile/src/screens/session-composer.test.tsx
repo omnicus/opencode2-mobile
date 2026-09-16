@@ -34,16 +34,14 @@ const skills = [
   {
     content: "Release instructions",
     id: "release",
-    location: "/workspace/.opencode/skills/release.md",
+    path: "/workspace/.opencode/skills/release.md",
     name: "Release workflow",
-    slash: true,
   },
   {
     content: "Automatic context",
     id: "automatic",
-    location: "/workspace/.opencode/skills/automatic.md",
+    path: "/workspace/.opencode/skills/automatic.md",
     name: "Automatic",
-    slash: false,
   },
 ] as SkillInfo[];
 const files = [{ path: "src/index.ts", type: "file" }] as FileSystemEntry[];

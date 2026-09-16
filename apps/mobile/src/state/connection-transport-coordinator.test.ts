@@ -231,10 +231,10 @@ test("rejects malformed authoritative snapshots", async () => {
   const stream = createEventStream();
   const statuses: ConnectionTransportStatus[] = [];
   const restClient = {
-    health: { get: jest.fn(async () => ({ healthy: true, pid: "invalid", version: "test" })) },
+    server: { status: jest.fn(async () => ({ urls: [], pid: "invalid", version: "test" })) },
     project: { list: jest.fn(async () => []) },
     session: { active: jest.fn(async () => ({})) },
-  } as unknown as Pick<OpenCodeClient, "health" | "project" | "session">;
+  } as unknown as Pick<OpenCodeClient, "server" | "project" | "session">;
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
     onStatus: (status) => statuses.push(status),
@@ -252,12 +252,12 @@ test("accepts a server version change when snapshot behavior remains compatible"
   const stream = createEventStream();
   const statuses: ConnectionTransportStatus[] = [];
   const restClient = {
-    health: {
-      get: jest.fn(async () => ({ healthy: true as const, pid: 42, version: "newer-beta" })),
+    server: {
+      status: jest.fn(async () => ({ urls: [], pid: 42, version: "newer-beta" })),
     },
     project: { list: jest.fn(async () => []) },
     session: { active: jest.fn(async () => ({})) },
-  } as unknown as Pick<OpenCodeClient, "health" | "project" | "session">;
+  } as unknown as Pick<OpenCodeClient, "server" | "project" | "session">;
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
     onStatus: (status) => statuses.push(status),
@@ -276,10 +276,10 @@ test("reconciles a replacement snapshot after the stream restarts", async () => 
   const pids: number[] = [];
   let pid = 41;
   const restClient = {
-    health: { get: jest.fn(async () => ({ healthy: true as const, pid: pid++, version: "test" })) },
+    server: { status: jest.fn(async () => ({ urls: [], pid: pid++, version: "test" })) },
     project: { list: jest.fn(async () => []) },
     session: { active: jest.fn(async () => ({})) },
-  } as unknown as Pick<OpenCodeClient, "health" | "project" | "session">;
+  } as unknown as Pick<OpenCodeClient, "server" | "project" | "session">;
   const coordinator = createCoordinator({
     eventClient: { event: { subscribe: stream.subscribe } } as never,
     onSnapshot: (snapshot) => pids.push(snapshot.health.pid),
@@ -366,21 +366,23 @@ function createCoordinator(overrides: Partial<ConnectionTransportCoordinatorOpti
 }
 
 function createSnapshotClient(immediate = false) {
-  let resolveHealth: ((value: { healthy: true; pid: number; version: string }) => void) | undefined;
+  let resolveHealth:
+    | ((value: { urls: string[]; pid: number; version: string }) => void)
+    | undefined;
   const health = immediate
-    ? Promise.resolve({ healthy: true as const, pid: 42, version: "test" })
-    : new Promise<{ healthy: true; pid: number; version: string }>((resolve) => {
+    ? Promise.resolve({ urls: [], pid: 42, version: "test" })
+    : new Promise<{ urls: string[]; pid: number; version: string }>((resolve) => {
         resolveHealth = resolve;
       });
   const client = {
-    health: { get: jest.fn(() => health) },
+    server: { status: jest.fn(() => health) },
     project: { list: jest.fn(async () => []) },
     session: { active: jest.fn(async () => ({})) },
-  } as unknown as Pick<OpenCodeClient, "health" | "project" | "session">;
+  } as unknown as Pick<OpenCodeClient, "server" | "project" | "session">;
   return {
     client,
     resolve() {
-      resolveHealth?.({ healthy: true, pid: 42, version: "test" });
+      resolveHealth?.({ urls: [], pid: 42, version: "test" });
     },
   };
 }

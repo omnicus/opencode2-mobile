@@ -2,10 +2,9 @@ import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { NotificationPairingScreen } from "./notification-pairing-screen";
 
 const mockSave = jest.fn(async () => "connection-1");
-const mockHealth = jest.fn(async () => ({ pid: 42, version: "test" }));
+const mockHealth = jest.fn(async () => ({ urls: [], pid: 42, version: "test" }));
 const mockCreateClient = jest.fn((..._args: unknown[]) => ({
-  health: { get: mockHealth },
-  server: { get: jest.fn(async () => ({ urls: [] })) },
+  server: { status: mockHealth },
   session: { list: jest.fn(async () => ({ data: [] })) },
 }));
 const mockRegisterPush = jest.fn(
@@ -35,7 +34,7 @@ jest.mock("../notifications/notification-pairing-repository", () => ({}));
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockHealth.mockResolvedValue({ pid: 42, version: "test" });
+  mockHealth.mockResolvedValue({ urls: [], pid: 42, version: "test" });
 });
 
 async function inspectCode(url = "https://server.test") {

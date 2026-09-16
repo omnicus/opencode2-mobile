@@ -3,7 +3,7 @@ import {
   type OpenCodeClient,
   type OpenCodeEvent,
   type ProjectListOutput,
-  type ServiceHealth,
+  type ServerStatus,
   type SessionActive,
 } from "@opencode2-mobile/opencode-adapter";
 
@@ -28,11 +28,11 @@ export type ConnectionGenerationReason =
 
 export type ConnectionSnapshot = {
   activeSessions: Record<string, SessionActive>;
-  health: ServiceHealth;
+  health: ServerStatus;
   projects: ProjectListOutput;
 };
 
-type SnapshotClient = Pick<OpenCodeClient, "health" | "project" | "session">;
+type SnapshotClient = Pick<OpenCodeClient, "server" | "project" | "session">;
 type EventClient = Pick<OpenCodeClient, "event">;
 
 export type ConnectionTransportCoordinatorOptions = {
@@ -145,7 +145,7 @@ export class ConnectionTransportCoordinator {
 
     const requestOptions = { signal: controller.signal };
     void Promise.all([
-      this.options.restClient.health.get(requestOptions),
+      this.options.restClient.server.status(requestOptions),
       this.options.restClient.project.list(requestOptions),
       this.options.restClient.session.active(requestOptions),
     ])
@@ -323,10 +323,11 @@ function isConnectionSnapshot(
   health: unknown,
   projects: unknown,
   activeSessions: unknown,
-): health is ServiceHealth {
+): health is ServerStatus {
   if (
     !isRecord(health) ||
-    health.healthy !== true ||
+    !Array.isArray(health.urls) ||
+    !health.urls.every((url) => typeof url === "string") ||
     typeof health.version !== "string" ||
     health.version.length === 0 ||
     health.version.length > 128 ||

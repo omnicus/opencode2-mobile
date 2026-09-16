@@ -12,6 +12,40 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-09-16: server 2.0.4 API compatibility
+
+An iPhone screenshot showed an incompatible connection with cached session rows.
+The local server reports version 2.0.4 and returns 404 for `/api/health`.
+Both its OpenAPI document and the published V2 contract replace `/api/health`
+and `/api/server` with `/api/status`. The existing adapter contract test failed
+when the fake API stopped serving the removed routes, then passed after migration.
+
+The adapter now pins `@opencode/client@2.0.4` and matching transitive protocol
+and schema packages. Connection setup, reconnect snapshots, lifecycle probes,
+notification pairing, and broker validation use the status endpoint. The upgrade
+also adapts session updates, command names, inbox delivery changes and timestamps,
+interrupt resumption, form operations, permission decisions, skill paths, and
+directory-only public location responses.
+
+A temporary read-only probe passed against the local 2.0.4 server using the
+updated adapter. It checked status, locations, active sessions, projects, agents,
+commands, models, skills, permissions, forms, session lists, and a transcript page.
+The probe retained no server content and was removed from the deterministic test
+suite. This probe provides host-side evidence only.
+
+The required lint, typecheck, test, and build sequence passed, including 68 adapter
+tests, 305 mobile tests, and both Hermes bundle exports. Expo Doctor passed all
+18 checks. With user approval, the fix was published to the iOS and Android
+preview channel for runtime 0.1.4. EAS confirmed publication on both platforms.
+The user confirmed that the update restored operation on the iPhone. Android
+device confirmation remains pending.
+
+PR preparation rebased the fix onto the merged notification-optional pairing
+flow and migrated its direct-pairing status check too. The required checks passed
+again with 309 mobile tests, 68 adapter tests, both Hermes exports, and all 18
+Expo Doctor checks. This direct-pairing follow-up was not part of the published
+preview update.
+
 ## 2026-09-14: client 2.0.3 transcript compatibility
 
 ### Follow-up: immediate reconnect loop

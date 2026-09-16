@@ -387,16 +387,12 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
       .filter((resolved) => availableFollowedProjectIDs.includes(resolved.project.id))
       .map((resolved) => ({
         directory: resolved.directory,
-        ...(resolved.workspaceID ? { workspaceID: resolved.workspaceID } : {}),
       })),
     ...(selectedLocationQuery.data &&
     availableFollowedProjectIDs.includes(selectedLocationQuery.data.project.id)
       ? [
           {
             directory: selectedLocationQuery.data.directory,
-            ...(selectedLocationQuery.data.workspaceID
-              ? { workspaceID: selectedLocationQuery.data.workspaceID }
-              : {}),
           },
         ]
       : []),
@@ -574,7 +570,6 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     projectIDByLocation.set(
       locationKey({
         directory: resolved.directory,
-        ...(resolved.workspaceID ? { workspaceID: resolved.workspaceID } : {}),
       }),
       resolved.project.id,
     );
@@ -583,9 +578,6 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     projectIDByLocation.set(
       locationKey({
         directory: selectedLocationQuery.data.directory,
-        ...(selectedLocationQuery.data.workspaceID
-          ? { workspaceID: selectedLocationQuery.data.workspaceID }
-          : {}),
       }),
       selectedLocationQuery.data.project.id,
     );

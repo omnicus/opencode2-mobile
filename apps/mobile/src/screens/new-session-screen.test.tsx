@@ -111,7 +111,7 @@ test("creates in a followed project's only location and replaces the modal", asy
   await waitFor(() =>
     expect(mockGetLocation).toHaveBeenCalledWith(
       {},
-      { directory: alpha.canonical, workspaceID: "workspace-alpha" },
+      { directory: alpha.canonical },
       expect.anything(),
     ),
   );

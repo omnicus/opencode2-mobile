@@ -226,7 +226,7 @@ export function useSessionExecution({
         if (admission.kind === "command") return admission;
         const inboxItem = inboxById.get(admission.id);
         const projectedMessage = projectedMessagesById.get(admission.id);
-        const serverAdmittedAtMs = inboxItem?.timeCreated ?? projectedMessage?.time.created;
+        const serverAdmittedAtMs = inboxItem?.time.created ?? projectedMessage?.time.created;
         let next = reconcilePromptAdmission(admission, {
           ...(inboxItem ? { inboxDelivery: inboxItem.delivery } : {}),
           messageProjected: projectedMessagesById.has(admission.id),
@@ -449,7 +449,9 @@ export function useSessionExecution({
       }
       const item = result.item;
       updateAdmissionAt(queryClient, submittedAdmissionKey, admission.id, (current) =>
-        markPromptConfirmationHandled(markPromptAdmitted(current, item.delivery, item.timeCreated)),
+        markPromptConfirmationHandled(
+          markPromptAdmitted(current, item.delivery, item.time.created),
+        ),
       );
       queryClient.setQueryData<typeof inbox>(submittedInboxKey, (current = []) => [
         item,
@@ -718,7 +720,7 @@ export function useSessionExecution({
       if (item) {
         updateAdmission(admissionID, (current) =>
           markPromptConfirmationHandled(
-            markPromptAdmitted(current, item.delivery, item.timeCreated),
+            markPromptAdmitted(current, item.delivery, item.time.created),
           ),
         );
         void deleteUnresolvedPromptAdmission(db, scopedConnectionId, sessionID, admissionID).catch(

@@ -118,8 +118,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         fetch: boundedOpenCodeFetch,
       });
       const [health] = await Promise.all([
-        client.health.get(),
-        client.server.get(),
+        client.server.status(),
         client.session.list({ limit: 1, order: "desc" }),
       ]);
       stage = "connection-save";
@@ -190,8 +189,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
       });
       stage = "opencode-validation";
       const [health] = await Promise.all([
-        client.health.get(),
-        client.server.get(),
+        client.server.status(),
         client.session.list({ limit: 1, order: "desc" }),
       ]);
       stage = "connection-save";

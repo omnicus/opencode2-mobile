@@ -197,8 +197,8 @@ importers:
   packages/opencode-adapter:
     dependencies:
       '@opencode/client':
-        specifier: 2.0.3
-        version: 2.0.3(effect@4.0.0-rc.112)
+        specifier: 2.0.4
+        version: 2.0.4(effect@4.0.0-rc.112)
     devDependencies:
       '@opencode2-mobile/test-fixtures':
         specifier: workspace:*
@@ -1361,8 +1361,8 @@ packages:
   '@opencode-ai/schema@0.0.0-beta-18387':
     resolution: {integrity: sha512-of3chc9a4eQ24z9gTct10kBlhycZ+cI3JeIl51ideHVySY5aQLbGBo5SL7NLiuC7pu2kUY5OdmLjPDnLXAskzg==}
 
-  '@opencode/client@2.0.3':
-    resolution: {integrity: sha512-b+LcpMI131fXnGqf+O+9Y33H4XmwAkQibfYvtpEOROftkTpkcMj3R7WW/wGl2VTBNTZECAk2Yd+TACTzzAwk0A==}
+  '@opencode/client@2.0.4':
+    resolution: {integrity: sha512-GBFWT2os+gEtGXpHRvDUNkf0H9x9njDUVbUvvc4drH2CuAihVcHqdi9Wm4UiwkBrSLjrKPs4U1NJBh2Z7/x4tQ==}
     peerDependencies:
       effect: 4.0.0-rc.112
       solid-js: '>=1.9.0'
@@ -1372,11 +1372,11 @@ packages:
       solid-js:
         optional: true
 
-  '@opencode/protocol@2.0.3':
-    resolution: {integrity: sha512-DNHbkLDTuAyMsmVdnjuKulcfoDbllW2dxt4W19r2aJEYvswJpEO9168CSK6Sjbx1FOh/B9yL7SQgoDRMd4K5Vw==}
+  '@opencode/protocol@2.0.4':
+    resolution: {integrity: sha512-uWe2dmMouprSkfBu29XLR6GCWckkhm0YOo9ve07kTRqJCSoJzgQDF/8pouWG0cDCJ6oWj3bRQajXriBQyWSpUw==}
 
-  '@opencode/schema@2.0.3':
-    resolution: {integrity: sha512-thPeBbqw4+SkZ/0LOuqfahSRGuWogRa/wwfIVyiQYsoE0vzLx8XUpHQ+FSUWkdz6llDtP0+ZsyBqXUMpXmPgbg==}
+  '@opencode/schema@2.0.4':
+    resolution: {integrity: sha512-UyGcCsRb2hTH98rnBqfJogFve8kJsIbsEreRxqhkBIEGrtDTqcUd5NnqB7qlJp2khesMvpOH0GmCHlgz44C+uQ==}
 
   '@oxc-project/types@0.143.0':
     resolution: {integrity: sha512-u6JZdLBTLotrNC9Vd6vPssINdzcCzleKAH6EJKImQb7GtYvX5keN2dxkoK44stCc4tffE6QQRtZTXVSzsLUlWA==}
@@ -6406,19 +6406,19 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.0-rc.111
 
-  '@opencode/client@2.0.3(effect@4.0.0-rc.112)':
+  '@opencode/client@2.0.4(effect@4.0.0-rc.112)':
     dependencies:
-      '@opencode/protocol': 2.0.3
-      '@opencode/schema': 2.0.3
+      '@opencode/protocol': 2.0.4
+      '@opencode/schema': 2.0.4
     optionalDependencies:
       effect: 4.0.0-rc.112
 
-  '@opencode/protocol@2.0.3':
+  '@opencode/protocol@2.0.4':
     dependencies:
-      '@opencode/schema': 2.0.3
+      '@opencode/schema': 2.0.4
       effect: 4.0.0-rc.112
 
-  '@opencode/schema@2.0.3':
+  '@opencode/schema@2.0.4':
     dependencies:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.0-rc.112

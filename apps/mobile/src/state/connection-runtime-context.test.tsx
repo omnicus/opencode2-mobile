@@ -225,9 +225,9 @@ function createClientPair() {
   let aborted = 0;
   let generations = 0;
   let resolveHealth:
-    | ((health: { healthy: true; pid: number; version: string }) => void)
+    | ((health: { urls: string[]; pid: number; version: string }) => void)
     | undefined;
-  const health = new Promise<{ healthy: true; pid: number; version: string }>((resolve) => {
+  const health = new Promise<{ urls: string[]; pid: number; version: string }>((resolve) => {
     resolveHealth = resolve;
   });
   const event = {
@@ -252,7 +252,7 @@ function createClientPair() {
     },
   };
   const rest = {
-    health: { get: jest.fn(() => health) },
+    server: { status: jest.fn(() => health) },
     project: { list: jest.fn(async () => []) },
     session: { active: jest.fn(async () => ({})) },
   };
@@ -265,7 +265,7 @@ function createClientPair() {
       return generations;
     },
     resolveHealth() {
-      resolveHealth?.({ healthy: true, pid: 42, version: "test" });
+      resolveHealth?.({ urls: [], pid: 42, version: "test" });
     },
     rest,
   };

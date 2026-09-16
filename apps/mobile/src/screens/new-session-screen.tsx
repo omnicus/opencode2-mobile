@@ -365,7 +365,6 @@ function projectLocations(
   const defaultRef = defaultLocation
     ? {
         directory: defaultLocation.directory,
-        ...(defaultLocation.workspaceID ? { workspaceID: defaultLocation.workspaceID } : {}),
       }
     : undefined;
   const mainLocation =

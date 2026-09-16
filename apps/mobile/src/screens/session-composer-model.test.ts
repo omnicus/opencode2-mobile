@@ -26,9 +26,8 @@ const skills = [
   {
     content: "Content",
     id: "release",
-    location: "/skills/release.md",
+    path: "/skills/release.md",
     name: "Release workflow",
-    slash: false,
   },
 ] as SkillInfo[];
 const files = [
