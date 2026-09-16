@@ -515,7 +515,7 @@ function userInbox(id: string, delivery: "queue" | "steer") {
     id,
     payload: { text: "Prompt" },
     sessionID: "ses_a",
-    timeCreated: 1,
+    time: { created: 1 },
     type: "user" as const,
   } satisfies SessionInboxInfo;
 }

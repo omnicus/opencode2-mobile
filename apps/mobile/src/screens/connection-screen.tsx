@@ -254,15 +254,14 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
         ...(credential ? { authorization: connectionAuthorizationHeader(credential) } : {}),
       });
       const requestOptions = { signal: controller.signal };
-      const [health, server, sessions] = await Promise.all([
-        client.health.get(requestOptions),
-        client.server.get(requestOptions),
+      const [health, sessions] = await Promise.all([
+        client.server.status(requestOptions),
         client.session.list({ limit: 1, order: "desc" }, requestOptions),
       ]);
 
       setOrigin(normalizedOrigin);
       setDiagnostic({
-        advertisedUrls: server.urls.length,
+        advertisedUrls: health.urls.length,
         checkedAtMs: Date.now(),
         configurationKey: connectionConfigurationKey(
           normalizedOrigin,

@@ -24,7 +24,7 @@ test("renders active execution and mutable queued inbox work", () => {
       id: "msg_queued",
       payload: { text: "Queued prompt" },
       sessionID: "ses_test",
-      timeCreated: 1,
+      time: { created: 1 },
       type: "user",
     },
   ] satisfies SessionInboxInfo[];

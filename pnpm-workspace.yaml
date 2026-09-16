@@ -15,6 +15,9 @@ allowBuilds:
   msgpackr-extract: true
 
 minimumReleaseAgeExclude:
+  - '@opencode/client@2.0.4'
+  - '@opencode/protocol@2.0.4'
+  - '@opencode/schema@2.0.4'
   - '@biomejs/biome@2.5.8'
   - '@biomejs/cli-darwin-arm64@2.5.8'
   - '@biomejs/cli-darwin-x64@2.5.8'

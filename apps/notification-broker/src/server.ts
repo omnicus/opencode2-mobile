@@ -267,7 +267,7 @@ export async function validateOpenCodePairingCredentials(
   const authorization = `Basic ${Buffer.from(`${input.username}:${input.password}`).toString("base64")}`;
   try {
     await Promise.all(
-      ["/api/health", "/api/session?limit=1&order=desc"].map(async (path) => {
+      ["/api/status", "/api/session?limit=1&order=desc"].map(async (path) => {
         const response = await fetchImplementation(new URL(path, input.openCodeOrigin), {
           headers: { Authorization: authorization },
           redirect: "error",

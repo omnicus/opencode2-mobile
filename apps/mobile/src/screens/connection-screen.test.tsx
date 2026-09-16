@@ -158,8 +158,7 @@ test.each([
 ])("shows a redacted %s connection failure", async (kind, message) => {
   mockClassifiedError = kind;
   mockCreateOpenCodeClient.mockReturnValue({
-    health: { get: jest.fn(async () => Promise.reject(new Error("private transport detail"))) },
-    server: { get: jest.fn(async () => ({ urls: [] })) },
+    server: { status: jest.fn(async () => Promise.reject(new Error("private transport detail"))) },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   });
   await render(<ConnectionScreen />);
@@ -177,8 +176,13 @@ test.each([
 
 test("accepts a different server version when required REST behavior succeeds", async () => {
   mockCreateOpenCodeClient.mockReturnValue({
-    health: { get: jest.fn(async () => ({ healthy: true, pid: 42, version: "other-version" })) },
-    server: { get: jest.fn(async () => ({ urls: ["https://server.test"] })) },
+    server: {
+      status: jest.fn(async () => ({
+        urls: ["https://server.test"],
+        pid: 42,
+        version: "other-version",
+      })),
+    },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   });
   await render(<ConnectionScreen />);
@@ -196,8 +200,9 @@ test("accepts a different server version when required REST behavior succeeds", 
 
 test("runs the event and cancellation probe after REST succeeds", async () => {
   mockCreateOpenCodeClient.mockReturnValue({
-    health: { get: jest.fn(async () => ({ healthy: true, pid: 42, version: "test" })) },
-    server: { get: jest.fn(async () => ({ urls: ["http://server.test"] })) },
+    server: {
+      status: jest.fn(async () => ({ urls: ["http://server.test"], pid: 42, version: "test" })),
+    },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   });
   mockProbeEventStream.mockResolvedValue({
@@ -228,8 +233,9 @@ test("runs the event and cancellation probe after REST succeeds", async () => {
 
 test("runs the PTY probe after event transport succeeds", async () => {
   mockCreateOpenCodeClient.mockReturnValue({
-    health: { get: jest.fn(async () => ({ healthy: true, pid: 42, version: "test" })) },
-    server: { get: jest.fn(async () => ({ urls: ["http://server.test"] })) },
+    server: {
+      status: jest.fn(async () => ({ urls: ["http://server.test"], pid: 42, version: "test" })),
+    },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   });
   mockProbeEventStream.mockResolvedValue({
@@ -266,8 +272,9 @@ test("runs the PTY probe after event transport succeeds", async () => {
 
 test("starts lifecycle recovery after the transport probes pass", async () => {
   const client = {
-    health: { get: jest.fn(async () => ({ healthy: true, pid: 42, version: "test" })) },
-    server: { get: jest.fn(async () => ({ urls: ["http://server.test"] })) },
+    server: {
+      status: jest.fn(async () => ({ urls: ["http://server.test"], pid: 42, version: "test" })),
+    },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   };
   mockCreateOpenCodeClient.mockReturnValue(client);
@@ -300,8 +307,9 @@ test("starts lifecycle recovery after the transport probes pass", async () => {
 
 test("stores a tested profile only after explicit save", async () => {
   mockCreateOpenCodeClient.mockReturnValue({
-    health: { get: jest.fn(async () => ({ healthy: true, pid: 42, version: "test" })) },
-    server: { get: jest.fn(async () => ({ urls: ["https://server.test"] })) },
+    server: {
+      status: jest.fn(async () => ({ urls: ["https://server.test"], pid: 42, version: "test" })),
+    },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   });
   await render(<ConnectionScreen />);

@@ -80,11 +80,8 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     const failure = options.failures?.[url.pathname];
     if (failure) return json(failure.body, failure.status);
 
-    if (url.pathname === "/api/health") {
-      return json({ healthy: true, pid: 42, version: "test" });
-    }
-    if (url.pathname === "/api/server") {
-      return json({ urls: ["http://fake.invalid"] });
+    if (url.pathname === "/api/status") {
+      return json({ pid: 42, version: "test", urls: ["http://fake.invalid"] });
     }
     if (url.pathname === "/api/project") {
       return json(options.projects ?? []);
@@ -129,29 +126,36 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     if (url.pathname === "/api/permission/request") {
       return json({ location: resolvedLocation(options, url), data: options.permissions ?? [] });
     }
-    if (url.pathname === "/api/form/request") {
+    if (url.pathname === "/api/form") {
       return json({ location: resolvedLocation(options, url), data: pendingForms });
     }
     if (url.pathname === "/api/fs/find") {
       return json({ location: resolvedLocation(options, url), data: options.files ?? [] });
     }
     const formMatch = url.pathname.match(
-      /^\/api\/session\/([^/]+)\/form\/([^/]+)\/(state|reply|cancel)$/,
+      /^\/api\/session\/([^/]+)\/form\/([^/]+)(?:\/(reply|cancel))?$/,
     );
     if (formMatch) {
       const sessionID = formMatch[1] ?? "";
       const formID = formMatch[2] ?? "";
-      const operation = formMatch[3];
+      const operation = method === "DELETE" ? "cancel" : formMatch[3];
       const pendingIndex = pendingForms.findIndex(
         (form) => isRecord(form) && form.id === formID && form.sessionID === sessionID,
       );
-      if (operation === "state" && method === "GET") {
+      if (operation === undefined && method === "GET") {
         const settled = formStates.get(`${sessionID}\u0000${formID}`);
-        if (settled) return json({ data: settled });
-        if (pendingIndex >= 0) return json({ data: { status: "pending" } });
+        const form = options.forms?.find(
+          (item) => isRecord(item) && item.id === formID && item.sessionID === sessionID,
+        );
+        if (isRecord(form) && (settled || pendingIndex >= 0)) {
+          return json({ data: { ...form, state: settled ?? { status: "pending" } } });
+        }
         return json({ _tag: "FormNotFoundError", message: "Not found" }, 404);
       }
-      if ((operation === "reply" || operation === "cancel") && method === "POST") {
+      if (
+        (operation === "reply" && method === "POST") ||
+        (operation === "cancel" && method === "DELETE")
+      ) {
         if (pendingIndex < 0) {
           return formStates.has(`${sessionID}\u0000${formID}`)
             ? json({ _tag: "FormAlreadySettledError", message: "Settled" }, 409)
@@ -280,9 +284,8 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
         ? json({ data: session })
         : json({ _tag: "SessionNotFoundError", message: "Not found" }, 404);
     }
-    const renameMatch = url.pathname.match(/^\/api\/session\/([^/]+)\/rename$/);
-    if (renameMatch && method === "POST") {
-      const index = sessions.findIndex((candidate) => candidate.id === renameMatch[1]);
+    if (sessionMatch && method === "PATCH") {
+      const index = sessions.findIndex((candidate) => candidate.id === sessionMatch[1]);
       if (index < 0) return json({ _tag: "SessionNotFoundError", message: "Not found" }, 404);
       const current = sessions[index];
       if (current && isRecord(jsonBody) && typeof jsonBody.title === "string") {

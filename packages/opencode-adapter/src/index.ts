@@ -22,7 +22,7 @@ import {
 
 import { ensurePromiseWithResolvers } from "./promise-with-resolvers";
 
-export const openCodeClientContractVersion = "2.0.3";
+export const openCodeClientContractVersion = "2.0.4";
 
 export type OpenCodeClientOptions = {
   authorization?: string;
@@ -159,7 +159,7 @@ export type OpenCodeSessionPromptOptions = Omit<
 type GeneratedSessionCommandInput = Parameters<OpenCodeClient["session"]["command"]>[0];
 export type OpenCodeSessionCommandOptions = Omit<
   GeneratedSessionCommandInput,
-  "command" | "sessionID"
+  "name" | "sessionID"
 > & {
   command: string;
 };
@@ -168,7 +168,7 @@ export async function getDefaultOpenCodeLocation(
   client: OpenCodeClient,
   options?: OpenCodeRequestOptions,
 ) {
-  return validateResolvedLocation(await client.location.get(undefined, options));
+  return validateLocationInfo(await client.location.get(undefined, options));
 }
 
 export async function getOpenCodeLocation(
@@ -176,7 +176,7 @@ export async function getOpenCodeLocation(
   location: LocationRef,
   options?: OpenCodeRequestOptions,
 ) {
-  return validateResolvedLocation(
+  return validateLocationInfo(
     await client.location.get({ location: locationInput(location) }, options),
   );
 }
@@ -345,12 +345,12 @@ export async function getDefaultOpenCodeModel(
   return output;
 }
 
-export function getCurrentOpenCodeProject(
+export async function getCurrentOpenCodeProject(
   client: OpenCodeClient,
   location: LocationRef,
   options?: OpenCodeRequestOptions,
 ) {
-  return client.project.current({ location: locationInput(location) }, options);
+  return (await getOpenCodeLocation(client, location, options)).project;
 }
 
 export async function listOpenCodeSessions(
@@ -462,7 +462,7 @@ export function renameOpenCodeSession(
   title: string,
   options?: OpenCodeRequestOptions,
 ) {
-  return client.session.rename({ sessionID, title }, options);
+  return client.session.update({ sessionID, title }, options);
 }
 
 export function removeOpenCodeSession(
@@ -511,7 +511,8 @@ export async function runOpenCodeSessionCommand(
   input: OpenCodeSessionCommandOptions,
   options?: OpenCodeRequestOptions,
 ) {
-  await client.session.command({ ...input, sessionID }, options);
+  const { command, ...rest } = input;
+  await client.session.command({ ...rest, name: command, sessionID }, options);
 }
 
 export async function listOpenCodeSessionInbox(
@@ -537,7 +538,7 @@ export async function getOpenCodeSessionMessage(
 ) {
   if (!/^ses/.test(sessionID)) throw new Error("INVALID_SESSION_ID");
   if (!/^msg_/.test(messageID)) throw new Error("INVALID_MESSAGE_ID");
-  const message = await client.session.message({ messageID, sessionID }, options);
+  const message = await client.session.message.get({ messageID, sessionID }, options);
   if (!isValidMessage(message) || message.id !== messageID) {
     throw new Error("MALFORMED_SESSION_MESSAGE");
   }
@@ -559,7 +560,7 @@ export function steerOpenCodeSessionInboxItem(
   inboxID: string,
   options?: OpenCodeRequestOptions,
 ) {
-  return client.session.inbox.steer({ inboxID, sessionID }, options);
+  return client.session.inbox.update({ delivery: "steer", inboxID, sessionID }, options);
 }
 
 export function queueOpenCodeSessionInboxItem(
@@ -568,7 +569,7 @@ export function queueOpenCodeSessionInboxItem(
   inboxID: string,
   options?: OpenCodeRequestOptions,
 ) {
-  return client.session.inbox.queue({ inboxID, sessionID }, options);
+  return client.session.inbox.update({ delivery: "queue", inboxID, sessionID }, options);
 }
 
 export function interruptOpenCodeSession(
@@ -578,7 +579,7 @@ export function interruptOpenCodeSession(
   options?: OpenCodeRequestOptions,
 ) {
   return client.session.interrupt(
-    { sessionID, ...(continueExecution === undefined ? {} : { continue: continueExecution }) },
+    { sessionID, ...(continueExecution === undefined ? {} : { resume: continueExecution }) },
     options,
   );
 }
@@ -622,7 +623,7 @@ export function replyOpenCodePermissionRequest(
   reply: PermissionReply,
   options?: OpenCodeRequestOptions,
 ) {
-  return client.permission.reply({ reply, requestID, sessionID }, options);
+  return client.permission.reply({ decision: reply, requestID, sessionID }, options);
 }
 
 export async function listOpenCodeFormRequests(
@@ -630,7 +631,7 @@ export async function listOpenCodeFormRequests(
   location: LocationRef,
   options?: OpenCodeRequestOptions,
 ) {
-  const output = await client.form.request.list({ location: locationInput(location) }, options);
+  const output = await client.form.list({ location: locationInput(location) }, options);
   validateResolvedLocation(output.location);
   if (!Array.isArray(output.data) || !output.data.every(isValidForm)) {
     throw new Error("MALFORMED_FORM_LIST");
@@ -645,7 +646,7 @@ export async function getOpenCodeFormState(
   options?: OpenCodeRequestOptions,
 ) {
   assertSessionAndFormIds(sessionID, formID);
-  const state = await client.form.state({ formID, sessionID }, options);
+  const { state } = await client.session.form.get({ formID, sessionID }, options);
   if (!isValidFormState(state)) throw new Error("MALFORMED_FORM_STATE");
   return state;
 }
@@ -658,7 +659,7 @@ export function replyOpenCodeForm(
   options?: OpenCodeRequestOptions,
 ) {
   assertSessionAndFormIds(sessionID, formID);
-  return client.form.reply({ answer, formID, sessionID }, options);
+  return client.session.form.reply({ answer, formID, sessionID }, options);
 }
 
 export function cancelOpenCodeForm(
@@ -668,7 +669,7 @@ export function cancelOpenCodeForm(
   options?: OpenCodeRequestOptions,
 ) {
   assertSessionAndFormIds(sessionID, formID);
-  return client.form.cancel({ formID, sessionID }, options);
+  return client.session.form.cancel({ formID, sessionID }, options);
 }
 
 function locationInput(location: LocationRef) {
@@ -694,19 +695,24 @@ function assertLocation(location: LocationRef) {
   }
 }
 
-function validateResolvedLocation(location: LocationGetOutput) {
+function validateLocationInfo(location: LocationGetOutput) {
+  if (!isRecord(location) || !("project" in location)) throw new Error("MALFORMED_LOCATION");
+  return validateResolvedLocation(location);
+}
+
+function validateResolvedLocation<T extends { directory: string }>(location: T): T {
   if (
+    !isRecord(location) ||
     typeof location.directory !== "string" ||
     !location.directory.trim() ||
-    (location.workspaceID !== undefined &&
-      (typeof location.workspaceID !== "string" || !/^wrk/.test(location.workspaceID))) ||
-    !isRecord(location.project) ||
-    typeof location.project.id !== "string" ||
-    !location.project.id ||
-    typeof location.project.directory !== "string" ||
-    !location.project.directory.trim() ||
-    typeof location.project.canonical !== "string" ||
-    !location.project.canonical.trim()
+    ("project" in location &&
+      (!isRecord(location.project) ||
+        typeof location.project.id !== "string" ||
+        !location.project.id ||
+        typeof location.project.directory !== "string" ||
+        !location.project.directory.trim() ||
+        typeof location.project.canonical !== "string" ||
+        !location.project.canonical.trim()))
   ) {
     throw new Error("MALFORMED_LOCATION");
   }
@@ -1060,9 +1066,8 @@ function isValidSkill(skill: unknown): skill is SkillInfo {
     typeof skill.name === "string" &&
     Boolean(skill.name) &&
     isOptionalString(skill.description) &&
-    (skill.slash === undefined || typeof skill.slash === "boolean") &&
     (skill.autoinvoke === undefined || typeof skill.autoinvoke === "boolean") &&
-    typeof skill.location === "string" &&
+    typeof skill.path === "string" &&
     typeof skill.content === "string"
   );
 }
@@ -1074,8 +1079,9 @@ function isValidSessionInboxInfo(value: unknown): value is SessionInboxInfo {
     !value.id ||
     typeof value.sessionID !== "string" ||
     !/^ses/.test(value.sessionID) ||
-    typeof value.timeCreated !== "number" ||
-    !Number.isFinite(value.timeCreated) ||
+    !isRecord(value.time) ||
+    typeof value.time.created !== "number" ||
+    !Number.isFinite(value.time.created) ||
     (value.delivery !== "steer" && value.delivery !== "queue") ||
     !isRecord(value.payload)
   ) {
@@ -1844,9 +1850,8 @@ export type {
   ModelRef,
   PermissionReply,
   PermissionRequest,
-  ProjectCurrent,
   ProjectListOutput,
-  ServiceHealth,
+  ServerStatus,
   SessionActive,
   SessionInboxDelivery,
   SessionInboxInfo,

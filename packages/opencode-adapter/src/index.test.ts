@@ -108,11 +108,12 @@ it("validates form variants and forwards form state, reply, and cancel", async (
     },
   ];
   const list = vi.fn(async () => ({ data: forms, location: resolvedLocation }));
-  const state = vi.fn(async () => ({ status: "pending" as const }));
+  const state = vi.fn(async () => ({ state: { status: "pending" as const } }));
   const reply = vi.fn(async () => undefined);
   const cancel = vi.fn(async () => undefined);
   const client = {
-    form: { cancel, reply, request: { list }, state },
+    form: { list },
+    session: { form: { cancel, reply, get: state } },
   } as unknown as ReturnType<typeof createOpenCodeClient>;
   const options = { signal: new AbortController().signal };
 
@@ -152,8 +153,8 @@ it("rejects malformed form fields and state", async () => {
     ],
     location,
   }));
-  const state = vi.fn(async () => ({ status: "answered", answer: null }));
-  const client = { form: { request: { list }, state } } as unknown as ReturnType<
+  const state = vi.fn(async () => ({ state: { status: "answered", answer: null } }));
+  const client = { form: { list }, session: { form: { get: state } } } as unknown as ReturnType<
     typeof createOpenCodeClient
   >;
 
@@ -293,15 +294,13 @@ it("requires and forwards explicit locations for location-scoped operations", as
     workspaceID: "wrk_test",
   };
   const locationGet = vi.fn(async () => resolvedLocation);
-  const projectCurrent = vi.fn(async () => ({ id: "project-1" }));
   const sessionList = vi.fn(async () => ({ cursor: {}, data: [] }));
   const permissionList = vi.fn(async () => ({ data: [], location: resolvedLocation }));
   const formList = vi.fn(async () => ({ data: [], location: resolvedLocation }));
   const client = {
-    form: { request: { list: formList } },
+    form: { list: formList },
     location: { get: locationGet },
     permission: { request: { list: permissionList } },
-    project: { current: projectCurrent },
     session: { list: sessionList },
   } as unknown as ReturnType<typeof createOpenCodeClient>;
   const location = { directory: "/workspace", workspaceID: "wrk_test" };
@@ -318,10 +317,7 @@ it("requires and forwards explicit locations for location-scoped operations", as
     { location: { directory: "/workspace", workspace: "wrk_test" } },
     undefined,
   );
-  expect(projectCurrent).toHaveBeenCalledWith(
-    { location: { directory: "/workspace", workspace: "wrk_test" } },
-    undefined,
-  );
+  expect(locationGet).toHaveBeenCalledTimes(2);
   expect(sessionList).toHaveBeenCalledWith(
     { directory: "/workspace", limit: 50, order: "desc", workspace: "wrk_test" },
     undefined,
@@ -496,9 +492,8 @@ it("lists location-scoped commands and skills through the generated client", asy
       {
         content: "Skill content",
         id: "release",
-        location: "/workspace/.opencode/skills/release.md",
+        path: "/workspace/.opencode/skills/release.md",
         name: "Release",
-        slash: true,
       },
     ],
   });
@@ -509,7 +504,7 @@ it("lists location-scoped commands and skills through the generated client", asy
     data: [{ name: "review" }],
   });
   await expect(listOpenCodeSkills(client, location)).resolves.toMatchObject({
-    data: [{ id: "release", slash: true }],
+    data: [{ id: "release", path: "/workspace/.opencode/skills/release.md" }],
   });
   expect(api.requests.slice(-2).map((request) => request.query)).toEqual([
     {
@@ -529,7 +524,7 @@ it("lists location-scoped commands and skills through the generated client", asy
   });
   expect(api.requests.at(-1)).toMatchObject({
     jsonBody: {
-      command: "review",
+      name: "review",
       delivery: "queue",
       text: "src/index.ts",
     },
@@ -541,7 +536,7 @@ it("lists location-scoped commands and skills through the generated client", asy
   });
   expect(api.requests.at(-1)).toMatchObject({
     path: "/api/session/ses_test/interrupt",
-    query: { continue: ["false"] },
+    query: { resume: ["false"] },
   });
 });
 
@@ -676,7 +671,7 @@ it("forwards composer and execution operations", async () => {
     id: "msg_admission",
     payload: { text: "Hello" },
     sessionID: "ses_test",
-    timeCreated: 1,
+    time: { created: 1 },
     type: "user" as const,
   };
   const switchAgent = vi.fn(async () => undefined);
@@ -693,8 +688,7 @@ it("forwards composer and execution operations", async () => {
   };
   const message = vi.fn(async () => projectedMessage);
   const cancel = vi.fn(async () => undefined);
-  const steer = vi.fn(async () => undefined);
-  const queue = vi.fn(async () => undefined);
+  const update = vi.fn(async () => undefined);
   const interrupt = vi.fn(async () => ({ interrupted: true }));
   const background = vi.fn(async () => undefined);
   const wait = vi.fn(async () => undefined);
@@ -703,9 +697,9 @@ it("forwards composer and execution operations", async () => {
     session: {
       background,
       command,
-      inbox: { cancel, list, queue, steer },
+      inbox: { cancel, list, update },
       interrupt,
-      message,
+      message: { get: message },
       prompt,
       switchAgent,
       switchModel,
@@ -759,7 +753,7 @@ it("forwards composer and execution operations", async () => {
   );
   expect(command).toHaveBeenCalledWith(
     {
-      command: "review",
+      name: "review",
       delivery: "queue",
       sessionID: "ses_test",
       text: "src unicode-æ",
@@ -772,13 +766,19 @@ it("forwards composer and execution operations", async () => {
     options,
   );
   expect(cancel).toHaveBeenCalledWith({ inboxID: "msg_admission", sessionID: "ses_test" }, options);
-  expect(steer).toHaveBeenCalledWith({ inboxID: "msg_admission", sessionID: "ses_test" }, options);
-  expect(queue).toHaveBeenCalledWith({ inboxID: "msg_admission", sessionID: "ses_test" }, options);
-  expect(interrupt).toHaveBeenCalledWith({ continue: true, sessionID: "ses_test" }, options);
+  expect(update).toHaveBeenCalledWith(
+    { delivery: "steer", inboxID: "msg_admission", sessionID: "ses_test" },
+    options,
+  );
+  expect(update).toHaveBeenCalledWith(
+    { delivery: "queue", inboxID: "msg_admission", sessionID: "ses_test" },
+    options,
+  );
+  expect(interrupt).toHaveBeenCalledWith({ resume: true, sessionID: "ses_test" }, options);
   expect(background).toHaveBeenCalledWith({ sessionID: "ses_test" }, options);
   expect(wait).toHaveBeenCalledWith({ sessionID: "ses_test" }, options);
   expect(permissionReply).toHaveBeenCalledWith(
-    { reply: "once", requestID: "per_test", sessionID: "ses_test" },
+    { decision: "once", requestID: "per_test", sessionID: "ses_test" },
     options,
   );
 });
@@ -823,7 +823,7 @@ it("forwards explicit locations and request cancellation through session CRUD", 
   const get = vi.fn(async () => session("ses_existing"));
   const rename = vi.fn(async () => undefined);
   const remove = vi.fn(async () => undefined);
-  const client = { session: { create, get, remove, rename } } as unknown as ReturnType<
+  const client = { session: { create, get, remove, update: rename } } as unknown as ReturnType<
     typeof createOpenCodeClient
   >;
   const controller = new AbortController();
@@ -918,10 +918,10 @@ it("passes authorization to the generated Promise client", async () => {
     fetch,
   });
 
-  await expect(client.health.get()).resolves.toMatchObject({ healthy: true, pid: 42 });
+  await expect(client.server.status()).resolves.toMatchObject({ pid: 42 });
   const [url, init] = fetch.mock.calls[0] ?? [];
 
-  expect(String(url)).toBe("https://open.tailnet.ts.net/api/health");
+  expect(String(url)).toBe("https://open.tailnet.ts.net/api/status");
   expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-secret");
 });
 
@@ -1018,7 +1018,7 @@ it("rejects oversized JSON without a declared content length", async () => {
     fetch: createBoundedOpenCodeFetch(delegate, 8),
   });
 
-  const error = await client.health.get().catch((caught: unknown) => caught);
+  const error = await client.server.status().catch((caught: unknown) => caught);
   expect(classifyOpenCodeError(error)).toBe("RESPONSE_TOO_LARGE");
 });
 
@@ -1037,7 +1037,7 @@ it("allows JSON within the response limit", async () => {
     fetch: createBoundedOpenCodeFetch(delegate, 1024),
   });
 
-  await expect(client.health.get()).resolves.toMatchObject({ healthy: true, pid: 42 });
+  await expect(client.server.status()).resolves.toMatchObject({ pid: 42 });
 });
 
 it("matches the fake API REST, stream, cancellation, and reconnect contract", async () => {
@@ -1048,11 +1048,7 @@ it("matches the fake API REST, stream, cancellation, and reconnect contract", as
     fetch: createBoundedOpenCodeFetch(api.fetch, 1024),
   });
 
-  await Promise.all([
-    client.health.get(),
-    client.server.get(),
-    client.session.list({ limit: 1, order: "desc" }),
-  ]);
+  await Promise.all([client.server.status(), client.session.list({ limit: 1, order: "desc" })]);
   for (let generation = 0; generation < 2; generation += 1) {
     const probe = startEventStreamProbe(client);
     await expect(probe.firstEvent).resolves.toEqual({ eventType: "server.connected" });
@@ -1060,8 +1056,7 @@ it("matches the fake API REST, stream, cancellation, and reconnect contract", as
   }
 
   expect(api.requests.map(({ method, path }) => ({ method, path }))).toEqual([
-    { method: "GET", path: "/api/health" },
-    { method: "GET", path: "/api/server" },
+    { method: "GET", path: "/api/status" },
     { method: "GET", path: "/api/session" },
     { method: "GET", path: "/api/event" },
     { method: "GET", path: "/api/event" },
@@ -1414,7 +1409,7 @@ it("forwards message-list cancellation to the generated client", async () => {
 it("classifies fake API failures without exposing their bodies", async () => {
   const api = createFakeOpenCodeApi({
     failures: {
-      "/api/health": {
+      "/api/status": {
         body: { _tag: "UnauthorizedError", message: "test-only detail" },
         status: 401,
       },
@@ -1425,7 +1420,7 @@ it("classifies fake API failures without exposing their bodies", async () => {
     fetch: api.fetch,
   });
 
-  const error = await client.health.get().catch((caught: unknown) => caught);
+  const error = await client.server.status().catch((caught: unknown) => caught);
   expect(classifyOpenCodeError(error)).toBe("UNAUTHORIZED");
 });
 

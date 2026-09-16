@@ -175,7 +175,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     ),
   });
   const location = locationQuery.data;
-  const mutationScope = `${connectionId ?? ""}\u0000${location?.directory ?? ""}\u0000${location?.workspaceID ?? ""}`;
+  const mutationScope = `${connectionId ?? ""}\u0000${location?.directory ?? ""}`;
 
   useEffect(() => {
     workspaceSelection.setSearch(deferredSessionSearch);
@@ -1395,9 +1395,7 @@ function ambiguousInboxProjectIDs(inbox: ReturnType<typeof useWorkspaceSelection
   const locationsByProject = new Map<string, Set<string>>();
   for (const row of [...inbox.needsYou, ...inbox.working, ...inbox.recent]) {
     const locations = locationsByProject.get(row.session.projectID) ?? new Set<string>();
-    locations.add(
-      `${row.session.location.directory}\u0000${row.session.location.workspaceID ?? ""}`,
-    );
+    locations.add(`${row.session.location.directory}\u0000`);
     locationsByProject.set(row.session.projectID, locations);
   }
   return new Set(

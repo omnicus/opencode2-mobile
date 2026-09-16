@@ -25,7 +25,7 @@ test("persists only bounded non-content snapshot metadata", async () => {
     5,
     {
       activeSessions: { "session-private-id": { type: "running" } },
-      health: { healthy: true, pid: 42, version: "test" },
+      health: { urls: [], pid: 42, version: "test" },
       projects: [
         {
           canonical: "/private/project",
