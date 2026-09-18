@@ -36,6 +36,7 @@ Keep track of active and blocked sessions across followed projects.
 
 - [Specification](docs/SPEC.md)
 - [Deployment configuration](docs/CONFIGURATION.md)
+- [Automatic compatibility updates](docs/UPDATES.md)
 - [Self-hosted push notifications](docs/NOTIFICATIONS.md)
 - [Enable server push with an agent](docs/PUSH_AGENT_RUNBOOK.md)
 - [Implementation TODO](TODO.md)
@@ -135,6 +136,9 @@ Your EAS project dashboard lists its builds and installation links.
 
 ## Preview updates
 
+For hourly OpenCode release checks, cloud repair PRs, and automatic EAS
+publication, configure the [automatic update workflow](docs/UPDATES.md).
+
 EAS Update handles JavaScript, styling, and bundled asset changes without a new
 native build. Validate the repository, then publish to the channel used by the
 installed preview builds:
@@ -146,8 +150,10 @@ pnpm dlx eas-cli@22.4.0 update --channel preview --environment preview \
   --message "Describe the update"
 ```
 
-The installed app downloads an available update when it launches and normally
-applies it after the next restart. Expo SDK changes, native dependency changes,
+The installed app downloads an available update when it launches and checks
+again when foregrounded. Settings and connection-failure screens offer a manual
+check. A downloaded update offers a restart after saving session drafts, and
+also applies on the next cold start. Expo SDK changes, native dependency changes,
 config plugin changes, permissions, icons, and other native configuration still
 require new Android and iOS builds. Increment the app version in `app.config.ts`
 before such a build so the `appVersion` runtime policy cannot send incompatible

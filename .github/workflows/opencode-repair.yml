@@ -1,0 +1,106 @@
+name: Repair OpenCode compatibility
+
+on:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+      target:
+        required: true
+        type: string
+      pr:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: mobile-repair
+    env:
+      TARGET: ${{ inputs.target }}
+      PR: ${{ inputs.pr }}
+      OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Limit automatic repair to one attempt per target release
+        id: attempt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate --jq '.[].body' > "$RUNNER_TEMP/repair-comments.txt"
+          if grep -Fq -- "<!-- opencode-repair:$TARGET -->" "$RUNNER_TEMP/repair-comments.txt"; then
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Require repair credentials
+        if: steps.attempt.outputs.run == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: test -n "$OPENAI_API_KEY" || { echo 'Configure OPENAI_API_KEY in the mobile-repair environment.'; exit 1; }
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3
+        if: steps.attempt.outputs.run == 'true'
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: steps.attempt.outputs.run == 'true'
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Install repair tools and target server
+        if: steps.attempt.outputs.run == 'true'
+        run: |
+          pnpm install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/repair-cli" --no-audit --no-fund @opencode/cli@2.0.7
+          npm install --prefix "$RUNNER_TEMP/target-cli" --no-audit --no-fund "@opencode/cli@$TARGET"
+      - name: Record the attempt before starting the model
+        if: steps.attempt.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr comment "$PR" --body "<!-- opencode-repair:$TARGET --> Cloud repair started. This release receives one automatic attempt. Run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - name: Attempt source repair
+        id: repair
+        if: steps.attempt.outputs.run == 'true'
+        timeout-minutes: 20
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENCODE_REPAIR_MODEL: ${{ vars.OPENCODE_REPAIR_MODEL }}
+          OPENCODE_TEST_VERSION: ${{ inputs.target }}
+          OPENCODE_TEST_BINARY: ${{ runner.temp }}/target-cli/node_modules/.bin/opencode
+          HOME: ${{ runner.temp }}/repair-home
+          XDG_CONFIG_HOME: ${{ runner.temp }}/repair-home/config
+          XDG_DATA_HOME: ${{ runner.temp }}/repair-home/data
+          XDG_STATE_HOME: ${{ runner.temp }}/repair-home/state
+          XDG_CACHE_HOME: ${{ runner.temp }}/repair-home/cache
+        run: |
+          test -n "$OPENAI_API_KEY" || { echo 'Configure OPENAI_API_KEY in the mobile-repair environment.'; exit 1; }
+          case "$OPENCODE_REPAIR_MODEL" in openai/*) ;; *) echo 'OPENCODE_REPAIR_MODEL must name an OpenAI model.'; exit 1;; esac
+          mkdir -p "$HOME"
+          "$RUNNER_TEMP/repair-cli/node_modules/.bin/opencode" run --standalone --auto --model "$OPENCODE_REPAIR_MODEL" "$(cat .github/prompts/opencode-repair.md)" > "$RUNNER_TEMP/repair-output.txt" 2>&1
+      - name: Commit the repair attempt to the existing PR
+        if: always() && steps.repair.outcome != 'skipped' && steps.repair.outcome != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_SHA: ${{ inputs.commit }}
+        run: |
+          git show "$CANDIDATE_SHA:scripts/check-repair-paths.mjs" > "$RUNNER_TEMP/check-repair-paths.mjs"
+          node "$RUNNER_TEMP/check-repair-paths.mjs" "$CANDIDATE_SHA"
+          git reset --mixed "$CANDIDATE_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- apps/mobile/src packages/opencode-adapter/src packages/opencode-adapter/integration packages/test-fixtures/src
+          git -c core.hooksPath=/dev/null commit --allow-empty -m "Automated OpenCode $TARGET repair attempt"
+          gh auth setup-git
+          git push origin "HEAD:refs/heads/automation/opencode-$TARGET"
+          gh pr comment "$PR" --body "The cloud repair attempt is complete. The next scheduled release check will validate this branch against both server releases. This job cannot publish an app update. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

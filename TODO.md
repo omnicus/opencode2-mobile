@@ -94,6 +94,13 @@ Android, and CI checks an empty native application.
 - [x] Add adapter shims only for demonstrated React Native incompatibilities.
 - [x] Add a fake-server contract test for requests, streaming frames, failures,
       cancellation, and reconnect.
+- [x] Add an opt-in isolated real-server contract suite for release upgrades,
+      covering text completion, transcript paging, events, permissions, and forms.
+- [x] Add stable V2 release detection, upgrade PRs, optional cloud repair attempts,
+      and runtime-gated EAS preview publication workflows.
+- [x] Add connection-independent app update checks and draft-preserving restart.
+- [ ] Configure cloud publishing credentials and native fingerprint baselines,
+      then verify the update flow on signed iOS and Android devices.
 - [x] Record redacted compatibility results in `docs/` as probes are completed.
 
 Exit criteria: REST, event streaming, cancellation, and PTY transport have been

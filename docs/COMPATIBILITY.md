@@ -12,6 +12,42 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-09-18: compatibility update automation
+
+The app now checks EAS independently of the OpenCode connection and offers a
+draft-preserving restart. Release workflows prepare stable V2 upgrade PRs, run
+contract checks, optionally attempt a cloud repair, and gate EAS publication on
+the installed runtime and native fingerprints.
+
+The published V2 docs and OpenAPI document were compared with the pinned
+`@opencode/client@2.0.3`. The published document exposes `/api/info` rather than
+the pinned client's `/api/health` and `/api/server`. The release detector found
+matching client and CLI release `2.0.7`. This comparison is not a claim that the
+current app supports that newer release; the upgrade workflow must validate and
+repair its candidate before publication.
+
+| Check | Result |
+| --- | --- |
+| Required lint, typecheck, test, build sequence | Pass |
+| Adapter unit tests | Pass, 68 tests |
+| Mobile tests, including update recovery and draft persistence | Pass, 319 tests |
+| Release-selection and repair-path gate tests | Pass, 3 tests |
+| Isolated OpenCode 2.0.3 server: scoped snapshots and session creation | Pass |
+| Isolated server: prompt admission, completed assistant transcript, and paging | Pass |
+| Isolated server: event receipt and cancellation | Pass |
+| Isolated server: exact-location permission and form replies | Pass |
+| iOS and Android Hermes bundle exports | Pass |
+| Expo Doctor | Pass, 18/18 checks |
+| GitHub workflow validation with actionlint | Pass |
+| Native fingerprint gate: matching baseline and mismatched runtime | Pass |
+| Cloud workflow execution, repair-agent execution, and EAS publication | Pending deployment configuration |
+| Update download and draft-preserving restart on signed iOS and Android | Pending device verification |
+
+Real-server tests used a disposable local server and deterministic loopback model
+provider. They required no provider account and did not access the user's shared
+server. These are Node transport results, not Hermes device results. See
+[Automatic compatibility updates](UPDATES.md) for activation and device probes.
+
 ## 2026-09-16: server 2.0.4 API compatibility
 
 An iPhone screenshot showed an incompatible connection with cached session rows.

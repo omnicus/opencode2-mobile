@@ -13,7 +13,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run",
+    "test": "vitest run src",
+    "test:integration": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@opencode2-mobile/test-fixtures": "workspace:*",
+    "@types/node": "26.0.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

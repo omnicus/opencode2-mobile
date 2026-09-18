@@ -1,0 +1,92 @@
+name: Publish mobile update
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Merged commit to publish, or main for the latest merged code"
+        default: main
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+
+concurrency:
+  group: mobile-update-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: mobile-updates
+    env:
+      CI: "1"
+      OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT: "1"
+      OPENCODE2_MOBILE_EXPO_PROJECT_ID: ${{ vars.OPENCODE2_MOBILE_EXPO_PROJECT_ID }}
+      MOBILE_RUNTIME_VERSION: ${{ vars.MOBILE_RUNTIME_VERSION }}
+      MOBILE_IOS_NATIVE_HASH: ${{ vars.MOBILE_IOS_NATIVE_HASH }}
+      MOBILE_ANDROID_NATIVE_HASH: ${{ vars.MOBILE_ANDROID_NATIVE_HASH }}
+    steps:
+      - name: Require publishing configuration
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          for name in EXPO_TOKEN OPENCODE2_MOBILE_EXPO_PROJECT_ID MOBILE_RUNTIME_VERSION MOBILE_IOS_NATIVE_HASH MOBILE_ANDROID_NATIVE_HASH; do
+            test -n "${!name}" || { echo "Configure $name in the mobile-updates environment."; exit 1; }
+          done
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require a merged, current commit
+        run: |
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" || { echo 'Publish current main to avoid deploying an older app over a newer update.'; exit 1; }
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate merged source
+        run: |
+          pnpm check:public
+          pnpm check
+          pnpm native:doctor
+          bash scripts/scan-secrets.sh
+      - name: Verify the matching OpenCode server
+        run: |
+          version=$(node -p 'require("./packages/opencode-adapter/package.json").dependencies["@opencode/client"]')
+          npm install --prefix "$RUNNER_TEMP/opencode" --no-audit --no-fund "@opencode/cli@$version"
+          OPENCODE_TEST_BINARY="$RUNNER_TEMP/opencode/node_modules/.bin/opencode" OPENCODE_TEST_VERSION="$version" pnpm --filter @opencode2-mobile/opencode-adapter test:integration
+      - name: Install publishing CLI
+        run: npm install --global eas-cli@22.4.0 --no-audit --no-fund
+      - name: Check native compatibility in the deployment environment
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas env:exec preview 'cd ../.. && node scripts/mobile-runtime.mjs --check' --non-interactive
+      - name: Publish to both platforms on preview
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas update --channel preview --environment preview --platform all --message "OpenCode compatibility $(git rev-parse --short HEAD)" --non-interactive
+      - name: Record the published commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/mobile-preview-published" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/mobile-preview-published" -f sha="$sha" -F force=true
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref=refs/tags/mobile-preview-published -f sha="$sha"
+          fi

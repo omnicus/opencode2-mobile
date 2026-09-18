@@ -1,0 +1,148 @@
+name: Follow OpenCode releases
+
+on:
+  schedule:
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: opencode-upgrade
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      publish_ref: ${{ steps.merge.outputs.sha || steps.retry.outputs.sha }}
+      candidate_sha: ${{ steps.candidate.outputs.sha }}
+      pr: ${{ steps.candidate.outputs.pr }}
+      target: ${{ steps.release.outputs.target }}
+    env:
+      OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - name: Find matching stable V2 client and server
+        id: release
+        run: node scripts/opencode-release.mjs
+      - name: Prepare or resume the upgrade PR
+        if: steps.release.outputs.changed == 'true'
+        id: candidate
+        env:
+          TARGET: ${{ steps.release.outputs.target }}
+          OPENCODE_TARGET_VERSION: ${{ steps.release.outputs.target }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          branch="automation/opencode-$TARGET"
+          echo "base=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          gh auth setup-git
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            git fetch origin "$branch"
+            git checkout -B "$branch" FETCH_HEAD
+            git merge --no-edit origin/main
+            git push origin "$branch"
+          else
+            git checkout -b "$branch"
+            node scripts/opencode-release.mjs --apply
+            pnpm install --lockfile-only --ignore-scripts
+            git add packages/opencode-adapter/package.json packages/opencode-adapter/src/index.ts pnpm-lock.yaml
+            git commit -m "Update OpenCode client to $TARGET"
+            git push origin "$branch"
+          fi
+          test "$(node -p 'require("./packages/opencode-adapter/package.json").dependencies["@opencode/client"]')" = "$TARGET"
+          pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$pr" ]; then
+            gh pr create --base main --head "$branch" --title "Support OpenCode $TARGET" --body "Automated compatibility candidate. This workflow tests the previous and target server releases before merging. If checks fail, repair this branch and rerun Follow OpenCode releases. Publication separately requires matching native fingerprints."
+            pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')
+          fi
+          echo "pr=$pr" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$(git rev-parse HEAD)" -f state=pending -f context='Mobile compatibility' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - name: Install candidate
+        if: steps.release.outputs.changed == 'true'
+        run: pnpm install --frozen-lockfile
+      - name: Check candidate
+        if: steps.release.outputs.changed == 'true'
+        run: |
+          pnpm check:public
+          pnpm check
+          pnpm native:doctor
+          bash scripts/scan-secrets.sh
+      - name: Test previous and target OpenCode servers
+        if: steps.release.outputs.changed == 'true'
+        env:
+          PREVIOUS: ${{ steps.release.outputs.current }}
+          TARGET: ${{ steps.release.outputs.target }}
+        run: |
+          for version in "$PREVIOUS" "$TARGET"; do
+            npm install --prefix "$RUNNER_TEMP/opencode-$version" --no-audit --no-fund "@opencode/cli@$version"
+            OPENCODE_TEST_BINARY="$RUNNER_TEMP/opencode-$version/node_modules/.bin/opencode" OPENCODE_TEST_VERSION="$version" pnpm --filter @opencode2-mobile/opencode-adapter test:integration
+          done
+      - name: Record failed upgrade for repair
+        if: failure() && steps.candidate.outputs.pr != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.candidate.outputs.pr }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" -f state=failure -f context='Mobile compatibility' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr comment "$PR" --body "Compatibility checks failed. Repair this branch, then rerun the release workflow. No update was published. Check results: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --edit-last --create-if-none
+      - name: Merge the exact tested candidate
+        if: success() && steps.release.outputs.changed == 'true'
+        id: merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ steps.candidate.outputs.pr }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+          BASE_SHA: ${{ steps.candidate.outputs.base }}
+        run: |
+          git fetch origin main
+          test "$(git rev-parse origin/main)" = "$BASE_SHA" || { echo 'Main changed during validation. Rerun the workflow.'; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$CANDIDATE_SHA" -f state=success -f context='Mobile compatibility' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          gh pr merge "$PR" --squash --match-head-commit "$CANDIDATE_SHA"
+          echo "sha=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid')" >> "$GITHUB_OUTPUT"
+      - name: Retry publication when the current release has not been published
+        id: retry
+        if: success() && steps.release.outputs.changed == 'false'
+        run: |
+          published=$(git rev-parse -q --verify refs/tags/mobile-preview-published || true)
+          current=$(git rev-parse HEAD)
+          if [ "$published" != "$current" ]; then
+            echo "sha=$current" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: upgrade
+    if: needs.upgrade.outputs.publish_ref != ''
+    uses: ./.github/workflows/mobile-update.yml
+    with:
+      commit: ${{ needs.upgrade.outputs.publish_ref }}
+    secrets: inherit
+
+  repair:
+    needs: upgrade
+    if: always() && needs.upgrade.result == 'failure' && needs.upgrade.outputs.candidate_sha != '' && vars.OPENCODE_REPAIR_MODEL != ''
+    uses: ./.github/workflows/opencode-repair.yml
+    with:
+      commit: ${{ needs.upgrade.outputs.candidate_sha }}
+      target: ${{ needs.upgrade.outputs.target }}
+      pr: ${{ needs.upgrade.outputs.pr }}
+    secrets: inherit
