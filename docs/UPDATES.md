@@ -139,9 +139,9 @@ Install a disposable CLI outside the repository, then point the suite at it:
 
 ```sh
 npm install --prefix /tmp/opencode/mobile-contract-cli \
-  --no-audit --no-fund @opencode/cli@2.0.3
+  --no-audit --no-fund @opencode/cli@2.0.4
 OPENCODE_TEST_BINARY=/tmp/opencode/mobile-contract-cli/node_modules/.bin/opencode \
-  OPENCODE_TEST_VERSION=2.0.3 TMPDIR=/tmp/opencode \
+  OPENCODE_TEST_VERSION=2.0.4 TMPDIR=/tmp/opencode \
   pnpm --filter @opencode2-mobile/opencode-adapter test:integration
 ```
 

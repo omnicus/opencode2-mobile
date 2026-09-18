@@ -94,7 +94,7 @@ beforeAll(async () => {
   await eventually(async () => {
     if (spawnFailed || child?.exitCode !== null) throw new Error("ISOLATED_SERVER_EXITED");
     try {
-      const health = await client.health.get({ signal: AbortSignal.timeout(2_000) });
+      const health = await client.server.status({ signal: AbortSignal.timeout(2_000) });
       serverVersion = health.version;
       return true;
     } catch {
@@ -131,8 +131,9 @@ afterAll(async () => {
 test("connects to the requested server release and reads scoped session snapshots", async () => {
   if (process.env.OPENCODE_TEST_VERSION)
     expect(serverVersion).toBe(process.env.OPENCODE_TEST_VERSION);
-  expect((await client.health.get()).healthy).toBe(true);
-  expect(Array.isArray((await client.server.get()).urls)).toBe(true);
+  const status = await client.server.status();
+  expect(status.pid).toBeGreaterThan(0);
+  expect(Array.isArray(status.urls)).toBe(true);
   const location = await getOpenCodeLocation(client, { directory: workspace });
   expect(location.directory).toBe(workspace);
   const session = await createOpenCodeSession(
@@ -228,7 +229,7 @@ test("lists and answers exact-location permissions and forms", async () => {
       (item) => item.id === request.id,
     ),
   ).toBe(false);
-  const form = await client.form.create({
+  const form = await client.session.form.create({
     sessionID: session.id,
     title: "Contract form",
     fields: [{ key: "answer", type: "string", required: true }],

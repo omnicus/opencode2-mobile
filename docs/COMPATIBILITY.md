@@ -19,20 +19,25 @@ draft-preserving restart. Release workflows prepare stable V2 upgrade PRs, run
 contract checks, optionally attempt a cloud repair, and gate EAS publication on
 the installed runtime and native fingerprints.
 
-The published V2 docs and OpenAPI document were compared with the pinned
+The published V2 docs and OpenAPI document were initially compared with the pinned
 `@opencode/client@2.0.3`. The published document exposes `/api/info` rather than
 the pinned client's `/api/health` and `/api/server`. The release detector found
 matching client and CLI release `2.0.7`. This comparison is not a claim that the
 current app supports that newer release; the upgrade workflow must validate and
 repair its candidate before publication.
 
+PR preparation incorporated the merged OpenCode 2.0.4 compatibility fix. The
+contract suite now uses its status and session-form operations and passes all
+three probes against an isolated 2.0.4 server. The required checks passed again
+with the results below.
+
 | Check | Result |
 | --- | --- |
 | Required lint, typecheck, test, build sequence | Pass |
 | Adapter unit tests | Pass, 68 tests |
-| Mobile tests, including update recovery and draft persistence | Pass, 319 tests |
+| Mobile tests, including update recovery and draft persistence | Pass, 323 tests |
 | Release-selection and repair-path gate tests | Pass, 3 tests |
-| Isolated OpenCode 2.0.3 server: scoped snapshots and session creation | Pass |
+| Isolated OpenCode 2.0.4 server: scoped snapshots and session creation | Pass |
 | Isolated server: prompt admission, completed assistant transcript, and paging | Pass |
 | Isolated server: event receipt and cancellation | Pass |
 | Isolated server: exact-location permission and form replies | Pass |
