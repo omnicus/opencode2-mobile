@@ -133,14 +133,16 @@ To enable an automatic repair attempt:
 `Repair OpenCode compatibility` then runs OpenCode in a disposable cloud runner
 using that model. It can edit mobile, adapter, and fixture source and integration
 tests. The repair command receives the model key, but no GitHub or Expo token.
-Only the later commit step receives a GitHub token. Raw agent output stays in the
-ephemeral runner and is not uploaded as an artifact.
+The local commit and secret-scan steps receive no GitHub token. The subsequent
+push step receives one only after the scan succeeds. Raw agent output stays in
+the ephemeral runner and is not uploaded as an artifact.
 
 There is at most one automatic repair attempt per target release, with a
 20-minute agent timeout. A PR comment records the attempt before the model starts,
 so a timeout or rejected patch does not start another paid attempt every hour.
-The job commits an allowed attempt to the existing PR, even
-when it could not complete a fix. The next scheduled release check independently
+The job commits an allowed attempt locally, even when it could not complete a
+fix, then runs Gitleaks before pushing to the existing PR. A detected secret or
+scanner failure stops the push. The next scheduled release check independently
 validates that branch. A failed repair remains available for further work; it
 does not become an app update. Model usage is billed to the configured API key.
 

@@ -38,7 +38,18 @@ streaming and cancellation, permissions, and forms. The preview environment
 still matches both native fingerprint baselines for runtime 0.1.4. The full
 lint, typecheck, test, and build sequence passed, including 73 adapter tests,
 323 mobile tests, and both Hermes exports. Expo Doctor passed all 18 checks.
-Device verification of the repaired client remains pending publication.
+
+The cloud release workflow subsequently passed, merged the tested candidate,
+validated the merged tree, and published the repair to both preview platforms.
+The publication tag matches the merged commit. This also exercised the required
+candidate checks without changing branch protection.
+
+The user confirmed that applying the update restored the connection. The user
+also confirmed the offline update-check procedure: a retryable error with the
+app still usable, followed by a successful check after connectivity returned.
+These follow-up confirmations did not specify a platform, so they do not certify
+both iOS and Android individually. Saving a newly edited draft across an update
+restart remains unverified on devices.
 
 ## 2026-09-18: compatibility update automation
 
