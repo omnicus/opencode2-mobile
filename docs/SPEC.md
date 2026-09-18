@@ -12,7 +12,8 @@ contracts or create a second provider abstraction.
 
 ## 2. Current API assumptions
 
-- The mobile adapter targets OpenCode V2 with `@opencode/client@2.0.3`.
+- The mobile adapter targets OpenCode V2 with the exact `@opencode/client`
+  version pinned in `packages/opencode-adapter/package.json`.
 - The published HTTP contract currently reports experimental version `0.0.1`.
 - OpenCode can expose the API directly, commonly on port `4096`.
 - The generated Promise client accepts a base URL, default headers, a custom
@@ -21,9 +22,9 @@ contracts or create a second provider abstraction.
   mobile application.
 - The event stream is volatile. Events can be lost during disconnection,
   background suspension, server restart, or overflow.
-- The installed client is `2.0.3`. Recheck the published V2 contract before
-  each integration milestone, but do not reject a server only because its
-  application version differs.
+- Keep the pinned client and `openCodeClientContractVersion` diagnostic value
+  in sync. Recheck the published V2 contract before each integration milestone,
+  but do not reject a server only because its application version differs.
 - A server reachable at `127.0.0.1` on a development computer is not reachable
   at that address from a physical phone.
 
@@ -214,6 +215,23 @@ directly to OpenCode.
 Keep Expo, React Native, navigation, rendering, and device-test versions pinned
 together. Recheck their compatibility and the iOS 15.1 and Android API 24
 minimums before stack upgrades.
+
+### 6.1 Compatibility update delivery
+
+Signed preview builds receive JavaScript updates through EAS Update, independent
+of the configured OpenCode connection. Check after native startup and on
+foreground with a 15-minute throttle, and offer a manual check in Settings and
+connection-failure states. Download without automatically reloading an active
+app. An explicit restart must first persist session drafts and wait for pending
+draft writes; a failed save blocks that restart.
+
+Cloud automation follows stable OpenCode V2 client and server releases. Candidate
+upgrades must pass repository checks, Expo Doctor, and isolated real-server
+contract probes for both the previous and target release before merging.
+Publication must validate the merged source and match the runtime and native
+fingerprints of the installed signed builds. Native changes require a new build.
+An optional cloud repair attempt works in the upgrade PR and must pass the same
+checks. See [Automatic compatibility updates](UPDATES.md) for deployment setup.
 
 ## 7. Connections and authentication
 

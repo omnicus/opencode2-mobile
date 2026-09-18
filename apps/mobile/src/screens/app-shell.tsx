@@ -34,6 +34,7 @@ import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { palette, radius, space, typeRamp, usesLargeTextLayout } from "../theme";
+import { AppUpdateCard } from "../updates/app-updates";
 import { FormRequestList } from "./form-request-list";
 import { permissionActionExplanation } from "./permission-presentation";
 import { sanitizeTranscriptText } from "./session-transcript-model";
@@ -333,6 +334,8 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         <Text accessibilityRole="header" style={styles.title}>
           Device and connection controls.
         </Text>
+
+        <AppUpdateCard />
 
         <View style={styles.settingCard}>
           <View style={styles.settingText}>
@@ -809,6 +812,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
         <Text style={styles.cardLabel}>BLOCKED</Text>
         <Text style={styles.cardTitle}>Required V2 behavior is incompatible.</Text>
         <Text style={styles.cardCopy}>Edit this connection or choose another server.</Text>
+        <AppUpdateCard />
       </View>
     );
   }
@@ -818,6 +822,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
         <Text style={styles.cardLabel}>UNAVAILABLE</Text>
         <Text style={styles.cardTitle}>No current workspace snapshot.</Text>
         <Text style={styles.cardCopy}>Check the connection, credentials, and network.</Text>
+        <AppUpdateCard />
       </View>
     );
   }

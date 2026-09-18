@@ -17,6 +17,7 @@ import { ConnectionRuntimeProvider } from "./state/connection-runtime-context";
 import { FollowedProjectsProvider } from "./state/followed-projects-context";
 import { migrateMobileDatabase, mobileDatabaseName } from "./storage/database";
 import { palette } from "./theme";
+import { AppUpdateBanner, AppUpdateCard, AppUpdatesProvider } from "./updates/app-updates";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,7 +60,10 @@ export default function App() {
                 <FollowedProjectsProvider>
                   <NotificationRoutingProvider>
                     <NavigationContainer ref={rootNavigationRef} theme={navigationTheme}>
-                      <RootNavigation />
+                      <View style={styles.appRoot}>
+                        <RootNavigation />
+                        <AppUpdateBanner />
+                      </View>
                     </NavigationContainer>
                   </NotificationRoutingProvider>
                 </FollowedProjectsProvider>
@@ -72,22 +76,24 @@ export default function App() {
   );
 
   return (
-    <RootErrorBoundary>
-      <GestureHandlerRootView style={styles.appRoot}>
-        {Platform.OS === "android" ? (
-          <KeyboardProvider
-            navigationBarTranslucent
-            preload={false}
-            preserveEdgeToEdge
-            statusBarTranslucent
-          >
-            {application}
-          </KeyboardProvider>
-        ) : (
-          application
-        )}
-      </GestureHandlerRootView>
-    </RootErrorBoundary>
+    <AppUpdatesProvider>
+      <RootErrorBoundary>
+        <GestureHandlerRootView style={styles.appRoot}>
+          {Platform.OS === "android" ? (
+            <KeyboardProvider
+              navigationBarTranslucent
+              preload={false}
+              preserveEdgeToEdge
+              statusBarTranslucent
+            >
+              {application}
+            </KeyboardProvider>
+          ) : (
+            application
+          )}
+        </GestureHandlerRootView>
+      </RootErrorBoundary>
+    </AppUpdatesProvider>
   );
 }
 
@@ -116,6 +122,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundary
         <Text style={styles.errorCopy}>
           No server or session content was written to diagnostics.
         </Text>
+        <AppUpdateCard />
         <Pressable
           accessibilityRole="button"
           onPress={() => this.setState({ failed: false })}

@@ -203,6 +203,9 @@ importers:
       '@opencode2-mobile/test-fixtures':
         specifier: workspace:*
         version: link:../test-fixtures
+      '@types/node':
+        specifier: 26.0.0
+        version: 26.0.0
       typescript:
         specifier: 7.0.2
         version: 7.0.2

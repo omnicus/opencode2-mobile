@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "types": ["node"]
+  },
+  "include": ["integration", "src", "vitest.integration.config.ts"]
+}

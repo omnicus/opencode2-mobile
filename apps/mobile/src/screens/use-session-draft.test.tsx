@@ -1,5 +1,6 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
+import { prepareAppReload } from "../updates/prepare-app-reload";
 
 import { useSessionDraft } from "./use-session-draft";
 
@@ -32,6 +33,55 @@ jest.mock("../storage/draft-repository", () => ({
 beforeEach(() => {
   jest.clearAllMocks();
   mockReadDraft.mockResolvedValue(undefined);
+  mockWriteDraft.mockResolvedValue(undefined);
+});
+
+test("flushes a just-edited draft before an app update without waiting for the debounce", async () => {
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  act(() => hook.result.current.setDraft("Keep this draft"));
+  await act(async () => {
+    await prepareAppReload();
+  });
+  expect(mockWriteDraft).toHaveBeenCalledWith(
+    mockDatabase,
+    expect.objectContaining({ content: "Keep this draft" }),
+  );
+});
+
+test("blocks an app update when the current draft cannot be saved", async () => {
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  act(() => hook.result.current.setDraft("Keep this draft"));
+  mockWriteDraft.mockRejectedValueOnce(new Error("database unavailable"));
+  await act(async () => {
+    await expect(prepareAppReload()).rejects.toThrow("database unavailable");
+  });
+  expect(hook.result.current.draft).toBe("Keep this draft");
+});
+
+test("does not overwrite an unreadable draft when preparing an update", async () => {
+  mockReadDraft.mockRejectedValueOnce(new Error("key unavailable"));
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  await act(async () => {
+    await prepareAppReload();
+  });
+  expect(mockWriteDraft).not.toHaveBeenCalled();
+  expect(mockDeleteDraft).not.toHaveBeenCalled();
+});
+
+test("retries a failed debounced save before applying an app update", async () => {
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  mockWriteDraft.mockRejectedValueOnce(new Error("temporary write failure"));
+  act(() => hook.result.current.setDraft("Still needs saving"));
+  await waitFor(() => expect(hook.result.current.error).toBeDefined());
+  await act(async () => {
+    await prepareAppReload();
+  });
+  expect(mockWriteDraft).toHaveBeenCalledTimes(2);
+  expect(hook.result.current.error).toBeUndefined();
 });
 
 test("does not clear text edited after the submitted draft revision", async () => {

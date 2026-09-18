@@ -37,6 +37,7 @@ import { boundedOpenCodeFetch, expoOpenCodeFetch } from "../expo-open-code-fetch
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { palette, radius, space } from "../theme";
+import { AppUpdateCard } from "../updates/app-updates";
 import {
   type LifecycleTransportPhase,
   type LifecycleTransportResult,
@@ -496,6 +497,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
             Connections
           </Text>
           <Text style={styles.intro}>Switch servers or add a direct OpenCode V2 connection.</Text>
+          <AppUpdateCard />
           {onPair ? (
             <Pressable
               accessibilityRole="button"

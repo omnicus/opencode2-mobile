@@ -1,13 +1,13 @@
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
-
 import {
   deleteSessionDraft,
   readSessionDraft,
   type SessionDraftMention,
   writeSessionDraft,
 } from "../storage/draft-repository";
+import { registerReloadPreparation, trackReloadWrite } from "../updates/prepare-app-reload";
 
 const draftWriteDelayMs = 400;
 
@@ -26,6 +26,7 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
   const dirtyRef = useRef(false);
+  const hasDraftStateRef = useRef(false);
   const writeTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
   const writeChainRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -56,7 +57,7 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
           }
         },
       );
-      return operation;
+      return trackReloadWrite(operation);
     },
     [connectionId, db, scope, sessionId],
   );
@@ -81,6 +82,7 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
     latestMentionsRef.current = [];
     revisionRef.current = revisionsByScopeRef.current.get(scope) ?? 0;
     dirtyRef.current = false;
+    hasDraftStateRef.current = false;
     setDraftState("");
     setMentions([]);
     setError(undefined);
@@ -90,6 +92,7 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
       .then((stored) => {
         if (!active || dirtyRef.current) return;
         const content = stored?.content ?? "";
+        hasDraftStateRef.current = true;
         const storedRevision = stored?.revision ?? 0;
         latestRef.current = content;
         latestMentionsRef.current = stored?.mentions ?? [];
@@ -116,10 +119,28 @@ export function useSessionDraft(connectionId: string, sessionId: string) {
     };
   }, [connectionId, db, flush, scope, sessionId]);
 
+  useEffect(() => {
+    if (!loaded) return;
+    return registerReloadPreparation(async () => {
+      // A failed read must not replace an unreadable saved draft with empty text.
+      if (!hasDraftStateRef.current) return;
+      if (writeTimerRef.current !== null) {
+        clearTimeout(writeTimerRef.current);
+        writeTimerRef.current = null;
+      }
+      const currentRevision = revisionsByScopeRef.current.get(scope) ?? 0;
+      await enqueue(latestRef.current, latestMentionsRef.current, currentRevision);
+      if ((revisionsByScopeRef.current.get(scope) ?? 0) !== currentRevision) {
+        throw new Error("DRAFT_CHANGED_BEFORE_RELOAD");
+      }
+    });
+  }, [enqueue, loaded, scope]);
+
   function setDraft(
     content: string,
     contentMentions: SessionDraftMention[] = latestMentionsRef.current,
   ) {
+    hasDraftStateRef.current = true;
     latestRef.current = content;
     latestMentionsRef.current = contentMentions;
     const nextRevision = (revisionsByScopeRef.current.get(scope) ?? 0) + 1;
