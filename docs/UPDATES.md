@@ -40,12 +40,15 @@ between upstream releases. A run will not publish an older commit over current
 Merge these workflows into `main`; scheduled workflows run from the default
 branch. In GitHub's Actions settings, allow workflows to create pull requests.
 The upgrade workflow uses the built-in `GITHUB_TOKEN` to create branches, report
-the `Mobile compatibility` status, and merge passing candidates.
+checks, and merge passing candidates.
 
-If branch protection requires checks from the separate ordinary CI workflow,
-account for GitHub's rule that `GITHUB_TOKEN` pushes do not trigger new push or
-pull-request workflow runs. The upgrade workflow runs its own validation and
-reports `Mobile compatibility`; configure required checks accordingly.
+Keep the ordinary CI checks `check` and `secrets` required in branch protection.
+GitHub does not start push or pull-request workflows for `GITHUB_TOKEN` pushes,
+so the upgrade workflow creates those same check runs on the exact candidate
+commit with the GitHub Actions token. It reports each check's actual validation
+result, including failures and cancellations. It also reports `Mobile
+compatibility` after testing the previous and candidate servers. Automatic merge
+still requires those contract tests to pass and the base branch to be unchanged.
 
 Create a GitHub environment named `mobile-updates` with:
 
@@ -53,6 +56,7 @@ Create a GitHub environment named `mobile-updates` with:
 | --- | --- | --- |
 | Secret | `EXPO_TOKEN` | An Expo access token with access to this app's EAS project |
 | Variable | `OPENCODE2_MOBILE_EXPO_PROJECT_ID` | The EAS project used by the installed app |
+| Variable | `OPENCODE2_MOBILE_APP_SLUG` | The EAS project's slug, required when different from `opencode2-mobile` |
 | Variable | `MOBILE_RUNTIME_VERSION` | The installed runtime, currently `0.1.4` |
 | Variable | `MOBILE_IOS_NATIVE_HASH` | iOS fingerprint from the installed build's native-compatible source |
 | Variable | `MOBILE_ANDROID_NATIVE_HASH` | Android fingerprint from that source |
@@ -60,16 +64,42 @@ Create a GitHub environment named `mobile-updates` with:
 Configure the deployment's identifiers and other build configuration in the EAS
 `preview` environment as described in [Deployment configuration](CONFIGURATION.md).
 The workflow loads that environment for fingerprinting and publication. It
-disables ignored local deployment files. File variables needed to resolve native
-configuration must also be available to `eas env:exec`.
+disables ignored local deployment files. EAS resolves the project before loading
+its environment, so the GitHub project ID and slug must already match the EAS
+project.
+
+If Android uses Firebase, set the `GOOGLE_SERVICES_JSON` file variable to
+**Sensitive** visibility in `preview`. Secret file variables are available only
+to EAS Build. The pinned EAS CLI's `env:exec` does not download files, so the
+workflow first runs `env:pull`, copies the downloaded Firebase client file to
+`apps/mobile/google-services.json`, and passes that stable relative path to both
+fingerprinting and publication. It stops if the file is declared but unavailable.
+Downloaded files and environment values remain ignored by Git.
 
 Generate the baseline from a clean checkout matching the signed builds' native
 code and configuration. Install the pinned dependencies first. From
-`apps/mobile`, with your EAS project identifier available to app configuration:
+`apps/mobile`, export your EAS project ID and slug, then download the preview
+configuration:
+
+```sh
+export OPENCODE2_MOBILE_EXPO_PROJECT_ID=your-project-uuid
+export OPENCODE2_MOBILE_APP_SLUG=your-project-slug
+export OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT=1
+pnpm dlx eas-cli@22.4.0 env:pull preview --path .env.preview --non-interactive
+node ../../scripts/prepare-mobile-deployment.mjs .env.preview
+```
+
+For a deployment with Firebase, export the prepared file path:
+
+```sh
+export GOOGLE_SERVICES_JSON=./google-services.json
+```
+
+Then calculate the native baseline:
 
 ```sh
 pnpm dlx eas-cli@22.4.0 env:exec preview \
-  'cd ../.. && OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT=1 pnpm mobile:runtime'
+  'cd ../.. && pnpm mobile:runtime' --non-interactive
 ```
 
 Copy the three printed values into the GitHub environment variables. The command

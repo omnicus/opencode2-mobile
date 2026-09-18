@@ -13,6 +13,7 @@ permissions:
   contents: write
   pull-requests: write
   statuses: write
+  checks: write
 
 jobs:
   upgrade:
@@ -76,16 +77,50 @@ jobs:
           echo "pr=$pr" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           gh api "repos/$GITHUB_REPOSITORY/statuses/$(git rev-parse HEAD)" -f state=pending -f context='Mobile compatibility' -f target_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - name: Start required checks on the candidate commit
+        if: steps.candidate.outputs.sha != ''
+        id: checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE_SHA: ${{ steps.candidate.outputs.sha }}
+        run: |
+          for name in check secrets; do
+            id=$(gh api "repos/$GITHUB_REPOSITORY/check-runs" -f name="$name" -f head_sha="$CANDIDATE_SHA" -f status=in_progress -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --jq .id)
+            echo "$name=$id" >> "$GITHUB_OUTPUT"
+          done
       - name: Install candidate
         if: steps.release.outputs.changed == 'true'
         run: pnpm install --frozen-lockfile
       - name: Check candidate
         if: steps.release.outputs.changed == 'true'
+        id: validate
         run: |
           pnpm check:public
           pnpm check
           pnpm native:doctor
-          bash scripts/scan-secrets.sh
+      - name: Scan candidate secrets
+        if: ${{ !cancelled() && steps.checks.outputs.secrets != '' }}
+        id: scan
+        run: bash scripts/scan-secrets.sh
+      - name: Complete required checks on the candidate commit
+        if: always() && (steps.checks.outputs.check != '' || steps.checks.outputs.secrets != '')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHECK_ID: ${{ steps.checks.outputs.check }}
+          CHECK_RESULT: ${{ steps.validate.outcome }}
+          SECRETS_ID: ${{ steps.checks.outputs.secrets }}
+          SECRETS_RESULT: ${{ steps.scan.outcome }}
+        run: |
+          for name in CHECK SECRETS; do
+            id_variable="${name}_ID"
+            result_variable="${name}_RESULT"
+            id="${!id_variable}"
+            test -n "$id" || continue
+            result="${!result_variable}"
+            # A skipped validation is not a passing required check.
+            if [ "$result" != success ] && [ "$result" != cancelled ]; then result=failure; fi
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/check-runs/$id" -f status=completed -f conclusion="$result" >/dev/null
+          done
       - name: Test previous and target OpenCode servers
         if: steps.release.outputs.changed == 'true'
         env:

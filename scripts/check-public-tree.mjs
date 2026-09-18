@@ -11,6 +11,7 @@ const forbidden = [...trackedPaths].filter((path) => {
   return (
     (fileName?.startsWith(".env") && fileName !== ".env.example") ||
     path.startsWith("apps/mobile/config/local/") ||
+    path.startsWith("apps/mobile/.eas/") ||
     path === "apps/mobile/GoogleService-Info.plist" ||
     path === "apps/mobile/google-services.json" ||
     forbiddenExtensions.some((extension) => lowerPath.endsWith(extension))
