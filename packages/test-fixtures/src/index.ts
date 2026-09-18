@@ -17,6 +17,7 @@ export type FakeOpenCodeApiOptions = {
   pageSize?: number;
   permissions?: unknown[];
   projects?: unknown[];
+  serverInfoPath?: "/api/info" | "/api/status";
   sessions?: FakeSession[];
   skills?: unknown[];
   vcs?: unknown;
@@ -80,8 +81,13 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     const failure = options.failures?.[url.pathname];
     if (failure) return json(failure.body, failure.status);
 
-    if (url.pathname === "/api/status") {
-      return json({ pid: 42, version: "test", urls: ["http://fake.invalid"] });
+    if (url.pathname === (options.serverInfoPath ?? "/api/info")) {
+      return json({
+        pid: 42,
+        version: "test",
+        urls: ["http://fake.invalid"],
+        ...(url.pathname === "/api/info" ? { paths: { tmp: "/tmp/fixture" } } : {}),
+      });
     }
     if (url.pathname === "/api/project") {
       return json(options.projects ?? []);

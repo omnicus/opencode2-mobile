@@ -11,6 +11,7 @@ import {
   OpenCode,
   type OpenCodeEvent,
   type PermissionReply,
+  type ServerInfo,
   type SessionInboxDelivery,
   type SessionInboxInfo,
   type SessionListInput,
@@ -127,11 +128,36 @@ export function createBoundedOpenCodeFetch(
 
 export function createOpenCodeClient(options: OpenCodeClientOptions): OpenCodeClient {
   ensurePromiseWithResolvers();
-  return OpenCode.make({
+  const delegate = options.fetch ?? globalThis.fetch;
+  const client = OpenCode.make({
     baseUrl: normalizeOpenCodeBaseUrl(options.baseUrl),
-    ...(options.fetch ? { fetch: options.fetch } : {}),
+    fetch: async (input, init) => {
+      const response = await delegate(input, init);
+      const url = requestUrl(input);
+      // 2.0.8 exposes server.info; retain 2.0.4 support only when that route is absent.
+      if (
+        response.status !== 404 ||
+        url.pathname !== "/api/info" ||
+        (init?.method ?? "GET").toUpperCase() !== "GET"
+      ) {
+        return response;
+      }
+      await response.body?.cancel().catch(() => undefined);
+      url.pathname = "/api/status";
+      return delegate(url, init);
+    },
     ...(options.authorization ? { headers: { authorization: options.authorization } } : {}),
   });
+  return {
+    ...client,
+    server: {
+      // Keep the mobile operation stable and exclude server filesystem paths.
+      status: async (requestOptions) => {
+        const { pid, version, urls } = await client.server.info(requestOptions);
+        return { pid, version, urls };
+      },
+    },
+  };
 }
 
 type OpenCodeRequestOptions = { signal?: AbortSignal };
@@ -1829,7 +1855,15 @@ function withDeadline<T>(
   });
 }
 
-export type OpenCodeClient = ReturnType<typeof OpenCode.make>;
+type GeneratedOpenCodeClient = ReturnType<typeof OpenCode.make>;
+export type ServerStatus = Pick<ServerInfo, "pid" | "version" | "urls">;
+export type OpenCodeClient = Omit<GeneratedOpenCodeClient, "server"> & {
+  server: {
+    status: (
+      ...args: Parameters<GeneratedOpenCodeClient["server"]["info"]>
+    ) => Promise<ServerStatus>;
+  };
+};
 
 export type {
   AgentInfo,
@@ -1851,7 +1885,6 @@ export type {
   PermissionReply,
   PermissionRequest,
   ProjectListOutput,
-  ServerStatus,
   SessionActive,
   SessionInboxDelivery,
   SessionInboxInfo,

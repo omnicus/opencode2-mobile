@@ -921,9 +921,50 @@ it("passes authorization to the generated Promise client", async () => {
   await expect(client.server.status()).resolves.toMatchObject({ pid: 42 });
   const [url, init] = fetch.mock.calls[0] ?? [];
 
-  expect(String(url)).toBe("https://open.tailnet.ts.net/api/status");
+  expect(String(url)).toBe("https://open.tailnet.ts.net/api/info");
   expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-secret");
 });
+
+it.each(["/api/info", "/api/status"] as const)(
+  "reads mobile server identity from a server exposing only %s",
+  async (serverInfoPath) => {
+    const api = createFakeOpenCodeApi({ serverInfoPath });
+    const delegate = vi.fn(api.fetch);
+    const controller = new AbortController();
+    const client = createOpenCodeClient({
+      authorization: "Bearer test-secret",
+      baseUrl: "https://fake.invalid",
+      fetch: createBoundedOpenCodeFetch(createRedirectSafeOpenCodeFetch(delegate)),
+    });
+
+    await expect(client.server.status({ signal: controller.signal })).resolves.toEqual({
+      pid: 42,
+      version: "test",
+      urls: ["http://fake.invalid"],
+    });
+    expect(api.requests.map(({ path }) => path)).toEqual(
+      serverInfoPath === "/api/info" ? ["/api/info"] : ["/api/info", "/api/status"],
+    );
+    for (const [, init] of delegate.mock.calls) {
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-secret");
+      expect(init?.signal).toBe(controller.signal);
+      expect(init?.redirect).toBe("manual");
+    }
+  },
+);
+
+it.each([401, 403, 500])(
+  "does not fall back from a server info HTTP %s failure",
+  async (status) => {
+    const api = createFakeOpenCodeApi({
+      failures: { "/api/info": { body: { message: "fixture" }, status } },
+      serverInfoPath: "/api/status",
+    });
+    const client = createOpenCodeClient({ baseUrl: "https://fake.invalid", fetch: api.fetch });
+    await expect(client.server.status()).rejects.toBeDefined();
+    expect(api.requests.map(({ path }) => path)).toEqual(["/api/info"]);
+  },
+);
 
 it("recognizes an abort wrapped by the generated client", () => {
   expect(
@@ -1056,7 +1097,7 @@ it("matches the fake API REST, stream, cancellation, and reconnect contract", as
   }
 
   expect(api.requests.map(({ method, path }) => ({ method, path }))).toEqual([
-    { method: "GET", path: "/api/status" },
+    { method: "GET", path: "/api/info" },
     { method: "GET", path: "/api/session" },
     { method: "GET", path: "/api/event" },
     { method: "GET", path: "/api/event" },
@@ -1409,7 +1450,7 @@ it("forwards message-list cancellation to the generated client", async () => {
 it("classifies fake API failures without exposing their bodies", async () => {
   const api = createFakeOpenCodeApi({
     failures: {
-      "/api/status": {
+      "/api/info": {
         body: { _tag: "UnauthorizedError", message: "test-only detail" },
         status: 401,
       },
