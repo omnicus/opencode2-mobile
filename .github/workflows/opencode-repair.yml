@@ -88,10 +88,10 @@ jobs:
           case "$OPENCODE_REPAIR_MODEL" in openai/*) ;; *) echo 'OPENCODE_REPAIR_MODEL must name an OpenAI model.'; exit 1;; esac
           mkdir -p "$HOME"
           "$RUNNER_TEMP/repair-cli/node_modules/.bin/opencode" run --standalone --auto --model "$OPENCODE_REPAIR_MODEL" "$(cat .github/prompts/opencode-repair.md)" > "$RUNNER_TEMP/repair-output.txt" 2>&1
-      - name: Commit the repair attempt to the existing PR
+      - name: Commit the repair attempt locally
+        id: commit
         if: always() && steps.repair.outcome != 'skipped' && steps.repair.outcome != ''
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CANDIDATE_SHA: ${{ inputs.commit }}
         run: |
           git show "$CANDIDATE_SHA:scripts/check-repair-paths.mjs" > "$RUNNER_TEMP/check-repair-paths.mjs"
@@ -101,6 +101,15 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -- apps/mobile/src packages/opencode-adapter/src packages/opencode-adapter/integration packages/test-fixtures/src
           git -c core.hooksPath=/dev/null commit --allow-empty -m "Automated OpenCode $TARGET repair attempt"
+      - name: Scan the local repair before pushing
+        id: scan
+        if: steps.commit.outcome == 'success'
+        run: bash scripts/scan-secrets.sh
+      - name: Push the scanned repair to the existing PR
+        if: steps.scan.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           gh auth setup-git
           git push origin "HEAD:refs/heads/automation/opencode-$TARGET"
           gh pr comment "$PR" --body "The cloud repair attempt is complete. The next scheduled release check will validate this branch against both server releases. This job cannot publish an app update. Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
