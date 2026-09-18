@@ -12,6 +12,34 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-09-18: server 2.0.8 identity compatibility
+
+After the first automated preview publication, an iOS diagnostic export showed
+client contract 2.0.4, an unknown server version, and two connection generations
+ending as incompatible before a snapshot could be installed. The new updater
+controls were visible. This confirms the updater loaded, but does not identify
+the failing request on the phone.
+
+The release workflow opened a 2.0.8 candidate and stopped at typechecking because
+the generated client removed `server.status` and `ServerStatus`. The published
+V2 OpenAPI document and installed 2.0.8 client expose `server.info` at `/api/info`.
+
+The adapter retains its mobile `server.status` operation, backed by the new
+generated method. It returns only the generated identity fields used by mobile,
+excluding the new server filesystem paths. It falls back to `/api/status` only
+after a 404 from `/api/info`, using the same authenticated, bounded,
+redirect-safe transport and cancellation signal. Authentication and server errors
+do not trigger fallback.
+
+Regression tests cover info-only and status-only servers and rejection of
+fallback on 401, 403, and 500 responses. All three isolated contract probes pass
+against both 2.0.4 and 2.0.8, including completed prompts, transcript paging,
+streaming and cancellation, permissions, and forms. The preview environment
+still matches both native fingerprint baselines for runtime 0.1.4. The full
+lint, typecheck, test, and build sequence passed, including 73 adapter tests,
+323 mobile tests, and both Hermes exports. Expo Doctor passed all 18 checks.
+Device verification of the repaired client remains pending publication.
+
 ## 2026-09-18: compatibility update automation
 
 The app now checks EAS independently of the OpenCode connection and offers a
