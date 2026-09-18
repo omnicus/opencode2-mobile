@@ -30,6 +30,7 @@ jobs:
       CI: "1"
       OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT: "1"
       OPENCODE2_MOBILE_EXPO_PROJECT_ID: ${{ vars.OPENCODE2_MOBILE_EXPO_PROJECT_ID }}
+      OPENCODE2_MOBILE_APP_SLUG: ${{ vars.OPENCODE2_MOBILE_APP_SLUG }}
       MOBILE_RUNTIME_VERSION: ${{ vars.MOBILE_RUNTIME_VERSION }}
       MOBILE_IOS_NATIVE_HASH: ${{ vars.MOBILE_IOS_NATIVE_HASH }}
       MOBILE_ANDROID_NATIVE_HASH: ${{ vars.MOBILE_ANDROID_NATIVE_HASH }}
@@ -70,6 +71,13 @@ jobs:
           OPENCODE_TEST_BINARY="$RUNNER_TEMP/opencode/node_modules/.bin/opencode" OPENCODE_TEST_VERSION="$version" pnpm --filter @opencode2-mobile/opencode-adapter test:integration
       - name: Install publishing CLI
         run: npm install --global eas-cli@22.4.0 --no-audit --no-fund
+      - name: Download deployment files
+        working-directory: apps/mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          eas env:pull preview --path "$RUNNER_TEMP/mobile-preview.env" --non-interactive
+          node ../../scripts/prepare-mobile-deployment.mjs "$RUNNER_TEMP/mobile-preview.env"
       - name: Check native compatibility in the deployment environment
         working-directory: apps/mobile
         env:
@@ -79,7 +87,7 @@ jobs:
         working-directory: apps/mobile
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-        run: eas update --channel preview --environment preview --platform all --message "OpenCode compatibility $(git rev-parse --short HEAD)" --non-interactive
+        run: eas env:exec preview 'eas update --channel preview --environment preview --platform all --message "OpenCode compatibility $(git rev-parse --short HEAD)" --non-interactive' --non-interactive
       - name: Record the published commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

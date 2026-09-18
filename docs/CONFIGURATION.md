@@ -134,6 +134,13 @@ pnpm dlx eas-cli@22.4.0 env:set \
 The resulting EAS variable contains a build-runner file path. `app.config.ts`
 uses that path instead of requiring the local ignored file in cloud builds.
 
+For automated preview updates, use **Sensitive** visibility for the `preview`
+file variable so GitHub can download it with `eas env:pull`. Keep separate
+environment-scoped variables if other environments should retain Secret
+visibility. The Firebase client file is public app metadata, not a service-account
+private key. See [Publishing setup](UPDATES.md#one-time-publishing-setup) for
+the download and fingerprint steps.
+
 FCM V1 sending credentials are different from `google-services.json`. Create a
 dedicated Firebase service account with the narrow required FCM role and upload
 its private key through EAS Android push credentials. Never put that key in an

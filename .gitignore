@@ -6,6 +6,7 @@ node_modules/
 /opencode.jsonc
 /skills-lock.json
 .expo/
+apps/mobile/.eas/
 dist/
 coverage/
 apps/mobile/android/
