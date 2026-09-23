@@ -31,7 +31,7 @@ test("persists only bounded non-content snapshot metadata", async () => {
           canonical: "/private/project",
           id: "project-private-id",
           sandboxes: [],
-          time: { created: 1, updated: 1 },
+          time: { active: 1, created: 1, updated: 1 },
         },
       ],
     },

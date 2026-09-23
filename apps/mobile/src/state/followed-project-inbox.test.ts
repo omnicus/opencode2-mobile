@@ -112,9 +112,14 @@ test("builds non-overlapping sections and bubbles child work and attention once"
         id: "project-a",
         name: "Alpha",
         sandboxes: [],
-        time: { created: 1, updated: 1 },
+        time: { active: 1, created: 1, updated: 1 },
       },
-      { canonical: "/b", id: "project-b", sandboxes: [], time: { created: 1, updated: 1 } },
+      {
+        canonical: "/b",
+        id: "project-b",
+        sandboxes: [],
+        time: { active: 1, created: 1, updated: 1 },
+      },
     ],
     rootSessions: [root, recent],
   });
@@ -153,7 +158,12 @@ test("shows actionable ancestry roots and orphan fallbacks outside loaded feed p
     forms: [],
     permissions: [],
     projects: [
-      { canonical: "/a", id: "project-a", sandboxes: [], time: { created: 1, updated: 1 } },
+      {
+        canonical: "/a",
+        id: "project-a",
+        sandboxes: [],
+        time: { active: 1, created: 1, updated: 1 },
+      },
     ],
     rootSessions: [],
   });
