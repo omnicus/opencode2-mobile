@@ -43,7 +43,7 @@ test("offers canonical, current, and sandbox directories without duplicates", ()
         canonical: "/project",
         id: "project-1",
         sandboxes: ["/project", "/worktree"],
-        time: { created: 1, updated: 1 },
+        time: { active: 1, created: 1, updated: 1 },
       },
       "project-1",
       "/project/subdirectory",
