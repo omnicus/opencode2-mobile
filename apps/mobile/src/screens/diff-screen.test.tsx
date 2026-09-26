@@ -53,7 +53,7 @@ test("renders an authoritative working-tree diff", async () => {
       "Current working tree. This may include changes made after the selected tool call.",
     ),
   ).toBeOnTheScreen();
-  expect(screen.getByText("+new value")).toHaveStyle({ backgroundColor: "#18230E" });
+  expect(screen.getByText("+new value")).toHaveStyle({ backgroundColor: "#172B38" });
   expect(screen.getByText("-old value")).toHaveStyle({ backgroundColor: "#2A1714" });
   expect(mockGetDiff).toHaveBeenCalledWith(
     {},
