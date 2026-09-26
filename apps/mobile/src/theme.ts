@@ -1,12 +1,12 @@
 export const palette = {
-  background: "#0B0D0C",
-  border: "#2A302D",
-  card: "#121614",
+  background: "#100B18",
+  border: "#392C48",
+  card: "#241830",
   danger: "#FF8E7A",
-  dim: "#8E9993",
-  ink: "#F0F4F1",
-  signal: "#B6F26C",
-  signalDark: "#18230E",
+  dim: "#A69BAF",
+  ink: "#EAE2F0",
+  signal: "#36C5E5",
+  signalDark: "#172B38",
   warm: "#FFB86B",
 } as const;
 

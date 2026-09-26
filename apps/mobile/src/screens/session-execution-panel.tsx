@@ -6,6 +6,7 @@ import type {
 import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { WorkingIndicator } from "../components/working-indicator";
 import { palette, radius, space, typeRamp } from "../theme";
 import { permissionActionExplanation } from "./permission-presentation";
 import {
@@ -76,9 +77,17 @@ export function SessionExecutionPanel({
       {active ? (
         <View style={styles.executionCard}>
           <View style={styles.headingRow}>
-            <View style={styles.activeDot} />
+            {permissions.length > 0 || formRequests ? (
+              <View style={styles.activeDot} />
+            ) : (
+              <WorkingIndicator />
+            )}
             <Text dynamicTypeRamp={typeRamp.control} style={styles.executionTitle}>
-              {permissions.length > 0 ? "Waiting for permission" : "OpenCode is working"}
+              {permissions.length > 0
+                ? "Waiting for permission"
+                : formRequests
+                  ? "Waiting for input"
+                  : "OpenCode is working"}
             </Text>
           </View>
           <View style={styles.actionRow}>

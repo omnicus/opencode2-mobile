@@ -38,6 +38,7 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
+import { WorkingIndicator } from "../components/working-indicator";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -1145,6 +1146,7 @@ function SessionRow({
             pressed && styles.pressed,
           ]}
         >
+          {active && !blocked ? <WorkingIndicator /> : null}
           <View style={styles.sessionMain}>
             <View style={styles.sessionTopRow}>
               <Text numberOfLines={1} style={styles.sessionProject}>
@@ -1202,6 +1204,7 @@ function SessionRow({
             style={({ pressed }) => [styles.childRow, pressed && styles.pressed]}
           >
             <View style={styles.childBranch} />
+            {child.active && child.attentionCount === 0 ? <WorkingIndicator /> : null}
             <Text numberOfLines={2} style={styles.childTitle}>
               {child.session.title || "Untitled child session"}
             </Text>
