@@ -97,6 +97,7 @@ export function RootNavigation() {
                 header: () => (
                   <WorkspaceHeader
                     navigate={(destination) => navigation.navigate(destination)}
+                    onNewSession={() => navigation.navigate("NewSession")}
                     title="Sessions"
                   />
                 ),
@@ -105,6 +106,7 @@ export function RootNavigation() {
                 headerRight: () => (
                   <WorkspaceHeaderActions
                     navigate={(destination) => navigation.navigate(destination)}
+                    onNewSession={() => navigation.navigate("NewSession")}
                   />
                 ),
               }),
@@ -201,10 +203,12 @@ export function RootNavigation() {
 function WorkspaceHeader({
   navigate,
   onBack,
+  onNewSession,
   title,
 }: {
   navigate: (destination: "Connections" | "FollowedProjects" | "Pending" | "Settings") => void;
   onBack?: () => void;
+  onNewSession?: () => void;
   title: string;
 }) {
   return (
@@ -226,12 +230,12 @@ function WorkspaceHeader({
             />
           </Pressable>
         ) : (
-          <View style={styles.headerSide} />
+          <View style={[styles.headerSide, onNewSession && styles.headerActionsSpacer]} />
         )}
         <Text accessibilityRole="header" numberOfLines={1} style={styles.headerTitle}>
           {title}
         </Text>
-        <WorkspaceHeaderActions navigate={navigate} />
+        <WorkspaceHeaderActions navigate={navigate} onNewSession={onNewSession} />
       </View>
     </SafeAreaView>
   );
@@ -261,6 +265,7 @@ function useReducedMotion() {
 }
 
 const styles = StyleSheet.create({
+  headerActionsSpacer: { width: 88 },
   header: {
     alignItems: "center",
     flexDirection: "row",

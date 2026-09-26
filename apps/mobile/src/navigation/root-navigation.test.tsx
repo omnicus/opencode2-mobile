@@ -35,7 +35,13 @@ jest.mock("../screens/new-session-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
   return { NewSessionScreen: () => <Text>New session screen</Text> };
 });
-jest.mock("./workspace-header-actions", () => ({ WorkspaceHeaderActions: () => null }));
+jest.mock("@expo/vector-icons/Feather", () => () => null);
+jest.mock("../state/workspace-selection-context", () => ({
+  useWorkspaceSelection: () => ({
+    attentionCoverage: { completeness: "complete", freshness: "fresh" },
+    pendingCount: 0,
+  }),
+}));
 jest.mock("../screens/workspace-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
   return {
@@ -88,7 +94,7 @@ test("shows loading, failure, and first-run onboarding gates", () => {
   expect(screen.getByText("Connection manager")).toBeOnTheScreen();
 });
 
-test("opens the configured workspace and returns from connection management", async () => {
+test("opens new sessions from the header and connections from workspace options", async () => {
   mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
   const navigation = createNavigationContainerRef<RootStackParamList>();
   render(
@@ -98,7 +104,13 @@ test("opens the configured workspace and returns from connection management", as
   );
   expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
 
-  act(() => navigation.navigate("Connections"));
+  fireEvent.press(screen.getByRole("button", { name: "New session" }));
+  expect(await screen.findByText("New session screen")).toBeOnTheScreen();
+  act(() => navigation.goBack());
+  await screen.findByText("Workspace shell");
+
+  fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
+  fireEvent.press(screen.getByRole("button", { name: "Connections" }));
   expect(await screen.findByText("Connection manager")).toBeOnTheScreen();
 
   fireEvent.press(screen.getByRole("button", { name: "Connection manager" }));

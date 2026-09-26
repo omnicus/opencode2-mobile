@@ -41,6 +41,7 @@ import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { WorkingIndicator } from "../components/working-indicator";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
+import { NewSessionButton } from "../navigation/workspace-header-actions";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { FollowedInboxRow } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
@@ -59,7 +60,7 @@ import {
   typeRamp,
   usesLargeTextLayout,
 } from "../theme";
-import { ActionButton, getConnectionPresentation, isTabletShell, ShellFrame } from "./app-shell";
+import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
 import { FormRequestList } from "./form-request-list";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
@@ -307,23 +308,11 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     );
   }
 
-  const connectionPresentation = getConnectionPresentation(
-    runtime.status,
-    runtime.reconnectAttempt,
-  );
-  const connectionName = selectedConnection?.name ?? "OpenCode";
   const header = (
     <View style={[styles.homeHeader, !tablet && styles.homeHeaderPhone]}>
       {tablet ? (
         <View style={[styles.homeTitleRow, largeText && styles.homeTitleRowLargeText]}>
           <View style={styles.homeTitleCopy}>
-            <Text
-              dynamicTypeRamp={typeRamp.control}
-              style={styles.serverLabel}
-              numberOfLines={largeText ? undefined : 1}
-            >
-              {connectionName}
-            </Text>
             <Text
               accessibilityRole="header"
               dynamicTypeRamp={typeRamp.heading}
@@ -333,64 +322,25 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
               Sessions
             </Text>
           </View>
-          <HeaderAction
-            accessibilityHint="Choose a project for a new session"
-            emphasized
-            label="New"
-            onPress={() => navigation.navigate("NewSession")}
-          />
+          <NewSessionButton onPress={() => navigation.navigate("NewSession")} />
         </View>
       ) : null}
 
-      <View style={[styles.workspaceActions, largeText && styles.workspaceActionsLargeText]}>
-        <Pressable
-          accessibilityLabel={`${connectionName}, ${connectionPresentation.label}. Manage connections`}
-          accessibilityRole="button"
-          onPress={() => navigation.navigate("Connections")}
-          style={({ pressed }) => [styles.connectionLine, pressed && styles.pressed]}
-        >
-          <View
-            style={[
-              styles.connectionDot,
-              runtime.status === "connected" ? styles.connectionDotLive : styles.connectionDotMuted,
-            ]}
+      {!tablet && workspaceSelection.pendingCount > 0 ? (
+        <View style={styles.workspaceActions}>
+          <HeaderAction
+            accessibilityHint="Opens permission and form requests"
+            accessibilityLabel={`${workspaceSelection.pendingCount} known ${workspaceSelection.pendingCount === 1 ? "request" : "requests"}`}
+            attention
+            label={
+              workspaceSelection.pendingCount > 99
+                ? "Needs you 99+"
+                : `Needs you ${workspaceSelection.pendingCount}`
+            }
+            onPress={() => navigation.navigate("Pending")}
           />
-          <Text numberOfLines={largeText ? undefined : 1} style={styles.connectionName}>
-            {connectionName}
-          </Text>
-          <Text style={styles.connectionLabel}>{connectionPresentation.label}</Text>
-          <Text
-            accessibilityElementsHidden
-            importantForAccessibility="no"
-            style={styles.connectionDisclosure}
-          >
-            &gt;
-          </Text>
-        </Pressable>
-        {!tablet ? (
-          <>
-            {workspaceSelection.pendingCount > 0 ? (
-              <HeaderAction
-                accessibilityHint="Opens permission and form requests"
-                accessibilityLabel={`${workspaceSelection.pendingCount} known ${workspaceSelection.pendingCount === 1 ? "request" : "requests"}`}
-                attention
-                label={
-                  workspaceSelection.pendingCount > 99
-                    ? "Needs you 99+"
-                    : `Needs you ${workspaceSelection.pendingCount}`
-                }
-                onPress={() => navigation.navigate("Pending")}
-              />
-            ) : null}
-            <HeaderAction
-              accessibilityHint="Choose a project for a new session"
-              emphasized
-              label="New"
-              onPress={() => navigation.navigate("NewSession")}
-            />
-          </>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
       {runtime.status !== "connected" ? (
         <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
           {runtime.cacheMetadata
@@ -494,7 +444,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
               }}
               onPress={() => openSession(item.row)}
               row={item.row}
-              section={item.section}
               showLocation={ambiguousProjectIDs.has(item.row.session.projectID)}
             />
           )
@@ -1016,6 +965,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
           maxToRenderPerBatch={12}
           onContentSizeChange={scheduleLiveEdgeScroll}
+          onLayout={scheduleLiveEdgeScroll}
           onMomentumScrollBegin={handleMomentumScrollBegin}
           onMomentumScrollEnd={handleMomentumScrollEnd}
           onScroll={handleTranscriptScroll}
@@ -1052,7 +1002,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             </Text>
           </Pressable>
         ) : null}
-        <View pointerEvents="none" style={{ height: composerDockHeight }} />
+        <View
+          pointerEvents="none"
+          style={{ height: composerDockHeight + composerKeyboardOffset, flexShrink: 0 }}
+        />
         {Platform.OS === "android" ? (
           <KeyboardStickyView
             accessibilityLabel="Keyboard composer dock"
@@ -1081,7 +1034,6 @@ function SessionRow({
   onOpenChild,
   onPress,
   row,
-  section,
   showLocation,
 }: {
   largeText: boolean;
@@ -1089,17 +1041,18 @@ function SessionRow({
   onOpenChild: (child: SessionInfo) => void;
   onPress: () => void;
   row: FollowedInboxRow;
-  section: WorkspaceInboxSection;
   showLocation: boolean;
 }) {
   const { session } = row;
+  const { fontScale } = useWindowDimensions();
   const active = row.active;
   const blocked = row.attentionCount > 0;
   const showOutcome =
+    !active &&
+    !blocked &&
     Boolean(session.outcome) &&
-    (section !== "recent" || session.outcome?.toLocaleLowerCase() !== "succeeded");
+    session.outcome?.toLocaleLowerCase() !== "succeeded";
   const showMetadata =
-    active ||
     blocked ||
     row.activeChildCount > 0 ||
     row.attentionCount > 1 ||
@@ -1146,7 +1099,6 @@ function SessionRow({
             pressed && styles.pressed,
           ]}
         >
-          {active && !blocked ? <WorkingIndicator /> : null}
           <View style={styles.sessionMain}>
             <View style={styles.sessionTopRow}>
               <Text numberOfLines={1} style={styles.sessionProject}>
@@ -1154,18 +1106,22 @@ function SessionRow({
               </Text>
               <Text style={styles.sessionTime}>{formatSessionTime(session.time.updated)}</Text>
             </View>
-            <Text
-              dynamicTypeRamp={typeRamp.subheading}
-              numberOfLines={largeText ? 4 : 2}
-              style={styles.sessionTitle}
-            >
-              {session.title || "Untitled session"}
-            </Text>
+            <View style={styles.sessionTitleRow}>
+              {active && !blocked ? (
+                <View style={[styles.sessionIndicator, { height: 21 * fontScale }]}>
+                  <WorkingIndicator />
+                </View>
+              ) : null}
+              <Text
+                dynamicTypeRamp={typeRamp.subheading}
+                numberOfLines={largeText ? 4 : 2}
+                style={styles.sessionTitle}
+              >
+                {session.title || "Untitled session"}
+              </Text>
+            </View>
             {showMetadata ? (
               <View style={styles.sessionMetadata}>
-                {active ? (
-                  <Text style={[styles.sessionStatus, styles.sessionStatusActive]}>Working</Text>
-                ) : null}
                 {blocked ? (
                   <Text style={[styles.sessionStatus, styles.sessionStatusBlocked]}>
                     Needs input
@@ -1208,9 +1164,11 @@ function SessionRow({
             <Text numberOfLines={2} style={styles.childTitle}>
               {child.session.title || "Untitled child session"}
             </Text>
-            <Text style={child.attentionCount > 0 ? styles.childAttention : styles.childState}>
-              {child.attentionCount > 0 ? "Needs input" : child.active ? "Working" : "Child"}
-            </Text>
+            {child.attentionCount > 0 || !child.active ? (
+              <Text style={child.attentionCount > 0 ? styles.childAttention : styles.childState}>
+                {child.attentionCount > 0 ? "Needs input" : "Child"}
+              </Text>
+            ) : null}
           </Pressable>
         ))}
       </View>
@@ -1261,7 +1219,6 @@ function HeaderAction({
   accessibilityLabel,
   attention,
   disabled,
-  emphasized,
   label,
   onPress,
 }: {
@@ -1269,7 +1226,6 @@ function HeaderAction({
   accessibilityLabel?: string;
   attention?: boolean;
   disabled?: boolean;
-  emphasized?: boolean;
   label: string;
   onPress: () => void;
 }) {
@@ -1284,18 +1240,13 @@ function HeaderAction({
       style={({ pressed }) => [
         styles.headerAction,
         attention && styles.headerActionAttention,
-        emphasized && styles.headerActionEmphasized,
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
       <Text
         dynamicTypeRamp={typeRamp.control}
-        style={[
-          styles.headerActionLabel,
-          attention && styles.headerActionLabelAttention,
-          emphasized && styles.headerActionLabelEmphasized,
-        ]}
+        style={[styles.headerActionLabel, attention && styles.headerActionLabelAttention]}
       >
         {label}
       </Text>
@@ -1427,7 +1378,7 @@ const styles = StyleSheet.create({
   },
   childState: { color: palette.signal, fontSize: 11, fontWeight: "800" },
   childTitle: { color: palette.ink, flex: 1, fontSize: 13, fontWeight: "700" },
-  backgroundCount: { color: palette.warm, fontSize: 12, fontWeight: "700", marginTop: 3 },
+  backgroundCount: { color: palette.dim, fontSize: 12, fontWeight: "700", marginTop: 3 },
   badge: {
     backgroundColor: palette.signalDark,
     borderColor: palette.signal,
@@ -1442,25 +1393,6 @@ const styles = StyleSheet.create({
   badges: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.xs },
   clearSearch: { justifyContent: "center", minHeight: 44, paddingLeft: space.sm },
   clearSearchLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
-  connectionDot: { borderRadius: 4, height: 7, marginRight: 8, width: 7 },
-  connectionDotLive: { backgroundColor: palette.signal },
-  connectionDotMuted: { backgroundColor: palette.warm },
-  connectionLabel: { color: palette.dim, fontSize: 12, fontWeight: "600", marginLeft: 6 },
-  connectionDisclosure: { color: palette.dim, fontSize: 14, marginLeft: 8 },
-  connectionLine: {
-    alignItems: "center",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: 999,
-    borderWidth: 1,
-    flexGrow: 1,
-    flexShrink: 1,
-    flexDirection: "row",
-    minHeight: 44,
-    minWidth: 0,
-    paddingHorizontal: 12,
-  },
-  connectionName: { color: palette.ink, flexShrink: 1, fontSize: 12, fontWeight: "700" },
   connectionNotice: { color: palette.warm, fontSize: 12, lineHeight: 18, marginBottom: 2 },
   contextLabel: { color: palette.dim, fontSize: 12, fontWeight: "600" },
   contextRow: {
@@ -1511,10 +1443,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
   },
   headerActionAttention: { borderColor: palette.warm },
-  headerActionEmphasized: { backgroundColor: palette.signal, borderColor: palette.signal },
   headerActionLabel: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   headerActionLabelAttention: { color: palette.warm },
-  headerActionLabelEmphasized: { color: palette.background },
   headingCopy: { flex: 1, minWidth: 180 },
   homeHeader: { paddingHorizontal: space.lg, paddingTop: space.lg },
   homeHeaderPhone: { paddingTop: space.sm },
@@ -1625,7 +1555,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   sectionHeading: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  sectionLabel: { color: palette.warm, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  sectionLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   sectionTitle: {
     color: palette.ink,
     fontSize: 18,
@@ -1634,7 +1564,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
   selectionMark: { color: palette.signal, fontSize: 12, fontWeight: "600", marginLeft: space.sm },
-  serverLabel: { color: palette.dim, fontSize: 12, fontWeight: "600" },
   sessionMain: { flex: 1, minWidth: 0 },
   sessionGroup: { backgroundColor: palette.card },
   sessionLocation: {
@@ -1658,16 +1587,21 @@ const styles = StyleSheet.create({
   },
   sessionRowLargeText: { alignItems: "flex-start" },
   sessionStatus: { fontSize: 12, fontWeight: "700" },
-  sessionStatusActive: { color: palette.signal },
   sessionStatusBlocked: { color: palette.warm },
   sessionTime: { color: palette.dim, fontSize: 12, marginLeft: space.sm },
+  sessionIndicator: { justifyContent: "center", flexShrink: 0 },
+  sessionTitleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    marginTop: 4,
+  },
   sessionTitle: {
     color: palette.ink,
     flex: 1,
     fontSize: 16,
     fontWeight: "700",
     lineHeight: 21,
-    marginTop: 4,
     minWidth: 0,
   },
   sessionTopRow: {
@@ -1676,7 +1610,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
-  workspaceActionsLargeText: { alignItems: "stretch", flexDirection: "column" },
   sheetRow: {
     alignItems: "center",
     borderBottomColor: palette.border,

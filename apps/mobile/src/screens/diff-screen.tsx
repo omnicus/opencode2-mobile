@@ -14,7 +14,7 @@ import {
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { palette, space, typeRamp } from "../theme";
+import { diffPalette, palette, space, typeRamp } from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Diff">;
@@ -242,9 +242,9 @@ function diffLineKind(line: string): Extract<DiffRow, { type: "line" }>["kind"] 
 }
 
 const styles = StyleSheet.create({
-  additions: { color: palette.signal, fontWeight: "800" },
+  additions: { color: diffPalette.addedText, fontWeight: "800" },
   content: { paddingBottom: space.xl },
-  deletions: { color: palette.danger, fontWeight: "800" },
+  deletions: { color: diffPalette.removedText, fontWeight: "800" },
   emptyContent: { flexGrow: 1, justifyContent: "center", padding: space.lg },
   explanation: { color: palette.dim, fontSize: 12, lineHeight: 18 },
   fileHeader: {
@@ -261,16 +261,16 @@ const styles = StyleSheet.create({
   fileName: { color: palette.ink, fontFamily: "monospace", fontSize: 13, fontWeight: "700" },
   fileStatus: { color: palette.dim, fontSize: 10, fontWeight: "800", letterSpacing: 0.6 },
   line: {
-    color: palette.ink,
+    color: diffPalette.contextText,
     fontFamily: "monospace",
     fontSize: 12,
     lineHeight: 18,
     paddingHorizontal: space.md,
     paddingVertical: 1,
   },
-  lineAddition: { backgroundColor: palette.signalDark, color: palette.ink },
-  lineDeletion: { backgroundColor: "#2A1714", color: palette.ink },
-  lineHunk: { color: palette.warm, marginTop: space.xs },
+  lineAddition: { backgroundColor: diffPalette.addedBackground, color: diffPalette.addedText },
+  lineDeletion: { backgroundColor: diffPalette.removedBackground, color: diffPalette.removedText },
+  lineHunk: { color: diffPalette.hunkHeader, marginTop: space.xs },
   lineMeta: { color: palette.dim },
   pressed: { opacity: 0.7 },
   retry: { justifyContent: "center", minHeight: 44, paddingRight: space.md },

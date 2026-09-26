@@ -10,8 +10,10 @@ type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Setti
 
 export function WorkspaceHeaderActions({
   navigate,
+  onNewSession,
 }: {
   navigate: (destination: HeaderDestination) => void;
+  onNewSession?: (() => void) | undefined;
 }) {
   const selection = useWorkspaceSelection();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -36,6 +38,7 @@ export function WorkspaceHeaderActions({
 
   return (
     <View style={styles.actions}>
+      {onNewSession ? <NewSessionButton onPress={onNewSession} /> : null}
       <Pressable
         accessibilityHint="Opens workspace options"
         accessibilityLabel="Workspace options"
@@ -85,6 +88,29 @@ export function WorkspaceHeaderActions({
         </View>
       </ModalSheet>
     </View>
+  );
+}
+
+export function NewSessionButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityHint="Choose a project for a new session"
+      accessibilityLabel="New session"
+      accessibilityRole="button"
+      onPress={() => {
+        Keyboard.dismiss();
+        onPress();
+      }}
+      style={({ pressed }) => [styles.optionsButton, pressed && styles.optionsButtonPressed]}
+    >
+      <Feather
+        accessibilityElementsHidden
+        color={palette.ink}
+        importantForAccessibility="no-hide-descendants"
+        name="edit"
+        size={24}
+      />
+    </Pressable>
   );
 }
 

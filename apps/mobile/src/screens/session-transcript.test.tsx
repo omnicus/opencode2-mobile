@@ -4,6 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Alert, Linking, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
+import { markdownPalette, palette } from "../theme";
 import { SessionTranscriptRow } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
@@ -206,7 +207,10 @@ test("opens HTTP and HTTPS transcript URLs as confirmed external links", () => {
   );
 
   const secureLink = screen.getByRole("link", { name: "https://example.test/docs" });
-  expect(secureLink).toHaveStyle({ color: "#36C5E5", textDecorationLine: "underline" });
+  expect(secureLink).toHaveStyle({
+    color: markdownPalette.linkText,
+    textDecorationLine: "underline",
+  });
   expect(screen.getByRole("link", { name: "http://localhost:4096/status" })).toBeOnTheScreen();
   expect(screen.getByRole("link", { name: "https://assistant.test/guide" })).toHaveStyle({
     fontWeight: "800",
@@ -267,7 +271,7 @@ test("renders fenced assistant code without markdown fence markers", () => {
   expect(screen.getByText("Then inspect the stack.")).toBeOnTheScreen();
   expect(screen.queryByText(/```/)).toBeNull();
   expect(screen.getByLabelText("Code block, gdb")).toHaveStyle({
-    backgroundColor: "#241830",
+    backgroundColor: palette.card,
     borderWidth: 1,
   });
 });
