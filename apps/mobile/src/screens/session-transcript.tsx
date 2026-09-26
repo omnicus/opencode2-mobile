@@ -4,7 +4,7 @@ import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 
 import { applicationName } from "../application-name";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
-import { palette, radius, space, typeRamp } from "../theme";
+import { markdownPalette, palette, radius, space, typeRamp } from "../theme";
 import {
   getSubagentPresentation,
   parseSubagentProtocolText,
@@ -165,6 +165,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
     case "idle":
       return (
         <Notice
+          error={message.outcome === "failed"}
           label={
             message.outcome === "succeeded"
               ? "Turn completed"
@@ -176,7 +177,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
       );
     case "compaction":
       return message.status === "failed" ? (
-        <Notice label="Compaction failed" text={message.error.message} />
+        <Notice error label="Compaction failed" text={message.error.message} />
       ) : (
         <Disclosure
           label={`Compaction / ${sentenceCase(message.status)}`}
@@ -742,10 +743,13 @@ function Disclosure({
   );
 }
 
-function Notice({ label, text }: { label: string; text?: string }) {
+function Notice({ error, label, text }: { error?: boolean; label: string; text?: string }) {
   return (
     <View style={styles.notice}>
-      <Text dynamicTypeRamp={typeRamp.caption} style={styles.noticeLabel}>
+      <Text
+        dynamicTypeRamp={typeRamp.caption}
+        style={[styles.noticeLabel, error && { color: palette.danger }]}
+      >
         {sanitizeTranscriptText(label, 256)}
       </Text>
       {text ? <ExpandableText style={styles.noticeText} text={text} /> : null}
@@ -1357,7 +1361,7 @@ const styles = StyleSheet.create({
   attachmentLabel: { color: palette.dim, fontSize: 11, fontWeight: "600" },
   attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
   bodyText: { color: palette.ink, fontSize: 16, lineHeight: 24 },
-  boldText: { fontWeight: "800" },
+  boldText: { color: markdownPalette.strong, fontWeight: "800" },
   codeBlock: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -1367,7 +1371,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   codeLanguage: {
-    color: palette.signal,
+    color: palette.dim,
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.8,
@@ -1415,14 +1419,14 @@ const styles = StyleSheet.create({
   diffActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 21 },
   markdownBlockSpacing: { marginTop: space.sm },
-  linkText: { color: palette.signal, textDecorationLine: "underline" },
+  linkText: { color: markdownPalette.linkText, textDecorationLine: "underline" },
   notice: {
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
     marginHorizontal: space.lg,
     paddingVertical: 12,
   },
-  noticeLabel: { color: palette.warm, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  noticeLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
   noticeText: { color: palette.dim, fontSize: 13, lineHeight: 19, marginTop: 5 },
   omittedText: { color: palette.dim, fontSize: 11, marginTop: 7 },
   outputText: {
@@ -1435,12 +1439,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   pressed: { opacity: 0.7 },
-  reasoningLabel: { color: palette.warm, fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  reasoningLabel: { color: palette.dim, fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
   reasoningText: { color: palette.dim, fontSize: 13, lineHeight: 19 },
   statusText: { color: palette.dim, fontSize: 12 },
   subagent: {
-    backgroundColor: palette.signalDark,
-    borderColor: palette.signal,
+    backgroundColor: palette.card,
+    borderColor: palette.activity,
     borderRadius: radius.md,
     borderWidth: 1,
     gap: space.xs,
@@ -1468,7 +1472,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   subagentHeadingLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
-  subagentLabel: { color: palette.signal, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  subagentLabel: { color: palette.activity, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
   subagentResult: {
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -1479,12 +1483,12 @@ const styles = StyleSheet.create({
   },
   subagentState: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
   subagentStateError: { color: palette.danger },
-  subagentStateRunning: { color: palette.warm },
+  subagentStateRunning: { color: palette.activity },
   subagentTitle: { color: palette.ink, fontSize: 16, fontWeight: "700" },
   textAction: { alignSelf: "flex-start", minHeight: 40, paddingVertical: 10 },
   textActionLabel: { color: palette.signal, fontSize: 12, fontWeight: "700" },
   userBubble: {
-    backgroundColor: palette.signalDark,
+    backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -1492,7 +1496,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
   userBubbleLargeText: { maxWidth: "100%" },
-  userLabel: { color: palette.warm, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  userLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.lg, paddingVertical: space.sm },
   userText: { color: palette.ink, fontSize: 16, lineHeight: 23, marginTop: 7 },
 });

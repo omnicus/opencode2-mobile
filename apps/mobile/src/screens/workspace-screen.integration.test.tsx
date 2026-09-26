@@ -442,7 +442,7 @@ test("keeps session-list chrome stable during background location updates", asyn
   await screen.findByText("Session 0");
   await waitFor(() => expect(queryClient.getQueryState(locationKey)?.fetchStatus).toBe("fetching"));
 
-  expect(screen.getByRole("button", { name: "New" })).toBeOnTheScreen();
+  expect(screen.getByLabelText("Search sessions")).toBeOnTheScreen();
   expect(screen.queryByLabelText(/Change new session location/)).toBeNull();
   expect(screen.UNSAFE_getByType(FlatList).props.maintainVisibleContentPosition).toBeUndefined();
 
@@ -451,7 +451,7 @@ test("keeps session-list chrome stable during background location updates", asyn
   queryClient.clear();
 });
 
-test("opens project selection before creating a session", async () => {
+test("keeps connection management and new-session controls out of the phone list body", async () => {
   const navigation = { navigate: jest.fn() };
   mockWorkspaceRefetch.mockClear();
   const queryClient = new QueryClient({
@@ -479,10 +479,8 @@ test("opens project selection before creating a session", async () => {
   expect(screen.getByText("Recent")).toBeOnTheScreen();
   expect(screen.queryByText("Succeeded")).toBeNull();
 
-  const newButton = screen.getByRole("button", { name: "New" });
-  expect(newButton).toBeEnabled();
-  fireEvent.press(newButton);
-  expect(navigation.navigate).toHaveBeenCalledWith("NewSession");
+  expect(screen.queryByRole("button", { name: "New" })).toBeNull();
+  expect(screen.queryByRole("button", { name: /Manage connections/ })).toBeNull();
   expect(mockWorkspaceRefetch).not.toHaveBeenCalled();
 
   view.unmount();
@@ -490,6 +488,7 @@ test("opens project selection before creating a session", async () => {
 });
 
 test("retains the in-content Sessions title in the tablet shell", async () => {
+  const navigate = jest.fn();
   const originalScreen = Dimensions.get("screen");
   const originalWindow = Dimensions.get("window");
   const queryClient = new QueryClient({
@@ -509,7 +508,7 @@ test("retains the in-content Sessions title in the tablet shell", async () => {
       <QueryClientProvider client={queryClient}>
         <WorkspaceSelectionProvider>
           <WorkspaceScreen
-            navigation={{ navigate: jest.fn() } as never}
+            navigation={{ navigate } as never}
             route={{ key: "workspace", name: "Workspace" } as never}
           />
         </WorkspaceSelectionProvider>
@@ -517,6 +516,8 @@ test("retains the in-content Sessions title in the tablet shell", async () => {
     );
 
     expect(await screen.findByRole("header", { name: "Sessions" })).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "New session" }));
+    expect(navigate).toHaveBeenCalledWith("NewSession");
   } finally {
     view?.unmount();
     queryClient.clear();
@@ -607,12 +608,20 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_100);
   await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
+  scrollToOffset.mockClear();
+  fireEvent(transcript, "layout", {
+    nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 220 } },
+  });
+  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
 
   fireEvent(transcript, "scrollBeginDrag", liveEdgeEvent);
   fireEvent.scroll(transcript, justAwayFromLiveEdge);
   fireEvent(transcript, "momentumScrollEnd", justAwayFromLiveEdge);
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_200);
+  fireEvent(transcript, "layout", {
+    nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 500 } },
+  });
   expect(scrollToOffset).not.toHaveBeenCalled();
   fireEvent.press(screen.getByRole("button", { name: "Scroll to latest" }));
   fireEvent.scroll(transcript, scrollEvent(120));

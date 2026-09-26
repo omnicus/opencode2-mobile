@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     letterSpacing: 0.9,
   },
-  buttonPressed: { backgroundColor: "#9BD955" },
+  buttonPressed: { opacity: 0.7 },
   copy: {
     color: palette.dim,
     fontSize: 16,

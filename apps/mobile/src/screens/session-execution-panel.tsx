@@ -75,29 +75,37 @@ export function SessionExecutionPanel({
       style={styles.shell}
     >
       {active ? (
-        <View style={styles.executionCard}>
+        <View style={styles.executionRow}>
           <View style={styles.headingRow}>
             {permissions.length > 0 || formRequests ? (
               <View style={styles.activeDot} />
             ) : (
-              <WorkingIndicator />
+              <WorkingIndicator variant="blocks" />
             )}
             <Text dynamicTypeRamp={typeRamp.control} style={styles.executionTitle}>
               {permissions.length > 0
                 ? "Waiting for permission"
                 : formRequests
                   ? "Waiting for input"
-                  : "OpenCode is working"}
+                  : "Working"}
             </Text>
           </View>
-          <View style={styles.actionRow}>
-            <PanelButton
-              danger
-              disabled={Boolean(busyAction)}
-              label={busyAction === "interrupt" ? "Stopping" : "Stop"}
-              onPress={onInterrupt}
-            />
-          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityHint="Interrupts the current session"
+            accessibilityState={{ disabled: Boolean(busyAction) }}
+            disabled={Boolean(busyAction)}
+            onPress={onInterrupt}
+            style={({ pressed }) => [
+              styles.stopButton,
+              busyAction && styles.disabled,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
+              {busyAction === "interrupt" ? "Stopping" : "Stop"}
+            </Text>
+          </Pressable>
         </View>
       ) : null}
 
@@ -304,9 +312,9 @@ const styles = StyleSheet.create({
   actionLabel: { color: palette.ink, fontSize: 12, fontWeight: "800" },
   actionLabelDanger: { color: palette.danger },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  activeDot: { backgroundColor: palette.signal, borderRadius: 99, height: 8, width: 8 },
+  activeDot: { backgroundColor: palette.warm, borderRadius: 99, height: 6, width: 6 },
   admissionCard: {
-    backgroundColor: "#211B11",
+    backgroundColor: palette.background,
     borderColor: palette.warm,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -316,19 +324,17 @@ const styles = StyleSheet.create({
   cardCopy: { color: palette.dim, fontSize: 13, lineHeight: 19 },
   cardEyebrow: { color: palette.warm, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   disabled: { opacity: 0.5 },
-  executionCard: {
+  executionRow: {
     alignItems: "center",
-    backgroundColor: palette.signalDark,
-    borderColor: palette.signal,
-    borderRadius: radius.md,
-    borderWidth: 1,
     flexDirection: "row",
     gap: space.sm,
     justifyContent: "space-between",
     paddingHorizontal: space.sm,
-    paddingVertical: space.xs,
+    minHeight: 44,
   },
-  executionTitle: { color: palette.signal, fontSize: 14, fontWeight: "800" },
+  executionTitle: { color: palette.dim, flexShrink: 1, fontSize: 12 },
+  stopButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
+  stopLabel: { color: palette.ink, fontSize: 13 },
   headingRow: { alignItems: "center", flexDirection: "row", flexShrink: 1, gap: space.sm },
   inboxCard: {
     backgroundColor: palette.card,
@@ -343,7 +349,7 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.62 },
   permissionAction: { color: palette.ink, fontSize: 16, fontWeight: "800" },
   permissionCard: {
-    backgroundColor: "#211B11",
+    backgroundColor: palette.background,
     borderColor: palette.warm,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -367,6 +373,6 @@ const styles = StyleSheet.create({
   },
   permissionWarning: { color: palette.warm, fontSize: 12, lineHeight: 17 },
   promptPreview: { color: palette.ink, fontSize: 14, lineHeight: 20 },
-  content: { gap: space.sm, padding: space.md },
+  content: { gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.xs },
   shell: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },
 });

@@ -1184,8 +1184,8 @@ const styles = StyleSheet.create({
     maxWidth: 680,
   },
   error: {
-    backgroundColor: "#281513",
-    borderColor: "#5C2D27",
+    backgroundColor: palette.background,
+    borderColor: palette.danger,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.danger,
@@ -1302,8 +1302,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1.3,
   },
   lifecyclePrompt: {
-    backgroundColor: "#21190F",
-    borderColor: "#4B3820",
+    backgroundColor: palette.background,
+    borderColor: palette.warm,
     borderRadius: radius.md,
     borderWidth: 1,
     marginTop: space.md,
@@ -1331,11 +1331,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   notice: {
-    backgroundColor: palette.signalDark,
-    borderColor: "#425E26",
+    backgroundColor: palette.background,
+    borderColor: palette.success,
     borderRadius: radius.sm,
     borderWidth: 1,
-    color: palette.signal,
+    color: palette.success,
     fontSize: 14,
     lineHeight: 20,
     padding: space.md,
@@ -1360,7 +1360,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
   },
   primaryButtonDisabled: { opacity: 0.65 },
-  primaryButtonPressed: { backgroundColor: "#9BD955" },
+  primaryButtonPressed: { opacity: 0.7 },
   primaryLabel: {
     color: palette.background,
     fontSize: 14,
@@ -1426,8 +1426,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
   },
   result: {
-    backgroundColor: palette.signalDark,
-    borderColor: "#425E26",
+    backgroundColor: palette.background,
+    borderColor: palette.success,
     borderRadius: radius.lg,
     borderWidth: 1,
     gap: space.lg,
@@ -1435,7 +1435,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   resultDot: {
-    backgroundColor: palette.signal,
+    backgroundColor: palette.success,
     borderRadius: 5,
     height: 10,
     width: 10,
@@ -1446,7 +1446,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   resultTitle: {
-    color: palette.signal,
+    color: palette.success,
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 1.2,
@@ -1478,7 +1478,7 @@ const styles = StyleSheet.create({
     height: 8,
     width: 8,
   },
-  runtimeDotConnected: { backgroundColor: palette.signal },
+  runtimeDotConnected: { backgroundColor: palette.success },
   runtimeStatus: {
     borderBottomColor: palette.border,
     borderBottomWidth: 1,
@@ -1498,7 +1498,7 @@ const styles = StyleSheet.create({
     minHeight: 40,
     paddingHorizontal: space.sm,
   },
-  removeButtonPressed: { backgroundColor: "#281513" },
+  removeButtonPressed: { backgroundColor: palette.card },
   removeLabel: {
     color: palette.danger,
     fontSize: 10,
@@ -1596,7 +1596,7 @@ const styles = StyleSheet.create({
   segmentLabelSelected: { color: palette.background },
   segmentSelected: { backgroundColor: palette.signal },
   statusMark: {
-    backgroundColor: palette.signal,
+    backgroundColor: palette.success,
     borderRadius: 4,
     height: 8,
     width: 8,
@@ -1639,8 +1639,8 @@ const styles = StyleSheet.create({
   warningCopy: { flex: 1 },
   warningRow: {
     alignItems: "flex-start",
-    backgroundColor: "#21190F",
-    borderColor: "#4B3820",
+    backgroundColor: palette.background,
+    borderColor: palette.warm,
     borderRadius: radius.md,
     borderWidth: 1,
     flexDirection: "row",
@@ -1648,7 +1648,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   warningText: {
-    color: "#C8B79E",
+    color: palette.dim,
     fontSize: 13,
     lineHeight: 19,
     marginTop: space.xs,

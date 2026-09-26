@@ -16,7 +16,21 @@ const dots = [0, 1, 2, 3, 4, 5].map((bit) => ({
   ) as CSSAnimationKeyframes,
 }));
 
-export function WorkingIndicator() {
+const blockPath = [0, 1, 2, 3, 4, 5, 6, 7, 6, 5, 4, 3, 2, 1];
+const blocks = Array.from({ length: 8 }, (_, index) => ({
+  index,
+  animation: Object.fromEntries(
+    [...blockPath, blockPath[0]].map((head, frame) => {
+      const distance = frame < 8 ? (head ?? 0) - index : index - (head ?? 0);
+      return [
+        `${(frame / blockPath.length) * 100}%`,
+        { opacity: distance >= 0 && distance < 4 ? 1 - distance * 0.22 : 0.15 },
+      ];
+    }),
+  ) as CSSAnimationKeyframes,
+}));
+
+export function WorkingIndicator({ variant = "dots" }: { variant?: "dots" | "blocks" }) {
   const [reducedMotion, setReducedMotion] = useState(true);
   const [foreground, setForeground] = useState(AppState.currentState === "active");
 
@@ -35,6 +49,33 @@ export function WorkingIndicator() {
       app.remove();
     };
   }, []);
+
+  if (variant === "blocks") {
+    return (
+      <View
+        accessible={false}
+        importantForAccessibility="no-hide-descendants"
+        style={styles.blocks}
+      >
+        {blocks.map(({ index, animation }) => (
+          <Animated.View
+            key={index}
+            style={[
+              styles.block,
+              { opacity: index < 4 ? 1 - index * 0.22 : 0.15 },
+              !reducedMotion && {
+                animationName: animation,
+                animationDuration: blockPath.length * 80,
+                animationIterationCount: "infinite",
+                animationTimingFunction: steps(1, "end"),
+                animationPlayState: foreground ? "running" : "paused",
+              },
+            ]}
+          />
+        ))}
+      </View>
+    );
+  }
 
   return (
     <View accessible={false} importantForAccessibility="no-hide-descendants" style={styles.icon}>
@@ -63,6 +104,8 @@ export function WorkingIndicator() {
 }
 
 const styles = StyleSheet.create({
+  blocks: { flexDirection: "row", flexShrink: 0, gap: 1 },
+  block: { width: 5, height: 6, backgroundColor: palette.activity },
   icon: { width: 10, height: 16, flexShrink: 0 },
   dot: { position: "absolute", width: 4, height: 4, backgroundColor: palette.signal },
 });

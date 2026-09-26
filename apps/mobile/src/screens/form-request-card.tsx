@@ -416,7 +416,7 @@ const styles = StyleSheet.create({
   buttonDangerLabel: { color: palette.danger },
   buttonLabel: { color: palette.ink, fontSize: 13, fontWeight: "800" },
   card: {
-    backgroundColor: "#211B11",
+    backgroundColor: palette.background,
     borderColor: palette.warm,
     borderRadius: radius.md,
     borderWidth: 1,

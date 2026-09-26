@@ -3,6 +3,7 @@ import type { FileDiffInfo } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react-native";
 
+import { diffPalette } from "../theme";
 import { buildDiffRows, DiffScreen } from "./diff-screen";
 
 const mockGetDiff =
@@ -53,8 +54,14 @@ test("renders an authoritative working-tree diff", async () => {
       "Current working tree. This may include changes made after the selected tool call.",
     ),
   ).toBeOnTheScreen();
-  expect(screen.getByText("+new value")).toHaveStyle({ backgroundColor: "#172B38" });
-  expect(screen.getByText("-old value")).toHaveStyle({ backgroundColor: "#2A1714" });
+  expect(screen.getByText("+new value")).toHaveStyle({
+    backgroundColor: diffPalette.addedBackground,
+    color: diffPalette.addedText,
+  });
+  expect(screen.getByText("-old value")).toHaveStyle({
+    backgroundColor: diffPalette.removedBackground,
+    color: diffPalette.removedText,
+  });
   expect(mockGetDiff).toHaveBeenCalledWith(
     {},
     { directory: "/workspace" },

@@ -12,6 +12,25 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-09-27: iOS multiline composer sizing
+
+A physical iPhone recording showed typed text wrapping beyond the visible input
+while the composer retained its initial height. Removing `numberOfLines` alone
+did not resolve the issue. The fixed-height input depended on
+`onContentSizeChange`, which the installed iOS Fabric implementation emits during
+layout updates.
+
+The composer now uses native text measurement with minimum and maximum heights,
+and enables native scrolling while expanded. It no longer sets a fixed expanded
+height or depends on a content-size callback. The regression check verifies these
+native layout constraints without injecting synthetic content-size events.
+
+The full checks, both Hermes exports, Expo Doctor, and native-runtime compatibility
+gate passed before direct preview OTA publication for runtime 0.1.4. The user
+confirmed that the correction worked on the phone. This confirms the reported
+iOS wrapping issue is resolved; Android device behavior and all font-scale and
+keyboard combinations were not verified by this follow-up.
+
 ## 2026-09-18: server 2.0.8 identity compatibility
 
 After the first automated preview publication, an iOS diagnostic export showed

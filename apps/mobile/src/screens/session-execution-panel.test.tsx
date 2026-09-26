@@ -40,7 +40,9 @@ test("renders active execution and mutable queued inbox work", () => {
     />,
   );
 
-  expect(screen.getByText("OpenCode is working")).toBeOnTheScreen();
+  expect(screen.getByText("Working")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Stop" }));
+  expect(callbacks.onInterrupt).toHaveBeenCalledTimes(1);
   expect(screen.getByText("Queued prompt")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Steer now" }));
   fireEvent.press(screen.getByRole("button", { name: "Cancel" }));

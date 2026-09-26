@@ -9,7 +9,7 @@ import type {
 } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import { useState } from "react";
-import { Keyboard } from "react-native";
+import { Keyboard, StyleSheet } from "react-native";
 
 import type { PromptDelivery } from "./prompt-admission-model";
 import { SessionComposer } from "./session-composer";
@@ -53,7 +53,11 @@ test("keeps the native prompt multiline and submits through an explicit control"
   const input = screen.getByLabelText("Prompt");
   expect(input.props.multiline).toBe(true);
   expect(input.props.submitBehavior).toBe("newline");
+  fireEvent(input, "focus");
+  // On iOS Fabric, numberOfLines is a maximum, not an initial editor height.
+  expect(input.props.numberOfLines).toBeUndefined();
   fireEvent.changeText(input, "First line\nSecond line");
+  expect(input.props.value).toBe("First line\nSecond line");
   fireEvent.press(screen.getByRole("button", { name: "Send" }));
 
   expect(onSubmit).toHaveBeenCalledTimes(1);
@@ -66,12 +70,12 @@ test("dismisses the keyboard and collapses the composer after sending", () => {
   const input = screen.getByLabelText("Prompt");
   fireEvent.changeText(input, "Ship it");
   fireEvent(input, "focus");
-  expect(input.props.numberOfLines).toBe(4);
+  expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
 
   fireEvent.press(screen.getByRole("button", { name: "Send" }));
 
   expect(dismissKeyboard).toHaveBeenCalledTimes(1);
-  expect(screen.getByLabelText("Prompt").props.numberOfLines).toBe(1);
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ height: 42 });
   dismissKeyboard.mockRestore();
 });
 
@@ -91,7 +95,7 @@ test("closes before publishing an immediate active-session transition", () => {
   fireEvent.press(screen.getByRole("button", { name: "Send" }));
 
   expect(onSubmit).toHaveBeenCalledTimes(1);
-  expect(screen.getByLabelText("Prompt").props.numberOfLines).toBe(1);
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ height: 42 });
   dismissKeyboard.mockRestore();
 });
 
@@ -99,15 +103,32 @@ test("keeps controls collapsed until the editor is focused", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
 
   const input = screen.getByLabelText("Prompt");
-  expect(input.props.numberOfLines).toBe(1);
+  expect(input).toHaveStyle({ height: 42 });
   expect(screen.queryByRole("button", { name: "Model: Choose model" })).not.toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Agent: Choose agent" })).not.toBeOnTheScreen();
 
   fireEvent(input, "focus");
 
-  expect(input.props.numberOfLines).toBe(4);
+  expect(input).toHaveStyle({ minHeight: 54, maxHeight: 120 });
   expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
+});
+
+test("lets native multiline layout grow without waiting for a size-change event", () => {
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+  const input = screen.getByLabelText("Prompt");
+  fireEvent(input, "focus");
+  // The native test environment uses 200% font scaling.
+  expect(input).toHaveStyle({ minHeight: 54, maxHeight: 120 });
+  expect(StyleSheet.flatten(input.props.style).height).toBeUndefined();
+  fireEvent.changeText(input, "First line\nSecond line\nThird line");
+  expect(input.props.value).toBe("First line\nSecond line\nThird line");
+  expect(StyleSheet.flatten(input.props.style).height).toBeUndefined();
+  // Native scrolling must remain available once the maximum height is reached,
+  // even if iOS does not emit another content-size event at that fixed limit.
+  expect(input.props.scrollEnabled).toBe(true);
+  fireEvent.changeText(input, "");
+  expect(input).toHaveStyle({ minHeight: 54, maxHeight: 120 });
 });
 
 test("keeps send in the focused composer toolbar", () => {

@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import type {
   AgentInfo,
   CommandInfo,
@@ -17,6 +18,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -99,6 +101,7 @@ export function SessionComposer({
   skills: SkillInfo[];
 }) {
   const inputRef = useRef<TextInput>(null);
+  const { fontScale } = useWindowDimensions();
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
@@ -126,6 +129,8 @@ export function SessionComposer({
       )
     : agents;
   const expanded = largeText || focused || agentPickerOpen || modelPickerOpen;
+  const minimumInputHeight = Math.max(40, 23 * fontScale + 8);
+  const maximumInputHeight = Math.max(120, minimumInputHeight * 2);
   const completions = listSlashCompletions(draft, commands);
   const mentionTrigger = findMentionTrigger(draft, selection);
   const mentionCompletions = mentionTrigger
@@ -214,7 +219,6 @@ export function SessionComposer({
             editable={editable}
             maxLength={maximumDraftLength}
             multiline
-            numberOfLines={expanded ? 4 : 1}
             onBlur={() => setFocused(false)}
             onChangeText={changeDraft}
             onFocus={() => setFocused(true)}
@@ -226,7 +230,18 @@ export function SessionComposer({
             scrollEnabled={expanded}
             selectionColor={palette.signal}
             selection={selection}
-            style={[styles.input, expanded ? styles.inputExpanded : styles.inputCollapsed]}
+            style={[
+              styles.input,
+              // iOS Fabric emits content-size changes during layout. Let native
+              // text measurement grow the editor instead of fixing its height
+              // and waiting for an event that requires that height to change.
+              expanded
+                ? [
+                    styles.inputExpanded,
+                    { minHeight: minimumInputHeight, maxHeight: maximumInputHeight },
+                  ]
+                : styles.inputCollapsed,
+            ]}
             submitBehavior="newline"
             textAlignVertical={expanded ? "top" : "center"}
             value={draft}
@@ -589,6 +604,9 @@ function SendButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={
+        active && delivery === "queue" ? "Queue" : active && delivery === "steer" ? "Steer" : "Send"
+      }
       accessibilityHint={
         disabledHint ?? (active && !delivery ? "Choose steer or queue before sending." : undefined)
       }
@@ -602,13 +620,7 @@ function SendButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.control} style={styles.sendLabel}>
-        {active && delivery === "queue"
-          ? "Queue"
-          : active && delivery === "steer"
-            ? "Steer"
-            : "Send"}
-      </Text>
+      <Feather accessible={false} color={palette.background} name="arrow-up" size={22} />
     </Pressable>
   );
 }
@@ -629,12 +641,10 @@ function SelectorButton({
       onPress={onPress}
       style={({ pressed }) => [styles.selectorButton, pressed && styles.pressed]}
     >
-      <Text dynamicTypeRamp={typeRamp.caption} style={styles.selectorPrefix}>
-        {prefix.toUpperCase()}
-      </Text>
       <Text dynamicTypeRamp={typeRamp.control} numberOfLines={1} style={styles.selectorLabel}>
         {label}
       </Text>
+      <Feather accessible={false} color={palette.dim} name="chevron-down" size={12} />
     </Pressable>
   );
 }
@@ -756,8 +766,6 @@ const styles = StyleSheet.create({
   },
   inputCollapsed: { height: 42, paddingHorizontal: space.sm, paddingVertical: 0 },
   inputExpanded: {
-    maxHeight: 160,
-    minHeight: 72,
     paddingHorizontal: 4,
     paddingVertical: 4,
   },
@@ -789,18 +797,13 @@ const styles = StyleSheet.create({
   },
   selectorButton: {
     alignItems: "center",
-    backgroundColor: palette.background,
-    borderColor: palette.border,
-    borderRadius: 999,
-    borderWidth: 1,
     flexDirection: "row",
     gap: 5,
     maxWidth: 180,
-    minHeight: 40,
-    paddingHorizontal: space.sm,
+    minHeight: 44,
+    paddingHorizontal: 4,
   },
   selectorLabel: { color: palette.ink, flexShrink: 1, fontSize: 12, fontWeight: "700" },
-  selectorPrefix: { color: palette.dim, fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
   selectorRow: { alignItems: "center", gap: space.xs, paddingRight: space.xs },
   selectorScroller: { flex: 1 },
   sendButton: {
@@ -809,11 +812,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     justifyContent: "center",
     minHeight: 44,
-    minWidth: 68,
-    paddingHorizontal: space.sm,
+    width: 44,
   },
   sendButtonDisabled: { backgroundColor: palette.border, opacity: 0.68 },
-  sendLabel: { color: palette.background, fontSize: 14, fontWeight: "900" },
   shell: {
     backgroundColor: palette.background,
     borderTopColor: palette.border,
@@ -823,8 +824,8 @@ const styles = StyleSheet.create({
     paddingVertical: space.xs,
   },
   surface: {
-    backgroundColor: "#171C19",
-    borderColor: "#46514B",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
     borderWidth: 1,
     overflow: "hidden",
   },
@@ -835,13 +836,11 @@ const styles = StyleSheet.create({
     paddingRight: 5,
   },
   surfaceExpanded: {
-    borderColor: "#59665F",
     borderRadius: 26,
-    gap: space.xs,
-    minHeight: 140,
+    gap: 2,
     paddingBottom: 6,
     paddingHorizontal: 14,
-    paddingTop: 14,
+    paddingTop: 8,
   },
   toolbar: { alignItems: "center", flexDirection: "row", gap: space.xs },
 });

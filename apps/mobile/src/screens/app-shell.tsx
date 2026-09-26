@@ -486,7 +486,7 @@ export function getConnectionPresentation(
   status: ConnectionTransportStatus,
   reconnectAttempt: number,
 ) {
-  if (status === "connected") return { color: palette.signal, label: "LIVE" };
+  if (status === "connected") return { color: palette.success, label: "LIVE" };
   if (status === "connecting") return { color: palette.warm, label: "CONNECTING" };
   if (status === "reconnecting") {
     return { color: palette.warm, label: `RECONNECTING ${reconnectAttempt}` };
@@ -786,7 +786,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
   if (state === "loading") {
     return (
       <View accessibilityLiveRegion="polite" style={styles.stateCard}>
-        <ActivityIndicator color={palette.warm} />
+        <ActivityIndicator color={palette.dim} />
         <View style={styles.stateCardText}>
           <Text style={styles.cardTitle}>Loading server state</Text>
           <Text style={styles.cardCopy}>Waiting for the first authoritative snapshot.</Text>
@@ -926,7 +926,7 @@ const styles = StyleSheet.create({
   },
   brand: { color: palette.signal, fontSize: 15, fontWeight: "700" },
   cacheCard: {
-    backgroundColor: "#211B11",
+    backgroundColor: palette.background,
     borderColor: palette.warm,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -1010,7 +1010,7 @@ const styles = StyleSheet.create({
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 20, marginTop: space.sm },
   eyebrow: { color: palette.signal, fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
   failureCard: {
-    backgroundColor: "#251411",
+    backgroundColor: palette.background,
     borderColor: palette.danger,
     borderRadius: radius.lg,
     borderWidth: 1,
