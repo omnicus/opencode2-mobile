@@ -149,7 +149,14 @@ function MenuButton({
 }
 
 const styles = StyleSheet.create({
-  actions: { alignItems: "center", flexDirection: "row" },
+  actions: {
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+  },
   disclosure: { color: palette.dim, fontSize: 18, marginLeft: space.sm },
   menuButton: {
     alignItems: "center",

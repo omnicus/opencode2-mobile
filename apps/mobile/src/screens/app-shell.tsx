@@ -32,6 +32,7 @@ import {
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
+import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { palette, radius, space, typeRamp, usesLargeTextLayout } from "../theme";
 import { AppUpdateCard } from "../updates/app-updates";
@@ -246,6 +247,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
 }
 
 export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
+  const transcript = useTranscriptPreferences();
   const db = useSQLiteContext();
   const appLock = useAppLock();
   const runtime = useConnectionRuntime();
@@ -336,6 +338,42 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         </Text>
 
         <AppUpdateCard />
+
+        <View style={styles.settingCard}>
+          <View style={styles.settingText}>
+            <Text style={styles.cardTitle}>Detailed transcript</Text>
+            <Text style={styles.cardCopy}>
+              {transcript.detailed
+                ? "Detailed: individual tool executions and system notices."
+                : "Compact: group activity and collapse routine details."}
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Detailed transcript"
+            disabled={transcript.busy}
+            value={transcript.detailed}
+            onValueChange={(detailed) => void transcript.update({ detailed })}
+          />
+        </View>
+        <View style={styles.settingCard}>
+          <View style={styles.settingText}>
+            <Text style={styles.cardTitle}>Show reasoning</Text>
+            <Text style={styles.cardCopy}>
+              Display model reasoning when provided by the server.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Show reasoning"
+            disabled={transcript.busy}
+            value={transcript.reasoning}
+            onValueChange={(reasoning) => void transcript.update({ reasoning })}
+          />
+        </View>
+        {transcript.error ? (
+          <Text accessibilityRole="alert" style={styles.errorText}>
+            Transcript preferences could not be loaded or saved. Try changing the setting again.
+          </Text>
+        ) : null}
 
         <View style={styles.settingCard}>
           <View style={styles.settingText}>
