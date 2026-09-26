@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import {
   findOpenCodeFiles,
   getDefaultOpenCodeLocation,
@@ -9,7 +10,6 @@ import {
   listOpenCodeProjects,
   removeOpenCodeSession,
   type SessionInfo,
-  type SessionMessageInfo,
   type SessionMessagesResponse,
 } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -50,6 +50,7 @@ import {
   recordTranscriptLatestJump,
   recordTranscriptResidentSet,
 } from "../state/transcript-performance";
+import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import {
@@ -65,7 +66,12 @@ import { FormRequestList } from "./form-request-list";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
-import { SessionTranscriptRow } from "./session-transcript";
+import {
+  groupTranscriptMessages,
+  SessionTranscriptRow,
+  TranscriptActivityGroup,
+  type TranscriptItem,
+} from "./session-transcript";
 import {
   resolveTranscriptLiveFollow,
   type TranscriptLiveFollowEvent,
@@ -456,6 +462,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
 }
 
 export function SessionScreen({ navigation, route }: SessionProps) {
+  const transcriptPreferences = useTranscriptPreferences();
   const runtime = useConnectionRuntime();
   const workspaceSelection = useWorkspaceSelection();
   const queryClient = useQueryClient();
@@ -483,7 +490,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const deferredMentionSearch = useDeferredValue(mentionSearch);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
-  const transcriptListRef = useRef<FlatList<SessionMessageInfo>>(null);
+  const transcriptListRef = useRef<FlatList<TranscriptItem>>(null);
   const liveFollowEnabledRef = useRef(true);
   const latestJumpPendingRef = useRef(false);
   const userScrollSessionRef = useRef(false);
@@ -569,6 +576,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         ? ({ state: "loading" } as const)
         : ({ state: "none" } as const);
   const messages = flattenTranscriptPages(messagesQuery.data?.pages);
+  const transcriptItems = groupTranscriptMessages(
+    messages,
+    transcriptPreferences.detailed,
+    transcriptPreferences.reasoning,
+  );
   const draft = useSessionDraft(routeConnectionId, sessionID);
   const execution = useSessionExecution({
     client: sessionLocationReady ? client : undefined,
@@ -915,7 +927,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         <FlatList
           accessibilityLabel="Session transcript"
           contentContainerStyle={[styles.detailContent, largeText && styles.detailContentLargeText]}
-          data={messages}
+          data={transcriptItems}
           extraData={fontScale}
           initialNumToRender={12}
           inverted
@@ -972,14 +984,26 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           ref={transcriptListRef}
-          renderItem={({ item }) => (
-            <SessionTranscriptRow
-              largeText={largeText}
-              message={item}
-              onOpenDiff={openDiff}
-              onOpenSubagent={openSubagent}
-            />
-          )}
+          renderItem={({ item }) =>
+            item.type === "activity-group" ? (
+              <TranscriptActivityGroup
+                item={item}
+                largeText={largeText}
+                showReasoning={transcriptPreferences.reasoning}
+                onOpenDiff={openDiff}
+                onOpenSubagent={openSubagent}
+              />
+            ) : (
+              <SessionTranscriptRow
+                detailed={transcriptPreferences.detailed}
+                showReasoning={transcriptPreferences.reasoning}
+                largeText={largeText}
+                message={item}
+                onOpenDiff={openDiff}
+                onOpenSubagent={openSubagent}
+              />
+            )
+          }
           scrollEventThrottle={16}
           style={styles.transcriptList}
           updateCellsBatchingPeriod={40}
@@ -993,13 +1017,17 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             onPress={scrollToLatest}
             style={({ pressed }) => [
               styles.latestButton,
-              largeText && styles.latestButtonLargeText,
+              { bottom: composerDockHeight + composerKeyboardOffset + space.sm },
               pressed && styles.pressed,
             ]}
           >
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.latestButtonLabel}>
-              Latest
-            </Text>
+            <Feather
+              accessibilityElementsHidden
+              color={palette.ink}
+              importantForAccessibility="no-hide-descendants"
+              name="arrow-down"
+              size={24}
+            />
           </Pressable>
         ) : null}
         <View
@@ -1472,22 +1500,17 @@ const styles = StyleSheet.create({
   },
   latestButton: {
     alignItems: "center",
-    alignSelf: "flex-end",
-    backgroundColor: palette.signal,
+    alignSelf: "center",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
     borderRadius: 999,
+    borderWidth: 1,
     justifyContent: "center",
-    marginBottom: space.sm,
-    marginHorizontal: space.lg,
-    minHeight: 44,
-    minWidth: 76,
-    paddingHorizontal: space.md,
-    position: "relative",
+    height: 48,
+    width: 48,
+    position: "absolute",
+    zIndex: 1,
   },
-  latestButtonLargeText: {
-    maxWidth: "75%",
-    paddingVertical: space.sm,
-  },
-  latestButtonLabel: { color: palette.background, fontSize: 13, fontWeight: "800" },
   listContent: {
     alignSelf: "center",
     maxWidth: 760,
@@ -1498,13 +1521,11 @@ const styles = StyleSheet.create({
   inboxSectionHeader: { paddingHorizontal: space.lg },
   listSectionHeader: {
     alignItems: "center",
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     marginTop: space.lg,
     paddingBottom: space.sm,
   },
-  listSectionTitle: { color: palette.ink, flex: 1, fontSize: 14, fontWeight: "700" },
+  listSectionTitle: { color: palette.dim, flex: 1, fontSize: 14, fontWeight: "500" },
   muted: { color: palette.dim, fontSize: 14, lineHeight: 21, marginTop: space.xs },
   newSessionCopy: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.xs },
   newSessionIntro: { marginBottom: space.sm },
@@ -1538,8 +1559,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: palette.card,
     borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
+    borderRadius: 24,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     marginTop: space.sm,
     minHeight: 48,
@@ -1574,16 +1595,14 @@ const styles = StyleSheet.create({
   },
   sessionMetadata: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 4 },
   sessionMetaLabel: { color: palette.dim, fontSize: 12 },
-  sessionProject: { color: palette.ink, fontSize: 12, fontWeight: "700" },
+  sessionProject: { color: palette.dim, fontSize: 12, fontWeight: "500" },
   sessionRow: {
     alignItems: "center",
     backgroundColor: palette.background,
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     minHeight: 68,
     paddingHorizontal: space.lg,
-    paddingVertical: 10,
+    paddingVertical: 14,
   },
   sessionRowLargeText: { alignItems: "flex-start" },
   sessionStatus: { fontSize: 12, fontWeight: "700" },
@@ -1599,9 +1618,9 @@ const styles = StyleSheet.create({
   sessionTitle: {
     color: palette.ink,
     flex: 1,
-    fontSize: 16,
-    fontWeight: "700",
-    lineHeight: 21,
+    fontSize: 17,
+    fontWeight: "400",
+    lineHeight: 24,
     minWidth: 0,
   },
   sessionTopRow: {

@@ -29,12 +29,123 @@ type AssistantPart = AssistantMessage["content"][number];
 type ShellMessage = Extract<SessionMessageInfo, { type: "shell" }>;
 type ToolOutput = Extract<AssistantTool["state"], { status: "completed" }>["content"][number];
 
+export type TranscriptItem =
+  | SessionMessageInfo
+  | {
+      type: "activity-group";
+      id: string;
+      messages: SessionMessageInfo[];
+      count: number;
+      running: boolean;
+    };
+
+export function groupTranscriptMessages(
+  messages: SessionMessageInfo[],
+  detailed: boolean,
+  showReasoning: boolean,
+): TranscriptItem[] {
+  if (detailed) return messages;
+  const result: TranscriptItem[] = [];
+  let pending: SessionMessageInfo[] = [];
+  let count = 0;
+  let running = false;
+  const flush = () => {
+    const first = pending[0];
+    if (first && count > 1) {
+      result.push({
+        type: "activity-group",
+        id: `activity:${first.id}`,
+        messages: pending,
+        count,
+        running,
+      });
+    } else if (count > 0) result.push(...pending);
+    pending = [];
+    count = 0;
+    running = false;
+  };
+  for (const message of messages) {
+    if (
+      message.type === "assistant" &&
+      !message.error &&
+      !message.retry &&
+      message.content.length > 0 &&
+      message.content.every((part) =>
+        part.type === "reasoning"
+          ? !showReasoning
+          : part.type === "tool" && part.state.status !== "error" && !getSubagentPresentation(part),
+      )
+    ) {
+      pending.push(message);
+      for (const part of message.content) {
+        if (part.type !== "tool") continue;
+        count += 1;
+        running ||= part.state.status === "running" || part.state.status === "streaming";
+      }
+    } else {
+      flush();
+      result.push(message);
+    }
+  }
+  flush();
+  return result;
+}
+
+export function TranscriptActivityGroup({
+  item,
+  largeText,
+  showReasoning,
+  onOpenDiff,
+  onOpenSubagent,
+}: {
+  item: Extract<TranscriptItem, { type: "activity-group" }>;
+  largeText: boolean;
+  showReasoning: boolean;
+  onOpenDiff: () => void;
+  onOpenSubagent: (sessionID: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${item.count} tool calls`}
+        accessibilityState={{ expanded }}
+        onPress={() => setExpanded((value) => !value)}
+        style={styles.activityGroupHeader}
+      >
+        <Text style={styles.activityLabel}>
+          {item.running ? "Working" : "Activity"} · {item.count} tool calls
+        </Text>
+        <Text style={styles.disclosureAction}>{expanded ? "Hide" : "Show"}</Text>
+      </Pressable>
+      {expanded
+        ? item.messages.map((message) => (
+            <SessionTranscriptRow
+              key={message.id}
+              detailed
+              message={message}
+              largeText={largeText}
+              showReasoning={showReasoning}
+              onOpenDiff={onOpenDiff}
+              onOpenSubagent={onOpenSubagent}
+            />
+          ))
+        : null}
+    </View>
+  );
+}
+
 export const SessionTranscriptRow = memo(function SessionTranscriptRow({
+  detailed = false,
+  showReasoning = true,
   largeText = false,
   message,
   onOpenDiff,
   onOpenSubagent,
 }: {
+  detailed?: boolean;
+  showReasoning?: boolean;
   largeText?: boolean;
   message: SessionMessageInfo;
   onOpenDiff?: (() => void) | undefined;
@@ -61,7 +172,16 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
       const visibleContent = message.content.slice(0, maxAssistantParts);
       return (
         <View style={styles.assistantRow}>
-          {groupAssistantParts(visibleContent).map((item) => {
+          {(detailed
+            ? visibleContent.map(
+                (part, index): AssistantPresentationItem => ({
+                  type: "part",
+                  key: `part:${index}`,
+                  part,
+                }),
+              )
+            : groupAssistantParts(visibleContent)
+          ).map((item) => {
             if (item.type === "exploration") {
               return (
                 <ExplorationDisclosure
@@ -99,6 +219,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
               );
             }
             if (part.type === "reasoning") {
+              if (!showReasoning) return null;
               const settled = isSettledReasoning(message, part);
               return isInlineReasoning(part.text) ? (
                 <InlineMarkdownText
@@ -151,17 +272,31 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
     case "shell":
       return <ShellDisclosure largeText={largeText} message={message} />;
     case "synthetic":
-      return <Notice label={message.description || "Generated context"} text={message.text} />;
+      return (
+        <Notice
+          compact={!detailed}
+          label={message.description || "Generated context"}
+          text={message.text}
+        />
+      );
     case "system":
-      return <Notice label={message.description || "System"} text={message.text} />;
+      return (
+        <Notice compact={!detailed} label={message.description || "System"} text={message.text} />
+      );
     case "skill":
-      return <Notice label={`Skill / ${message.name}`} text={message.text} />;
+      return <Notice compact={!detailed} label={`Skill / ${message.name}`} text={message.text} />;
     case "agent-switched":
-      return <Notice label="Agent changed" text={message.agent} />;
+      return <Notice compact={!detailed} label="Agent changed" text={message.agent} />;
     case "model-switched":
-      return <Notice label="Model changed" text={message.model.id} />;
+      return <Notice compact={!detailed} label="Model changed" text={message.model.id} />;
     case "location-switched":
-      return <Notice label="Location changed" text={basename(message.location.directory)} />;
+      return (
+        <Notice
+          compact={!detailed}
+          label="Location changed"
+          text={basename(message.location.directory)}
+        />
+      );
     case "idle":
       return (
         <Notice
@@ -269,7 +404,7 @@ function groupAssistantParts(content: AssistantMessage["content"]): AssistantPre
   };
 
   for (const part of content) {
-    if (part.type === "tool" && !getSubagentPresentation(part)) {
+    if (part.type === "tool" && part.state.status !== "error" && !getSubagentPresentation(part)) {
       tools.push(part);
       continue;
     }
@@ -467,7 +602,7 @@ function ToolDisclosure({
       {expanded && content.length > visibleContent.length ? (
         <Text style={styles.omittedText}>Additional tool output omitted on this device.</Text>
       ) : null}
-      {expanded && error ? <ExpandableText error style={styles.errorText} text={error} /> : null}
+      {error ? <ExpandableText error style={styles.errorText} text={error} /> : null}
       {!nested && category === "edit" && onOpenDiff ? <DiffAction onPress={onOpenDiff} /> : null}
     </View>
   );
@@ -743,7 +878,23 @@ function Disclosure({
   );
 }
 
-function Notice({ error, label, text }: { error?: boolean; label: string; text?: string }) {
+function Notice({
+  compact,
+  error,
+  label,
+  text,
+}: {
+  compact?: boolean;
+  error?: boolean;
+  label: string;
+  text?: string;
+}) {
+  if (compact && text && !error)
+    return (
+      <View style={styles.notice}>
+        <Disclosure label={label} largeText={false} text={text} />
+      </View>
+    );
   return (
     <View style={styles.notice}>
       <Text
@@ -1305,6 +1456,16 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
+  activityGroupHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.sm,
+    justifyContent: "space-between",
+    minHeight: 48,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.sm,
+  },
   activity: {
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -1347,7 +1508,7 @@ const styles = StyleSheet.create({
   assistantRow: {
     gap: space.sm,
     paddingHorizontal: space.lg,
-    paddingVertical: space.md,
+    paddingVertical: space.lg,
   },
   attachmentChip: {
     backgroundColor: palette.background,
@@ -1360,8 +1521,8 @@ const styles = StyleSheet.create({
   },
   attachmentLabel: { color: palette.dim, fontSize: 11, fontWeight: "600" },
   attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
-  bodyText: { color: palette.ink, fontSize: 16, lineHeight: 24 },
-  boldText: { color: markdownPalette.strong, fontWeight: "800" },
+  bodyText: { color: palette.ink, fontSize: 17, lineHeight: 26 },
+  boldText: { color: markdownPalette.strong, fontWeight: "700" },
   codeBlock: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -1489,14 +1650,12 @@ const styles = StyleSheet.create({
   textActionLabel: { color: palette.signal, fontSize: 12, fontWeight: "700" },
   userBubble: {
     backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    borderRadius: 28,
     maxWidth: "92%",
-    padding: 14,
+    padding: 20,
   },
   userBubbleLargeText: { maxWidth: "100%" },
   userLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.lg, paddingVertical: space.sm },
-  userText: { color: palette.ink, fontSize: 16, lineHeight: 23, marginTop: 7 },
+  userText: { color: palette.ink, fontSize: 17, lineHeight: 25, marginTop: 7 },
 });

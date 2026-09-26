@@ -17,6 +17,10 @@ import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
 import { SessionScreen, WorkspaceScreen } from "./workspace-screen";
 
+jest.mock("../state/transcript-preferences", () => ({
+  useTranscriptPreferences: () => ({ detailed: false, reasoning: true }),
+}));
+
 const location = {
   directory: "/workspace",
   project: { canonical: "/workspace", directory: "/workspace", id: "project-1" },
@@ -525,6 +529,60 @@ test("retains the in-content Sessions title in the tablet shell", async () => {
   }
 });
 
+test("compact mode groups consecutive tool calls across assistant messages", async () => {
+  mockListMessages.mockImplementationOnce(async () => ({
+    cursor: {},
+    data: ["shell", "glob", "grep"].map((name, index) => ({
+      agent: "build",
+      id: `msg_tools_${index}`,
+      type: "assistant" as const,
+      model: { id: "model-1", providerID: "provider" },
+      time: { created: index + 1 },
+      content: [
+        {
+          type: "tool" as const,
+          id: `tool_${index}`,
+          name,
+          time: { created: index + 1 },
+          state: {
+            status: "completed" as const,
+            input: {},
+            content: [{ type: "text" as const, text: `Result ${index}` }],
+          },
+        },
+      ],
+    })),
+  }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        route={{
+          key: "grouping",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  const group = await screen.findByRole("button", { name: "3 tool calls" });
+  expect(screen.queryByText("Result 0")).toBeNull();
+  expect(screen.getByLabelText("Session transcript").props.data).toHaveLength(1);
+  fireEvent.press(group);
+  expect(screen.getByRole("button", { name: "3 tool calls" }).props.accessibilityState).toEqual({
+    expanded: true,
+  });
+  view.unmount();
+  queryClient.clear();
+});
+
 test("renders short thoughts inline and keeps detailed thoughts collapsed", async () => {
   const scrollToOffset = jest
     .spyOn(FlatList.prototype, "scrollToOffset")
@@ -596,9 +654,10 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   fireEvent.scroll(transcript, justAwayFromLiveEdge);
   fireEvent(transcript, "momentumScrollEnd", justAwayFromLiveEdge);
   expect(screen.getByRole("button", { name: "Scroll to latest" })).toHaveStyle({
-    position: "relative",
+    position: "absolute",
+    alignSelf: "center",
   });
-  expect(screen.getByText("Latest").props.dynamicTypeRamp).toBe("footnote");
+  expect(screen.queryByText("Latest")).toBeNull();
 
   fireEvent(transcript, "scrollBeginDrag", justAwayFromLiveEdge);
   fireEvent.scroll(transcript, liveEdgeEvent);
@@ -977,7 +1036,7 @@ test("remeasures the transcript when the system font scale changes", async () =>
     fireEvent(normalScaleTranscript, "scrollBeginDrag", normalScaleAwayFromLiveEdge);
     fireEvent.scroll(normalScaleTranscript, normalScaleAwayFromLiveEdge);
     expect(screen.getByRole("button", { name: "Scroll to latest" })).toHaveStyle({
-      position: "relative",
+      position: "absolute",
     });
     fireEvent(normalScaleTranscript, "momentumScrollEnd", normalScaleLiveEdge);
     fireEvent.press(screen.getByRole("button", { name: /Thought/ }));
@@ -1009,7 +1068,7 @@ test("remeasures the transcript when the system font scale changes", async () =>
     fireEvent(transcript, "scrollBeginDrag", awayFromLiveEdge);
     fireEvent.scroll(transcript, awayFromLiveEdge);
     expect(screen.getByRole("button", { name: "Scroll to latest" })).toHaveStyle({
-      position: "relative",
+      position: "absolute",
     });
   } finally {
     act(() => {

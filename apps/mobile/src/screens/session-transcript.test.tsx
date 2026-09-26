@@ -5,9 +5,75 @@ import { Alert, Linking, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
 import { markdownPalette, palette } from "../theme";
-import { SessionTranscriptRow } from "./session-transcript";
+import { groupTranscriptMessages, SessionTranscriptRow } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
+
+test("cross-message grouping respects replies, errors, reasoning visibility and detailed mode", () => {
+  const original = messages.find((message) => message.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const tool = original.content.find(
+    (part) => part.type === "tool" && part.state.status === "completed",
+  );
+  if (!tool) throw new Error("fixture");
+  const first = { ...original, retry: undefined, content: [tool] };
+  // Remove the retry field so this fixture represents a normal successful execution.
+  const { retry: _retry, ...clean } = first;
+  const second = { ...clean, id: "msg_second" };
+  const reasoning = {
+    ...clean,
+    id: "msg_reasoning",
+    content: [{ type: "reasoning" as const, text: "Thinking" }],
+  };
+  const reply = { ...clean, id: "msg_reply", content: [{ type: "text" as const, text: "Reply" }] };
+  expect(groupTranscriptMessages([clean, reasoning, second], false, false)).toMatchObject([
+    { type: "activity-group", count: 2 },
+  ]);
+  expect(groupTranscriptMessages([clean, reasoning, second], false, true)).toHaveLength(3);
+  expect(groupTranscriptMessages([clean, reply, second], false, false)).toHaveLength(3);
+  expect(groupTranscriptMessages([clean, second], true, false)).toEqual([clean, second]);
+  const failed = { ...second, error: { type: "ToolError", message: "Failed" } };
+  expect(groupTranscriptMessages([clean, failed], false, false)).toEqual([clean, failed]);
+});
+
+test("reasoning can be hidden without hiding replies or tool failures", () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("fixture");
+  const view = render(<SessionTranscriptRow message={message} showReasoning={false} />);
+  expect(screen.getByText("Answer")).toBeOnTheScreen();
+  expect(screen.getByText("tool failed")).toBeOnTheScreen();
+  expect(screen.queryByText("Reasoning detail")).toBeNull();
+  view.rerender(<SessionTranscriptRow message={message} showReasoning />);
+  expect(screen.getByText("Reasoning detail")).toBeOnTheScreen();
+});
+
+test("compact system notices expand and detailed mode shows their content", () => {
+  const message = messages.find((item) => item.type === "synthetic");
+  if (!message) throw new Error("fixture");
+  const view = render(<SessionTranscriptRow message={message} />);
+  expect(screen.queryByText("Generated")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: /Generated context/ }));
+  expect(screen.getByText("Generated")).toBeOnTheScreen();
+  view.rerender(<SessionTranscriptRow detailed message={message} />);
+  expect(screen.getByText("Generated")).toBeOnTheScreen();
+});
+
+test("detailed mode renders grouped tool executions individually", () => {
+  const original = messages.find((item) => item.type === "assistant");
+  if (original?.type !== "assistant") throw new Error("fixture");
+  const tool = original.content.find(
+    (part) => part.type === "tool" && part.state.status === "completed",
+  );
+  if (tool?.type !== "tool") throw new Error("fixture");
+  const message = {
+    ...original,
+    content: [tool, { ...tool, id: "tool-second", name: "second-tool" }],
+  };
+  const view = render(<SessionTranscriptRow message={message} />);
+  expect(screen.queryByText("Used Second-tool")).toBeNull();
+  view.rerender(<SessionTranscriptRow detailed message={message} />);
+  expect(screen.getByText("Used Second-tool")).toBeOnTheScreen();
+});
 
 test.each([
   { outcome: "succeeded", label: "Turn completed" },
@@ -130,7 +196,7 @@ test("renders every current message and tool state with large details collapsed"
   render(
     <View>
       {messages.map((message) => (
-        <SessionTranscriptRow key={message.id} message={message} />
+        <SessionTranscriptRow detailed key={message.id} message={message} />
       ))}
     </View>,
   );
@@ -213,7 +279,7 @@ test("opens HTTP and HTTPS transcript URLs as confirmed external links", () => {
   });
   expect(screen.getByRole("link", { name: "http://localhost:4096/status" })).toBeOnTheScreen();
   expect(screen.getByRole("link", { name: "https://assistant.test/guide" })).toHaveStyle({
-    fontWeight: "800",
+    fontWeight: "700",
   });
 
   fireEvent.press(secureLink);
@@ -317,7 +383,7 @@ test("renders finished short reasoning inline with bold markdown", () => {
 
   expect(screen.getByText("THOUGHT")).toBeOnTheScreen();
   expect(screen.queryByText("THINKING")).toBeNull();
-  expect(screen.getByText("Adding mocks to repository tests")).toHaveStyle({ fontWeight: "800" });
+  expect(screen.getByText("Adding mocks to repository tests")).toHaveStyle({ fontWeight: "700" });
   expect(screen.queryByText(/\*\*/)).toBeNull();
   expect(screen.queryByRole("button", { name: /Thought/ })).toBeNull();
 });

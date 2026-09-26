@@ -15,6 +15,7 @@ import { NotificationRoutingProvider } from "./notifications/notification-routin
 import { AppLockProvider } from "./security/app-lock-context";
 import { ConnectionRuntimeProvider } from "./state/connection-runtime-context";
 import { FollowedProjectsProvider } from "./state/followed-projects-context";
+import { TranscriptPreferencesProvider } from "./state/transcript-preferences";
 import { migrateMobileDatabase, mobileDatabaseName } from "./storage/database";
 import { palette } from "./theme";
 import { AppUpdateBanner, AppUpdateCard, AppUpdatesProvider } from "./updates/app-updates";
@@ -61,7 +62,9 @@ export default function App() {
                   <NotificationRoutingProvider>
                     <NavigationContainer ref={rootNavigationRef} theme={navigationTheme}>
                       <View style={styles.appRoot}>
-                        <RootNavigation />
+                        <TranscriptPreferencesProvider>
+                          <RootNavigation />
+                        </TranscriptPreferencesProvider>
                         <AppUpdateBanner />
                       </View>
                     </NavigationContainer>
