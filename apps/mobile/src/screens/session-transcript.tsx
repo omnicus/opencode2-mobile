@@ -3,6 +3,8 @@ import { memo, useEffect, useState } from "react";
 import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { applicationName } from "../application-name";
+import { CopyTextButton } from "../components/copy-text-button";
+import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
 import {
@@ -202,6 +204,19 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
       );
     case "assistant": {
       const visibleContent = message.content.slice(0, maxAssistantParts);
+      const responseParts = visibleContent.flatMap((part) =>
+        part.type === "text" ? [part.text] : [],
+      );
+      let copyTruncated = message.content
+        .slice(maxAssistantParts)
+        .some((part) => part.type === "text");
+      const responseText = responseParts
+        .map((text) => {
+          const safe = sanitizeTranscriptText(text.slice(0, maxSanitizedInput), maxVisibleText + 1);
+          copyTruncated ||= safe.length > maxVisibleText || text.length > maxSanitizedInput;
+          return safe.slice(0, maxVisibleText);
+        })
+        .join("\n\n");
       return (
         <View style={styles.assistantRow}>
           {(detailed
@@ -299,6 +314,13 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           ) : null}
           {hasNarrativeContent(message) ? (
             <AssistantFooter message={message} modelName={modelName} />
+          ) : null}
+          {responseText ? (
+            <CopyTextButton
+              iconOnly
+              label={copyTruncated ? "Copy available response" : "Copy response"}
+              text={responseText}
+            />
           ) : null}
         </View>
       );
@@ -606,20 +628,20 @@ function ToolDisclosure({
       />
       {expanded
         ? presentation.files.map((file) => (
-            <Text
+            <SelectableTranscriptText
               dynamicTypeRamp={typeRamp.control}
               key={file}
               selectable
               style={styles.activityFile}
             >
               {file}
-            </Text>
+            </SelectableTranscriptText>
           ))
         : null}
       {expanded && presentation.command ? (
-        <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.commandText}>
+        <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.commandText}>
           {`$ ${presentation.command}`}
-        </Text>
+        </SelectableTranscriptText>
       ) : null}
       {expanded
         ? keyToolContent(visibleContent).map(({ item, key }) =>
@@ -630,12 +652,16 @@ function ToolDisclosure({
                 text={parseSubagentProtocolText(item.text).text}
               />
             ) : (
-              <Text dynamicTypeRamp={typeRamp.body} key={key} selectable style={styles.outputText}>
+              <SelectableTranscriptText
+                dynamicTypeRamp={typeRamp.body}
+                key={key}
+                style={styles.outputText}
+              >
                 {sanitizeTranscriptText(
                   item.name?.trim() ? basename(item.name.trim()) : "File result",
                   256,
                 )}
-              </Text>
+              </SelectableTranscriptText>
             ),
           )
         : null}
@@ -732,9 +758,9 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
           onPress={() => setExpanded((current) => !current)}
         />
         {expanded ? (
-          <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.commandText}>
+          <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.commandText}>
             {`$ ${message.command}`}
-          </Text>
+          </SelectableTranscriptText>
         ) : null}
         {expanded && message.output?.output ? (
           <ExpandableText style={styles.outputText} text={message.output.output} />
@@ -1031,9 +1057,9 @@ function InlineMarkdownText({
 
 function LinkifiedText({ style, text }: { style: object; text: string }) {
   return (
-    <Text dynamicTypeRamp={typeRamp.body} selectable style={style}>
-      <LinkifiedTextContent text={text} />
-    </Text>
+    <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={style}>
+      {LinkifiedTextContent({ text })}
+    </SelectableTranscriptText>
   );
 }
 

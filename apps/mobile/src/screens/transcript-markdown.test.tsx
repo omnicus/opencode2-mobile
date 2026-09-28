@@ -1,8 +1,31 @@
 import { expect, jest, test } from "@jest/globals";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import * as Clipboard from "expo-clipboard";
 import { TranscriptMarkdown } from "./transcript-markdown";
 
 const body = { fontSize: 17, lineHeight: 26 };
+
+jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
+
+test("copies only the selected code block, preserving indentation and newlines", async () => {
+  render(
+    <TranscriptMarkdown
+      style={body}
+      onOpenLink={jest.fn()}
+      text={"Intro\n\n```ts\n  first();\n\n  second();\n```\n\n```sh\necho other\n```"}
+    />,
+  );
+  const copy = screen.getAllByRole("button", { name: "Copy code" })[0];
+  if (!copy) throw new Error("Missing code copy action");
+  fireEvent.press(copy);
+  await waitFor(() =>
+    expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith("  first();\n\n  second();\n"),
+  );
+  expect(screen.getByText("  first();\n\n  second();", { exact: true })).toHaveProp(
+    "selectable",
+    true,
+  );
+});
 
 test("keeps emphasis local to its nested content and paragraph", () => {
   render(

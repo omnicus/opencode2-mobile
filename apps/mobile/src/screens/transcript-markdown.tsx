@@ -1,6 +1,6 @@
 import MarkdownIt from "markdown-it";
 import type Token from "markdown-it/lib/token.mjs";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   ScrollView,
   type StyleProp,
@@ -10,7 +10,8 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-
+import { CopyTextButton } from "../components/copy-text-button";
+import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
 
 // Parse Markdown only. HTML stays literal and images never make network requests.
@@ -128,10 +129,10 @@ export function InlineTranscriptMarkdown({
     [props.text],
   );
   return (
-    <Text dynamicTypeRamp={typeRamp.body} selectable style={props.style}>
+    <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={props.style}>
       {prefix ? <Text style={prefixStyle}>{`${prefix}  `}</Text> : null}
-      <InlineContent tokens={tokens} onOpenLink={props.onOpenLink} />
-    </Text>
+      {InlineContent({ tokens, onOpenLink: props.onOpenLink })}
+    </SelectableTranscriptText>
   );
 }
 
@@ -149,12 +150,14 @@ function Blocks({ blocks, ...props }: Omit<Props, "text"> & { blocks: Node[] }) 
     switch (token.type) {
       case "inline":
         return (
-          <InlineContent key={key} tokens={token.children ?? []} onOpenLink={props.onOpenLink} />
+          <Fragment key={key}>
+            {InlineContent({ tokens: token.children ?? [], onOpenLink: props.onOpenLink })}
+          </Fragment>
         );
       case "paragraph_open":
       case "heading_open":
         return (
-          <Text
+          <SelectableTranscriptText
             key={key}
             accessibilityRole={token.type === "heading_open" ? "header" : undefined}
             dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheading : typeRamp.body}
@@ -167,8 +170,8 @@ function Blocks({ blocks, ...props }: Omit<Props, "text"> & { blocks: Node[] }) 
               /h[4-6]/.test(token.tag) && styles.headingSmall,
             ]}
           >
-            <Blocks blocks={children} {...props} />
-          </Text>
+            {Blocks({ blocks: children, ...props })}
+          </SelectableTranscriptText>
         );
       case "fence":
       case "code_block": {
@@ -179,15 +182,22 @@ function Blocks({ blocks, ...props }: Omit<Props, "text"> & { blocks: Node[] }) 
             accessibilityLabel={language ? `Code block, ${language}` : "Code block"}
             style={styles.codeBlock}
           >
-            {language ? (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.codeLanguage}>
-                {language.toLocaleUpperCase()}
-              </Text>
-            ) : null}
+            <View style={styles.codeHeader}>
+              {language ? (
+                <Text dynamicTypeRamp={typeRamp.caption} style={styles.codeLanguage}>
+                  {language.toLocaleUpperCase()}
+                </Text>
+              ) : null}
+              <CopyTextButton text={token.content} label="Copy code" />
+            </View>
             <ScrollView horizontal>
-              <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.codeText}>
+              <SelectableTranscriptText
+                unwrapped
+                dynamicTypeRamp={typeRamp.body}
+                style={styles.codeText}
+              >
                 {token.content.replace(/\n$/, "")}
-              </Text>
+              </SelectableTranscriptText>
             </ScrollView>
           </View>
         );
@@ -222,9 +232,9 @@ function Blocks({ blocks, ...props }: Omit<Props, "text"> & { blocks: Node[] }) 
         return <View key={key} style={styles.rule} />;
       default:
         return (
-          <Text key={key} selectable style={props.style}>
+          <SelectableTranscriptText key={key} style={props.style}>
             {token.content}
-          </Text>
+          </SelectableTranscriptText>
         );
     }
   });
@@ -245,7 +255,7 @@ function MarkdownTable({ sections, ...props }: Omit<Props, "text"> & { sections:
             <View key={row.key} style={styles.tableRow}>
               {row.children.map((cell) => (
                 <View key={cell.key} style={[styles.tableCell, { width: columnWidth }]}>
-                  <Text
+                  <SelectableTranscriptText
                     accessibilityRole={cell.token.type === "th_open" ? "header" : undefined}
                     dynamicTypeRamp={typeRamp.body}
                     selectable
@@ -256,8 +266,8 @@ function MarkdownTable({ sections, ...props }: Omit<Props, "text"> & { sections:
                       cell.token.attrGet("style") === "text-align:center" && styles.alignCenter,
                     ]}
                   >
-                    <Blocks blocks={cell.children} {...props} />
-                  </Text>
+                    {Blocks({ blocks: cell.children, ...props })}
+                  </SelectableTranscriptText>
                 </View>
               ))}
             </View>
@@ -292,6 +302,13 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   codeLanguage: { ...typography.label, color: palette.dim },
+  codeHeader: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: space.sm,
+  },
   codeText: { ...typography.code, color: palette.ink },
   list: { gap: space.sm },
   listRow: { flexDirection: "row", gap: space.sm },
