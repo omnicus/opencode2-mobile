@@ -1620,7 +1620,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.prompt,
     borderRadius: 28,
     maxWidth: "80%",
-    padding: 20,
+    padding: 16,
   },
   userBubbleLargeText: { maxWidth: "100%" },
   // Supply intrinsic text width to Yoga; the native selection view supplies height.
