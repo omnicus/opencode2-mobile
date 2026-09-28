@@ -1,6 +1,6 @@
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { memo, useEffect, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { applicationName } from "../application-name";
 import { CopyTextButton } from "../components/copy-text-button";
@@ -194,10 +194,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
       return (
         <View style={styles.userRow}>
           <View style={[styles.userBubble, largeText && styles.userBubbleLargeText]}>
-            <Text dynamicTypeRamp={typeRamp.caption} style={styles.userLabel}>
-              YOU
-            </Text>
-            <ExpandableText style={styles.userText} text={message.text} />
+            <ExpandableText measureWidth style={styles.userText} text={message.text} />
             <AttachmentLabels largeText={largeText} message={message} />
           </View>
         </View>
@@ -983,11 +980,13 @@ function Notice({
 function ExpandableText({
   error,
   markdown = false,
+  measureWidth = false,
   style,
   text,
 }: {
   error?: boolean;
   markdown?: boolean;
+  measureWidth?: boolean;
   style: object;
   text: string;
 }) {
@@ -1003,6 +1002,18 @@ function ExpandableText({
 
   return (
     <View>
+      {measureWidth && Platform.OS === "ios" ? (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          pointerEvents="none"
+          style={styles.textWidthMeasurement}
+        >
+          <Text dynamicTypeRamp={typeRamp.body} style={style}>
+            {visibleText}
+          </Text>
+        </View>
+      ) : null}
       {markdown ? (
         <MarkdownText style={style} text={visibleText} />
       ) : (
@@ -1606,13 +1617,14 @@ const styles = StyleSheet.create({
   textAction: { alignSelf: "flex-start", minHeight: 44, paddingVertical: 10 },
   textActionLabel: { color: palette.signal, fontSize: 12, fontWeight: "700" },
   userBubble: {
-    backgroundColor: palette.card,
+    backgroundColor: palette.prompt,
     borderRadius: 28,
-    maxWidth: "92%",
+    maxWidth: "80%",
     padding: 20,
   },
   userBubbleLargeText: { maxWidth: "100%" },
-  userLabel: { ...typography.label, color: palette.dim },
+  // Supply intrinsic text width to Yoga; the native selection view supplies height.
+  textWidthMeasurement: { height: 0, overflow: "hidden", opacity: 0 },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.lg, paddingVertical: space.sm },
-  userText: { color: palette.ink, fontSize: 17, lineHeight: 25, marginTop: 7 },
+  userText: { color: palette.ink, fontSize: 17, lineHeight: 25 },
 });

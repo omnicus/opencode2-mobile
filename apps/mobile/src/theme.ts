@@ -13,6 +13,7 @@ export const palette = {
   info: "#8ab4f8",
   ink: "#eeeeee",
   raised: "#242424",
+  prompt: "#3a3a3a",
   signal: "#ffffff",
   signalDark: "#242424",
   success: "#7bd88f",
