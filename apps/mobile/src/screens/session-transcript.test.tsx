@@ -1,6 +1,7 @@
 import { afterEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import * as Clipboard from "expo-clipboard";
 import { Alert, Linking, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
@@ -12,6 +13,32 @@ import {
 } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
+
+jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
+
+test("one response copy action combines prose parts without reasoning or model metadata", async () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("fixture");
+  render(
+    <SessionTranscriptRow
+      message={{
+        ...message,
+        content: [
+          { type: "text", text: "First paragraph" },
+          { type: "reasoning", text: "Private reasoning" },
+          { type: "text", text: "Second paragraph" },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getAllByRole("button", { name: "Copy response" })).toHaveLength(1);
+  fireEvent.press(screen.getByRole("button", { name: "Copy response" }));
+  await waitFor(() =>
+    expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(
+      "First paragraph\n\nSecond paragraph",
+    ),
+  );
+});
 
 test("inline code preserves literal markup and does not create links inside code", () => {
   const message = messages.find((item) => item.type === "assistant");
@@ -36,6 +63,20 @@ test("inline code preserves literal markup and does not create links inside code
   expect(screen.getByText("**literal**")).toBeOnTheScreen();
   expect(screen.queryByRole("link", { name: "https://code.test" })).toBeNull();
   expect(screen.getByText("Important")).toHaveStyle({ fontWeight: "700" });
+});
+
+test("message text supports native selection without separate copy or selection controls", () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("fixture");
+  const text = "First paragraph\n\nSecond paragraph";
+  render(<SessionTranscriptRow message={{ ...message, content: [{ type: "text", text }] }} />);
+  for (const paragraph of ["First paragraph", "Second paragraph"]) {
+    let node = screen.getByText(paragraph);
+    while (!node.props.selectable && node.parent) node = node.parent;
+    expect(node.props.selectable).toBe(true);
+  }
+  expect(screen.queryByRole("button", { name: "Select text" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
 });
 
 test("activity summaries count operations rather than inventing file counts", () => {

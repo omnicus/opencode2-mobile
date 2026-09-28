@@ -12,6 +12,24 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-09-28: transcript range selection, pending native verification
+
+The user reported that long-pressing transcript text on iOS offered Copy without
+selection handles. The installed React Native iOS paragraph implementation exposes
+a whole-text copy menu rather than range selection.
+
+An Apple-only local Expo view now uses a non-editable, selectable `UITextView` for
+transcript text, preserving attributed formatting and routing link taps through
+the existing confirmation callback. Android continues to use selectable native
+React Native Text. Selection is scoped to each rendered text block or table cell.
+
+The iOS module requires a new native build and runtime fingerprint; OTA alone does
+not install it. Older builds fall back to their existing text renderer. Native
+compilation and physical-device verification are pending. Verify selection handles,
+copying a partial range, scrolling during selection, link confirmation, streaming,
+large text, and VoiceOver/TalkBack before claiming device support. JavaScript tests
+and Hermes exports do not establish these native behaviors.
+
 ## 2026-09-27: iOS multiline composer sizing
 
 A physical iPhone recording showed typed text wrapping beyond the visible input
