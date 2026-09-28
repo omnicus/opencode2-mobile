@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
+  findNodeHandle,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -11,7 +12,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
 import { palette, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
 
@@ -22,6 +23,8 @@ export function ModalSheet({
   subtitle,
   title,
   visible,
+  size = "page",
+  returnFocusRef,
 }: {
   children: ReactNode;
   onClose: () => void;
@@ -29,10 +32,31 @@ export function ModalSheet({
   subtitle?: string;
   title: string;
   visible: boolean;
+  size?: "page" | "full" | "compact";
+  returnFocusRef?: RefObject<View | null> | undefined;
 }) {
   const [reducedMotion, setReducedMotion] = useState(false);
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
+  const compact = size === "compact" && !largeText;
+  const overlay = compact || (size !== "page" && width >= 700);
+  const headingRef = useRef<Text>(null);
+  const wasVisible = useRef(visible);
+  const restoreFocus = () => {
+    if (!returnFocusRef?.current) return;
+    const handle = findNodeHandle(returnFocusRef.current);
+    if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+  };
+  useEffect(() => {
+    const closed = wasVisible.current && !visible;
+    wasVisible.current = visible;
+    if (!closed || Platform.OS === "ios" || !returnFocusRef) return;
+    const frame = requestAnimationFrame(() => {
+      const handle = returnFocusRef.current ? findNodeHandle(returnFocusRef.current) : null;
+      if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [visible, returnFocusRef]);
 
   useEffect(() => {
     let active = true;
@@ -55,58 +79,81 @@ export function ModalSheet({
     <Modal
       animationType={reducedMotion ? "none" : "slide"}
       onRequestClose={onClose}
-      presentationStyle="pageSheet"
+      onDismiss={restoreFocus}
+      onShow={() => {
+        const handle = findNodeHandle(headingRef.current);
+        if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+      }}
+      presentationStyle={overlay ? "overFullScreen" : size === "page" ? "pageSheet" : "fullScreen"}
+      transparent={overlay}
       visible={visible}
     >
-      <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.keyboardView}
+      {/* Native modals need safe-area measurements from their own presentation root. */}
+      <SafeAreaProvider
+        style={[styles.frame, overlay && styles.overlay, compact && width < 700 && styles.bottom]}
+      >
+        <SafeAreaView
+          edges={["top", "bottom"]}
+          style={[styles.safeArea, overlay && styles.panel, compact && styles.compactPanel]}
         >
-          <View style={[styles.header, largeText && styles.headerLargeText]}>
-            <View style={[styles.heading, largeText && styles.headingLargeText]}>
-              <Text
-                accessibilityRole="header"
-                dynamicTypeRamp={typeRamp.subheading}
-                style={styles.title}
-              >
-                {title}
-              </Text>
-              {subtitle ? (
-                <Text dynamicTypeRamp={typeRamp.control} style={styles.subtitle}>
-                  {subtitle}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={[styles.keyboardView, compact && styles.compactKeyboardView]}
+          >
+            <View style={[styles.header, largeText && styles.headerLargeText]}>
+              <View style={[styles.heading, largeText && styles.headingLargeText]}>
+                <Text
+                  accessibilityRole="header"
+                  ref={headingRef}
+                  dynamicTypeRamp={typeRamp.subheading}
+                  style={styles.title}
+                >
+                  {title}
                 </Text>
-              ) : null}
+                {subtitle ? (
+                  <Text dynamicTypeRamp={typeRamp.control} style={styles.subtitle}>
+                    {subtitle}
+                  </Text>
+                ) : null}
+              </View>
+              <Pressable
+                accessibilityLabel={`Close ${title}`}
+                accessibilityRole="button"
+                onPress={onClose}
+                style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+              >
+                <Text dynamicTypeRamp={typeRamp.control} style={styles.closeLabel}>
+                  Done
+                </Text>
+              </Pressable>
             </View>
-            <Pressable
-              accessibilityLabel={`Close ${title}`}
-              accessibilityRole="button"
-              onPress={onClose}
-              style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
-            >
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.closeLabel}>
-                Done
-              </Text>
-            </Pressable>
-          </View>
-          {scrollable ? (
-            <ScrollView
-              contentContainerStyle={styles.content}
-              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-              keyboardShouldPersistTaps="handled"
-            >
-              {children}
-            </ScrollView>
-          ) : (
-            <View style={styles.fixedContent}>{children}</View>
-          )}
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+            {scrollable ? (
+              <ScrollView
+                contentContainerStyle={styles.content}
+                style={compact && styles.compactScroll}
+                keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+                keyboardShouldPersistTaps="handled"
+              >
+                {children}
+              </ScrollView>
+            ) : (
+              <View style={styles.fixedContent}>{children}</View>
+            )}
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  frame: { flex: 1 },
+  overlay: { backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
+  bottom: { justifyContent: "flex-end" },
+  panel: { width: "100%", maxWidth: 640, maxHeight: "90%", borderRadius: 18, overflow: "hidden" },
+  compactPanel: { flex: 0, flexShrink: 1 },
+  compactKeyboardView: { flex: 0, flexShrink: 1 },
+  compactScroll: { flexGrow: 0, flexShrink: 1 },
   closeButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.sm },
   closeLabel: { ...typography.control, color: palette.signal },
   content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },

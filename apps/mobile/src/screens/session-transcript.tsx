@@ -12,6 +12,7 @@ import {
   type SubagentProtocolText,
   sanitizeTranscriptText,
 } from "./session-transcript-model";
+import { InlineTranscriptMarkdown, TranscriptMarkdown } from "./transcript-markdown";
 
 const textStep = 4_000;
 const maxVisibleText = 32_000;
@@ -170,6 +171,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   showReasoning = true,
   largeText = false,
   message,
+  modelName,
   onOpenDiff,
   onOpenSubagent,
 }: {
@@ -177,6 +179,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   showReasoning?: boolean;
   largeText?: boolean;
   message: SessionMessageInfo;
+  modelName?: string | undefined;
   onOpenDiff?: (() => void) | undefined;
   onOpenSubagent?: ((sessionID: string) => void) | undefined;
 }) {
@@ -294,7 +297,9 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           {message.content.length === 0 && !message.error ? (
             <Text style={styles.statusText}>No projected content</Text>
           ) : null}
-          {hasNarrativeContent(message) ? <AssistantFooter message={message} /> : null}
+          {hasNarrativeContent(message) ? (
+            <AssistantFooter message={message} modelName={modelName} />
+          ) : null}
         </View>
       );
     }
@@ -584,7 +589,13 @@ function ToolDisclosure({
       : presentation.label;
   const visibleContent = content.slice(0, maxToolOutputs);
   return (
-    <View style={[styles.activity, nested && styles.activityNested]}>
+    <View
+      style={[
+        styles.activity,
+        error && !nested && styles.activityError,
+        nested && styles.activityNested,
+      ]}
+    >
       <ActivityHeader
         canExpand={canExpand}
         detail={presentation.detail}
@@ -733,7 +744,13 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
   );
 }
 
-function AssistantFooter({ message }: { message: AssistantMessage }) {
+function AssistantFooter({
+  message,
+  modelName,
+}: {
+  message: AssistantMessage;
+  modelName?: string | undefined;
+}) {
   const duration =
     message.time.completed !== undefined
       ? formatDuration(message.time.completed - message.time.created)
@@ -741,7 +758,7 @@ function AssistantFooter({ message }: { message: AssistantMessage }) {
   return (
     <Text dynamicTypeRamp={typeRamp.caption} style={styles.assistantFooter}>
       {sanitizeTranscriptText(sentenceCase(message.agent || "Assistant"), 128)} ·{" "}
-      {sanitizeTranscriptText(message.model.id, 128)}
+      {sanitizeTranscriptText(modelName || message.model.id, 128)}
       {duration ? ` · ${duration}` : ""}
     </Text>
   );
@@ -986,40 +1003,8 @@ function ExpandableText({
   );
 }
 
-type MarkdownBlock =
-  | { text: string; type: "text" }
-  | { language?: string; text: string; type: "code" };
-
 function MarkdownText({ style, text }: { style: object; text: string }) {
-  const blocks = keyMarkdownBlocks(splitCodeBlocks(text));
-  return (
-    <View>
-      {blocks.map(({ block, key }, index) =>
-        block.type === "text" ? (
-          <InlineMarkdownText
-            key={key}
-            style={[style, index > 0 && styles.markdownBlockSpacing]}
-            text={block.text}
-          />
-        ) : (
-          <View
-            accessibilityLabel={block.language ? `Code block, ${block.language}` : "Code block"}
-            key={key}
-            style={[styles.codeBlock, index > 0 && styles.markdownBlockSpacing]}
-          >
-            {block.language ? (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.codeLanguage}>
-                {block.language.toLocaleUpperCase()}
-              </Text>
-            ) : null}
-            <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.codeText}>
-              {block.text}
-            </Text>
-          </View>
-        ),
-      )}
-    </View>
-  );
+  return <TranscriptMarkdown style={style} text={text} onOpenLink={openTranscriptUrl} />;
 }
 
 function InlineMarkdownText({
@@ -1034,22 +1019,13 @@ function InlineMarkdownText({
   text: string;
 }) {
   return (
-    <Text dynamicTypeRamp={typeRamp.body} selectable style={style}>
-      {prefix ? <Text style={prefixStyle}>{`${prefix}  `}</Text> : null}
-      {splitInlineText(text).map((token) =>
-        token.code ? (
-          <Text key={token.key} style={styles.inlineCode}>
-            {token.text}
-          </Text>
-        ) : (
-          <LinkifiedTextContent
-            key={token.key}
-            {...(token.bold ? { style: styles.boldText } : {})}
-            text={token.text}
-          />
-        ),
-      )}
-    </Text>
+    <InlineTranscriptMarkdown
+      prefix={prefix}
+      prefixStyle={prefixStyle}
+      style={style}
+      text={text}
+      onOpenLink={openTranscriptUrl}
+    />
   );
 }
 
@@ -1147,108 +1123,6 @@ function openTranscriptUrl(url: string) {
       },
     ],
   );
-}
-
-function splitBoldText(text: string) {
-  const tokens: { bold: boolean; key: string; text: string }[] = [];
-  let cursor = 0;
-  let ordinal = 0;
-  while (cursor < text.length) {
-    const opening = text.indexOf("**", cursor);
-    const closing = opening >= 0 ? text.indexOf("**", opening + 2) : -1;
-    if (opening < 0 || closing < 0) {
-      tokens.push({ bold: false, key: `text:${ordinal}`, text: text.slice(cursor) });
-      break;
-    }
-    if (opening > cursor) {
-      tokens.push({ bold: false, key: `text:${ordinal}`, text: text.slice(cursor, opening) });
-      ordinal += 1;
-    }
-    tokens.push({ bold: true, key: `bold:${ordinal}`, text: text.slice(opening + 2, closing) });
-    ordinal += 1;
-    cursor = closing + 2;
-  }
-  return tokens;
-}
-
-function splitInlineText(text: string) {
-  const tokens: { bold: boolean; code: boolean; key: string; text: string }[] = [];
-  const pattern = /(`+)([\s\S]*?)\1(?!`)/g;
-  let cursor = 0;
-  const prose = (value: string) => {
-    for (const token of splitBoldText(value))
-      tokens.push({ ...token, code: false, key: `inline:${tokens.length}` });
-  };
-  for (const match of text.matchAll(pattern)) {
-    prose(text.slice(cursor, match.index));
-    tokens.push({
-      bold: false,
-      code: true,
-      key: `inline:${tokens.length}`,
-      text: (match[2] ?? "").replace(/\n/g, " "),
-    });
-    cursor = match.index + match[0].length;
-  }
-  prose(text.slice(cursor));
-  return tokens;
-}
-
-function splitCodeBlocks(text: string): MarkdownBlock[] {
-  const blocks: MarkdownBlock[] = [];
-  const prose: string[] = [];
-  const code: string[] = [];
-  let fence: string | undefined;
-  let language: string | undefined;
-
-  const flushProse = () => {
-    const value = prose.join("\n").replace(/^\n+|\n+$/g, "");
-    if (value) blocks.push({ text: value, type: "text" });
-    prose.length = 0;
-  };
-  const flushCode = () => {
-    blocks.push({ ...(language ? { language } : {}), text: code.join("\n"), type: "code" });
-    code.length = 0;
-  };
-
-  for (const line of text.split(/\r?\n/)) {
-    if (!fence) {
-      const opening = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-      if (!opening || (opening[1]?.startsWith("`") && opening[2]?.includes("`"))) {
-        prose.push(line);
-        continue;
-      }
-      flushProse();
-      fence = opening[1];
-      language = opening[2]?.trim().split(/\s+/, 1)[0]?.slice(0, 32) || undefined;
-      continue;
-    }
-
-    const closing = line.match(/^ {0,3}(`+|~+)\s*$/)?.[1];
-    if (closing && closing[0] === fence[0] && closing.length >= fence.length) {
-      flushCode();
-      fence = undefined;
-      language = undefined;
-    } else {
-      code.push(line);
-    }
-  }
-
-  if (fence) flushCode();
-  flushProse();
-  return blocks;
-}
-
-function keyMarkdownBlocks(blocks: MarkdownBlock[]) {
-  let textOrdinal = 0;
-  let codeOrdinal = 0;
-  return blocks.map((block) => {
-    if (block.type === "text") {
-      textOrdinal += 1;
-      return { block, key: `text:${textOrdinal}` };
-    }
-    codeOrdinal += 1;
-    return { block, key: `code:${codeOrdinal}` };
-  });
 }
 
 const explorationToolNames = new Set([
@@ -1520,11 +1394,6 @@ const styles = StyleSheet.create({
     marginVertical: space.xs,
     overflow: "hidden",
   },
-  inlineCode: {
-    backgroundColor: palette.raised,
-    color: markdownPalette.code,
-    fontFamily: typography.code.fontFamily,
-  },
   commandText: {
     ...typography.code,
     backgroundColor: palette.raised,
@@ -1549,6 +1418,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   activityAction: { color: palette.signal, fontSize: 11, fontWeight: "700" },
+  activityError: {
+    borderBottomWidth: 0,
+    marginHorizontal: -space.sm,
+    paddingHorizontal: space.lg,
+    paddingTop: space.xs,
+    paddingBottom: space.md,
+  },
   activityActionLargeText: { alignSelf: "flex-start" },
   activityCopy: {
     alignItems: "baseline",
@@ -1580,7 +1456,7 @@ const styles = StyleSheet.create({
   activityLabel: { ...typography.control, color: palette.ink },
   activityNested: { marginLeft: 12 },
   activityStandalone: { marginHorizontal: space.lg, paddingVertical: space.xs },
-  assistantFooter: { color: palette.dim, fontSize: 11, marginTop: space.xs },
+  assistantFooter: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.sm },
   assistantRow: {
     gap: space.sm,
     paddingHorizontal: space.lg,
@@ -1598,23 +1474,6 @@ const styles = StyleSheet.create({
   attachmentLabel: { color: palette.dim, fontSize: 11, fontWeight: "600" },
   attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
   bodyText: { color: palette.ink, fontSize: 17, lineHeight: 26 },
-  boldText: { color: markdownPalette.strong, fontWeight: "700" },
-  codeBlock: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    gap: space.xs,
-    padding: 12,
-  },
-  codeLanguage: {
-    ...typography.label,
-    color: palette.dim,
-  },
-  codeText: {
-    ...typography.code,
-    color: markdownPalette.code,
-  },
   disclosure: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -1651,7 +1510,6 @@ const styles = StyleSheet.create({
   },
   diffActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 21 },
-  markdownBlockSpacing: { marginTop: space.sm },
   linkText: { color: markdownPalette.linkText, textDecorationLine: "underline" },
   notice: {
     borderBottomColor: palette.border,

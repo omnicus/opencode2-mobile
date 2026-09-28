@@ -30,7 +30,7 @@ test("inline code preserves literal markup and does not create links inside code
     />,
   );
   expect(screen.getByText("pnpm check")).toHaveStyle({
-    color: markdownPalette.code,
+    color: palette.ink,
     fontFamily: "Menlo",
   });
   expect(screen.getByText("**literal**")).toBeOnTheScreen();
@@ -358,6 +358,48 @@ test("keeps URLs in fenced code blocks inert", () => {
 
   expect(screen.getByText("https://example.test/code")).toBeOnTheScreen();
   expect(screen.queryByRole("link")).toBeNull();
+});
+
+test("renders nested bold code and table cells without leaking Markdown markers", () => {
+  render(
+    <SessionTranscriptRow
+      message={{
+        agent: "build",
+        id: "msg_markdown_table",
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 1 },
+        type: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Use **`IMAGE_TAG`** to select this image.\n\nIn short:\n\n| Change | Rebuild needed? |\n|---|---|\n| Test configuration | Yes, `make image` |\n| Runtime `ARGS` | **No** |",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByText("Change")).toBeOnTheScreen();
+  expect(screen.getByText("Rebuild needed?")).toBeOnTheScreen();
+  expect(screen.getByText("IMAGE_TAG")).toHaveStyle({ fontWeight: "700" });
+  expect(screen.queryByText(/\*\*/)).toBeNull();
+  expect(screen.queryByText(/\|---/)).toBeNull();
+});
+
+test("shows the responding model display name and measured runtime in the footer", () => {
+  render(
+    <SessionTranscriptRow
+      modelName="Model One"
+      message={{
+        agent: "plan",
+        id: "msg_footer",
+        model: { id: "model-1", providerID: "provider" },
+        content: [{ type: "text", text: "Done." }],
+        time: { created: 1000, completed: 29000 },
+        type: "assistant",
+      }}
+    />,
+  );
+  expect(screen.getByText("Plan · Model One · 28s")).toHaveStyle({ fontSize: 15, lineHeight: 22 });
 });
 
 test("renders fenced assistant code without markdown fence markers", () => {

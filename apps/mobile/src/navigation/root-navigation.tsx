@@ -119,14 +119,14 @@ export function RootNavigation() {
         options={({ navigation }) => ({
           ...(customWorkspaceHeader
             ? {
-                header: () => (
+                header: ({ options }) => (
                   <WorkspaceHeader
                     navigate={(destination) => navigation.navigate(destination)}
                     onBack={() => {
                       if (navigation.canGoBack()) navigation.goBack();
                       else navigation.popTo("Workspace");
                     }}
-                    title="Session"
+                    title={options.title ?? "Session"}
                   />
                 ),
               }

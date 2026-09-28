@@ -64,6 +64,7 @@ const mockListProjectSessions = jest.fn<ListProjectSessionsCall>(defaultListProj
 const mockReplyPermission = jest.fn<ReplyPermissionCall>();
 let mockEventLocations: LocationRef[] = [];
 let mockAttentionLocations: LocationRef[] = [];
+let mockSandboxes: string[] = [];
 let mockRevision = 1;
 let mockStatus: "connected" | "offline" = "connected";
 let mockConnectionUpdatedAtMs = 1;
@@ -110,7 +111,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
       canonical: "/b",
       id: "project-b",
       name: "Beta",
-      sandboxes: [],
+      sandboxes: mockSandboxes,
       time: { created: 1, updated: 1 },
     },
   ]),
@@ -137,6 +138,7 @@ beforeEach(() => {
   jest.useFakeTimers();
   mockEventLocations = [];
   mockAttentionLocations = [];
+  mockSandboxes = [];
   mockRevision = 1;
   mockStatus = "connected";
   mockConnectionUpdatedAtMs = 1;
@@ -569,51 +571,62 @@ test.each([
   queryClient.clear();
 });
 
-test("retires missing historical directories and checks them again after restoration", async () => {
-  const directory = "/b/.worktree/retired";
-  mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
-    cursor: {},
-    data: [
-      projectID === "project-b"
-        ? mockSession("ses_retired", projectID, directory, 2)
-        : mockSession("ses_alpha", projectID, "/a", 3),
-    ],
-  }));
-  mockDirectoryExists.mockImplementation(
-    async (_client, _root, candidate) => candidate !== directory,
-  );
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
-  });
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <FollowedProjectsProvider>
-        <Capture />
-      </FollowedProjectsProvider>
-    </QueryClientProvider>,
-  );
-  await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
-  expect(mockDirectoryExists).toHaveBeenCalledWith(
-    expect.anything(),
-    { directory: "/b" },
-    directory,
-    expect.anything(),
-  );
-  expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
-    false,
-  );
-  expect(mockListForms.mock.calls.some((call) => call[1].directory === directory)).toBe(false);
-  expect(screen.getByText("recent:ses_retired")).toBeOnTheScreen();
-  mockDirectoryExists.mockResolvedValue(true);
-  fireEvent.press(screen.getByRole("button", { name: "Refresh sessions" }));
-  await waitFor(() =>
+test.each([false, true])(
+  "retires missing directories and checks restoration, registered worktree: %s",
+  async (registered) => {
+    const directory = "/b/.worktree/retired";
+    if (registered) mockSandboxes = [directory];
+    const listPermissions = mockListPermissions.getMockImplementation();
+    mockListPermissions.mockImplementation(async (client, location, options) => {
+      if (location.directory === directory) throw new Error("HTTP 500");
+      if (!listPermissions) throw new Error("Missing permission fixture");
+      return listPermissions(client, location, options);
+    });
+    mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
+      cursor: {},
+      data: [
+        projectID === "project-b"
+          ? mockSession("ses_retired", projectID, directory, 2)
+          : mockSession("ses_alpha", projectID, "/a", 3),
+      ],
+    }));
+    mockDirectoryExists.mockImplementation(
+      async (_client, _root, candidate) => candidate !== directory,
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <FollowedProjectsProvider>
+          <Capture />
+        </FollowedProjectsProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
+    expect(screen.queryByText(/^unavailable:/)).toBeNull();
+    expect(mockDirectoryExists).toHaveBeenCalledWith(
+      expect.anything(),
+      { directory: "/b" },
+      directory,
+      expect.anything(),
+    );
     expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
-      true,
-    ),
-  );
-  view.unmount();
-  queryClient.clear();
-});
+      false,
+    );
+    expect(mockListForms.mock.calls.some((call) => call[1].directory === directory)).toBe(false);
+    expect(screen.getByText("recent:ses_retired")).toBeOnTheScreen();
+    mockDirectoryExists.mockResolvedValue(true);
+    fireEvent.press(screen.getByRole("button", { name: "Refresh sessions" }));
+    await waitFor(() =>
+      expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
+        true,
+      ),
+    );
+    view.unmount();
+    queryClient.clear();
+  },
+);
 
 test.each(["notification", "event", "cached-form"])(
   "keeps %s attention at a missing historical directory",

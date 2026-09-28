@@ -51,6 +51,7 @@ import {
   recordTranscriptResidentSet,
 } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
+import { useModelFavorites } from "../state/use-model-favorites";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import {
@@ -63,6 +64,7 @@ import {
   usesLargeTextLayout,
 } from "../theme";
 import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
+import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
@@ -89,6 +91,7 @@ type WorkspaceProps = NativeStackScreenProps<RootStackParamList, "Workspace">;
 type SessionProps = NativeStackScreenProps<RootStackParamList, "Session">;
 
 const messagePageSize = 40;
+const recentSessionLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
@@ -110,6 +113,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [selectedDirectory, setSelectedDirectory] = useState<string>();
   const [sessionSearch, setSessionSearch] = useState("");
+  const searchInputRef = useRef<TextInput>(null);
   const [refreshing, setRefreshing] = useState(false);
   const removeAbortRef = useRef<AbortController>(null);
   const refreshGenerationRef = useRef(0);
@@ -358,12 +362,13 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       <View style={styles.searchField}>
         <TextInput
           accessibilityLabel="Search sessions"
+          ref={searchInputRef}
           autoCapitalize="none"
           autoCorrect={false}
           editable={workspaceSelection.followedProjectIds.length > 0}
           keyboardAppearance="dark"
           onChangeText={setSessionSearch}
-          placeholder="Search sessions"
+          placeholder="Search all sessions"
           placeholderTextColor={palette.dim}
           style={styles.searchInput}
           value={sessionSearch}
@@ -405,11 +410,21 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           />
         }
         ListFooterComponent={
-          workspaceSelection.hasNextPage ? (
+          deferredSessionSearch && workspaceSelection.hasNextPage ? (
             <View style={styles.listFooter}>
               <ActionButton
                 label="Load older"
                 onPress={() => void workspaceSelection.fetchNextPage()}
+                secondary
+              />
+            </View>
+          ) : !deferredSessionSearch &&
+            (workspaceSelection.inbox.recent.length >= recentSessionLimit ||
+              workspaceSelection.hasNextPage) ? (
+            <View style={styles.listFooter}>
+              <ActionButton
+                label="Search older sessions"
+                onPress={() => searchInputRef.current?.focus()}
                 secondary
               />
             </View>
@@ -465,6 +480,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
 export function SessionScreen({ navigation, route }: SessionProps) {
   const transcriptPreferences = useTranscriptPreferences();
   const runtime = useConnectionRuntime();
+  const modelFavorites = useModelFavorites(runtime.connectionId, runtime.connectionUpdatedAtMs);
   const workspaceSelection = useWorkspaceSelection();
   const queryClient = useQueryClient();
   const { fontScale } = useWindowDimensions();
@@ -474,6 +490,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const connectionId = runtime.connectionId;
   const client = runtime.restClient;
   const routeSessionScope = `${routeConnectionId}\u0000${sessionID}\u0000${location.directory}\u0000${location.workspaceID ?? ""}`;
+  const [sessionTab, setSessionTab] = useState<{ scope: string; tab: "session" | "changes" }>({
+    scope: routeSessionScope,
+    tab: "session",
+  });
+  const selectedTab = sessionTab.scope === routeSessionScope ? sessionTab.tab : "session";
   const [sessionQueryScope, setSessionQueryScope] = useState({
     location,
     routeSessionScope,
@@ -511,6 +532,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     ),
   });
   const session = sessionQuery.data;
+  const sessionTitle = connectionId === routeConnectionId ? session?.title?.trim() : undefined;
+  useEffect(() => {
+    navigation.setOptions({ title: sessionTitle || "Untitled session" });
+  }, [navigation, sessionTitle]);
   const sessionLocation = session?.location ?? sessionQueryLocation;
   const sessionLocationReady = Boolean(
     sessionQuery.isSuccess && session && locationsEqual(session.location, sessionQueryLocation),
@@ -881,6 +906,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         active={execution.active}
         agent={execution.selectedAgent}
         agents={execution.agents}
+        agentCatalog={execution.agentCatalog}
+        modelCatalog={execution.modelCatalog}
+        favorites={modelFavorites}
         commands={execution.commands}
         completionLoading={execution.completionLoading}
         completionUnavailable={execution.completionUnavailable}
@@ -920,11 +948,30 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     <ShellFrame
       active="Workspace"
       branch={branch}
+      sessionTabs={{
+        active: selectedTab,
+        onSelect: (tab) => {
+          Keyboard.dismiss();
+          setSessionTab({ scope: routeSessionScope, tab });
+        },
+      }}
       navigate={(section) =>
         section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section)
       }
     >
-      <View accessibilityLabel="Keyboard-aware session" style={styles.transcriptContainer}>
+      {selectedTab === "changes" ? (
+        <SessionChanges
+          connectionId={routeConnectionId}
+          location={sessionLocation}
+          mode="working"
+        />
+      ) : null}
+      <View
+        accessibilityLabel="Keyboard-aware session"
+        style={[styles.transcriptContainer, selectedTab === "changes" && { display: "none" }]}
+        accessibilityElementsHidden={selectedTab === "changes"}
+        importantForAccessibility={selectedTab === "changes" ? "no-hide-descendants" : "auto"}
+      >
         <FlatList
           accessibilityLabel="Session transcript"
           contentContainerStyle={[styles.detailContent, largeText && styles.detailContentLargeText]}
@@ -1007,6 +1054,14 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                 showReasoning={transcriptPreferences.reasoning}
                 largeText={largeText}
                 message={item}
+                modelName={
+                  item.type === "assistant"
+                    ? execution.models.find(
+                        (model) =>
+                          model.id === item.model.id && model.providerID === item.model.providerID,
+                      )?.name
+                    : undefined
+                }
                 onOpenDiff={openDiff}
                 onOpenSubagent={openSubagent}
               />
@@ -1365,10 +1420,20 @@ function workspaceInboxItems(
   flattenSections: boolean,
 ) {
   const items: WorkspaceInboxItem[] = [];
+  const recentIDs = new Set(
+    [...inbox.recent]
+      .sort((first, second) => second.session.time.updated - first.session.time.updated)
+      .slice(0, recentSessionLimit)
+      .map((row) => row.session.id),
+  );
   for (const [key, label, rows] of [
     ["needs-you", "Needs you", inbox.needsYou],
     ["working", "Working", inbox.working],
-    ["recent", "Recent", inbox.recent],
+    [
+      "recent",
+      "Recent",
+      flattenSections ? inbox.recent : inbox.recent.filter((row) => recentIDs.has(row.session.id)),
+    ],
   ] as const) {
     if (rows.length === 0) continue;
     if (!flattenSections) {

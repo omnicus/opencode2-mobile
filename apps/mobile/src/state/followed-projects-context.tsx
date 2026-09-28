@@ -414,7 +414,10 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
   discoveredLocationsRef.current = { scopeKey: followedScopeKey, locations: candidateLocations };
   const protectedLocationKeys = new Set(
     [
-      ...projectLocations,
+      ...availableFollowedProjectIDs.flatMap((projectID) => {
+        const project = projectByID.get(projectID);
+        return project ? [{ directory: project.canonical }] : [];
+      }),
       ...runtime.attentionLocations,
       ...runtime.eventLocations,
       ...Object.values(activeAncestryQuery.data?.sessions ?? {}).map((session) => session.location),
@@ -426,7 +429,13 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     const session = rootSessions.find(
       (item) => locationKey(item.location) === locationKey(candidate),
     );
-    const project = session ? projectByID.get(session.projectID) : undefined;
+    const project = session
+      ? projectByID.get(session.projectID)
+      : projects.find(
+          (project) =>
+            availableFollowedProjectIDs.includes(project.id) &&
+            project.sandboxes.includes(candidate.directory),
+        );
     if (!project || !candidate.directory.startsWith(`${project.canonical.replace(/\/$/, "")}/`))
       return [];
     // Previously observed blocked work takes precedence over retirement. Active

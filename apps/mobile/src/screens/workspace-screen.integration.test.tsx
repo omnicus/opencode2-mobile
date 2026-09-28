@@ -58,6 +58,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
     tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
   })),
   getOpenCodeSessionMessage: jest.fn(),
+  getOpenCodeVcsDiff: jest.fn(async () => ({ data: [] })),
   getOpenCodeVcs: jest.fn(async () => ({
     data: { branch: { current: "docs/mobile-workflow-screenshots" } },
     location,
@@ -252,6 +253,54 @@ const mockGetLocation = jest.mocked(getOpenCodeLocation);
 const mockListAgents = jest.mocked(listOpenCodeAgents);
 const mockListMessages = jest.mocked(listOpenCodeMessages);
 
+test("updates the navigation title when the server session name changes", async () => {
+  const setOptions = jest.fn();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions } as never}
+        route={{
+          key: "title-session",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(setOptions).toHaveBeenCalledWith({ title: "Transcript session" }));
+  const key = openCodeQueryKeys.session(
+    "connection-1",
+    { directory: "/workspace" },
+    "ses_transcript",
+  );
+  act(() =>
+    queryClient.setQueryData<SessionInfo>(key, (session) =>
+      session ? { ...session, title: "Renamed session" } : session,
+    ),
+  );
+  await waitFor(() => expect(setOptions).toHaveBeenLastCalledWith({ title: "Renamed session" }));
+  act(() =>
+    queryClient.setQueryData<SessionInfo>(key, (session) =>
+      session ? { ...session, title: " " } : session,
+    ),
+  );
+  await waitFor(() => expect(setOptions).toHaveBeenLastCalledWith({ title: "Untitled session" }));
+  fireEvent.press(screen.getByRole("tab", { name: "Changes" }));
+  expect(await screen.findByText("No changes")).toBeOnTheScreen();
+  expect(screen.queryByLabelText("Prompt")).toBeNull();
+  fireEvent.press(screen.getByRole("tab", { name: "Session" }));
+  expect(screen.getByLabelText("Prompt")).toBeOnTheScreen();
+  view.unmount();
+  queryClient.clear();
+});
+
 test("moves only the Android composer dock with the keyboard", async () => {
   const platformOS = Platform.OS;
   Object.defineProperty(Platform, "OS", { configurable: true, value: "android" });
@@ -264,7 +313,7 @@ test("moves only the Android composer dock with the keyboard", async () => {
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
         route={{
           key: "session-android-keyboard",
           name: "Session",
@@ -308,7 +357,7 @@ test("shows a permission blocking the open session and can reply", async () => {
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
         route={{
           key: "session-permission",
           name: "Session",
@@ -481,6 +530,20 @@ test("keeps connection management and new-session controls out of the phone list
   expect(screen.queryByLabelText(/Change new session location/)).toBeNull();
   expect(screen.queryByText("Inbox")).toBeNull();
   expect(screen.getByText("Recent")).toBeOnTheScreen();
+  const list = screen.UNSAFE_getByType(FlatList);
+  expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(
+    20,
+  );
+  expect(screen.getByText("20")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Search older sessions" })).toBeOnTheScreen();
+  fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+  await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
+  expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(
+    120,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Clear session search" }));
+  await waitFor(() => expect(screen.getByText("Recent")).toBeOnTheScreen());
   expect(screen.queryByText("Succeeded")).toBeNull();
 
   expect(screen.queryByRole("button", { name: "New" })).toBeNull();
@@ -559,7 +622,7 @@ test("compact mode groups consecutive tool calls across assistant messages", asy
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
         route={{
           key: "grouping",
           name: "Session",
@@ -596,7 +659,7 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
         route={{
           key: "session",
           name: "Session",
@@ -750,7 +813,9 @@ test("waits for and adopts a moved session's authoritative location", async () =
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn(), push } as never}
+        navigation={
+          { goBack: jest.fn(), navigate: jest.fn(), push, setOptions: jest.fn() } as never
+        }
         route={{
           key: "session-moved",
           name: "Session",
@@ -864,7 +929,9 @@ test("shows running background subagents and opens their child sessions", async 
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn(), push } as never}
+        navigation={
+          { goBack: jest.fn(), navigate: jest.fn(), push, setOptions: jest.fn() } as never
+        }
         route={{
           key: "session-subagent",
           name: "Session",
@@ -922,7 +989,14 @@ test("does not rerender stable transcript rows when a streaming row changes", as
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn(), push: jest.fn() } as never}
+        navigation={
+          {
+            goBack: jest.fn(),
+            navigate: jest.fn(),
+            push: jest.fn(),
+            setOptions: jest.fn(),
+          } as never
+        }
         route={{
           key: "session-row-stability",
           name: "Session",
@@ -997,7 +1071,7 @@ test("remeasures the transcript when the system font scale changes", async () =>
   const view = render(
     <QueryClientProvider client={queryClient}>
       <SessionScreen
-        navigation={{ goBack: jest.fn(), navigate: jest.fn() } as never}
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
         route={{
           key: "session-font-scale",
           name: "Session",
@@ -1017,7 +1091,7 @@ test("remeasures the transcript when the system font scale changes", async () =>
     expect(screen.getByRole("button", { name: /Thought/ })).toHaveStyle({
       flexDirection: "row",
     });
-    expect(screen.getByText("Test server").props.numberOfLines).toBe(1);
+    expect(screen.queryByText("Test server")).toBeNull();
     const normalScaleAwayFromLiveEdge = {
       nativeEvent: {
         contentOffset: { x: 0, y: 120 },
@@ -1054,8 +1128,8 @@ test("remeasures the transcript when the system font scale changes", async () =>
       flexDirection: "column",
     });
     expect(screen.queryByText("Detailed reasoning\nSecond step")).toBeNull();
-    expect(screen.getByText("Test server").props.numberOfLines).toBeUndefined();
-    expect(screen.getByText("Test server")).toHaveStyle({ flex: 0, width: "100%" });
+    expect(screen.queryByText("Test server")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Changes" })).toBeOnTheScreen();
 
     const awayFromLiveEdge = {
       nativeEvent: {
