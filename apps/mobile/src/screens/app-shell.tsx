@@ -588,12 +588,14 @@ export function ShellFrame({
   children,
   hideConnectionBar,
   navigate,
+  sessionTabs,
 }: {
   active: Section;
   branch?: SessionBranch;
   children?: ReactNode;
   hideConnectionBar?: boolean;
   navigate: (screen: Section) => void;
+  sessionTabs?: { active: "session" | "changes"; onSelect: (tab: "session" | "changes") => void };
 }) {
   const { fontScale, width } = useWindowDimensions();
   const tablet = isTabletShell(width);
@@ -641,9 +643,11 @@ export function ShellFrame({
           <View accessibilityLabel="Primary navigation" style={styles.rail}>
             <View>
               <Text style={styles.brand}>OpenCode</Text>
-              <Text numberOfLines={2} style={styles.railConnection}>
-                {selected?.name ?? "NO SERVER"}
-              </Text>
+              {!sessionTabs ? (
+                <Text numberOfLines={2} style={styles.railConnection}>
+                  {selected?.name ?? "NO SERVER"}
+                </Text>
+              ) : null}
             </View>
             <View style={styles.railNavigation}>
               <NavigationItem
@@ -668,16 +672,18 @@ export function ShellFrame({
                 onPress={() => navigate("Settings")}
               />
             </View>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => navigate("Settings")}
-              style={styles.railFooter}
-            >
-              <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
-              <Text numberOfLines={1} style={styles.railStatus}>
-                {connection.label}
-              </Text>
-            </Pressable>
+            {!sessionTabs ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => navigate("Settings")}
+                style={styles.railFooter}
+              >
+                <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
+                <Text numberOfLines={1} style={styles.railStatus}>
+                  {connection.label}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
 
@@ -687,12 +693,38 @@ export function ShellFrame({
               accessibilityLiveRegion="polite"
               style={[styles.connectionBar, largeText && styles.connectionBarLargeText]}
             >
-              <View style={styles.connectionState}>
-                <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
-                <Text dynamicTypeRamp={typeRamp.caption} style={styles.connectionStatus}>
-                  {connection.label}
-                </Text>
-              </View>
+              {sessionTabs ? (
+                <View accessibilityRole="tablist" style={styles.sessionTabs}>
+                  {(["session", "changes"] as const).map((tab) => (
+                    <Pressable
+                      key={tab}
+                      accessibilityRole="tab"
+                      accessibilityState={{ selected: sessionTabs.active === tab }}
+                      onPress={() => sessionTabs.onSelect(tab)}
+                      style={[
+                        styles.sessionTab,
+                        sessionTabs.active === tab && styles.sessionTabSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.sessionTabText,
+                          sessionTabs.active === tab && styles.sessionTabTextSelected,
+                        ]}
+                      >
+                        {tab === "session" ? "Session" : "Changes"}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.connectionState}>
+                  <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
+                  <Text dynamicTypeRamp={typeRamp.caption} style={styles.connectionStatus}>
+                    {connection.label}
+                  </Text>
+                </View>
+              )}
               {branch ? (
                 branch.state === "known" && branch.name ? (
                   <Pressable
@@ -741,27 +773,44 @@ export function ShellFrame({
                   </View>
                 )
               ) : null}
-              <Pressable
-                accessibilityHint="Opens the full server name"
-                accessibilityLabel={`Server, ${serverName}`}
-                accessibilityRole="button"
-                onPress={() => showDetail("server")}
-                style={({ pressed }) => [
-                  styles.connectionNameControl,
-                  branch && styles.connectionNameControlWithBranch,
-                  largeText && styles.connectionNameControlLargeText,
-                  pressed && styles.branchControlPressed,
-                ]}
-              >
-                <Text
-                  dynamicTypeRamp={typeRamp.subheading}
-                  numberOfLines={largeText ? undefined : 1}
-                  style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
+              {!sessionTabs ? (
+                <Pressable
+                  accessibilityHint="Opens the full server name"
+                  accessibilityLabel={`Server, ${serverName}`}
+                  accessibilityRole="button"
+                  onPress={() => showDetail("server")}
+                  style={({ pressed }) => [
+                    styles.connectionNameControl,
+                    branch && styles.connectionNameControlWithBranch,
+                    largeText && styles.connectionNameControlLargeText,
+                    pressed && styles.branchControlPressed,
+                  ]}
                 >
-                  {serverName}
-                </Text>
-              </Pressable>
+                  <Text
+                    dynamicTypeRamp={typeRamp.subheading}
+                    numberOfLines={largeText ? undefined : 1}
+                    style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
+                  >
+                    {serverName}
+                  </Text>
+                </Pressable>
+              ) : null}
             </View>
+          ) : null}
+          {sessionTabs && runtime.status !== "connected" && runtime.status !== "connecting" ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Connection problem: ${connection.label}. Open connection settings`}
+              onPress={() => navigate("Settings")}
+              style={styles.sessionConnectionIssue}
+            >
+              <Text
+                accessibilityLiveRegion="polite"
+                style={{ ...typography.caption, color: connection.color }}
+              >
+                {connection.label}. Check connection settings.
+              </Text>
+            </Pressable>
           ) : null}
           <View style={styles.content}>{children}</View>
         </View>
@@ -946,6 +995,18 @@ export function ActionButton({
 }
 
 const styles = StyleSheet.create({
+  sessionTabs: { flexDirection: "row", gap: space.md },
+  sessionTab: {
+    minHeight: 44,
+    justifyContent: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    paddingHorizontal: space.xs,
+  },
+  sessionTabSelected: { borderBottomColor: palette.ink },
+  sessionTabText: { ...typography.control, color: palette.dim },
+  sessionTabTextSelected: { color: palette.ink },
+  sessionConnectionIssue: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
   locationFailure: {
     backgroundColor: palette.card,
     borderColor: palette.border,

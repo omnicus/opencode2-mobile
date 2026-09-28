@@ -384,8 +384,9 @@ The default inbox has three non-overlapping sections:
 
 1. `Needs you`: sessions with pending permissions or forms.
 2. `Working`: sessions present in the connection-wide active-session snapshot.
-3. `Recent`: remaining followed-project sessions, initially in server recency
-   order.
+3. `Recent`: the 20 most recent remaining followed-project sessions, initially in
+   server recency order. Search queries older sessions on the server and supports
+   cursor pagination beyond this default display limit.
 
 Attention takes presentation priority over execution, so a running session with
 a pending interaction appears only in `Needs you`. Keep attention, execution,

@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import type { FileDiffInfo } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 
 import { diffPalette } from "../theme";
 import { buildDiffRows, DiffScreen } from "./diff-screen";
@@ -49,6 +49,10 @@ test("renders an authoritative working-tree diff", async () => {
   renderDiffScreen();
 
   expect(await screen.findByText("src/app.ts")).toBeOnTheScreen();
+  expect(screen.queryByText("+new value")).toBeNull();
+  fireEvent.press(
+    screen.getByRole("button", { name: "modified file, src/app.ts, 1 additions, 1 deletions" }),
+  );
   expect(
     screen.getByText(
       "Current working tree. This may include changes made after the selected tool call.",
@@ -68,6 +72,38 @@ test("renders an authoritative working-tree diff", async () => {
     "working",
     expect.objectContaining({ context: 5 }),
   );
+  fireEvent.press(screen.getByRole("button", { name: "Collapse all" }));
+  expect(screen.queryByText("+new value")).toBeNull();
+});
+
+test("keeps later file headers reachable even when an expanded patch hits the line bound", () => {
+  const files: FileDiffInfo[] = [
+    {
+      file: "large.ts",
+      status: "modified",
+      additions: 20001,
+      deletions: 0,
+      patch: "+line\n".repeat(20001),
+    },
+    { file: "later.ts", status: "added", additions: 1, deletions: 0, patch: "+later" },
+  ];
+  const rows = buildDiffRows(files, new Set(["large.ts"]));
+  expect(rows).toContainEqual(expect.objectContaining({ type: "file", file: "later.ts" }));
+  expect(rows).toContainEqual(expect.objectContaining({ key: "line:omitted" }));
+  expect(buildDiffRows(files, new Set())).toHaveLength(2);
+});
+
+test("offers bounded expand all and keeps unavailable patches explicit", async () => {
+  mockGetDiff.mockResolvedValue({
+    data: [
+      { file: "new.ts", status: "added", additions: 1, deletions: 0, patch: "+new" },
+      { file: "image.png", status: "modified", additions: 0, deletions: 0, patch: "" },
+    ],
+  });
+  renderDiffScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "Expand all" }));
+  expect(screen.getByText("+new")).toBeOnTheScreen();
+  expect(screen.getByText("Diff unavailable for this file.")).toBeOnTheScreen();
 });
 
 test("shows empty and mismatched-connection states", async () => {

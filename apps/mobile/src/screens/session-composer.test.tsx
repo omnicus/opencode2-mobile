@@ -99,13 +99,14 @@ test("closes before publishing an immediate active-session transition", () => {
   dismissKeyboard.mockRestore();
 });
 
-test("keeps controls collapsed until the editor is focused", () => {
+test("keeps model and variant controls visible before the editor is focused", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
 
   const input = screen.getByLabelText("Prompt");
   expect(input).toHaveStyle({ height: 42 });
-  expect(screen.queryByRole("button", { name: "Model: Choose model" })).not.toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: "Agent: Choose agent" })).not.toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
 
   fireEvent(input, "focus");
 
@@ -183,7 +184,7 @@ test("keeps the editor read-only until its encrypted draft has loaded", () => {
   expect(screen.getByLabelText("Prompt").props.editable).toBe(false);
 });
 
-test("selects a server agent and model variant", () => {
+test("selects a server agent and model", () => {
   const onAgentChange = jest.fn();
   const onModelChange = jest.fn();
   render(
@@ -210,19 +211,31 @@ test("selects a server agent and model variant", () => {
 
   fireEvent(screen.getByLabelText("Prompt"), "focus");
   fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
-  expect(screen.getByLabelText("Agent results").props.inverted).toBe(true);
+  expect(screen.getByLabelText("Agent results").props.inverted).toBeFalsy();
   fireEvent.changeText(screen.getByLabelText("Search agents"), "build");
   fireEvent.press(screen.getByRole("button", { name: "Build" }));
   expect(onAgentChange).toHaveBeenCalledWith("build");
 
   fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
-  expect(screen.getByLabelText("Model results").props.inverted).toBe(true);
-  fireEvent.press(screen.getByRole("button", { name: /Model One \/ deep/ }));
+  expect(screen.getByLabelText("Model results").props.inverted).toBeFalsy();
+  fireEvent.press(screen.getByRole("button", { name: /Model One/ }));
   expect(onModelChange).toHaveBeenCalledWith({
     id: "model-1",
     providerID: "provider",
-    variant: "deep",
   });
+});
+
+test("selects a variant separately and can return to the model default", () => {
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+  fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
+  fireEvent.press(screen.getByRole("button", { name: /Model One/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Variant: Default" }));
+  fireEvent.press(screen.getByRole("button", { name: "deep" }));
+  expect(screen.getByRole("button", { name: "Variant: deep" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Model: Model One" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Variant: deep" }));
+  fireEvent.press(screen.getByRole("button", { name: "Default" }));
+  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeOnTheScreen();
 });
 
 test("completes and submits a command with multiline Unicode arguments", () => {

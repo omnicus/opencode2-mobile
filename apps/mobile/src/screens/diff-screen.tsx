@@ -1,6 +1,7 @@
 import { type FileDiffInfo, getOpenCodeVcsDiff } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -39,8 +40,15 @@ const maxDiffLines = 20_000;
 const maxDiffLineCharacters = 4_000;
 
 export function DiffScreen({ route }: Props) {
+  return <SessionChanges {...route.params} />;
+}
+
+export function SessionChanges({
+  connectionId: routeConnectionId,
+  location,
+  mode,
+}: RootStackParamList["Diff"]) {
   const runtime = useConnectionRuntime();
-  const { connectionId: routeConnectionId, location, mode } = route.params;
   const client = runtime.restClient;
   const connectedToRoute = runtime.connectionId === routeConnectionId;
   const query = useQuery({
@@ -52,7 +60,17 @@ export function DiffScreen({ route }: Props) {
     queryKey: openCodeQueryKeys.vcsDiff(routeConnectionId, location, mode),
   });
   const files = connectedToRoute ? (query.data?.data ?? []) : [];
-  const rows = buildDiffRows(files);
+  const scope = JSON.stringify([routeConnectionId, location, mode]);
+  const [expansion, setExpansion] = useState<{ scope: string; files: Set<string> }>({
+    scope,
+    files: new Set(),
+  });
+  const expanded = expansion.scope === scope ? expansion.files : new Set<string>();
+  const rows = useMemo(() => buildDiffRows(files, expanded), [files, expanded]);
+  const canExpandAll =
+    files.length > 1 &&
+    files.length <= 20 &&
+    files.reduce((total, file) => total + file.patch.length, 0) <= 200_000;
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
 
@@ -100,6 +118,30 @@ export function DiffScreen({ route }: Props) {
             <Text dynamicTypeRamp={typeRamp.control} style={styles.explanation}>
               Current working tree. This may include changes made after the selected tool call.
             </Text>
+            {query.isError ? (
+              <DiffState
+                title="Refresh failed"
+                detail="Showing the last loaded changes."
+                action="Retry"
+                onPress={() => void query.refetch()}
+              />
+            ) : null}
+            {expanded.size > 0 || canExpandAll ? (
+              <Pressable
+                accessibilityRole="button"
+                style={styles.retry}
+                onPress={() =>
+                  setExpansion({
+                    scope,
+                    files: expanded.size > 0 ? new Set() : new Set(files.map((file) => file.file)),
+                  })
+                }
+              >
+                <Text style={styles.retryLabel}>
+                  {expanded.size > 0 ? "Collapse all" : "Expand all"}
+                </Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null
       }
@@ -112,7 +154,20 @@ export function DiffScreen({ route }: Props) {
         />
       }
       renderItem={({ item }) =>
-        item.type === "file" ? <DiffFileHeader row={item} /> : <DiffLine row={item} />
+        item.type === "file" ? (
+          <DiffFileHeader
+            row={item}
+            expanded={expanded.has(item.file)}
+            onPress={() =>
+              setExpansion({
+                scope,
+                files: expanded.has(item.file) ? new Set() : new Set([item.file]),
+              })
+            }
+          />
+        ) : (
+          <DiffLine row={item} />
+        )
       }
       updateCellsBatchingPeriod={40}
       windowSize={9}
@@ -120,13 +175,33 @@ export function DiffScreen({ route }: Props) {
   );
 }
 
-function DiffFileHeader({ row }: { row: Extract<DiffRow, { type: "file" }> }) {
+function DiffFileHeader({
+  row,
+  expanded,
+  onPress,
+}: {
+  row: Extract<DiffRow, { type: "file" }>;
+  expanded: boolean;
+  onPress: () => void;
+}) {
+  const path = sanitizeTranscriptText(row.file, 1_024);
+  const separator = path.lastIndexOf("/");
   return (
-    <View accessibilityRole="header" style={styles.fileHeader}>
-      <Text dynamicTypeRamp={typeRamp.control} selectable style={styles.fileName}>
-        {sanitizeTranscriptText(row.file, 1_024)}
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      accessibilityLabel={`${row.status} file, ${path}, ${row.additions} additions, ${row.deletions} deletions`}
+      onPress={onPress}
+      style={({ pressed }) => [styles.fileHeader, pressed && styles.pressed]}
+    >
+      <Text dynamicTypeRamp={typeRamp.control} style={styles.fileName}>
+        <Text style={styles.fileParent}>{path.slice(0, separator + 1)}</Text>
+        {path.slice(separator + 1)}
       </Text>
       <View style={styles.fileMeta}>
+        <Text accessible={false} style={styles.fileStatus}>
+          {expanded ? "⌄" : "›"}
+        </Text>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.fileStatus}>
           {row.status.toLocaleUpperCase()}
         </Text>
@@ -137,7 +212,7 @@ function DiffFileHeader({ row }: { row: Extract<DiffRow, { type: "file" }> }) {
           -{row.deletions}
         </Text>
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -146,6 +221,7 @@ function DiffLine({ row }: { row: Extract<DiffRow, { type: "line" }> }) {
     <Text
       dynamicTypeRamp={typeRamp.body}
       selectable
+      accessibilityLabel={`${row.kind === "addition" ? "Added line" : row.kind === "deletion" ? "Removed line" : row.kind === "hunk" ? "Diff hunk" : row.kind === "plain" ? "Context line" : "Diff information"}: ${row.text}`}
       style={[
         styles.line,
         row.kind === "addition" && styles.lineAddition,
@@ -197,7 +273,7 @@ function DiffState({
   );
 }
 
-export function buildDiffRows(files: FileDiffInfo[]) {
+export function buildDiffRows(files: FileDiffInfo[], expanded?: ReadonlySet<string>) {
   const rows: DiffRow[] = [];
   let lineCount = 0;
   const visibleFiles = files.slice(0, maxDiffFiles);
@@ -210,6 +286,17 @@ export function buildDiffRows(files: FileDiffInfo[]) {
       status: file.status,
       type: "file",
     });
+    if (expanded && !expanded.has(file.file)) continue;
+    if (!file.patch.trim()) {
+      rows.push({
+        key: `unavailable:${fileIndex}`,
+        kind: "meta",
+        type: "line",
+        text: "Diff unavailable for this file.",
+      });
+      continue;
+    }
+    if (lineCount >= maxDiffLines) continue;
     for (const [lineIndex, line] of file.patch.split(/\r?\n/).entries()) {
       if (lineCount >= maxDiffLines) break;
       rows.push({
@@ -220,7 +307,6 @@ export function buildDiffRows(files: FileDiffInfo[]) {
       });
       lineCount += 1;
     }
-    if (lineCount >= maxDiffLines) break;
   }
   if (files.length > visibleFiles.length || lineCount >= maxDiffLines) {
     rows.push({
@@ -258,6 +344,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   fileMeta: { flexDirection: "row", gap: space.sm },
+  fileParent: { color: palette.dim, fontWeight: "400" },
   fileName: { ...typography.code, color: palette.ink, fontWeight: "600" },
   fileStatus: { ...typography.label, color: palette.dim },
   line: {

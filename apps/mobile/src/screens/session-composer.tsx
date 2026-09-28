@@ -8,7 +8,7 @@ import type {
   ModelRef,
   SkillInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { type RefObject, useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   FlatList,
   Keyboard,
@@ -24,6 +24,12 @@ import {
 
 import { ModalSheet } from "../components/modal-sheet";
 import { palette, radius, space, typeRamp, typography } from "../theme";
+import {
+  type CatalogState,
+  type FavoriteControls,
+  ModelPicker,
+  PickerNotice,
+} from "./model-picker";
 import type { PromptDelivery } from "./prompt-admission-model";
 import {
   applyMentionCompletion,
@@ -45,6 +51,9 @@ export function SessionComposer({
   active,
   agent,
   agents,
+  agentCatalog,
+  modelCatalog,
+  favorites,
   commands,
   completionLoading,
   completionUnavailable,
@@ -74,6 +83,9 @@ export function SessionComposer({
   active: boolean;
   agent?: string | undefined;
   agents: AgentInfo[];
+  agentCatalog?: CatalogState;
+  modelCatalog?: CatalogState;
+  favorites?: FavoriteControls;
   commands: CommandInfo[];
   completionLoading?: boolean | undefined;
   completionUnavailable?: boolean | undefined;
@@ -101,26 +113,21 @@ export function SessionComposer({
   skills: SkillInfo[];
 }) {
   const inputRef = useRef<TextInput>(null);
+  const modelSelectorRef = useRef<View>(null);
+  const agentSelectorRef = useRef<View>(null);
+  const variantSelectorRef = useRef<View>(null);
   const { fontScale } = useWindowDimensions();
   const [agentPickerOpen, setAgentPickerOpen] = useState(false);
   const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [modelSearch, setModelSearch] = useState("");
+  const [variantPickerOpen, setVariantPickerOpen] = useState(false);
   const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
-  const deferredModelSearch = useDeferredValue(modelSearch.trim().toLocaleLowerCase());
   const deferredAgentSearch = useDeferredValue(agentSearch.trim().toLocaleLowerCase());
   const selectedAgent = agents.find((candidate) => candidate.id === agent);
   const selectedModel = models.find(
     (candidate) => candidate.id === model?.id && candidate.providerID === model.providerID,
   );
-  const visibleModels = deferredModelSearch
-    ? models.filter((candidate) =>
-        `${candidate.name}\n${candidate.providerID}\n${candidate.id}`
-          .toLocaleLowerCase()
-          .includes(deferredModelSearch),
-      )
-    : models;
   const visibleAgents = deferredAgentSearch
     ? agents.filter((candidate) =>
         `${candidate.name}\n${candidate.id}\n${candidate.description ?? ""}`
@@ -128,7 +135,7 @@ export function SessionComposer({
           .includes(deferredAgentSearch),
       )
     : agents;
-  const expanded = largeText || focused || agentPickerOpen || modelPickerOpen;
+  const expanded = largeText || focused || agentPickerOpen || modelPickerOpen || variantPickerOpen;
   const minimumInputHeight = Math.max(40, 23 * fontScale + 8);
   const maximumInputHeight = Math.max(120, minimumInputHeight * 2);
   const completions = listSlashCompletions(draft, commands);
@@ -207,7 +214,7 @@ export function SessionComposer({
 
   return (
     <View accessibilityLabel="Session composer" style={styles.shell}>
-      <View style={[styles.surface, expanded ? styles.surfaceExpanded : styles.surfaceCollapsed]}>
+      <View style={[styles.surface, styles.surfaceExpanded]}>
         <View
           accessibilityLabel="Prompt editor"
           style={[styles.editorRow, expanded && styles.editorRowExpanded]}
@@ -250,15 +257,6 @@ export function SessionComposer({
             textAlignVertical={expanded ? "top" : "center"}
             value={draft}
           />
-          {!expanded ? (
-            <SendButton
-              active={active}
-              canSubmit={canSubmit}
-              delivery={delivery}
-              disabledHint={submitHint}
-              onPress={submit}
-            />
-          ) : null}
         </View>
 
         {expanded && /^\/[^\s/]*$/.test(draft) ? (
@@ -333,43 +331,57 @@ export function SessionComposer({
           </View>
         ) : null}
 
-        {expanded ? (
-          <View style={styles.toolbar}>
-            <ScrollView
-              contentContainerStyle={styles.selectorRow}
-              horizontal
-              keyboardShouldPersistTaps="always"
-              showsHorizontalScrollIndicator={false}
-              style={styles.selectorScroller}
-            >
-              <SelectorButton
-                label={modelLabel(selectedModel, model)}
-                onPress={() => setModelPickerOpen(true)}
-                prefix="Model"
-              />
-              <SelectorButton
-                label={selectedAgent?.name ?? agent ?? "Choose agent"}
-                onPress={() => {
-                  setAgentSearch("");
-                  setAgentPickerOpen(true);
-                }}
-                prefix="Agent"
-              />
-              {draft.length > 0 ? (
-                <Text dynamicTypeRamp={typeRamp.caption} style={styles.count}>
-                  {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
-                </Text>
-              ) : null}
-            </ScrollView>
-            <SendButton
-              active={active}
-              canSubmit={canSubmit}
-              delivery={delivery}
-              disabledHint={submitHint}
-              onPress={submit}
+        <View style={styles.toolbar}>
+          <ScrollView
+            contentContainerStyle={styles.selectorRow}
+            horizontal
+            keyboardShouldPersistTaps="always"
+            showsHorizontalScrollIndicator={false}
+            style={styles.selectorScroller}
+          >
+            <SelectorButton
+              label={modelLabel(selectedModel, model)}
+              onPress={() => {
+                Keyboard.dismiss();
+                setModelPickerOpen(true);
+              }}
+              prefix="Model"
+              buttonRef={modelSelectorRef}
             />
-          </View>
-        ) : null}
+            <SelectorButton
+              label={model?.variant ?? "Default"}
+              onPress={() => {
+                Keyboard.dismiss();
+                setVariantPickerOpen(true);
+              }}
+              prefix="Variant"
+              buttonRef={variantSelectorRef}
+              disabled={!selectedModel?.variants.length}
+            />
+            <SelectorButton
+              label={selectedAgent?.name ?? agent ?? "Choose agent"}
+              onPress={() => {
+                setAgentSearch("");
+                Keyboard.dismiss();
+                setAgentPickerOpen(true);
+              }}
+              prefix="Agent"
+              buttonRef={agentSelectorRef}
+            />
+            {draft.length > 0 ? (
+              <Text dynamicTypeRamp={typeRamp.caption} style={styles.count}>
+                {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
+              </Text>
+            ) : null}
+          </ScrollView>
+          <SendButton
+            active={active}
+            canSubmit={canSubmit}
+            delivery={delivery}
+            disabledHint={submitHint}
+            onPress={submit}
+          />
+        </View>
       </View>
 
       {error ? (
@@ -380,21 +392,48 @@ export function SessionComposer({
 
       <ModalSheet
         onClose={() => setAgentPickerOpen(false)}
+        size="full"
         scrollable={false}
         subtitle="Primary agents available at this session location"
         title="Choose agent"
+        returnFocusRef={agentSelectorRef}
         visible={agentPickerOpen}
       >
+        <TextInput
+          keyboardAppearance="dark"
+          accessibilityLabel="Search agents"
+          onChangeText={setAgentSearch}
+          placeholder="Search agents"
+          placeholderTextColor={palette.dim}
+          style={styles.searchInput}
+          value={agentSearch}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {agentCatalog?.error ? (
+          <PickerNotice text="Agents could not be loaded." retry={agentCatalog.retry} />
+        ) : null}
         <FlatList
           accessibilityLabel="Agent results"
           contentContainerStyle={styles.pickerListContent}
           data={visibleAgents}
-          inverted
           ItemSeparatorComponent={OptionSeparator}
           keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
           keyboardShouldPersistTaps="always"
           keyExtractor={(candidate) => candidate.id}
-          ListEmptyComponent={<EmptyResults label="No matching agents" />}
+          ListEmptyComponent={
+            <EmptyResults
+              label={
+                agentCatalog?.loading
+                  ? "Loading agents"
+                  : agentCatalog?.error
+                    ? ""
+                    : agentSearch.trim()
+                      ? "No matching agents"
+                      : "No primary agents available"
+              }
+            />
+          }
           renderItem={({ item: candidate }) => (
             <OptionButton
               {...(candidate.description ? { description: candidate.description } : {})}
@@ -408,83 +447,53 @@ export function SessionComposer({
           )}
           style={styles.pickerList}
         />
-        <TextInput
-          keyboardAppearance="dark"
-          accessibilityLabel="Search agents"
-          onChangeText={setAgentSearch}
-          placeholder="Search agents"
-          placeholderTextColor={palette.dim}
-          style={styles.searchInput}
-          value={agentSearch}
-        />
       </ModalSheet>
 
-      <ModalSheet
+      <ModelPicker
         onClose={() => setModelPickerOpen(false)}
-        scrollable={false}
-        subtitle="Enabled models and variants from the server catalog"
-        title="Choose model"
+        onSelect={onModelChange}
+        models={models}
+        returnFocusRef={modelSelectorRef}
+        model={model}
+        state={modelCatalog}
+        favorites={favorites}
         visible={modelPickerOpen}
+      />
+      <ModalSheet
+        onClose={() => setVariantPickerOpen(false)}
+        title="Choose variant"
+        returnFocusRef={variantSelectorRef}
+        size={(selectedModel?.variants.length ?? 0) > 8 ? "full" : "compact"}
+        subtitle={selectedModel?.name ?? "Select a model first"}
+        visible={variantPickerOpen}
       >
-        <FlatList
-          accessibilityLabel="Model results"
-          contentContainerStyle={styles.pickerListContent}
-          data={visibleModels}
-          inverted
-          ItemSeparatorComponent={OptionSeparator}
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          keyboardShouldPersistTaps="always"
-          keyExtractor={(candidate) => `${candidate.providerID}/${candidate.id}`}
-          ListEmptyComponent={<EmptyResults label="No matching models" />}
-          renderItem={({ item: candidate }) => (
-            <View style={styles.modelGroup}>
+        {selectedModel ? (
+          <>
+            <OptionButton
+              label="Default"
+              selected={!model?.variant}
+              onPress={() => {
+                onModelChange({ id: selectedModel.id, providerID: selectedModel.providerID });
+                setVariantPickerOpen(false);
+              }}
+            />
+            {selectedModel.variants.map((variant) => (
               <OptionButton
-                description={candidate.providerID}
-                label={candidate.name}
+                key={variant.id}
+                label={variant.id}
+                selected={variant.id === model?.variant}
                 onPress={() => {
-                  onModelChange({ id: candidate.id, providerID: candidate.providerID });
-                  setModelPickerOpen(false);
+                  onModelChange({
+                    id: selectedModel.id,
+                    providerID: selectedModel.providerID,
+                    variant: variant.id,
+                  });
+                  setVariantPickerOpen(false);
                 }}
-                selected={
-                  candidate.id === model?.id &&
-                  candidate.providerID === model.providerID &&
-                  model.variant === undefined
-                }
               />
-              {candidate.variants.map((variant) => (
-                <OptionButton
-                  compact
-                  description={`${candidate.providerID} variant`}
-                  key={variant.id}
-                  label={`${candidate.name} / ${variant.id}`}
-                  onPress={() => {
-                    onModelChange({
-                      id: candidate.id,
-                      providerID: candidate.providerID,
-                      variant: variant.id,
-                    });
-                    setModelPickerOpen(false);
-                  }}
-                  selected={
-                    candidate.id === model?.id &&
-                    candidate.providerID === model.providerID &&
-                    variant.id === model.variant
-                  }
-                />
-              ))}
-            </View>
-          )}
-          style={styles.pickerList}
-        />
-        <TextInput
-          keyboardAppearance="dark"
-          accessibilityLabel="Search models"
-          onChangeText={setModelSearch}
-          placeholder="Search models"
-          placeholderTextColor={palette.dim}
-          style={styles.searchInput}
-          value={modelSearch}
-        />
+            ))}
+          </>
+        ) : null}
       </ModalSheet>
     </View>
   );
@@ -632,10 +641,14 @@ function SendButton({
 }
 
 function SelectorButton({
+  buttonRef,
+  disabled = false,
   label,
   onPress,
   prefix,
 }: {
+  buttonRef?: RefObject<View | null>;
+  disabled?: boolean;
   label: string;
   onPress: () => void;
   prefix: string;
@@ -643,7 +656,10 @@ function SelectorButton({
   return (
     <Pressable
       accessibilityLabel={`${prefix}: ${label}`}
+      ref={buttonRef}
       accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [styles.selectorButton, pressed && styles.pressed]}
     >
@@ -702,6 +718,7 @@ function OptionButton({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
+      accessibilityLabel={label}
       onPress={onPress}
       style={({ pressed }) => [
         styles.option,
@@ -711,10 +728,11 @@ function OptionButton({
       ]}
     >
       <Text dynamicTypeRamp={typeRamp.control} style={styles.optionLabel}>
+        {selected ? "✓ " : ""}
         {label}
       </Text>
       {description ? (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.optionDescription}>
+        <Text dynamicTypeRamp={typeRamp.caption} numberOfLines={2} style={styles.optionDescription}>
           {description}
         </Text>
       ) : null}
@@ -724,7 +742,7 @@ function OptionButton({
 
 function modelLabel(model: ModelInfo | undefined, ref: ModelRef | undefined) {
   if (!model) return ref ? `${ref.providerID}/${ref.id}` : "Choose model";
-  return ref?.variant ? `${model.name} / ${ref.variant}` : model.name;
+  return model.name;
 }
 
 const styles = StyleSheet.create({
@@ -809,7 +827,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 4,
   },
-  selectorLabel: { color: palette.dim, flexShrink: 1, fontSize: 12, fontWeight: "500" },
+  selectorLabel: { color: palette.dim, flexShrink: 1, fontSize: 15, fontWeight: "500" },
   selectorRow: { alignItems: "center", gap: space.xs, paddingRight: space.xs },
   selectorScroller: { flex: 1 },
   sendButton: {
@@ -832,13 +850,6 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
-  },
-  surfaceCollapsed: {
-    borderRadius: 999,
-    justifyContent: "center",
-    minHeight: 60,
-    paddingLeft: 12,
-    paddingRight: 8,
   },
   surfaceExpanded: {
     borderRadius: 28,

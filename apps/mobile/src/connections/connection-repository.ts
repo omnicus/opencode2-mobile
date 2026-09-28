@@ -164,6 +164,7 @@ export async function saveConnectionProfile(db: SQLiteDatabase, input: SaveConne
         await txn.runAsync("DELETE FROM session_drafts WHERE connection_id = ?", id);
         await txn.runAsync("DELETE FROM unresolved_prompt_admissions WHERE connection_id = ?", id);
         await txn.runAsync("DELETE FROM followed_projects WHERE connection_id = ?", id);
+        await txn.runAsync("DELETE FROM model_favorites WHERE connection_id = ?", id);
         await txn.runAsync("DELETE FROM followed_project_preferences WHERE connection_id = ?", id);
       }
     });

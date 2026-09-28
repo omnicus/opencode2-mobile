@@ -193,6 +193,12 @@ test("deletes server-scoped local state when an existing profile changes origin"
   expect(
     runAsync.mock.calls.some(
       ([sql, profileId]) =>
+        String(sql).includes("DELETE FROM model_favorites") && profileId === "profile-id",
+    ),
+  ).toBe(true);
+  expect(
+    runAsync.mock.calls.some(
+      ([sql, profileId]) =>
         String(sql).includes("DELETE FROM followed_project_preferences") &&
         profileId === "profile-id",
     ),

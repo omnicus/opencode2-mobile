@@ -97,6 +97,41 @@ test("uses native navigation on phones and retains the tablet rail", () => {
   }
 });
 
+test("session tabs replace healthy connection and server labels but retain connection problems", () => {
+  jest.mocked(useConnections).mockReturnValue({
+    profiles: [{ id: "connection-1", name: "Test server" }],
+    selectedProfileId: "connection-1",
+  } as never);
+  jest
+    .mocked(useConnectionRuntime)
+    .mockReturnValue({ reconnectAttempt: 0, status: "connected" } as never);
+  jest
+    .mocked(useWorkspaceSelection)
+    .mockReturnValue({ attentionCoverage: { completeness: "complete" }, pendingCount: 0 } as never);
+  const onSelect = jest.fn();
+  const navigate = jest.fn();
+  const element = () =>
+    createElement(ShellFrame, {
+      active: "Workspace",
+      navigate,
+      branch: { state: "known", name: "main" },
+      sessionTabs: { active: "session", onSelect },
+    });
+  const view = render(element());
+  expect(screen.queryByText("LIVE")).toBeNull();
+  expect(screen.queryByText("Test server")).toBeNull();
+  expect(screen.getByRole("tab", { name: "Session", selected: true })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Current branch, main" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("tab", { name: "Changes" }));
+  expect(onSelect).toHaveBeenCalledWith("changes");
+  jest
+    .mocked(useConnectionRuntime)
+    .mockReturnValue({ reconnectAttempt: 0, status: "offline" } as never);
+  view.rerender(element());
+  fireEvent.press(screen.getByRole("button", { name: /Connection problem: OFFLINE/ }));
+  expect(navigate).toHaveBeenCalledWith("Settings");
+});
+
 test("reveals and copies the full session branch name", async () => {
   jest.mocked(useConnections).mockReturnValue({
     profiles: [{ id: "connection-1", name: "Test server" }],

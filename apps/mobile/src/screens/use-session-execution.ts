@@ -794,6 +794,20 @@ export function useSessionExecution({
     commands: commandsQuery.data?.data ?? [],
     completionLoading: commandsQuery.isPending,
     completionUnavailable: commandsQuery.isError,
+    agentCatalog: {
+      loading: agentsQuery.isPending,
+      error: agentsQuery.isError,
+      retry: () => {
+        void agentsQuery.refetch();
+      },
+    },
+    modelCatalog: {
+      loading: modelsQuery.isPending,
+      error: modelsQuery.isError,
+      retry: () => {
+        void modelsQuery.refetch();
+      },
+    },
     defaultModel: defaultModelQuery.data?.data ?? undefined,
     delivery,
     error,
