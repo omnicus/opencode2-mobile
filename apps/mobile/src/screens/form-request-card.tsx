@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { applicationName } from "../application-name";
-import { palette, radius, space, typeRamp } from "../theme";
+import { control, palette, radius, space, typeRamp, typography } from "../theme";
 import {
   createFormDraft,
   type FormDraft,
@@ -77,7 +77,7 @@ export function FormRequestCard({
   return (
     <View accessibilityLabel={`Form: ${form.title}`} style={styles.card}>
       <Text dynamicTypeRamp={typeRamp.caption} style={styles.eyebrow}>
-        FORM REQUIRED
+        Input required
       </Text>
       <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.subheading} style={styles.title}>
         {sanitizeTranscriptText(form.title, 512)}
@@ -101,7 +101,12 @@ export function FormRequestCard({
         </Text>
       ) : null}
       <View style={styles.actions}>
-        <FormButton disabled={busy} label={busy ? "Submitting" : "Submit"} onPress={submit} />
+        <FormButton
+          primary
+          disabled={busy}
+          label={busy ? "Submitting" : "Submit"}
+          onPress={submit}
+        />
         <FormButton danger disabled={busy} label="Cancel form" onPress={confirmCancel} />
       </View>
     </View>
@@ -197,6 +202,7 @@ function FormControl({
         </View>
         {field.custom ? (
           <TextInput
+            keyboardAppearance="dark"
             accessibilityHint="Enter one value per line"
             accessibilityLabel={`${title} custom values`}
             multiline
@@ -241,6 +247,7 @@ function FormControl({
       ) : null}
       {field.type !== "string" || !field.options || field.custom ? (
         <TextInput
+          keyboardAppearance="dark"
           accessibilityLabel={title}
           autoCapitalize={
             field.type === "string" && field.format === "email" ? "none" : "sentences"
@@ -334,11 +341,13 @@ function ChoiceButton({
 }
 
 function FormButton({
+  primary,
   danger,
   disabled,
   label,
   onPress,
 }: {
+  primary?: boolean;
   danger?: boolean | undefined;
   disabled?: boolean | undefined;
   label: string;
@@ -352,12 +361,21 @@ function FormButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.button,
+        primary && styles.buttonPrimary,
         danger && styles.buttonDanger,
         disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.buttonLabel, danger && styles.buttonDangerLabel]}>{label}</Text>
+      <Text
+        style={[
+          styles.buttonLabel,
+          primary && styles.buttonPrimaryLabel,
+          danger && styles.buttonDangerLabel,
+        ]}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -401,24 +419,25 @@ const styles = StyleSheet.create({
   actions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   booleanOptions: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: space.sm,
   },
   button: {
+    ...control,
     alignItems: "center",
     borderColor: palette.border,
-    borderRadius: radius.sm,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.md,
   },
-  buttonDanger: { borderColor: palette.danger },
+  buttonPrimary: { backgroundColor: palette.signal },
+  buttonPrimaryLabel: { color: palette.background },
+  buttonDanger: { borderColor: palette.border },
   buttonDangerLabel: { color: palette.danger },
-  buttonLabel: { color: palette.ink, fontSize: 13, fontWeight: "800" },
+  buttonLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
   card: {
-    backgroundColor: palette.background,
-    borderColor: palette.warm,
-    borderRadius: radius.md,
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: radius.lg,
     borderWidth: 1,
     gap: space.md,
     padding: space.md,
@@ -434,11 +453,11 @@ const styles = StyleSheet.create({
   choiceLabel: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   choiceLabelSelected: { color: palette.signal },
   choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  constraint: { color: palette.dim, fontSize: 11 },
-  description: { color: palette.dim, fontSize: 12, lineHeight: 17 },
+  constraint: { ...typography.caption, color: palette.dim },
+  description: { ...typography.caption, color: palette.dim },
   disabled: { opacity: 0.5 },
-  error: { color: palette.danger, fontSize: 12, lineHeight: 17 },
-  eyebrow: { color: palette.warm, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  error: { ...typography.body, color: palette.danger },
+  eyebrow: { ...typography.heading, color: palette.warm },
   field: { gap: space.xs },
   fieldHeading: { gap: 2 },
   input: {
@@ -452,9 +471,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: space.sm,
   },
-  label: { color: palette.ink, fontSize: 14, fontWeight: "800" },
+  label: { ...typography.control, color: palette.ink },
   multilineInput: { minHeight: 88, textAlignVertical: "top" },
   options: { gap: space.xs },
   pressed: { opacity: 0.62 },
-  title: { color: palette.ink, fontSize: 17, fontWeight: "800" },
+  title: { ...typography.heading, color: palette.ink },
 });

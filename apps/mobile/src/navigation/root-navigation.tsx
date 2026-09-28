@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
   header: {
     alignItems: "center",
     flexDirection: "row",
-    height: 44,
+    minHeight: 44,
     paddingHorizontal: 8,
   },
   headerButtonPressed: { opacity: 0.55 },

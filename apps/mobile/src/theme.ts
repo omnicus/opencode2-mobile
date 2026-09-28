@@ -1,8 +1,10 @@
-// Neutral dark surfaces inspired by the supplied ChatGPT and Gemini iOS references.
+import { Platform } from "react-native";
+
+// PR #33's charcoal cards and restrained content accents are the mobile baseline.
 // Keep color for links and feedback; navigation and primary controls are monochrome.
 export const palette = {
   accent: "#8ab4f8",
-  activity: "#e3e3e3",
+  activity: "#56b6c2",
   background: "#000000",
   border: "#2c2c2c",
   card: "#141414",
@@ -61,4 +63,33 @@ export const typeRamp = {
   control: "footnote",
   heading: "title1",
   subheading: "subheadline",
+} as const;
+
+// Native system fonts for UI; platform monospace only for code and technical data.
+export const typography = {
+  title: { fontSize: 28, lineHeight: 34, fontWeight: "700" },
+  sheetTitle: { fontSize: 20, lineHeight: 26, fontWeight: "600" },
+  heading: { fontSize: 16, lineHeight: 22, fontWeight: "600" },
+  body: { fontSize: 15, lineHeight: 22 },
+  control: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  caption: { fontSize: 12, lineHeight: 18 },
+  label: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
+  code: {
+    fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
+    fontSize: 13,
+    lineHeight: 20,
+  },
+} as const;
+
+export const control = {
+  minHeight: 48,
+  borderRadius: radius.md,
+  paddingHorizontal: space.md,
+  paddingVertical: space.sm,
+} as const;
+
+export const switchColors = {
+  thumbColor: palette.ink,
+  trackColor: { false: palette.border, true: "#626262" },
+  ios_backgroundColor: palette.border,
 } as const;

@@ -10,6 +10,33 @@ jest.mock("./app-shell", () => ({
   ShellFrame: ({ children }: { children: ReactNode }) => children,
 }));
 
+test.each(["projectsError", "empty"])("offers recovery for %s", (state) => {
+  const refetch = jest.fn(async () => undefined);
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    followedProjectIds: [],
+    preferencesLoading: false,
+    projects: [],
+    projectsError: state === "projectsError",
+    projectsLoading: false,
+    refetch,
+    unavailableProjectIds: [],
+  } as never);
+  render(
+    <FollowedProjectsScreen
+      navigation={{ navigate: jest.fn() } as never}
+      route={{ key: "followed", name: "FollowedProjects" }}
+    />,
+  );
+  if (state === "empty") expect(screen.getByText("No server projects found")).toBeOnTheScreen();
+  else expect(screen.getByRole("alert")).toBeOnTheScreen();
+  fireEvent.press(
+    screen.getByRole("button", {
+      name: state === "empty" ? "Refresh projects" : "Retry loading projects",
+    }),
+  );
+  expect(refetch).toHaveBeenCalledTimes(1);
+});
+
 test("follows, unfollows, and reorders only local project IDs", () => {
   const setFollowedProjectIds = jest.fn(async () => undefined);
   jest.mocked(useWorkspaceSelection).mockReturnValue({

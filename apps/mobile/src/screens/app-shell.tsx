@@ -34,10 +34,20 @@ import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, radius, space, typeRamp, usesLargeTextLayout } from "../theme";
+import {
+  control,
+  palette,
+  radius,
+  space,
+  switchColors,
+  typeRamp,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 import { AppUpdateCard } from "../updates/app-updates";
 import { FormRequestList } from "./form-request-list";
 import { PermissionRequestCard } from "./permission-request-card";
+import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Section = "Pending" | "Settings" | "Workspace";
 type SessionBranch = {
@@ -53,11 +63,13 @@ type ScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreen
 const tabletBreakpoint = 760;
 
 export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">) {
+  const [showLocations, setShowLocations] = useState(false);
   const runtime = useConnectionRuntime();
   const selection = useWorkspaceSelection();
   const { width } = useWindowDimensions();
   const tablet = isTabletShell(width);
   const failedLocationCount = selection.attentionCoverage.failedLocationCount;
+  const failedLocations = selection.attentionCoverage.failedLocations ?? [];
   const failedProjectSummary = (selection.attentionCoverage.failedProjects ?? [])
     .map((project) => project.label)
     .join(", ");
@@ -118,8 +130,12 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 : `No requests were found at the ${selection.attentionCoverage.reconciledLocationCount} ${selection.attentionCoverage.reconciledLocationCount === 1 ? "location" : "locations"} that responded.`}
             </Text>
             <View style={styles.stateActions}>
+              {failedLocations.length > 0 ? (
+                <ActionButton label="Review locations" onPress={() => setShowLocations(true)} />
+              ) : null}
               <ActionButton
                 label="Retry"
+                secondary={failedLocations.length > 0}
                 onPress={async () => {
                   await selection.refetch();
                 }}
@@ -145,6 +161,9 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                     : "The affected project could not be identified. "}
                   Showing requests found at the other locations.
                 </Text>
+                {failedLocations.length > 0 ? (
+                  <ActionButton label="Review locations" onPress={() => setShowLocations(true)} />
+                ) : null}
                 <ActionButton
                   label="Retry"
                   onPress={async () => {
@@ -190,6 +209,75 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
           </>
         )}
       </ScrollView>
+      <ModalSheet
+        title="Unavailable locations"
+        visible={showLocations}
+        onClose={() => setShowLocations(false)}
+      >
+        <Text style={styles.cardCopy}>
+          These checks failed. Pending work at these locations is still unknown. Session history is
+          preserved.
+        </Text>
+        {failedLocations.some(
+          (failure) => failure.source === "session-history" || failure.source === "worktree",
+        ) ? (
+          <Text style={styles.cardCopy}>
+            A directory referenced by session history or a worktree may have been moved or removed.
+            A failed check alone does not confirm that it was deleted.
+          </Text>
+        ) : null}
+        {failedLocations.map((failure) => (
+          <View key={JSON.stringify(failure.location)} style={styles.locationFailure}>
+            <Text accessibilityRole="header" style={styles.cardTitle}>
+              {sanitizeTranscriptText(failure.projectLabel, 256)}
+            </Text>
+            <Text style={styles.cardCopy}>
+              {failure.source === "project-root"
+                ? "Project root"
+                : failure.source === "worktree"
+                  ? "Registered worktree"
+                  : failure.source === "session-history"
+                    ? "Referenced by session history"
+                    : "Discovered location"}
+            </Text>
+            <Text selectable style={styles.locationPath}>
+              {sanitizeTranscriptText(
+                failure.location.directory,
+                failure.location.directory.length,
+              )}
+            </Text>
+            {failure.location.workspaceID ? (
+              <Text selectable style={styles.locationPath}>
+                Workspace:{" "}
+                {sanitizeTranscriptText(
+                  failure.location.workspaceID,
+                  failure.location.workspaceID.length,
+                )}
+              </Text>
+            ) : null}
+            <Text style={styles.cardCopy}>
+              Could not check: {failure.failedChecks.join(" and ")}.
+            </Text>
+          </View>
+        ))}
+        {failedLocations.length === 0 ? (
+          <Text style={styles.cardTitle}>No location checks are currently failing.</Text>
+        ) : (
+          <Text style={styles.cardCopy}>
+            Check these directories on the server. Restore a moved or removed worktree if you still
+            need it, then retry. If a whole project is retired, unfollow it on this device.
+            Unfollowing does not delete its sessions.
+          </Text>
+        )}
+        <ActionButton
+          label="Manage followed projects"
+          onPress={() => {
+            setShowLocations(false);
+            navigation.navigate("FollowedProjects");
+          }}
+          secondary
+        />
+      </ModalSheet>
     </ShellFrame>
   );
 }
@@ -297,6 +385,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             </Text>
           </View>
           <Switch
+            {...switchColors}
             accessibilityLabel="Detailed transcript"
             disabled={transcript.busy}
             value={transcript.detailed}
@@ -311,6 +400,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             </Text>
           </View>
           <Switch
+            {...switchColors}
             accessibilityLabel="Show reasoning"
             disabled={transcript.busy}
             value={transcript.reasoning}
@@ -331,11 +421,10 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             </Text>
           </View>
           <Switch
+            {...switchColors}
             accessibilityLabel="Require device authentication"
             disabled={appLock.busy}
             onValueChange={(enabled) => void appLock.setEnabled(enabled)}
-            thumbColor={appLock.enabled ? palette.signal : palette.dim}
-            trackColor={{ false: palette.border, true: palette.signalDark }}
             value={appLock.enabled}
           />
         </View>
@@ -367,11 +456,10 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             />
           ) : (
             <Switch
+              {...switchColors}
               accessibilityLabel="Send mobile notifications"
               disabled={!notificationPairing || !notificationState || notificationBusy}
               onValueChange={(enabled) => void setNotificationsEnabled(enabled)}
-              thumbColor={notificationState?.enabled ? palette.signal : palette.dim}
-              trackColor={{ false: palette.border, true: palette.signalDark }}
               value={notificationState?.enabled ?? false}
             />
           )}
@@ -858,22 +946,29 @@ export function ActionButton({
 }
 
 const styles = StyleSheet.create({
+  locationFailure: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderWidth: 1,
+    borderRadius: radius.lg,
+    padding: space.md,
+    gap: space.xs,
+  },
+  locationPath: { ...typography.code, color: palette.ink },
   actionButton: {
+    ...control,
     alignSelf: "flex-start",
     backgroundColor: palette.signal,
-    borderRadius: radius.sm,
     marginTop: space.md,
-    minHeight: 44,
-    paddingHorizontal: space.md,
-    paddingVertical: 12,
+    justifyContent: "center",
+    maxWidth: "100%",
   },
   actionButtonDisabled: { opacity: 0.5 },
   actionButtonFullWidth: { alignSelf: "stretch", alignItems: "center" },
   actionButtonLabel: {
+    ...typography.control,
     color: palette.background,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.2,
+    textAlign: "center",
   },
   actionButtonLabelSecondary: { color: palette.ink },
   actionButtonPressed: { opacity: 0.72 },
@@ -920,12 +1015,10 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   cardCopy: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.xs },
-  cardLabel: { color: palette.warm, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
+  cardLabel: { ...typography.label, color: palette.dim },
   cardTitle: {
+    ...typography.heading,
     color: palette.ink,
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 23,
     marginTop: space.xs,
   },
   centeredState: {
@@ -985,9 +1078,9 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   emptyMark: { color: palette.signal, fontSize: 34, fontWeight: "300", letterSpacing: -1.2 },
-  errorEyebrow: { color: palette.danger, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
+  errorEyebrow: { ...typography.label, color: palette.danger },
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 20, marginTop: space.sm },
-  eyebrow: { color: palette.signal, fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
+  eyebrow: { ...typography.label, color: palette.dim },
   failureCard: {
     backgroundColor: palette.background,
     borderColor: palette.danger,
@@ -1065,7 +1158,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: space.md,
     marginTop: space.lg,
-    padding: space.lg,
+    padding: space.md,
   },
   settingText: { flex: 1 },
   shell: { flex: 1 },
@@ -1098,11 +1191,8 @@ const styles = StyleSheet.create({
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },
   tabletShell: { flexDirection: "row" },
   title: {
+    ...typography.title,
     color: palette.ink,
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: -1.1,
-    lineHeight: 39,
     marginTop: space.sm,
   },
 });

@@ -23,7 +23,7 @@ import {
 } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
-import { palette, radius, space, typeRamp } from "../theme";
+import { palette, radius, space, typeRamp, typography } from "../theme";
 import type { PromptDelivery } from "./prompt-admission-model";
 import {
   applyMentionCompletion,
@@ -213,6 +213,7 @@ export function SessionComposer({
           style={[styles.editorRow, expanded && styles.editorRowExpanded]}
         >
           <TextInput
+            keyboardAppearance="dark"
             accessibilityHint="Enter inserts a new line. Use the Send button to submit."
             accessibilityLabel="Prompt"
             autoFocus={focusOnMount}
@@ -408,6 +409,7 @@ export function SessionComposer({
           style={styles.pickerList}
         />
         <TextInput
+          keyboardAppearance="dark"
           accessibilityLabel="Search agents"
           onChangeText={setAgentSearch}
           placeholder="Search agents"
@@ -475,6 +477,7 @@ export function SessionComposer({
           style={styles.pickerList}
         />
         <TextInput
+          keyboardAppearance="dark"
           accessibilityLabel="Search models"
           onChangeText={setModelSearch}
           placeholder="Search models"
@@ -737,10 +740,10 @@ const styles = StyleSheet.create({
   },
   completionDetail: { color: palette.dim, fontSize: 12, lineHeight: 16 },
   completionHeading: { alignItems: "center", flexDirection: "row", gap: space.xs },
-  completionKind: { color: palette.dim, fontSize: 9, fontWeight: "800", letterSpacing: 0.5 },
+  completionKind: { ...typography.label, color: palette.dim },
   completionList: { maxHeight: 220 },
   completionListContent: { gap: 4 },
-  completionName: { color: palette.ink, flex: 1, fontSize: 14, fontWeight: "800" },
+  completionName: { ...typography.control, color: palette.ink, flex: 1 },
   completionState: { color: palette.dim, paddingVertical: space.sm, textAlign: "center" },
   count: { alignSelf: "center", color: palette.dim, fontSize: 10, paddingHorizontal: space.xs },
   deliveryButton: {
@@ -750,7 +753,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flex: 1,
     justifyContent: "center",
-    minHeight: 40,
+    minHeight: 48,
     paddingHorizontal: space.sm,
   },
   deliveryButtonActive: { backgroundColor: palette.signalDark, borderColor: palette.signal },
@@ -783,7 +786,7 @@ const styles = StyleSheet.create({
   },
   optionCompact: { marginLeft: space.md, minHeight: 50, paddingVertical: space.sm },
   optionDescription: { color: palette.dim, fontSize: 12, marginTop: 3 },
-  optionLabel: { color: palette.ink, fontSize: 15, fontWeight: "700" },
+  optionLabel: { ...typography.heading, color: palette.ink },
   optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   optionSeparator: { height: space.xs },
   pickerList: { flex: 1 },

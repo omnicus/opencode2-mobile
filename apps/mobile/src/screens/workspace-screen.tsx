@@ -59,6 +59,7 @@ import {
   radius,
   space,
   typeRamp,
+  typography,
   usesLargeTextLayout,
 } from "../theme";
 import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
@@ -1422,7 +1423,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  badgeLabel: { color: palette.signal, fontSize: 9, fontWeight: "900", letterSpacing: 0.6 },
+  badgeLabel: { ...typography.label, color: palette.signal },
   badgeLabelMuted: { color: palette.dim },
   badgeMuted: { backgroundColor: palette.card, borderColor: palette.border },
   badges: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.xs },
@@ -1454,7 +1455,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: space.md,
   },
-  deleteLabel: { color: palette.danger, fontSize: 12, fontWeight: "900", letterSpacing: 0.8 },
+  deleteLabel: { ...typography.control, color: palette.danger },
   disabled: { opacity: 0.45 },
   detailContent: {
     alignSelf: "center",
@@ -1466,7 +1467,7 @@ const styles = StyleSheet.create({
   detailHeader: { paddingHorizontal: space.lg, paddingTop: space.lg },
   emptyState: { alignItems: "center", minHeight: 160, padding: space.xl },
   error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
-  eyebrow: { color: palette.signal, fontSize: 11, fontWeight: "900", letterSpacing: 1.4 },
+  eyebrow: { ...typography.label, color: palette.dim },
   headerAction: {
     alignItems: "center",
     borderColor: palette.border,
@@ -1583,12 +1584,10 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   sectionHeading: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  sectionLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  sectionLabel: { ...typography.label, color: palette.dim },
   sectionTitle: {
+    ...typography.heading,
     color: palette.ink,
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 23,
     marginTop: 3,
   },
   selectionMark: { color: palette.signal, fontSize: 12, fontWeight: "600", marginLeft: space.sm },
@@ -1648,7 +1647,7 @@ const styles = StyleSheet.create({
   sheetRowCopy: { flex: 1, minWidth: 0 },
   sheetRowSelected: { backgroundColor: palette.signalDark },
   sheetRowSubtitle: { color: palette.dim, fontSize: 12, lineHeight: 17, marginTop: 3 },
-  sheetRowTitle: { color: palette.ink, fontSize: 15, fontWeight: "700" },
+  sheetRowTitle: { ...typography.heading, color: palette.ink },
   sheetSection: { marginTop: space.xs },
   sheetSectionLabel: {
     color: palette.dim,

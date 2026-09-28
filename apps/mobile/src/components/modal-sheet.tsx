@@ -13,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { palette, space, typeRamp, usesLargeTextLayout } from "../theme";
+import { palette, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
 
 export function ModalSheet({
   children,
@@ -108,7 +108,7 @@ export function ModalSheet({
 
 const styles = StyleSheet.create({
   closeButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.sm },
-  closeLabel: { color: palette.signal, fontSize: 16, fontWeight: "700" },
+  closeLabel: { ...typography.control, color: palette.signal },
   content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },
   fixedContent: { flex: 1, gap: space.md, padding: space.lg, paddingBottom: space.xl },
   header: {
@@ -125,6 +125,6 @@ const styles = StyleSheet.create({
   keyboardView: { flex: 1 },
   pressed: { opacity: 0.55 },
   safeArea: { backgroundColor: palette.background, flex: 1 },
-  subtitle: { color: palette.dim, fontSize: 12, marginTop: 2 },
-  title: { color: palette.ink, fontSize: 20, fontWeight: "700" },
+  subtitle: { ...typography.caption, color: palette.dim, marginTop: 2 },
+  title: { ...typography.sheetTitle, color: palette.ink },
 });

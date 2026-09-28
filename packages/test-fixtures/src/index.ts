@@ -5,6 +5,7 @@ export type FakeOpenCodeApiOptions = {
   eventFrame?: string;
   failures?: Record<string, { body: unknown; status: number }>;
   files?: unknown[];
+  directoryEntries?: unknown[];
   forms?: unknown[];
   location?: {
     directory: string;
@@ -137,6 +138,12 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     }
     if (url.pathname === "/api/fs/find") {
       return json({ location: resolvedLocation(options, url), data: options.files ?? [] });
+    }
+    if (url.pathname === "/api/fs/list") {
+      return json({
+        location: resolvedLocation(options, url),
+        data: options.directoryEntries ?? [],
+      });
     }
     const formMatch = url.pathname.match(
       /^\/api\/session\/([^/]+)\/form\/([^/]+)(?:\/(reply|cancel))?$/,

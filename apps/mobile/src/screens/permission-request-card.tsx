@@ -1,8 +1,16 @@
 import type { PermissionReply, PermissionRequest } from "@opencode2-mobile/opencode-adapter";
 import { useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { ModalSheet } from "../components/modal-sheet";
-import { markdownPalette, palette, radius, space, usesLargeTextLayout } from "../theme";
+import {
+  control,
+  markdownPalette,
+  palette,
+  radius,
+  space,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 import { permissionActionExplanation } from "./permission-presentation";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
@@ -105,7 +113,7 @@ export function PermissionRequestCard({
         accessibilityLabel="Details"
         accessibilityHint="Opens the full request, saved permission patterns, and explanation"
         onPress={() => setDetails(true)}
-        style={styles.detailsButton}
+        style={({ pressed }) => [styles.detailsButton, pressed && styles.disabled]}
       >
         <Text style={styles.caption}>Details ›</Text>
       </Pressable>
@@ -130,7 +138,12 @@ export function PermissionRequestCard({
             Always allow saves the displayed patterns, which can cover more than this request.
           </Text>
         ) : null}
-        {explanation ? <Text style={styles.copy}>{explanation}</Text> : null}
+        {explanation ? (
+          <View>
+            <Text style={styles.caption}>OpenCode Mobile explanation</Text>
+            <Text style={styles.copy}>{explanation}</Text>
+          </View>
+        ) : null}
         <Text style={styles.copy}>
           Reject may also reject other pending permission requests in this session.
         </Text>
@@ -148,40 +161,34 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
-  title: { color: palette.warm, fontSize: 16, fontWeight: "600" },
-  action: { color: palette.ink, fontSize: 15, lineHeight: 22 },
+  title: { ...typography.heading, color: palette.warm },
+  action: { ...typography.body, color: palette.ink },
   commandBox: { backgroundColor: palette.background, borderRadius: radius.sm },
   command: {
+    ...typography.code,
     color: markdownPalette.code,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
-    fontSize: 13,
-    lineHeight: 19,
     padding: 10,
   },
   scope: { gap: 4 },
   pattern: {
+    ...typography.code,
     color: palette.ink,
-    fontFamily: Platform.select({ ios: "Menlo", android: "monospace" }),
-    fontSize: 13,
-    lineHeight: 19,
   },
-  caption: { color: palette.dim, fontSize: 12, lineHeight: 18 },
-  copy: { color: palette.dim, fontSize: 15, lineHeight: 22, marginVertical: space.sm },
+  caption: { ...typography.caption, color: palette.dim },
+  copy: { ...typography.body, color: palette.dim, marginVertical: space.sm },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   actionsLarge: { flexDirection: "column" },
   button: {
-    minHeight: 48,
+    ...control,
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
     borderColor: palette.border,
     borderWidth: 1,
-    borderRadius: radius.md,
-    padding: 10,
   },
   primary: { backgroundColor: palette.signal },
   primaryLabel: { color: palette.background },
-  buttonLabel: { color: palette.ink, fontSize: 14, fontWeight: "600" },
+  buttonLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
   reject: { color: palette.danger },
   disabled: { opacity: 0.5 },
   detailsButton: { minHeight: 44, justifyContent: "center" },

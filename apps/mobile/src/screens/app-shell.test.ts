@@ -214,52 +214,71 @@ test("allows a permission owned by a background child session from Pending", () 
   view.unmount();
 });
 
-test("reports partial location failures without blaming a live connection", async () => {
-  const refetch = jest.fn(async () => undefined);
-  const navigate = jest.fn();
-  jest.mocked(useConnections).mockReturnValue({
-    profiles: [{ id: "connection-1", name: "Test server" }],
-    selectedProfileId: "connection-1",
-  } as never);
-  jest.mocked(useConnectionRuntime).mockReturnValue({
-    reconnectAttempt: 0,
-    status: "connected",
-  } as never);
-  jest.mocked(useWorkspaceSelection).mockReturnValue({
-    attentionCoverage: {
-      completeness: "incomplete",
-      failedLocationCount: 1,
-      failedProjects: [{ label: "Alpha", locationCount: 1, projectID: "project-1" }],
-      freshness: "stale",
-      knownLocationCount: 7,
-      reconciledLocationCount: 6,
-    },
-    followedProjectIds: ["project-1"],
-    forms: [],
-    interactionsError: true,
-    interactionsLoading: false,
-    pendingCount: 0,
-    permissions: [],
-    preferencesLoading: false,
-    refetch,
-  } as never);
+test.each([0, 1])(
+  "explains unavailable locations with %i known requests on a live connection",
+  async (pendingCount) => {
+    const refetch = jest.fn(async () => undefined);
+    const navigate = jest.fn();
+    jest.mocked(useConnections).mockReturnValue({
+      profiles: [{ id: "connection-1", name: "Test server" }],
+      selectedProfileId: "connection-1",
+    } as never);
+    jest.mocked(useConnectionRuntime).mockReturnValue({
+      reconnectAttempt: 0,
+      status: "connected",
+    } as never);
+    jest.mocked(useWorkspaceSelection).mockReturnValue({
+      attentionCoverage: {
+        completeness: "incomplete",
+        failedLocationCount: 1,
+        failedLocations: [
+          {
+            location: { directory: "/a/worktrees/old" },
+            projectLabel: "Alpha",
+            source: "session-history",
+            failedChecks: ["permissions", "forms"],
+          },
+        ],
+        failedProjects: [{ label: "Alpha", locationCount: 1, projectID: "project-1" }],
+        freshness: "stale",
+        knownLocationCount: 7,
+        reconciledLocationCount: 6,
+      },
+      followedProjectIds: ["project-1"],
+      forms: [],
+      interactionsError: true,
+      interactionsLoading: false,
+      pendingCount,
+      permissions: [],
+      preferencesLoading: false,
+      refetch,
+    } as never);
 
-  const view = render(
-    createElement(PendingInteractionsScreen, {
-      navigation: { navigate, popTo: jest.fn() },
-    } as never),
-  );
+    const view = render(
+      createElement(PendingInteractionsScreen, {
+        navigation: { navigate, popTo: jest.fn() },
+      } as never),
+    );
 
-  expect(screen.queryByRole("header", { name: "Requests that need you." })).toBeNull();
-  expect(screen.getByText("1 location could not be checked.")).toBeOnTheScreen();
-  expect(
-    screen.getByText(
-      /Affected project: Alpha\. No requests were found at the 6 locations that responded\./,
-    ),
-  ).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
-  await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
-  expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
-  expect(navigate).not.toHaveBeenCalled();
-  view.unmount();
-});
+    expect(screen.queryByRole("header", { name: "Requests that need you." })).toBeNull();
+    expect(screen.getByText("1 location could not be checked.")).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        pendingCount === 0
+          ? /Affected project: Alpha\. No requests were found at the 6 locations that responded\./
+          : /Showing requests found at the other locations/,
+      ),
+    ).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Review locations" }));
+    expect(screen.getByText("/a/worktrees/old")).toBeOnTheScreen();
+    expect(screen.getByText("Referenced by session history")).toBeOnTheScreen();
+    expect(screen.getByText(/may have been moved or removed/)).toBeOnTheScreen();
+    expect(screen.getByText(/Session history is preserved/)).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Close Unavailable locations" }));
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
+    expect(navigate).not.toHaveBeenCalled();
+    view.unmount();
+  },
+);

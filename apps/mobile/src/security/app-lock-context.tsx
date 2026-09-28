@@ -11,7 +11,7 @@ import {
 } from "react-native";
 
 import { applicationName } from "../application-name";
-import { palette, radius, space } from "../theme";
+import { control, palette, space, typography } from "../theme";
 import { authenticateDeviceOwner } from "./device-authentication";
 
 type AppLockContextValue = {
@@ -221,21 +221,19 @@ export function useAppLock() {
 
 const styles = StyleSheet.create({
   button: {
+    ...control,
     alignItems: "center",
     backgroundColor: palette.signal,
-    borderRadius: radius.sm,
     flexDirection: "row",
     gap: space.sm,
     justifyContent: "center",
     marginTop: space.lg,
-    minHeight: 52,
-    paddingHorizontal: space.lg,
   },
   buttonLabel: {
+    ...typography.control,
     color: palette.background,
-    fontSize: 14,
-    fontWeight: "900",
-    letterSpacing: 0.9,
+    flexShrink: 1,
+    textAlign: "center",
   },
   buttonPressed: { opacity: 0.7 },
   copy: {
@@ -252,16 +250,12 @@ const styles = StyleSheet.create({
     marginTop: space.md,
   },
   errorEyebrow: {
+    ...typography.label,
     color: palette.danger,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.6,
   },
   eyebrow: {
-    color: palette.signal,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.6,
+    ...typography.label,
+    color: palette.dim,
   },
   shell: {
     backgroundColor: palette.background,
@@ -270,11 +264,8 @@ const styles = StyleSheet.create({
     padding: 28,
   },
   title: {
+    ...typography.title,
     color: palette.ink,
-    fontSize: 32,
-    fontWeight: "700",
-    letterSpacing: -0.8,
-    lineHeight: 38,
     marginTop: space.sm,
   },
 });

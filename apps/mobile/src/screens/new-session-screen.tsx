@@ -19,6 +19,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -27,7 +28,15 @@ import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, radius, space, typeRamp } from "../theme";
+import {
+  control,
+  palette,
+  radius,
+  space,
+  typeRamp,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "NewSession">;
@@ -36,6 +45,8 @@ type LocationChoice = { key: string; label: string; location: LocationRef };
 type ProjectRow = { id: string; project?: Project; title?: string; type: "project" | "section" };
 
 export function NewSessionScreen({ navigation }: Props) {
+  const { fontScale } = useWindowDimensions();
+  const largeText = usesLargeTextLayout(fontScale);
   const runtime = useConnectionRuntime();
   const selection = useWorkspaceSelection();
   const queryClient = useQueryClient();
@@ -183,8 +194,8 @@ export function NewSessionScreen({ navigation }: Props) {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.keyboardView}
       >
-        <View style={styles.header}>
-          <View style={styles.heading}>
+        <View style={[styles.header, largeText && styles.headerLargeText]}>
+          <View style={[styles.heading, largeText && styles.headingLargeText]}>
             <Text
               accessibilityRole="header"
               dynamicTypeRamp={typeRamp.heading}
@@ -277,6 +288,7 @@ export function NewSessionScreen({ navigation }: Props) {
           <View style={styles.body}>
             <View style={styles.searchField}>
               <TextInput
+                keyboardAppearance="dark"
                 accessibilityLabel="Search projects"
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -537,20 +549,18 @@ function projectSearchText(project: Project) {
 
 const styles = StyleSheet.create({
   actionButton: {
+    ...control,
     alignItems: "center",
-    borderColor: palette.signal,
-    borderRadius: radius.md,
+    borderColor: palette.border,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: space.md,
   },
-  actionLabel: { color: palette.signal, fontSize: 15, fontWeight: "800" },
+  actionLabel: { ...typography.control, color: palette.signal, textAlign: "center" },
   backButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44 },
   backLabel: { color: palette.signal, fontSize: 15, fontWeight: "700" },
   body: { flex: 1, gap: space.md, padding: space.lg, paddingTop: space.md },
   cancelButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.xs },
-  cancelLabel: { color: palette.signal, fontSize: 16, fontWeight: "700" },
+  cancelLabel: { ...typography.control, color: palette.signal },
   clearButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.md },
   clearLabel: { color: palette.signal, fontSize: 13, fontWeight: "800" },
   creatingState: {
@@ -583,6 +593,8 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   heading: { flex: 1, minWidth: 0 },
+  headerLargeText: { flexDirection: "column" },
+  headingLargeText: { flex: 0, width: "100%" },
   keyboardView: { flex: 1 },
   listContent: { paddingBottom: space.xl },
   pressed: { opacity: 0.58 },
@@ -595,7 +607,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   projectPath: { color: palette.dim, fontSize: 12, lineHeight: 18, marginTop: 3 },
-  projectTitle: { color: palette.ink, fontSize: 16, fontWeight: "800" },
+  projectTitle: { ...typography.heading, color: palette.ink },
   screen: { backgroundColor: palette.background, flex: 1 },
   searchField: {
     alignItems: "center",
@@ -613,13 +625,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
   },
   sectionTitle: {
+    ...typography.label,
     color: palette.dim,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
     paddingBottom: space.xs,
     paddingTop: space.sm,
-    textTransform: "uppercase",
   },
   separator: { height: space.sm },
   state: {
@@ -630,7 +639,7 @@ const styles = StyleSheet.create({
     padding: space.xl,
   },
   stateCopy: { color: palette.dim, fontSize: 14, lineHeight: 20, textAlign: "center" },
-  stateTitle: { color: palette.ink, fontSize: 17, fontWeight: "800", textAlign: "center" },
+  stateTitle: { ...typography.heading, color: palette.ink, textAlign: "center" },
   subtitle: { color: palette.dim, fontSize: 14, lineHeight: 20, marginTop: 3 },
-  title: { color: palette.ink, fontSize: 28, fontWeight: "800", lineHeight: 34 },
+  title: { ...typography.sheetTitle, color: palette.ink },
 });

@@ -336,6 +336,56 @@ export async function listOpenCodeSkills(
   return output;
 }
 
+// Query the parent through a live project root, not through the possibly deleted
+// location. A successful, complete directory listing is evidence of absence;
+// an HTTP error, including a generic 404/500, is not.
+export async function openCodeDirectoryExists(
+  client: OpenCodeClient,
+  root: LocationRef,
+  directory: string,
+  options?: OpenCodeRequestOptions,
+) {
+  const base = root.directory.replace(/\\/g, "/").replace(/\/$/, "");
+  const target = directory.replace(/\\/g, "/");
+  if (!target.startsWith(`${base}/`) || root.workspaceID)
+    throw new Error("DIRECTORY_OUTSIDE_PROJECT");
+  const relative = target.slice(base.length + 1);
+  if (relative.split("/").some((part) => !part || part === "." || part === "..")) {
+    throw new Error("INVALID_DIRECTORY_PATH");
+  }
+  const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
+  const output = await client.file.list({ location: locationInput(root), path: parent }, options);
+  validateResolvedLocation(output.location);
+  if (
+    output.location.directory !== root.directory ||
+    !Array.isArray(output.data) ||
+    !output.data.every((entry) =>
+      isRecord(entry) && typeof entry.path === "string"
+        ? isValidFileSystemEntry({ ...entry, path: entry.path.replace(/\/$/, "") })
+        : false,
+    )
+  ) {
+    throw new Error("MALFORMED_DIRECTORY_LIST");
+  }
+  // V2 returns project-relative paths, including the requested parent's prefix.
+  // Fail closed if a server instead returns absolute, basename-only, or nested paths.
+  const prefix = parent === "." ? "" : `${parent}/`;
+  const paths = output.data.map((entry) => entry.path.replace(/\/$/, ""));
+  if (
+    paths.some(
+      (path) =>
+        !path.startsWith(prefix) ||
+        !path.slice(prefix.length) ||
+        path.slice(prefix.length).includes("/") ||
+        path.includes("\\"),
+    )
+  ) {
+    throw new Error("MALFORMED_DIRECTORY_LIST");
+  }
+  // A symlink may be reported as a file. Only absence is proof of retirement.
+  return paths.includes(relative);
+}
+
 export async function findOpenCodeFiles(
   client: OpenCodeClient,
   location: LocationRef,

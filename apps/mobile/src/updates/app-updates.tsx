@@ -18,7 +18,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { palette, radius, space } from "../theme";
+import { palette, radius, space, typography } from "../theme";
 import { AppUpdateController } from "./app-update-controller";
 import { prepareAppReload } from "./prepare-app-reload";
 
@@ -153,12 +153,14 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: palette.card,
-    borderRadius: radius.md,
+    borderColor: palette.border,
+    borderWidth: 1,
+    borderRadius: radius.lg,
     padding: space.md,
     gap: space.sm,
   },
-  title: { color: palette.ink, fontSize: 17, fontWeight: "700" },
-  copy: { color: palette.dim, fontSize: 14, lineHeight: 20 },
+  title: { ...typography.heading, color: palette.ink },
+  copy: { ...typography.body, color: palette.dim },
   error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
   button: {
     minHeight: 44,
@@ -166,6 +168,6 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     paddingVertical: space.sm,
   },
-  label: { color: palette.signal, fontSize: 15, fontWeight: "700" },
+  label: { ...typography.control, color: palette.signal },
   dimmed: { opacity: 0.5 },
 });
