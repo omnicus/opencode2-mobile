@@ -8,6 +8,7 @@ import {
   listOpenCodePermissionRequests,
   listOpenCodeProjects,
   type OpenCodeClient,
+  openCodeDirectoryExists,
   type PermissionReply,
   type PermissionRequest,
   replyOpenCodePermissionRequest,
@@ -54,9 +55,17 @@ import { openCodeQueryKeys } from "./open-code-query-keys";
 const sessionPageSize = 30;
 const unresolvedConnectionID = "unselected";
 
+export type AttentionLocationFailure = {
+  location: LocationRef;
+  projectLabel: string;
+  source: "project-root" | "worktree" | "session-history" | "discovered";
+  failedChecks: Array<"permissions" | "forms">;
+};
+
 export type AttentionCoverage = {
   completeness: "complete" | "incomplete";
   failedLocationCount: number;
+  failedLocations: AttentionLocationFailure[];
   failedProjects: Array<{ label: string; locationCount: number; projectID?: string }>;
   freshness: "current" | "reconciling" | "stale";
   knownLocationCount: number;
@@ -401,12 +410,75 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     discoveredLocationsRef.current.scopeKey === followedScopeKey
       ? discoveredLocationsRef.current.locations
       : [];
-  const knownLocations = uniqueLocations([...previousLocations, ...discoveredLocations]);
-  discoveredLocationsRef.current = { scopeKey: followedScopeKey, locations: knownLocations };
+  const candidateLocations = uniqueLocations([...previousLocations, ...discoveredLocations]);
+  discoveredLocationsRef.current = { scopeKey: followedScopeKey, locations: candidateLocations };
+  const protectedLocationKeys = new Set(
+    [
+      ...projectLocations,
+      ...runtime.attentionLocations,
+      ...runtime.eventLocations,
+      ...Object.values(activeAncestryQuery.data?.sessions ?? {}).map((session) => session.location),
+      ...(location ? [location] : []),
+    ].map(locationKey),
+  );
+  const historicalCandidates = candidateLocations.flatMap((candidate) => {
+    if (protectedLocationKeys.has(locationKey(candidate)) || candidate.workspaceID) return [];
+    const session = rootSessions.find(
+      (item) => locationKey(item.location) === locationKey(candidate),
+    );
+    const project = session ? projectByID.get(session.projectID) : undefined;
+    if (!project || !candidate.directory.startsWith(`${project.canonical.replace(/\/$/, "")}/`))
+      return [];
+    // Previously observed blocked work takes precedence over retirement. Active
+    // session lists alone do not cover permission- or form-blocked sessions.
+    const permissionSnapshot = queryClient.getQueryData<{ data: PermissionRequest[] }>(
+      openCodeQueryKeys.permissions(connectionID ?? unresolvedConnectionID, candidate),
+    );
+    const formSnapshot = queryClient.getQueryData<{ data: FormInfo[] }>(
+      openCodeQueryKeys.forms(connectionID ?? unresolvedConnectionID, candidate),
+    );
+    if (permissionSnapshot?.data.length || formSnapshot?.data.length) return [];
+    return [{ location: candidate, root: { directory: project.canonical } }];
+  });
+  const directoryQueries = useQueries({
+    queries: historicalCandidates.map((candidate) => ({
+      enabled: Boolean(client && connectionID),
+      queryKey: openCodeQueryKeys.historicalDirectory(
+        connectionID ?? unresolvedConnectionID,
+        candidate.root,
+        candidate.location.directory,
+        revision,
+      ),
+      queryFn: ({ signal }: { signal: AbortSignal }) => {
+        if (!client) throw new Error("CONNECTION_NOT_READY");
+        return openCodeDirectoryExists(client, candidate.root, candidate.location.directory, {
+          signal,
+        });
+      },
+    })),
+  });
+  const directoryQueryByLocation = new Map(
+    historicalCandidates.map((candidate, index) => [
+      locationKey(candidate.location),
+      directoryQueries[index],
+    ]),
+  );
+  const activeLocationsResolved =
+    activeSessionsQuery.isSuccess &&
+    (activeSessionIDs.length === 0 ||
+      (activeAncestryQuery.isSuccess && activeAncestryQuery.data.failures.length === 0));
+  const knownLocations = candidateLocations.filter((candidate) => {
+    const query = directoryQueryByLocation.get(locationKey(candidate));
+    return !activeLocationsResolved || !query?.isSuccess || query.data !== false;
+  });
   const interactionQueries = useQueries({
     queries: knownLocations.flatMap((knownLocation) => [
       {
-        enabled: Boolean(client && connectionID),
+        enabled: Boolean(
+          client &&
+            connectionID &&
+            !directoryQueryByLocation.get(locationKey(knownLocation))?.isPending,
+        ),
         queryFn: ({ signal }: { signal: AbortSignal }) => {
           if (!client) throw new Error("CONNECTION_NOT_READY");
           return listOpenCodePermissionRequests(client, knownLocation, { signal });
@@ -417,7 +489,11 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         ),
       },
       {
-        enabled: Boolean(client && connectionID),
+        enabled: Boolean(
+          client &&
+            connectionID &&
+            !directoryQueryByLocation.get(locationKey(knownLocation))?.isPending,
+        ),
         queryFn: ({ signal }: { signal: AbortSignal }) => {
           if (!client) throw new Error("CONNECTION_NOT_READY");
           return listOpenCodeFormRequests(client, knownLocation, { signal });
@@ -583,6 +659,41 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     );
   }
   const failedProjectCounts = new Map<string, number>();
+  // UI-only location details stay in memory. Never include paths or raw query
+  // errors in the redacted support report or device persistence.
+  const sessionLocationKeys = new Set(
+    [...rootSessions, ...Object.values(ancestrySessions)].map((session) =>
+      locationKey(session.location),
+    ),
+  );
+  const failedLocationDetails: AttentionLocationFailure[] = [
+    ...knownLocations,
+    ...supplementalLocations,
+  ].flatMap((failedLocation, index) => {
+    const failedChecks: AttentionLocationFailure["failedChecks"] = [];
+    if (allInteractionQueries[index * 2]?.isError) failedChecks.push("permissions");
+    if (allInteractionQueries[index * 2 + 1]?.isError) failedChecks.push("forms");
+    if (failedChecks.length === 0) return [];
+    const projectID =
+      projectIDByLocation.get(locationKey(failedLocation)) ??
+      inferLocationProjectID(failedLocation, projects);
+    const project = projectID ? projectByID.get(projectID) : undefined;
+    return [
+      {
+        location: failedLocation,
+        projectLabel: project ? labelProject(project) : "Unknown project",
+        source:
+          project?.canonical === failedLocation.directory
+            ? "project-root"
+            : project?.sandboxes.includes(failedLocation.directory)
+              ? "worktree"
+              : sessionLocationKeys.has(locationKey(failedLocation))
+                ? "session-history"
+                : "discovered",
+        failedChecks,
+      },
+    ];
+  });
   for (const failedLocation of failedLocations) {
     const projectID =
       projectIDByLocation.get(locationKey(failedLocation)) ??
@@ -602,6 +713,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     .sort((first, second) => first.label.localeCompare(second.label));
   const sessionProjectFailures = failedFollowedSessionProjects(sessionsQuery.data?.pages);
   const reconciling =
+    directoryQueries.some((query) => query.isPending || query.isFetching) ||
     !preferenceReady ||
     projectsQuery.isPending ||
     defaultLocationQuery.isPending ||
@@ -636,6 +748,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
   const attentionCoverage: AttentionCoverage = {
     completeness: reconciling || coverageReasons.length > 0 ? "incomplete" : "complete",
     failedLocationCount,
+    failedLocations: failedLocationDetails,
     failedProjects,
     freshness: runtime.status !== "connected" ? "stale" : reconciling ? "reconciling" : "current",
     knownLocationCount: knownLocations.length + supplementalLocations.length,
@@ -747,6 +860,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         projectsLoading: projectsQuery.isPending,
         refetch: () =>
           Promise.allSettled([
+            ...directoryQueries.map((query) => query.refetch()),
             projectsQuery.refetch(),
             defaultLocationQuery.refetch(),
             activeSessionsQuery.refetch(),

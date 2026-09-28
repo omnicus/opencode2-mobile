@@ -85,8 +85,8 @@ export function WorkingIndicator({ variant = "dots" }: { variant?: "dots" | "blo
           style={[
             styles.dot,
             {
-              left: bit < 3 ? 0 : 6,
-              top: (bit % 3) * 6,
+              left: bit < 3 ? 0 : 4.5,
+              top: (bit % 3) * 4.5,
               opacity: (0x0b & (1 << bit)) !== 0 ? 1 : 0,
             },
             !reducedMotion && {
@@ -106,6 +106,6 @@ export function WorkingIndicator({ variant = "dots" }: { variant?: "dots" | "blo
 const styles = StyleSheet.create({
   blocks: { flexDirection: "row", flexShrink: 0, gap: 1 },
   block: { width: 5, height: 6, backgroundColor: palette.activity },
-  icon: { width: 10, height: 16, flexShrink: 0 },
-  dot: { position: "absolute", width: 4, height: 4, backgroundColor: palette.signal },
+  icon: { width: 7.5, height: 12, flexShrink: 0 },
+  dot: { position: "absolute", width: 3, height: 3, backgroundColor: palette.activity },
 });

@@ -36,7 +36,7 @@ import { useConnections } from "../connections/connections-context";
 import { boundedOpenCodeFetch, expoOpenCodeFetch } from "../expo-open-code-fetch";
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
-import { palette, radius, space } from "../theme";
+import { control, palette, radius, space, switchColors, typography } from "../theme";
 import { AppUpdateCard } from "../updates/app-updates";
 import {
   type LifecycleTransportPhase,
@@ -647,11 +647,10 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                 </View>
                 {appLock.busy ? <ActivityIndicator color={palette.signal} /> : null}
                 <Switch
+                  {...switchColors}
                   accessibilityLabel="Require device authentication"
                   disabled={appLock.busy}
                   onValueChange={appLock.setEnabled}
-                  trackColor={{ false: palette.border, true: palette.signal }}
-                  thumbColor={palette.ink}
                   value={appLock.enabled}
                 />
               </View>
@@ -815,10 +814,9 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                     </Text>
                   </View>
                   <Switch
+                    {...switchColors}
                     accessibilityLabel="Allow private-network HTTP"
                     onValueChange={setAllowHttp}
-                    trackColor={{ false: palette.border, true: palette.signal }}
-                    thumbColor={palette.ink}
                     value={allowHttp}
                   />
                 </View>
@@ -1199,10 +1197,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   diagnosticsText: {
+    ...typography.code,
     color: palette.dim,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 10,
-    lineHeight: 16,
     marginTop: space.xs,
   },
   detailHeading: {
@@ -1216,10 +1212,10 @@ const styles = StyleSheet.create({
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
     justifyContent: "center",
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: space.sm,
   },
-  editLabel: { color: palette.signal, fontSize: 10, fontWeight: "900", letterSpacing: 0.7 },
+  editLabel: { ...typography.control, color: palette.signal },
   field: {
     gap: space.xs,
   },
@@ -1245,10 +1241,8 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   guidanceTitle: {
-    color: palette.warm,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
+    ...typography.label,
+    color: palette.dim,
   },
   header: {
     alignItems: "center",
@@ -1271,10 +1265,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   closeButtonLabel: {
+    ...typography.control,
     color: palette.ink,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.9,
   },
   input: {
     backgroundColor: palette.background,
@@ -1282,7 +1274,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.ink,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
     fontSize: 15,
     minHeight: 48,
     paddingHorizontal: 14,
@@ -1296,10 +1287,8 @@ const styles = StyleSheet.create({
     maxWidth: 560,
   },
   label: {
+    ...typography.label,
     color: palette.dim,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.3,
   },
   lifecyclePrompt: {
     backgroundColor: palette.background,
@@ -1313,10 +1302,8 @@ const styles = StyleSheet.create({
     minWidth: "45%",
   },
   metricLabel: {
+    ...typography.label,
     color: palette.dim,
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 1.1,
     marginTop: 3,
   },
   metrics: {
@@ -1350,22 +1337,20 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   primaryButton: {
+    ...control,
     alignItems: "center",
     backgroundColor: palette.signal,
-    borderRadius: radius.sm,
     flexDirection: "row",
     gap: space.sm,
     justifyContent: "center",
-    minHeight: 52,
-    paddingHorizontal: space.md,
   },
   primaryButtonDisabled: { opacity: 0.65 },
   primaryButtonPressed: { opacity: 0.7 },
   primaryLabel: {
+    ...typography.control,
     color: palette.background,
-    fontSize: 14,
-    fontWeight: "900",
-    letterSpacing: 0.9,
+    flexShrink: 1,
+    textAlign: "center",
   },
   profileCard: {
     alignItems: "stretch",
@@ -1446,10 +1431,8 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   resultTitle: {
+    ...typography.label,
     color: palette.success,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 1.2,
   },
   runtimeCopy: {
     color: palette.dim,
@@ -1487,66 +1470,54 @@ const styles = StyleSheet.create({
     paddingTop: space.md,
   },
   runtimeTitle: {
+    ...typography.label,
     color: palette.ink,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 1,
   },
   removeButton: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: space.sm,
   },
   removeButtonPressed: { backgroundColor: palette.card },
   removeLabel: {
+    ...typography.control,
     color: palette.danger,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.7,
     textAlign: "center",
   },
   saveButton: {
+    ...control,
     alignItems: "center",
-    borderColor: palette.signal,
-    borderRadius: radius.sm,
+    borderColor: palette.border,
     borderWidth: 1,
     flexDirection: "row",
     gap: space.sm,
     justifyContent: "center",
-    minHeight: 52,
-    paddingHorizontal: space.md,
   },
   secondaryButton: {
+    ...control,
     alignItems: "center",
-    borderColor: palette.signal,
-    borderRadius: radius.sm,
+    borderColor: palette.border,
     borderWidth: 1,
     flexDirection: "row",
     gap: space.sm,
     justifyContent: "center",
     marginTop: space.md,
-    minHeight: 52,
-    paddingHorizontal: space.md,
   },
   secondaryButtonPressed: { backgroundColor: palette.signalDark },
   secondaryLabel: {
+    ...typography.control,
     color: palette.signal,
-    fontSize: 12,
-    fontWeight: "900",
-    letterSpacing: 0.7,
+    flexShrink: 1,
+    textAlign: "center",
   },
   sectionTitle: {
+    ...typography.heading,
     color: palette.ink,
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 1,
   },
   selectedLabel: {
+    ...typography.label,
     color: palette.signal,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.8,
   },
   smallButton: {
     alignItems: "center",
@@ -1559,10 +1530,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   smallButtonLabel: {
+    ...typography.control,
     color: palette.signal,
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0.7,
   },
   safeArea: {
     backgroundColor: palette.background,
@@ -1588,10 +1557,8 @@ const styles = StyleSheet.create({
     flexDirection: "column",
   },
   segmentLabel: {
+    ...typography.control,
     color: palette.dim,
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 0.8,
   },
   segmentLabelSelected: { color: palette.background },
   segmentSelected: { backgroundColor: palette.signal },
@@ -1621,19 +1588,14 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   title: {
+    ...typography.title,
     color: palette.ink,
-    fontSize: 40,
-    fontWeight: "700",
-    letterSpacing: -1.5,
-    lineHeight: 44,
-    marginTop: 42,
+    marginTop: space.lg,
     maxWidth: 600,
   },
   httpLabel: {
+    ...typography.label,
     color: palette.warm,
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.7,
     marginTop: 3,
   },
   warningCopy: { flex: 1 },
@@ -1654,9 +1616,7 @@ const styles = StyleSheet.create({
     marginTop: space.xs,
   },
   warningTitle: {
+    ...typography.label,
     color: palette.warm,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 0.8,
   },
 });

@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { WorkingIndicator } from "../components/working-indicator";
-import { palette, radius, space, typeRamp } from "../theme";
+import { control, palette, radius, space, typeRamp, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
 import {
   type PromptAdmission,
@@ -232,29 +232,27 @@ function boundedPromptPreview(text: string) {
 
 const styles = StyleSheet.create({
   actionButton: {
+    ...control,
     alignItems: "center",
     borderColor: palette.border,
-    borderRadius: radius.sm,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.sm,
   },
   actionButtonDanger: { borderColor: palette.danger },
-  actionLabel: { color: palette.ink, fontSize: 12, fontWeight: "800" },
+  actionLabel: { ...typography.control, color: palette.ink },
   actionLabelDanger: { color: palette.danger },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   activeDot: { backgroundColor: palette.warm, borderRadius: 99, height: 6, width: 6 },
   admissionCard: {
-    backgroundColor: palette.background,
-    borderColor: palette.warm,
-    borderRadius: radius.md,
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: radius.lg,
     borderWidth: 1,
     gap: space.sm,
     padding: space.md,
   },
   cardCopy: { color: palette.dim, fontSize: 13, lineHeight: 19 },
-  cardEyebrow: { color: palette.warm, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  cardEyebrow: { ...typography.label, color: palette.warm },
   disabled: { opacity: 0.5 },
   executionRow: {
     alignItems: "center",
@@ -276,7 +274,13 @@ const styles = StyleSheet.create({
     gap: space.sm,
     padding: space.md,
   },
-  inboxHeading: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
+  inboxHeading: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.xs,
+    justifyContent: "space-between",
+  },
   inboxType: { color: palette.dim, fontSize: 11, fontWeight: "700" },
   pressed: { opacity: 0.62 },
   promptPreview: { color: palette.ink, fontSize: 14, lineHeight: 20 },

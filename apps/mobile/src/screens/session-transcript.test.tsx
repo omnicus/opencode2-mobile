@@ -31,7 +31,7 @@ test("inline code preserves literal markup and does not create links inside code
   );
   expect(screen.getByText("pnpm check")).toHaveStyle({
     color: markdownPalette.code,
-    fontFamily: "monospace",
+    fontFamily: "Menlo",
   });
   expect(screen.getByText("**literal**")).toBeOnTheScreen();
   expect(screen.queryByRole("link", { name: "https://code.test" })).toBeNull();

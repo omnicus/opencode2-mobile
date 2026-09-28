@@ -37,7 +37,7 @@ import {
   stagePendingNotificationRevocation,
 } from "../notifications/notification-pairing-repository";
 import { registerForOpenCodePushNotifications } from "../notifications/notification-registration";
-import { palette, radius, space } from "../theme";
+import { control, palette, radius, space, typography } from "../theme";
 
 export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
   const db = useSQLiteContext();
@@ -301,9 +301,14 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           ) : (
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ disabled: busy }}
               disabled={busy}
               onPress={() => void openScanner()}
-              style={({ pressed }) => [styles.scanButton, pressed && styles.pressed]}
+              style={({ pressed }) => [
+                styles.scanButton,
+                busy && styles.disabled,
+                pressed && styles.pressed,
+              ]}
             >
               <Text style={styles.scanLabel}>SCAN QR CODE</Text>
             </Pressable>
@@ -315,6 +320,8 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
             <View style={styles.divider} />
           </View>
           <TextInput
+            accessibilityLabel="Pairing code"
+            keyboardAppearance="dark"
             autoCapitalize="none"
             autoCorrect={false}
             editable={!busy}
@@ -330,9 +337,14 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           />
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ disabled: busy || manualCode.trim().length === 0 }}
             disabled={busy || manualCode.trim().length === 0}
             onPress={() => inspect()}
-            style={({ pressed }) => [styles.inspectButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.inspectButton,
+              (busy || manualCode.trim().length === 0) && styles.disabled,
+              pressed && styles.pressed,
+            ]}
           >
             <Text style={styles.inspectLabel}>CHECK CODE</Text>
           </Pressable>
@@ -356,9 +368,19 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
               </Text>
               <Pressable
                 accessibilityRole="button"
+                accessibilityLabel={
+                  preview.kind === "opencode" && preview.prepared.allowDevelopmentHttp
+                    ? "Approve HTTP and pair"
+                    : "Pair and save"
+                }
+                accessibilityState={{ disabled: busy, busy }}
                 disabled={busy}
                 onPress={() => void pair()}
-                style={({ pressed }) => [styles.pairButton, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.pairButton,
+                  busy && styles.disabled,
+                  pressed && styles.pressed,
+                ]}
               >
                 {busy ? (
                   <ActivityIndicator color={palette.background} />
@@ -373,9 +395,14 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
               {preview.kind === "opencode" ? (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: busy }}
                   disabled={busy}
                   onPress={() => void pairWithoutNotifications()}
-                  style={({ pressed }) => [styles.inspectButton, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.inspectButton,
+                    busy && styles.disabled,
+                    pressed && styles.pressed,
+                  ]}
                 >
                   <Text style={styles.inspectLabel}>
                     {preview.prepared.allowDevelopmentHttp
@@ -502,15 +529,14 @@ const styles = StyleSheet.create({
   },
   cameraHint: { color: palette.dim, fontSize: 13, padding: space.md, textAlign: "center" },
   closeButton: { justifyContent: "center", minHeight: 44, paddingLeft: space.md },
-  closeLabel: { color: palette.dim, fontSize: 12, fontWeight: "800", letterSpacing: 1 },
+  closeLabel: { ...typography.control, color: palette.signal },
   codeInput: {
+    ...typography.code,
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.md,
     borderWidth: 1,
     color: palette.ink,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 12,
     minHeight: 116,
     padding: space.md,
     textAlignVertical: "top",
@@ -518,7 +544,7 @@ const styles = StyleSheet.create({
   content: { padding: space.lg, paddingBottom: 48 },
   copy: { color: palette.dim, fontSize: 16, lineHeight: 24, marginTop: space.md },
   divider: { backgroundColor: palette.border, flex: 1, height: 1 },
-  dividerLabel: { color: palette.dim, fontSize: 11, fontWeight: "800", letterSpacing: 1.2 },
+  dividerLabel: { ...typography.label, color: palette.dim },
   dividerRow: {
     alignItems: "center",
     flexDirection: "row",
@@ -526,51 +552,49 @@ const styles = StyleSheet.create({
     marginVertical: space.lg,
   },
   error: { color: palette.danger, fontSize: 14, lineHeight: 20, marginTop: space.md },
-  eyebrow: { color: palette.signal, fontSize: 12, fontWeight: "800", letterSpacing: 1.5 },
+  eyebrow: { ...typography.label, color: palette.dim },
   flex: { flex: 1 },
   headerCopy: { flex: 1 },
   headerRow: { alignItems: "flex-start", flexDirection: "row" },
   inspectButton: {
+    ...control,
     alignItems: "center",
     borderColor: palette.border,
-    borderRadius: radius.sm,
     borderWidth: 1,
     marginTop: space.sm,
-    minHeight: 48,
     justifyContent: "center",
   },
-  inspectLabel: { color: palette.ink, fontSize: 13, fontWeight: "800", letterSpacing: 1 },
+  inspectLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
   pairButton: {
+    ...control,
     alignItems: "center",
     backgroundColor: palette.signal,
-    borderRadius: radius.sm,
     justifyContent: "center",
     marginTop: space.lg,
-    minHeight: 52,
   },
-  pairLabel: { color: palette.background, fontSize: 14, fontWeight: "900", letterSpacing: 1 },
+  pairLabel: { ...typography.control, color: palette.background, textAlign: "center" },
+  disabled: { opacity: 0.5 },
   pressed: { opacity: 0.65 },
   previewCard: {
-    backgroundColor: palette.signalDark,
-    borderColor: palette.signal,
+    backgroundColor: palette.card,
+    borderColor: palette.border,
     borderRadius: radius.lg,
     borderWidth: 1,
     marginTop: space.lg,
     padding: space.lg,
   },
-  previewEyebrow: { color: palette.signal, fontSize: 11, fontWeight: "800", letterSpacing: 1.3 },
+  previewEyebrow: { ...typography.label, color: palette.success },
   previewMeta: { color: palette.dim, fontSize: 13, lineHeight: 19, marginTop: space.sm },
-  previewName: { color: palette.ink, fontSize: 23, fontWeight: "800", marginTop: space.xs },
+  previewName: { ...typography.heading, color: palette.ink, marginTop: space.xs },
   previewOrigin: { color: palette.ink, fontSize: 14, marginTop: space.xs },
   safeArea: { backgroundColor: palette.background, flex: 1 },
   scanButton: {
+    ...control,
     alignItems: "center",
     backgroundColor: palette.signal,
-    borderRadius: radius.md,
     justifyContent: "center",
     marginTop: space.lg,
-    minHeight: 56,
   },
-  scanLabel: { color: palette.background, fontSize: 14, fontWeight: "900", letterSpacing: 1.2 },
-  title: { color: palette.ink, fontSize: 32, fontWeight: "800", letterSpacing: -0.8, marginTop: 5 },
+  scanLabel: { ...typography.control, color: palette.background, textAlign: "center" },
+  title: { ...typography.title, color: palette.ink, marginTop: space.xs },
 });

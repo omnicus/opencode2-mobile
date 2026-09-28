@@ -31,6 +31,19 @@ export const openCodeQueryKeys = {
   forms(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "forms"] as const;
   },
+  historicalDirectory(
+    connectionId: string,
+    root: LocationRef,
+    directory: string,
+    revision: number,
+  ) {
+    return [
+      ...locationKey(connectionId, root),
+      "historical-directory",
+      directory,
+      revision,
+    ] as const;
+  },
   fileFind(connectionId: string, location: LocationRef, query: string, limit: number) {
     return [...locationKey(connectionId, location), "file-find", query, limit] as const;
   },

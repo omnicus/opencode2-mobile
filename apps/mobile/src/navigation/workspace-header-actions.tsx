@@ -4,7 +4,7 @@ import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, radius, space } from "../theme";
+import { palette, radius, space, typography } from "../theme";
 
 type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Settings";
 
@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
   },
   menuButtonLast: { borderBottomWidth: 0 },
   menuCopy: { flex: 1, minWidth: 0 },
-  menuDescription: { color: palette.dim, fontSize: 12, marginTop: 3 },
+  menuDescription: { ...typography.caption, color: palette.dim, marginTop: 3 },
   menuGroup: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     overflow: "hidden",
   },
-  menuLabel: { color: palette.ink, fontSize: 15, fontWeight: "700" },
+  menuLabel: { ...typography.heading, color: palette.ink },
   optionsButton: {
     alignItems: "center",
     borderRadius: 22,

@@ -35,6 +35,7 @@ import {
   listOpenCodeSessions,
   listOpenCodeSkills,
   normalizeOpenCodeBaseUrl,
+  openCodeDirectoryExists,
   openEventStreamGeneration,
   probeEventStream,
   probePtyTransport,
@@ -52,6 +53,69 @@ import {
   switchOpenCodeSessionModel,
   waitForOpenCodeSession,
 } from "./index";
+
+describe("historical directory presence", () => {
+  it("checks the live parent rather than initializing a missing worktree", async () => {
+    const fixture = createFakeOpenCodeApi({
+      directoryEntries: [
+        { path: ".worktree/live/", type: "directory" },
+        { path: ".worktree/link", type: "file" },
+      ],
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/workspace/.worktree/retired"),
+    ).resolves.toBe(false);
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/workspace/.worktree/live"),
+    ).resolves.toBe(true);
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/workspace/.worktree/link"),
+    ).resolves.toBe(true);
+    expect(
+      fixture.requests.every(
+        (request) => request.path === "/api/fs/list" && request.query.path?.[0] === ".worktree",
+      ),
+    ).toBe(true);
+  });
+
+  it.each([401, 404, 500])("does not interpret HTTP %i as directory deletion", async (status) => {
+    const fixture = createFakeOpenCodeApi({
+      failures: { "/api/fs/list": { status, body: { message: "unavailable" } } },
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/workspace/.worktree/retired"),
+    ).rejects.toBeDefined();
+  });
+
+  it.each(["live", "/workspace/.worktree/live", ".worktree/nested/live"])(
+    "rejects ambiguous directory entry %s",
+    async (path) => {
+      const fixture = createFakeOpenCodeApi({ directoryEntries: [{ path, type: "directory" }] });
+      const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+      await expect(
+        openCodeDirectoryExists(
+          client,
+          { directory: "/workspace" },
+          "/workspace/.worktree/retired",
+        ),
+      ).rejects.toThrow("MALFORMED_DIRECTORY_LIST");
+    },
+  );
+
+  it.each(["/elsewhere/retired", "/workspace/../retired", "/workspace/.worktree//retired"])(
+    "rejects unscoped candidate %s",
+    async (directory) => {
+      const fixture = createFakeOpenCodeApi();
+      const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+      await expect(
+        openCodeDirectoryExists(client, { directory: "/workspace" }, directory),
+      ).rejects.toThrow();
+      expect(fixture.requests).toHaveLength(0);
+    },
+  );
+});
 
 describe("normalizeOpenCodeBaseUrl", () => {
   it("normalizes an origin", () => {

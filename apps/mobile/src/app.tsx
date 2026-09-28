@@ -17,7 +17,7 @@ import { ConnectionRuntimeProvider } from "./state/connection-runtime-context";
 import { FollowedProjectsProvider } from "./state/followed-projects-context";
 import { TranscriptPreferencesProvider } from "./state/transcript-preferences";
 import { migrateMobileDatabase, mobileDatabaseName } from "./storage/database";
-import { palette } from "./theme";
+import { control, palette, typography } from "./theme";
 import { AppUpdateBanner, AppUpdateCard, AppUpdatesProvider } from "./updates/app-updates";
 
 const queryClient = new QueryClient({
@@ -158,10 +158,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   errorEyebrow: {
+    ...typography.label,
     color: palette.danger,
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 1.6,
   },
   errorShell: {
     backgroundColor: palette.background,
@@ -170,25 +168,19 @@ const styles = StyleSheet.create({
     padding: 28,
   },
   errorTitle: {
+    ...typography.title,
     color: palette.ink,
-    fontSize: 30,
-    fontWeight: "700",
-    letterSpacing: -0.8,
-    lineHeight: 35,
     marginTop: 10,
   },
   retryButton: {
+    ...control,
     alignSelf: "flex-start",
     backgroundColor: palette.signal,
-    borderRadius: 8,
     marginTop: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
   },
   retryLabel: {
+    ...typography.control,
     color: palette.background,
-    fontSize: 15,
-    fontWeight: "800",
   },
   reportButton: {
     marginTop: 18,
@@ -196,8 +188,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   reportLabel: {
+    ...typography.control,
     color: palette.dim,
-    fontSize: 14,
-    fontWeight: "700",
   },
 });

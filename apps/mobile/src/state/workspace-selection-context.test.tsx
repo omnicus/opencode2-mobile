@@ -10,6 +10,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react-nativ
 import { Pressable, Text } from "react-native";
 
 import { FollowedProjectsProvider, useFollowedProjects } from "./followed-projects-context";
+import { openCodeQueryKeys } from "./open-code-query-keys";
 
 type InteractionOutput<T> = { data: T[]; location: ReturnType<typeof mockResolvedLocation> };
 type ListFormsCall = (
@@ -30,6 +31,14 @@ type ReplyPermissionCall = (
 ) => Promise<unknown>;
 
 const mockListForms = jest.fn<ListFormsCall>();
+const mockDirectoryExists = jest.fn(
+  async (
+    _client: unknown,
+    _root: LocationRef,
+    _directory: string,
+    _options?: { signal?: AbortSignal },
+  ) => true,
+);
 const mockListPermissions = jest.fn<ListPermissionsCall>();
 const mockGetOpenCodeLocation = jest.fn(async (_client: unknown, location: { directory: string }) =>
   mockResolvedLocation(
@@ -74,6 +83,8 @@ const mockDb = {
 
 jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => mockDb }));
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
+  openCodeDirectoryExists: (...args: Parameters<typeof mockDirectoryExists>) =>
+    mockDirectoryExists(...args),
   getDefaultOpenCodeLocation: jest.fn(async () => mockResolvedLocation("/a", "project-a")),
   getOpenCodeLocation: (...args: Parameters<typeof mockGetOpenCodeLocation>) =>
     mockGetOpenCodeLocation(...args),
@@ -121,6 +132,8 @@ jest.mock("./connection-runtime-context", () => ({
 }));
 
 beforeEach(() => {
+  mockDirectoryExists.mockReset();
+  mockDirectoryExists.mockResolvedValue(true);
   jest.useFakeTimers();
   mockEventLocations = [];
   mockAttentionLocations = [];
@@ -523,6 +536,138 @@ test("refreshes the displayed project search instead of the unfiltered feed", as
   queryClient.clear();
 });
 
+test.each([
+  ["/b/sub", "session-history"],
+  ["/b", "project-root"],
+])("keeps failed %s locations explicit until checks recover", async (directory, source) => {
+  const original = mockListPermissions.getMockImplementation();
+  if (!original) throw new Error("Missing permission fixture");
+  mockListPermissions.mockImplementation(async (client, location, options) => {
+    if (location.directory === directory) throw new Error("HTTP 500 private server details");
+    return original(client, location, options);
+  });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByText("locations:1:2")).toBeOnTheScreen());
+  await waitFor(() => expect(screen.getByText("freshness:current")).toBeOnTheScreen());
+  expect(screen.getByText(`unavailable:Beta:${directory}:${source}:permissions`)).toBeOnTheScreen();
+  expect(screen.getByText("incomplete:2:2:0")).toBeOnTheScreen();
+  expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
+  mockListPermissions.mockImplementation(original);
+  fireEvent.press(screen.getByRole("button", { name: "Refresh sessions" }));
+  await waitFor(() => expect(screen.getByText("complete:2:2:0")).toBeOnTheScreen());
+  expect(screen.queryByText(/^unavailable:/)).toBeNull();
+  view.unmount();
+  queryClient.clear();
+});
+
+test("retires missing historical directories and checks them again after restoration", async () => {
+  const directory = "/b/.worktree/retired";
+  mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
+    cursor: {},
+    data: [
+      projectID === "project-b"
+        ? mockSession("ses_retired", projectID, directory, 2)
+        : mockSession("ses_alpha", projectID, "/a", 3),
+    ],
+  }));
+  mockDirectoryExists.mockImplementation(
+    async (_client, _root, candidate) => candidate !== directory,
+  );
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
+  expect(mockDirectoryExists).toHaveBeenCalledWith(
+    expect.anything(),
+    { directory: "/b" },
+    directory,
+    expect.anything(),
+  );
+  expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
+    false,
+  );
+  expect(mockListForms.mock.calls.some((call) => call[1].directory === directory)).toBe(false);
+  expect(screen.getByText("recent:ses_retired")).toBeOnTheScreen();
+  mockDirectoryExists.mockResolvedValue(true);
+  fireEvent.press(screen.getByRole("button", { name: "Refresh sessions" }));
+  await waitFor(() =>
+    expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
+      true,
+    ),
+  );
+  view.unmount();
+  queryClient.clear();
+});
+
+test.each(["notification", "event", "cached-form"])(
+  "keeps %s attention at a missing historical directory",
+  async (source) => {
+    const location = { directory: "/b/sub" };
+    mockDirectoryExists.mockResolvedValue(false);
+    if (source === "notification") mockAttentionLocations = [location];
+    if (source === "event") mockEventLocations = [location];
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    });
+    if (source === "cached-form") {
+      queryClient.setQueryData(openCodeQueryKeys.forms("connection-1", location), {
+        data: [{ fields: [], id: "form_beta", sessionID: "ses_beta", title: "Input" }],
+        location: mockResolvedLocation(location.directory, "project-b"),
+      });
+    }
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <FollowedProjectsProvider>
+          <Capture />
+        </FollowedProjectsProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText("complete:2:2:0")).toBeOnTheScreen());
+    expect(mockDirectoryExists.mock.calls.some((call) => call[2] === location.directory)).toBe(
+      false,
+    );
+    expect(mockListForms.mock.calls.some((call) => call[1].directory === location.directory)).toBe(
+      true,
+    );
+    view.unmount();
+    queryClient.clear();
+  },
+);
+
+test("an unavailable directory probe does not silently retire a valid session location", async () => {
+  mockDirectoryExists.mockRejectedValue(new Error("HTTP 500"));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(screen.getByText("complete:2:2:0")).toBeOnTheScreen());
+  expect(mockListForms.mock.calls.some((call) => call[1].directory === "/b/sub")).toBe(true);
+  view.unmount();
+  queryClient.clear();
+});
+
 function Capture() {
   const state = useFollowedProjects();
   return (
@@ -534,6 +679,15 @@ function Capture() {
       <Text>freshness:{state.attentionCoverage.freshness}</Text>
       <Text>followed:{state.followedProjectIds.join(",")}</Text>
       <Text>preferences:{state.preferencesError ? "error" : "ok"}</Text>
+      {state.inbox.recent.map((row) => (
+        <Text key={row.session.id}>recent:{row.session.id}</Text>
+      ))}
+      {state.attentionCoverage.failedLocations?.map((failure) => (
+        <Text key={failure.location.directory}>
+          unavailable:{failure.projectLabel}:{failure.location.directory}:{failure.source}:
+          {failure.failedChecks.join(",")}
+        </Text>
+      ))}
       <Text>
         locations:{state.attentionCoverage.failedLocationCount}:
         {state.attentionCoverage.reconciledLocationCount}

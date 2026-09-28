@@ -4,7 +4,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, radius, space, typeRamp } from "../theme";
+import { control, palette, radius, space, typeRamp, typography } from "../theme";
 import { ShellFrame } from "./app-shell";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
@@ -84,11 +84,31 @@ export function FollowedProjectsScreen({ navigation }: Props) {
             <Text style={styles.copy}>Loading known projects</Text>
           </View>
         ) : selection.projectsError ? (
-          <Text accessibilityRole="alert" style={styles.error}>
-            Projects could not be loaded from this connection.
-          </Text>
+          <View style={styles.state}>
+            <Text accessibilityRole="alert" style={styles.error}>
+              Projects could not be loaded from this connection. Try again.
+            </Text>
+            <OrderButton
+              disabled={false}
+              label="Retry loading projects"
+              text="Retry"
+              onPress={() => void selection.refetch()}
+            />
+          </View>
         ) : (
           <View style={styles.list}>
+            {projects.length === 0 && selection.unavailableProjectIds.length === 0 ? (
+              <View style={styles.state}>
+                <Text style={styles.projectTitle}>No server projects found</Text>
+                <Text style={styles.copy}>Open a project in OpenCode, then refresh this list.</Text>
+                <OrderButton
+                  disabled={false}
+                  label="Refresh projects"
+                  text="Refresh"
+                  onPress={() => void selection.refetch()}
+                />
+              </View>
+            ) : null}
             {projects.map((project) => {
               const selected = followed.has(project.id);
               const position = selection.followedProjectIds.indexOf(project.id);
@@ -203,22 +223,20 @@ function projectLabel(project: { canonical: string; id: string; name?: string })
 const styles = StyleSheet.create({
   content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },
   copy: { color: palette.dim, fontSize: 14, lineHeight: 21 },
-  disabled: { opacity: 0.35 },
+  disabled: { opacity: 0.5 },
   error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
-  eyebrow: { color: palette.signal, fontSize: 11, fontWeight: "900", letterSpacing: 1.2 },
-  followState: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  eyebrow: { ...typography.label, color: palette.dim },
+  followState: { ...typography.label, color: palette.dim },
   followStateSelected: { color: palette.signal },
   list: { gap: space.sm },
   orderActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, padding: space.sm },
   orderButton: {
+    ...control,
     borderColor: palette.border,
-    borderRadius: radius.sm,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.md,
   },
-  orderLabel: { color: palette.ink, fontSize: 12, fontWeight: "800" },
+  orderLabel: { ...typography.control, color: palette.ink },
   pressed: { opacity: 0.58 },
   project: {
     backgroundColor: palette.card,
@@ -229,9 +247,9 @@ const styles = StyleSheet.create({
   projectMain: { gap: space.xs, minHeight: 72, padding: space.md },
   projectPath: { color: palette.dim, fontSize: 12, lineHeight: 17 },
   projectSelected: { borderColor: palette.signal },
-  projectTitle: { color: palette.ink, fontSize: 16, fontWeight: "800" },
+  projectTitle: { ...typography.heading, color: palette.ink },
   state: { alignItems: "center", gap: space.sm, paddingVertical: space.xl },
-  title: { color: palette.ink, fontSize: 28, fontWeight: "800", lineHeight: 34 },
+  title: { ...typography.title, color: palette.ink },
   unavailableProject: {
     backgroundColor: palette.card,
     borderColor: palette.warm,
@@ -248,5 +266,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: 44,
   },
-  unfollowLabel: { color: palette.danger, fontSize: 13, fontWeight: "800" },
+  unfollowLabel: { ...typography.control, color: palette.danger },
 });

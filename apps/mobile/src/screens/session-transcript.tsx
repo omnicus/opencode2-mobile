@@ -4,7 +4,7 @@ import { Alert, Linking, Pressable, StyleSheet, Text, View } from "react-native"
 
 import { applicationName } from "../application-name";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
-import { markdownPalette, palette, radius, space, typeRamp } from "../theme";
+import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
 import {
   getSubagentPresentation,
   parseSubagentProtocolText,
@@ -1523,14 +1523,12 @@ const styles = StyleSheet.create({
   inlineCode: {
     backgroundColor: palette.raised,
     color: markdownPalette.code,
-    fontFamily: "monospace",
+    fontFamily: typography.code.fontFamily,
   },
   commandText: {
+    ...typography.code,
     backgroundColor: palette.raised,
     color: markdownPalette.code,
-    fontFamily: "monospace",
-    fontSize: 13,
-    lineHeight: 20,
     padding: 12,
   },
   activityGroupHeader: {
@@ -1563,12 +1561,10 @@ const styles = StyleSheet.create({
   activityCopyLargeText: { alignItems: "flex-start", flexDirection: "column", gap: 2 },
   activityDetail: { color: palette.dim, flexShrink: 1, fontSize: 13, lineHeight: 18 },
   activityFile: {
+    ...typography.code,
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
     color: palette.dim,
-    fontFamily: "monospace",
-    fontSize: 12,
-    lineHeight: 18,
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
@@ -1581,7 +1577,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   activityHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
-  activityLabel: { color: palette.ink, fontSize: 13, fontWeight: "800" },
+  activityLabel: { ...typography.control, color: palette.ink },
   activityNested: { marginLeft: 12 },
   activityStandalone: { marginHorizontal: space.lg, paddingVertical: space.xs },
   assistantFooter: { color: palette.dim, fontSize: 11, marginTop: space.xs },
@@ -1612,16 +1608,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   codeLanguage: {
+    ...typography.label,
     color: palette.dim,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.8,
   },
   codeText: {
-    color: palette.ink,
-    fontFamily: "monospace",
-    fontSize: 13,
-    lineHeight: 20,
+    ...typography.code,
+    color: markdownPalette.code,
   },
   disclosure: {
     backgroundColor: palette.card,
@@ -1667,24 +1659,20 @@ const styles = StyleSheet.create({
     marginHorizontal: space.lg,
     paddingVertical: 12,
   },
-  noticeLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  noticeLabel: { ...typography.label, color: palette.dim },
   noticeText: { color: palette.dim, fontSize: 13, lineHeight: 19, marginTop: 5 },
   omittedText: { color: palette.dim, fontSize: 11, marginTop: 7 },
   outputText: {
+    ...typography.code,
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
     color: palette.dim,
-    fontFamily: "monospace",
-    fontSize: 12,
-    lineHeight: 18,
     padding: 12,
   },
   pressed: { opacity: 0.7 },
   reasoningLabel: {
+    ...typography.label,
     color: markdownPalette.reasoning,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.4,
   },
   reasoningText: { color: palette.dim, fontSize: 13, lineHeight: 19 },
   statusText: { color: palette.dim, fontSize: 12 },
@@ -1718,7 +1706,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   subagentHeadingLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
-  subagentLabel: { color: palette.activity, fontSize: 10, fontWeight: "900", letterSpacing: 0.8 },
+  subagentLabel: { ...typography.label, color: palette.activity },
   subagentResult: {
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -1727,11 +1715,11 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     paddingTop: space.sm,
   },
-  subagentState: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 0.6 },
+  subagentState: { ...typography.label, color: palette.dim },
   subagentStateError: { color: palette.danger },
   subagentStateRunning: { color: palette.activity },
   subagentTitle: { color: palette.ink, fontSize: 16, fontWeight: "700" },
-  textAction: { alignSelf: "flex-start", minHeight: 40, paddingVertical: 10 },
+  textAction: { alignSelf: "flex-start", minHeight: 44, paddingVertical: 10 },
   textActionLabel: { color: palette.signal, fontSize: 12, fontWeight: "700" },
   userBubble: {
     backgroundColor: palette.card,
@@ -1740,7 +1728,7 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   userBubbleLargeText: { maxWidth: "100%" },
-  userLabel: { color: palette.dim, fontSize: 10, fontWeight: "900", letterSpacing: 1 },
+  userLabel: { ...typography.label, color: palette.dim },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.lg, paddingVertical: space.sm },
   userText: { color: palette.ink, fontSize: 17, lineHeight: 25, marginTop: 7 },
 });

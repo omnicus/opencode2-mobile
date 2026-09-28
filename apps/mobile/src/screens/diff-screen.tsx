@@ -14,7 +14,7 @@ import {
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { diffPalette, palette, space, typeRamp } from "../theme";
+import { diffPalette, palette, space, typeRamp, typography } from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Diff">;
@@ -258,13 +258,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   fileMeta: { flexDirection: "row", gap: space.sm },
-  fileName: { color: palette.ink, fontFamily: "monospace", fontSize: 13, fontWeight: "700" },
-  fileStatus: { color: palette.dim, fontSize: 10, fontWeight: "800", letterSpacing: 0.6 },
+  fileName: { ...typography.code, color: palette.ink, fontWeight: "600" },
+  fileStatus: { ...typography.label, color: palette.dim },
   line: {
+    ...typography.code,
     color: diffPalette.contextText,
-    fontFamily: "monospace",
-    fontSize: 12,
-    lineHeight: 18,
     paddingHorizontal: space.md,
     paddingVertical: 1,
   },
@@ -277,8 +275,8 @@ const styles = StyleSheet.create({
   retryLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
   state: { gap: space.sm },
   stateDetail: { color: palette.dim, fontSize: 15, lineHeight: 22 },
-  stateTitle: { color: palette.ink, fontSize: 18, fontWeight: "800" },
+  stateTitle: { ...typography.heading, color: palette.ink },
   summary: { gap: space.xs, padding: space.md },
-  title: { color: palette.ink, fontSize: 18, fontWeight: "800" },
-  totals: { fontFamily: "monospace", fontSize: 13 },
+  title: { ...typography.heading, color: palette.ink },
+  totals: { ...typography.code },
 });
