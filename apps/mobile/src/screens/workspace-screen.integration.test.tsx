@@ -323,7 +323,7 @@ test("shows a permission blocking the open session and can reply", async () => {
   );
 
   try {
-    expect(await screen.findByText("PERMISSION REQUIRED")).toBeOnTheScreen();
+    expect(await screen.findByText("Run shell command")).toBeOnTheScreen();
     expect(screen.getByLabelText("Keyboard composer dock")).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
     expect(mockReplyPermission).toHaveBeenCalledWith("per_test", "ses_transcript", "once");

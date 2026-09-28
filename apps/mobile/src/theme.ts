@@ -27,6 +27,8 @@ export const diffPalette = {
 } as const;
 
 export const markdownPalette = {
+  code: "#a8d5ba",
+  reasoning: "#c4b5fd",
   link: "#8ab4f8",
   linkText: "#8ab4f8",
   strong: "#eeeeee",

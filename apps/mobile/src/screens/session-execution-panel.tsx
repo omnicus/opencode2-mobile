@@ -4,11 +4,11 @@ import type {
   SessionInboxInfo,
 } from "@opencode2-mobile/opencode-adapter";
 import type { ReactNode } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { WorkingIndicator } from "../components/working-indicator";
 import { palette, radius, space, typeRamp } from "../theme";
-import { permissionActionExplanation } from "./permission-presentation";
+import { PermissionRequestCard } from "./permission-request-card";
 import {
   type PromptAdmission,
   promptAdmissionLabel,
@@ -51,6 +51,7 @@ export function SessionExecutionPanel({
   projectedMessageIds: Set<string>;
   replyingPermissionId?: string | undefined;
 }) {
+  const { height } = useWindowDimensions();
   const inboxIds = new Set(inbox.map((item) => item.id));
   const localOverlays = admissions.filter(
     (admission) =>
@@ -72,7 +73,7 @@ export function SessionExecutionPanel({
       accessibilityLabel="Session execution"
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
-      style={styles.shell}
+      style={[styles.shell, permissions.length > 0 && { maxHeight: height * 0.65 }]}
     >
       {active ? (
         <View style={styles.executionRow}>
@@ -109,84 +110,15 @@ export function SessionExecutionPanel({
         </View>
       ) : null}
 
-      {permissions.map((request) => {
-        const replying = replyingPermissionId === request.id;
-        const explanation = permissionActionExplanation(request.action);
-        return (
-          <View key={request.id} style={styles.permissionCard}>
-            <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-              PERMISSION REQUIRED
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.subheading} style={styles.permissionAction}>
-              {sanitizeTranscriptText(request.action, 256)}
-            </Text>
-            {request.resources.map((resource) => (
-              <Text
-                dynamicTypeRamp={typeRamp.control}
-                key={resource}
-                selectable
-                style={styles.permissionResource}
-              >
-                {sanitizeTranscriptText(resource, 1_024)}
-              </Text>
-            ))}
-            {request.save?.map((pattern) => (
-              <Text
-                dynamicTypeRamp={typeRamp.control}
-                key={pattern}
-                selectable
-                style={styles.permissionResource}
-              >
-                Save pattern: {sanitizeTranscriptText(pattern, 1_024)}
-              </Text>
-            ))}
-            {explanation ? (
-              <View style={styles.permissionExplanation}>
-                <Text dynamicTypeRamp={typeRamp.caption} style={styles.permissionExplanationLabel}>
-                  OPENCODE MOBILE EXPLANATION
-                </Text>
-                <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
-                  {explanation}
-                </Text>
-              </View>
-            ) : null}
-            {request.save && request.save.length > 0 ? (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.permissionWarning}>
-                Always allow may save {request.save.length} broader permission
-                {request.save.length === 1 ? "" : "s"}. Reject may also reject other pending
-                permission requests in this session.
-              </Text>
-            ) : (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.permissionWarning}>
-                Reject may also reject other pending permission requests in this session.
-              </Text>
-            )}
-            {permissionReplyError ? (
-              <Text accessibilityRole="alert" style={styles.permissionError}>
-                The permission reply was not accepted. The request has been reloaded.
-              </Text>
-            ) : null}
-            <View style={styles.actionRow}>
-              <PanelButton
-                disabled={replying}
-                label={replying ? "Replying" : "Allow once"}
-                onPress={() => onReplyPermission(request.id, request.sessionID, "once")}
-              />
-              <PanelButton
-                disabled={replying}
-                label="Always allow"
-                onPress={() => onReplyPermission(request.id, request.sessionID, "always")}
-              />
-              <PanelButton
-                danger
-                disabled={replying}
-                label="Reject"
-                onPress={() => onReplyPermission(request.id, request.sessionID, "reject")}
-              />
-            </View>
-          </View>
-        );
-      })}
+      {permissions.map((request) => (
+        <PermissionRequestCard
+          key={request.id}
+          request={request}
+          replying={replyingPermissionId === request.id}
+          error={permissionReplyError}
+          onReply={onReplyPermission}
+        />
+      ))}
 
       {formRequests}
 
@@ -347,31 +279,6 @@ const styles = StyleSheet.create({
   inboxHeading: { alignItems: "center", flexDirection: "row", justifyContent: "space-between" },
   inboxType: { color: palette.dim, fontSize: 11, fontWeight: "700" },
   pressed: { opacity: 0.62 },
-  permissionAction: { color: palette.ink, fontSize: 16, fontWeight: "800" },
-  permissionCard: {
-    backgroundColor: palette.background,
-    borderColor: palette.warm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: space.sm,
-    padding: space.md,
-  },
-  permissionError: { color: palette.danger, fontSize: 13, lineHeight: 18 },
-  permissionExplanation: { gap: 2 },
-  permissionExplanationLabel: {
-    color: palette.dim,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-  },
-  permissionResource: {
-    backgroundColor: palette.background,
-    borderRadius: radius.sm,
-    color: palette.ink,
-    fontSize: 13,
-    padding: space.sm,
-  },
-  permissionWarning: { color: palette.warm, fontSize: 12, lineHeight: 17 },
   promptPreview: { color: palette.ink, fontSize: 14, lineHeight: 20 },
   content: { gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.xs },
   shell: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },

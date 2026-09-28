@@ -987,6 +987,13 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           renderItem={({ item }) =>
             item.type === "activity-group" ? (
               <TranscriptActivityGroup
+                waitingFor={
+                  sessionPermissions.length > 0
+                    ? "permission"
+                    : sessionForms.length > 0
+                      ? "input"
+                      : undefined
+                }
                 item={item}
                 largeText={largeText}
                 showReasoning={transcriptPreferences.reasoning}

@@ -160,7 +160,7 @@ test("shows and replies to a permission blocking the current session", () => {
   );
 
   expect(screen.getByText("Waiting for permission")).toBeOnTheScreen();
-  expect(screen.getByText("PERMISSION REQUIRED")).toBeOnTheScreen();
+  expect(screen.getByText("Run shell command")).toBeOnTheScreen();
   expect(screen.getByText("pnpm test")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(callbacks.onReplyPermission).toHaveBeenCalledWith("per_test", "ses_test", "once");
