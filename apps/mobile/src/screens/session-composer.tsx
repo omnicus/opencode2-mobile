@@ -240,7 +240,10 @@ export function SessionComposer({
                     styles.inputExpanded,
                     { minHeight: minimumInputHeight, maxHeight: maximumInputHeight },
                   ]
-                : styles.inputCollapsed,
+                : [
+                    styles.inputCollapsed,
+                    { paddingVertical: Math.max(0, (42 - 23 * fontScale) / 2) },
+                  ],
             ]}
             submitBehavior="newline"
             textAlignVertical={expanded ? "top" : "center"}
@@ -829,6 +832,7 @@ const styles = StyleSheet.create({
   },
   surfaceCollapsed: {
     borderRadius: 999,
+    justifyContent: "center",
     minHeight: 60,
     paddingLeft: 12,
     paddingRight: 8,

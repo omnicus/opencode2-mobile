@@ -37,8 +37,7 @@ import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { palette, radius, space, typeRamp, usesLargeTextLayout } from "../theme";
 import { AppUpdateCard } from "../updates/app-updates";
 import { FormRequestList } from "./form-request-list";
-import { permissionActionExplanation } from "./permission-presentation";
-import { sanitizeTranscriptText } from "./session-transcript-model";
+import { PermissionRequestCard } from "./permission-request-card";
 
 type Section = "Pending" | "Settings" | "Workspace";
 type SessionBranch = {
@@ -171,64 +170,13 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
               </Text>
             </View>
             {selection.permissions.map((request) => (
-              <View key={`permission:${request.id}`} style={styles.actionCard}>
-                <Text style={styles.cardLabel}>PERMISSION</Text>
-                <Text style={styles.cardTitle}>{sanitizeTranscriptText(request.action, 256)}</Text>
-                {request.resources.map((resource) => (
-                  <Text key={resource} selectable style={styles.permissionResource}>
-                    {sanitizeTranscriptText(resource, 1_024)}
-                  </Text>
-                ))}
-                {request.save?.map((pattern) => (
-                  <Text key={pattern} selectable style={styles.permissionResource}>
-                    Save pattern: {sanitizeTranscriptText(pattern, 1_024)}
-                  </Text>
-                ))}
-                {permissionActionExplanation(request.action) ? (
-                  <View style={styles.clientExplanation}>
-                    <Text style={styles.clientExplanationLabel}>OPENCODE MOBILE EXPLANATION</Text>
-                    <Text style={styles.cardCopy}>
-                      {permissionActionExplanation(request.action)}
-                    </Text>
-                  </View>
-                ) : null}
-                <Text style={styles.permissionWarning}>
-                  {request.save && request.save.length > 0
-                    ? `Always allow may save ${request.save.length} broader permission${request.save.length === 1 ? "" : "s"}. `
-                    : ""}
-                  Reject may also reject other pending permission requests in this session.
-                </Text>
-                {selection.permissionReplyError ? (
-                  <Text accessibilityRole="alert" style={styles.permissionError}>
-                    The permission reply was not accepted. The request has been reloaded.
-                  </Text>
-                ) : null}
-                <View style={styles.permissionActions}>
-                  <ActionButton
-                    disabled={selection.replyingPermissionId === request.id}
-                    label={
-                      selection.replyingPermissionId === request.id ? "Replying" : "Allow once"
-                    }
-                    onPress={() => selection.replyPermission(request.id, request.sessionID, "once")}
-                  />
-                  <ActionButton
-                    disabled={selection.replyingPermissionId === request.id}
-                    label="Always allow"
-                    onPress={() =>
-                      selection.replyPermission(request.id, request.sessionID, "always")
-                    }
-                    secondary
-                  />
-                  <ActionButton
-                    disabled={selection.replyingPermissionId === request.id}
-                    label="Reject"
-                    onPress={() =>
-                      selection.replyPermission(request.id, request.sessionID, "reject")
-                    }
-                    secondary
-                  />
-                </View>
-              </View>
+              <PermissionRequestCard
+                key={`permission:${request.id}`}
+                request={request}
+                replying={selection.replyingPermissionId === request.id}
+                error={selection.permissionReplyError}
+                onReply={selection.replyPermission}
+              />
             ))}
             {selection.forms.length > 0 ? (
               <FormRequestList
@@ -980,13 +928,6 @@ const styles = StyleSheet.create({
     lineHeight: 23,
     marginTop: space.xs,
   },
-  clientExplanation: { marginTop: space.sm },
-  clientExplanationLabel: {
-    color: palette.dim,
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.7,
-  },
   centeredState: {
     alignItems: "flex-start",
     backgroundColor: palette.background,
@@ -1088,17 +1029,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   navigationLabelActive: { color: palette.signal },
-  permissionActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  permissionError: { color: palette.danger, fontSize: 13, lineHeight: 18, marginTop: space.sm },
-  permissionResource: {
-    backgroundColor: palette.background,
-    borderRadius: radius.sm,
-    color: palette.ink,
-    fontSize: 13,
-    marginTop: space.sm,
-    padding: space.sm,
-  },
-  permissionWarning: { color: palette.warm, fontSize: 12, lineHeight: 17, marginTop: space.sm },
   rail: {
     backgroundColor: palette.card,
     borderRightColor: palette.border,

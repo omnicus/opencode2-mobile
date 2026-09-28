@@ -91,13 +91,40 @@ export function groupTranscriptMessages(
   return result;
 }
 
+export function activitySummary(messages: SessionMessageInfo[]) {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    if (message.type !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool") continue;
+      const category = toolCategory(part);
+      const label =
+        category === "exploration"
+          ? "lookup"
+          : category === "shell"
+            ? "command"
+            : category === "edit"
+              ? "edit"
+              : category === "skill"
+                ? "skill call"
+                : "tool call";
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+  }
+  return [...counts]
+    .map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`)
+    .join(" · ");
+}
+
 export function TranscriptActivityGroup({
+  waitingFor,
   item,
   largeText,
   showReasoning,
   onOpenDiff,
   onOpenSubagent,
 }: {
+  waitingFor?: "permission" | "input" | undefined;
   item: Extract<TranscriptItem, { type: "activity-group" }>;
   largeText: boolean;
   showReasoning: boolean;
@@ -106,16 +133,18 @@ export function TranscriptActivityGroup({
 }) {
   const [expanded, setExpanded] = useState(false);
   return (
-    <View>
+    <View style={styles.activityGroup}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${item.count} tool calls`}
+        accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. Expand or collapse execution details.`}
         accessibilityState={{ expanded }}
         onPress={() => setExpanded((value) => !value)}
         style={styles.activityGroupHeader}
       >
-        <Text style={styles.activityLabel}>
-          {item.running ? "Working" : "Activity"} · {item.count} tool calls
+        <Text dynamicTypeRamp={typeRamp.control} style={[styles.activityLabel, { flexShrink: 1 }]}>
+          {item.running ? (waitingFor ? `Waiting for ${waitingFor} · ` : "Working · ") : ""}
+          {activitySummary(item.messages)}
         </Text>
         <Text style={styles.disclosureAction}>{expanded ? "Hide" : "Show"}</Text>
       </Pressable>
@@ -577,7 +606,7 @@ function ToolDisclosure({
           ))
         : null}
       {expanded && presentation.command ? (
-        <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.outputText}>
+        <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.commandText}>
           {`$ ${presentation.command}`}
         </Text>
       ) : null}
@@ -692,7 +721,7 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
           onPress={() => setExpanded((current) => !current)}
         />
         {expanded ? (
-          <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.outputText}>
+          <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.commandText}>
             {`$ ${message.command}`}
           </Text>
         ) : null}
@@ -1007,13 +1036,19 @@ function InlineMarkdownText({
   return (
     <Text dynamicTypeRamp={typeRamp.body} selectable style={style}>
       {prefix ? <Text style={prefixStyle}>{`${prefix}  `}</Text> : null}
-      {splitBoldText(text).map((token) => (
-        <LinkifiedTextContent
-          key={token.key}
-          {...(token.bold ? { style: styles.boldText } : {})}
-          text={token.text}
-        />
-      ))}
+      {splitInlineText(text).map((token) =>
+        token.code ? (
+          <Text key={token.key} style={styles.inlineCode}>
+            {token.text}
+          </Text>
+        ) : (
+          <LinkifiedTextContent
+            key={token.key}
+            {...(token.bold ? { style: styles.boldText } : {})}
+            text={token.text}
+          />
+        ),
+      )}
     </Text>
   );
 }
@@ -1133,6 +1168,28 @@ function splitBoldText(text: string) {
     ordinal += 1;
     cursor = closing + 2;
   }
+  return tokens;
+}
+
+function splitInlineText(text: string) {
+  const tokens: { bold: boolean; code: boolean; key: string; text: string }[] = [];
+  const pattern = /(`+)([\s\S]*?)\1(?!`)/g;
+  let cursor = 0;
+  const prose = (value: string) => {
+    for (const token of splitBoldText(value))
+      tokens.push({ ...token, code: false, key: `inline:${tokens.length}` });
+  };
+  for (const match of text.matchAll(pattern)) {
+    prose(text.slice(cursor, match.index));
+    tokens.push({
+      bold: false,
+      code: true,
+      key: `inline:${tokens.length}`,
+      text: (match[2] ?? "").replace(/\n/g, " "),
+    });
+    cursor = match.index + match[0].length;
+  }
+  prose(text.slice(cursor));
   return tokens;
 }
 
@@ -1456,6 +1513,26 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
+  activityGroup: {
+    backgroundColor: palette.card,
+    borderRadius: radius.md,
+    marginHorizontal: space.md,
+    marginVertical: space.xs,
+    overflow: "hidden",
+  },
+  inlineCode: {
+    backgroundColor: palette.raised,
+    color: markdownPalette.code,
+    fontFamily: "monospace",
+  },
+  commandText: {
+    backgroundColor: palette.raised,
+    color: markdownPalette.code,
+    fontFamily: "monospace",
+    fontSize: 13,
+    lineHeight: 20,
+    padding: 12,
+  },
   activityGroupHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -1467,6 +1544,9 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   activity: {
+    backgroundColor: palette.card,
+    borderRadius: radius.md,
+    paddingHorizontal: space.sm,
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
@@ -1600,7 +1680,12 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   pressed: { opacity: 0.7 },
-  reasoningLabel: { color: palette.dim, fontSize: 9, fontWeight: "900", letterSpacing: 0.8 },
+  reasoningLabel: {
+    color: markdownPalette.reasoning,
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
   reasoningText: { color: palette.dim, fontSize: 13, lineHeight: 19 },
   statusText: { color: palette.dim, fontSize: 12 },
   subagent: {

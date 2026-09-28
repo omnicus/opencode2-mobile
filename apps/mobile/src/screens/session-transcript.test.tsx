@@ -5,9 +5,57 @@ import { Alert, Linking, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
 import { markdownPalette, palette } from "../theme";
-import { groupTranscriptMessages, SessionTranscriptRow } from "./session-transcript";
+import {
+  activitySummary,
+  groupTranscriptMessages,
+  SessionTranscriptRow,
+} from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
+
+test("inline code preserves literal markup and does not create links inside code", () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("fixture");
+  render(
+    <SessionTranscriptRow
+      message={{
+        ...message,
+        content: [
+          {
+            type: "text",
+            text: "Run `pnpm check`, keep `**literal**`, and inspect `https://code.test`. **Important**",
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByText("pnpm check")).toHaveStyle({
+    color: markdownPalette.code,
+    fontFamily: "monospace",
+  });
+  expect(screen.getByText("**literal**")).toBeOnTheScreen();
+  expect(screen.queryByRole("link", { name: "https://code.test" })).toBeNull();
+  expect(screen.getByText("Important")).toHaveStyle({ fontWeight: "700" });
+});
+
+test("activity summaries count operations rather than inventing file counts", () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("fixture");
+  const tool = message.content.find((part) => part.type === "tool");
+  if (!tool) throw new Error("fixture");
+  expect(
+    activitySummary([
+      {
+        ...message,
+        content: ["glob", "grep", "shell", "patch"].map((name, index) => ({
+          ...tool,
+          name,
+          id: `tool_${index}`,
+        })),
+      },
+    ]),
+  ).toBe("2 lookups · 1 command · 1 edit");
+});
 
 test("cross-message grouping respects replies, errors, reasoning visibility and detailed mode", () => {
   const original = messages.find((message) => message.type === "assistant");
