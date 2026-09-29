@@ -69,6 +69,69 @@ test("renders active execution and mutable queued inbox work", () => {
   expect(callbacks.onCancelInbox).toHaveBeenCalledWith("msg_queued");
 });
 
+test("agent-switch reminders do not become actionable steering cards", () => {
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set()}
+      {...callbacks}
+      inbox={[
+        {
+          type: "synthetic",
+          id: "msg_mode",
+          sessionID: "ses_test",
+          time: { created: 1 },
+          delivery: "steer",
+          payload: { text: "<system-reminder>You are in Plan mode.</system-reminder>" },
+        },
+      ]}
+    />,
+  );
+  expect(screen.queryByText("STEERING")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Queue next" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+});
+
+test("keeps a real steering prompt actionable alongside internal mode reminders", () => {
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set()}
+      {...callbacks}
+      inbox={[
+        {
+          type: "synthetic",
+          id: "msg_mode",
+          sessionID: "ses_test",
+          time: { created: 1 },
+          delivery: "steer",
+          payload: { text: "Mode reminder" },
+        },
+        {
+          type: "user",
+          id: "msg_followup",
+          sessionID: "ses_test",
+          time: { created: 2 },
+          delivery: "steer",
+          payload: { text: "Please check the tests" },
+        },
+      ]}
+    />,
+  );
+  expect(screen.getAllByText("STEERING")).toHaveLength(1);
+  expect(screen.getByText("Please check the tests")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Queue next" }));
+  expect(callbacks.onQueueInbox).toHaveBeenLastCalledWith("msg_followup");
+  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+  expect(callbacks.onCancelInbox).toHaveBeenLastCalledWith("msg_followup");
+});
+
 test("keeps unknown delivery visible until reconciliation finds the stable ID", () => {
   const admission: PromptAdmission = {
     durable: false,

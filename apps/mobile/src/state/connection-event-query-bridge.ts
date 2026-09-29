@@ -1,4 +1,5 @@
 import type {
+  FormInfo,
   LocationRef,
   OpenCodeEvent,
   PermissionRequest,
@@ -54,6 +55,17 @@ export class ConnectionEventQueryBridge {
     const next = reduceActiveSessions(current, event);
     if (next !== current) this.queryClient.setQueryData(activeKey, next);
     reducePermissionQueries(this.queryClient, this.connectionId, event);
+    if (event.type === "form.created" && event.location) {
+      const form = event.data.form;
+      const location = event.location;
+      const key = openCodeQueryKeys.forms(this.connectionId, location);
+      this.queryClient.setQueryData<{ data: FormInfo[]; location: unknown }>(key, (current) => ({
+        location: current?.location ?? location,
+        data: current?.data.some((item) => item.id === form.id)
+          ? current.data
+          : [...(current?.data ?? []), form],
+      }));
+    }
 
     const root = eventInvalidationRoot(event);
     if (root) {
@@ -216,6 +228,14 @@ function reducePermissionQueries(
     (event.type !== "permission.asked" && event.type !== "permission.replied")
   ) {
     return;
+  }
+  if (event.type === "permission.asked") {
+    const key = openCodeQueryKeys.permissions(connectionId, event.location);
+    if (!queryClient.getQueryData(key)) {
+      // A fresh request protects an otherwise retired location until the exact
+      // location's authoritative REST snapshot replaces this volatile hint.
+      queryClient.setQueryData(key, { data: [event.data], location: event.location });
+    }
   }
   const queries = queryClient.getQueryCache().findAll({
     predicate: (query) => matchesRoot(query, connectionId, "permissions", event.location),

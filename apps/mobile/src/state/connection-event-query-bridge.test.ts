@@ -340,50 +340,84 @@ test("invalidates only the affected session inbox for inbox events", () => {
   queryClient.clear();
 });
 
-test("projects permission requests immediately while scheduling REST reconciliation", () => {
-  const queryClient = new QueryClient();
-  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
-  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
-    callback(),
-  );
-  const location = { directory: "/workspace" };
-  const key = openCodeQueryKeys.permissions("connection-1", location);
-  queryClient.setQueryData(key, { data: [], location });
+test.each([true, false])(
+  "projects permission requests while scheduling REST reconciliation, existing cache: %s",
+  (cached) => {
+    const queryClient = new QueryClient();
+    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+    const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+      callback(),
+    );
+    const location = { directory: "/workspace" };
+    const key = openCodeQueryKeys.permissions("connection-1", location);
+    if (cached) queryClient.setQueryData(key, { data: [], location });
 
-  bridge.apply({
-    created: 1,
-    data: {
-      action: "shell",
-      id: "per_test",
-      resources: ["redacted command"],
-      sessionID: "session-1",
-    },
-    id: "event-permission",
-    location,
-    type: "permission.asked",
-  });
-
-  expect(queryClient.getQueryData(key)).toEqual({
-    data: [
-      {
+    bridge.apply({
+      created: 1,
+      data: {
         action: "shell",
         id: "per_test",
         resources: ["redacted command"],
         sessionID: "session-1",
       },
-    ],
-    location,
-  });
-  const query = queryClient.getQueryCache().find({ queryKey: key });
-  expect(query && invalidate.mock.calls[0]?.[0]?.predicate?.(query)).toBe(true);
+      id: "event-permission",
+      location,
+      type: "permission.asked",
+    });
 
-  bridge.apply({
-    created: 2,
-    data: { reply: "once", requestID: "per_test", sessionID: "session-1" },
-    id: "event-permission-replied",
+    expect(queryClient.getQueryData(key)).toEqual({
+      data: [
+        {
+          action: "shell",
+          id: "per_test",
+          resources: ["redacted command"],
+          sessionID: "session-1",
+        },
+      ],
+      location,
+    });
+    const query = queryClient.getQueryCache().find({ queryKey: key });
+    expect(query && invalidate.mock.calls[0]?.[0]?.predicate?.(query)).toBe(true);
+
+    bridge.apply({
+      created: 2,
+      data: { reply: "once", requestID: "per_test", sessionID: "session-1" },
+      id: "event-permission-replied",
+      location,
+      type: "permission.replied",
+    });
+    expect(queryClient.getQueryData(key)).toEqual({ data: [], location });
+    queryClient.clear();
+  },
+);
+
+test("fresh form hints protect cold locations until authoritative reconciliation", () => {
+  const queryClient = new QueryClient();
+  const location = { directory: "/workspace/retired" };
+  const key = openCodeQueryKeys.forms("connection-1", location);
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (flush) => flush());
+  const event = {
+    type: "form.created",
+    id: "event-form",
+    created: 1,
     location,
-    type: "permission.replied",
-  });
+    data: {
+      form: {
+        id: "form_test",
+        sessionID: "ses_test",
+        title: "Input",
+        fields: [{ key: "answer", type: "string" }],
+      },
+    },
+  } satisfies OpenCodeEvent;
+  bridge.apply(event);
+  bridge.apply(event);
+  expect(queryClient.getQueryData(key)).toEqual({ data: [event.data.form], location });
+  expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+  expect(
+    queryClient.getQueryData(openCodeQueryKeys.forms("connection-2", location)),
+  ).toBeUndefined();
+  queryClient.setQueryData(key, { data: [], location });
   expect(queryClient.getQueryData(key)).toEqual({ data: [], location });
   queryClient.clear();
 });

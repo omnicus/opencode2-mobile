@@ -498,7 +498,16 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
         </View>
       );
     case "agent-switched":
-      return <Notice compact={!detailed} label="Agent changed" text={message.agent} />;
+      return (
+        <View style={styles.notice}>
+          <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
+            Agent changed to{" "}
+            <Text style={styles.activityLabel}>
+              {sanitizeTranscriptText(capitalize(message.agent), 256)}
+            </Text>
+          </Text>
+        </View>
+      );
     case "model-switched":
       return <Notice compact={!detailed} label="Model changed" text={message.model.id} />;
     case "location-switched":
