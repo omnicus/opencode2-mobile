@@ -20,9 +20,12 @@ import {
   getOpenCodeLocation,
   getOpenCodeSession,
   getOpenCodeSessionMessage,
+  getOpenCodeShell,
+  getOpenCodeShellOutput,
   getOpenCodeVcs,
   getOpenCodeVcsDiff,
   interruptOpenCodeSession,
+  isShellNotFoundError,
   listActiveOpenCodeSessions,
   listOpenCodeAgents,
   listOpenCodeCommands,
@@ -34,6 +37,7 @@ import {
   listOpenCodeSessionInbox,
   listOpenCodeSessions,
   listOpenCodeSkills,
+  maxShellOutputBytes,
   normalizeOpenCodeBaseUrl,
   openCodeDirectoryExists,
   openEventStreamGeneration,
@@ -53,6 +57,56 @@ import {
   switchOpenCodeSessionModel,
   waitForOpenCodeSession,
 } from "./index";
+
+describe("background shell output", () => {
+  const info = {
+    id: "sh_test",
+    status: "running",
+    command: "build",
+    cwd: "/workspace",
+    shell: "sh",
+    file: "/output",
+    metadata: {},
+    time: { started: 1 },
+  };
+  it("reads generated shell endpoints with exact location and bounded byte cursors", async () => {
+    const fixture = createFakeOpenCodeApi({
+      shells: { sh_test: { info, output: "ø\nBuild complete" } },
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    const location = { directory: "/workspace/child" };
+    expect((await getOpenCodeShell(client, location, "sh_test")).data).toEqual(info);
+    expect(
+      (await getOpenCodeShellOutput(client, location, "sh_test", { cursor: 3, limit: 1_000_000 }))
+        .data.output,
+    ).toBe("Build complete");
+    expect(fixture.requests.at(-1)).toMatchObject({
+      path: "/api/shell/sh_test/output",
+      query: {
+        "location[directory]": ["/workspace/child"],
+        cursor: ["3"],
+        limit: [String(maxShellOutputBytes)],
+      },
+    });
+    await expect(
+      getOpenCodeShellOutput(client, location, "sh_test", { cursor: -1 }),
+    ).rejects.toThrow("INVALID_SHELL_OUTPUT_RANGE");
+  });
+  it("preserves typed missing-shell errors and rejects malformed output", async () => {
+    const fixture = createFakeOpenCodeApi({
+      shells: { sh_test: { info, output: "" } },
+      shellOutputResponse: { output: "bad", cursor: -1, size: 0, truncated: false },
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      getOpenCodeShellOutput(client, { directory: "/workspace" }, "sh_test"),
+    ).rejects.toThrow("MALFORMED_SHELL_OUTPUT");
+    const error = await getOpenCodeShell(client, { directory: "/workspace" }, "sh_missing").catch(
+      (error: unknown) => error,
+    );
+    expect(isShellNotFoundError(error)).toBe(true);
+  });
+});
 
 describe("historical directory presence", () => {
   it("checks the live parent rather than initializing a missing worktree", async () => {

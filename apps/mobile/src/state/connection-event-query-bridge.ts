@@ -23,6 +23,7 @@ type InvalidationRoot =
   | "messages"
   | "permissions"
   | "sessions"
+  | "shell"
   | "vcs";
 type InvalidationTarget = { location?: LocationRef; root: InvalidationRoot; sessionId?: string };
 type PendingTranscript = {
@@ -264,6 +265,12 @@ export function eventRequiresConnectionSnapshot(event: OpenCodeEvent) {
 }
 
 function eventInvalidationRoot(event: OpenCodeEvent): InvalidationRoot | undefined {
+  if (
+    event.type === "shell.created" ||
+    event.type === "shell.exited" ||
+    event.type === "shell.deleted"
+  )
+    return "shell";
   if (advisoryLocationEventTypes.has(event.type)) return undefined;
   if (event.type === "vcs.branch.updated") return "vcs";
   if (inboxEventTypes.has(event.type)) return "inbox";
@@ -286,13 +293,7 @@ function eventInvalidationRoot(event: OpenCodeEvent): InvalidationRoot | undefin
   return "connection";
 }
 
-const advisoryLocationEventTypes = new Set<string>([
-  "filesystem.changed",
-  "server.connected",
-  "shell.created",
-  "shell.deleted",
-  "shell.exited",
-]);
+const advisoryLocationEventTypes = new Set<string>(["filesystem.changed", "server.connected"]);
 
 const inboxEventTypes = new Set<string>([
   "session.inbox.enqueued",

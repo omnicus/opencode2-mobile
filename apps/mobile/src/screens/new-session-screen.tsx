@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
   cancelButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.xs },
   cancelLabel: { ...typography.control, color: palette.signal },
   clearButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.md },
-  clearLabel: { color: palette.signal, fontSize: 13, fontWeight: "800" },
+  clearLabel: { color: palette.signal, fontSize: 14, fontWeight: "800" },
   creatingState: {
     alignItems: "center",
     borderTopColor: palette.border,
@@ -576,10 +576,10 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", gap: space.xs, paddingVertical: space.xl },
   error: { color: palette.danger, fontSize: 14, lineHeight: 20, textAlign: "center" },
   followNote: { color: palette.signal, fontSize: 11, fontWeight: "800", marginTop: space.xs },
-  followingCopy: { color: palette.dim, fontSize: 13, lineHeight: 19 },
+  followingCopy: { color: palette.dim, fontSize: 14, lineHeight: 19 },
   footerError: {
     color: palette.danger,
-    fontSize: 13,
+    fontSize: 14,
     lineHeight: 18,
     paddingHorizontal: space.lg,
     paddingVertical: space.md,

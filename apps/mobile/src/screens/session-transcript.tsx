@@ -16,6 +16,7 @@ import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
+import { ShellObservation } from "./session-shell-output";
 import {
   getSubagentPresentation,
   parseSubagentProtocolText,
@@ -44,6 +45,11 @@ type ToolOutput = Extract<AssistantTool["state"], { status: "completed" }>["cont
 export type TranscriptItem =
   | SessionMessageInfo
   | {
+      type: "updates-group";
+      id: string;
+      messages: SessionMessageInfo[];
+    }
+  | {
       type: "activity-group";
       id: string;
       messages: SessionMessageInfo[];
@@ -71,7 +77,20 @@ export function groupTranscriptMessages(
         count,
         running,
       });
-    } else result.push(...pending);
+    } else {
+      for (const message of pending) {
+        if (isTranscriptUpdate(message)) {
+          const previous = result.at(-1);
+          if (previous?.type === "updates-group") previous.messages.push(message);
+          else
+            result.push({
+              type: "updates-group",
+              id: `updates:${message.id}`,
+              messages: [message],
+            });
+        } else result.push(message);
+      }
+    }
     pending = [];
     count = 0;
     running = false;
@@ -95,6 +114,11 @@ export function groupTranscriptMessages(
     }));
   });
   for (const message of segments) {
+    if (message.type === "idle" && message.outcome === "succeeded") continue;
+    if (isTranscriptUpdate(message)) {
+      pending.push(message);
+      continue;
+    }
     if (
       message.type === "assistant" &&
       !message.error &&
@@ -117,6 +141,99 @@ export function groupTranscriptMessages(
   }
   flush();
   return result;
+}
+
+function isTranscriptUpdate(message: SessionMessageInfo) {
+  return message.type === "synthetic" || message.type === "system" || message.type === "skill";
+}
+
+// The server pages are newest-first; assistant parts inside a message are not.
+// Group in reading order, then invert only the resulting rows for the native list.
+export function buildTranscriptPresentation(
+  messages: SessionMessageInfo[],
+  detailed: boolean,
+  showReasoning: boolean,
+) {
+  const chronological = [...messages].reverse();
+  const items = groupTranscriptMessages(chronological, detailed, showReasoning);
+  const footers = new Map<string, number | undefined>();
+  let hasTurnStart = false;
+  let start: number | undefined;
+  let end: number | undefined;
+  let incomplete = false;
+  let lastResponse: string | undefined;
+  const finish = () => {
+    if (lastResponse) {
+      footers.set(
+        lastResponse,
+        hasTurnStart && !incomplete && start !== undefined && end !== undefined
+          ? Math.max(0, end - start)
+          : undefined,
+      );
+    }
+    start = undefined;
+    end = undefined;
+    incomplete = false;
+    lastResponse = undefined;
+  };
+  for (const item of items) {
+    if (item.type === "user") {
+      finish();
+      hasTurnStart = true;
+      start = item.time.created;
+      continue;
+    }
+    const messages =
+      item.type === "activity-group" || item.type === "updates-group" ? item.messages : [item];
+    for (const message of messages) {
+      if (message.type !== "assistant") continue;
+      if (message.time.completed === undefined) incomplete = true;
+      else end = Math.max(end ?? message.time.completed, message.time.completed);
+      if (
+        item.type === "assistant" &&
+        message.content.some((part) => part.type === "text" && part.text.trim())
+      ) {
+        lastResponse = item.id;
+      }
+    }
+  }
+  finish();
+  return { items: items.reverse(), footers };
+}
+
+export function TranscriptUpdatesGroup({
+  item,
+  largeText,
+  onOpenSubagent,
+}: {
+  item: Extract<TranscriptItem, { type: "updates-group" }>;
+  largeText: boolean;
+  onOpenSubagent: (sessionID: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <View style={styles.activityGroup}>
+      <ActivityHeader
+        canExpand
+        expanded={expanded}
+        label="Updates"
+        largeText={largeText}
+        onPress={() => setExpanded((value) => !value)}
+      />
+      {expanded
+        ? item.messages.map((message) => (
+            <SessionTranscriptRow
+              key={message.id}
+              message={message}
+              detailed
+              compactActivity
+              largeText={largeText}
+              onOpenSubagent={onOpenSubagent}
+            />
+          ))
+        : null}
+    </View>
+  );
 }
 
 export function activitySummary(messages: SessionMessageInfo[]) {
@@ -161,8 +278,8 @@ export function TranscriptActivityGroup({
         onPress={() => setExpanded((value) => !value)}
         style={styles.activityGroupHeader}
       >
-        <Text dynamicTypeRamp={typeRamp.control} style={[styles.activityLabel, { flexShrink: 1 }]}>
-          {activitySummary(item.messages)}
+        <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
+          Used <Text style={styles.activityLabel}>{activitySummary(item.messages).slice(5)}</Text>
         </Text>
         <Text accessibilityElementsHidden style={styles.disclosureAction}>
           {expanded ? "⌄" : "›"}
@@ -194,6 +311,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   largeText = false,
   message,
   modelName,
+  turnDuration,
   onOpenDiff,
   onOpenSubagent,
 }: {
@@ -204,6 +322,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   largeText?: boolean;
   message: SessionMessageInfo;
   modelName?: string | undefined;
+  turnDuration?: number | null | undefined;
   onOpenDiff?: (() => void) | undefined;
   onOpenSubagent?: ((sessionID: string) => void) | undefined;
 }) {
@@ -332,18 +451,24 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           {message.content.length === 0 && !message.error ? (
             <Text style={styles.statusText}>No projected content</Text>
           ) : null}
-          <View style={styles.responseFooter}>
-            {!compactActivity && !hideFooter && hasNarrativeContent(message) ? (
-              <AssistantFooter message={message} modelName={modelName} />
-            ) : null}
-            {responseText && !hideFooter ? (
-              <CopyTextButton
-                iconOnly
-                label={copyTruncated ? "Copy available response" : "Copy response"}
-                text={responseText}
-              />
-            ) : null}
-          </View>
+          {!hideFooter && (responseText || (!compactActivity && hasNarrativeContent(message))) ? (
+            <View style={styles.responseFooter}>
+              {responseText && !hideFooter ? (
+                <CopyTextButton
+                  iconOnly
+                  label={copyTruncated ? "Copy available response" : "Copy response"}
+                  text={responseText}
+                />
+              ) : null}
+              {!compactActivity && !hideFooter && hasNarrativeContent(message) ? (
+                <AssistantFooter
+                  message={message}
+                  modelName={modelName}
+                  turnDuration={turnDuration}
+                />
+              ) : null}
+            </View>
+          ) : null}
         </View>
       );
     }
@@ -362,7 +487,16 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
         <Notice compact={!detailed} label={message.description || "System"} text={message.text} />
       );
     case "skill":
-      return <Notice compact={!detailed} label={`Skill / ${message.name}`} text={message.text} />;
+      return (
+        <View style={compactActivity ? styles.compactActivity : styles.activityStandalone}>
+          <Disclosure
+            label={`Loaded ${message.name} skill`}
+            largeText={largeText}
+            markdown
+            text={message.text}
+          />
+        </View>
+      );
     case "agent-switched":
       return <Notice compact={!detailed} label="Agent changed" text={message.agent} />;
     case "model-switched":
@@ -376,6 +510,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
         />
       );
     case "idle":
+      if (!detailed && message.outcome === "succeeded") return null;
       return (
         <Notice
           error={message.outcome === "failed"}
@@ -619,6 +754,50 @@ function ToolDisclosure({
       <SubagentCard largeText={largeText} onOpenSubagent={onOpenSubagent} presentation={subagent} />
     );
   }
+  if (skillToolNames.has(tool.name.trim().toLocaleLowerCase()) && tool.state.status !== "error") {
+    const metadata = tool.state.status === "streaming" ? undefined : tool.state.metadata;
+    const name =
+      firstInputString(metadata, ["name"]) ??
+      firstInputString(toolInputRecord(tool), ["id", "name", "skill"]);
+    const running = tool.state.status === "running" || tool.state.status === "streaming";
+    const content = tool.state.status === "completed" ? tool.state.content : [];
+    const label = `${running ? "Loading" : "Loaded"} ${name ? `${sanitizeTranscriptText(name, 256)} skill` : "Skill"}`;
+    return (
+      <View>
+        <Pressable
+          accessibilityRole={content.length ? "button" : undefined}
+          accessibilityLabel={label}
+          accessibilityState={content.length ? { expanded } : undefined}
+          disabled={!content.length}
+          onPress={() => setExpanded((value) => !value)}
+          style={styles.loadedSkill}
+        >
+          <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
+            {running ? "Loading" : "Loaded"}{" "}
+            <Text style={styles.activityLabel}>
+              {name ? sanitizeTranscriptText(name, 256) : "Skill"}
+            </Text>
+            {name ? " skill" : ""}
+          </Text>
+        </Pressable>
+        {expanded ? (
+          <ScrollView
+            accessibilityLabel="Skill content"
+            nestedScrollEnabled
+            style={styles.toolOutputScroll}
+          >
+            {keyToolContent(content.slice(0, maxToolOutputs)).map(({ item, key }) => (
+              <ExpandableText
+                key={key}
+                style={styles.outputText}
+                text={item.type === "text" ? item.text : (item.name ?? "File result")}
+              />
+            ))}
+          </ScrollView>
+        ) : null}
+      </View>
+    );
+  }
   const content =
     tool.state.status === "completed" || tool.state.status === "error"
       ? (tool.state.content ?? [])
@@ -627,8 +806,25 @@ function ToolDisclosure({
   const presentation = toolPresentation(tool);
   const canExpand = canExpandTool(tool);
   const category = toolCategory(tool);
+  const metadata = tool.state.status === "streaming" ? undefined : tool.state.metadata;
+  // A terminal snapshot already contains the authoritative result. Background
+  // handoffs keep metadata.status="running" even after the command later exits.
+  const savedShellOutput =
+    metadata?.status === "exited" ||
+    metadata?.status === "timeout" ||
+    metadata?.status === "killed";
+  const shellID =
+    category === "shell" && !savedShellOutput && typeof metadata?.shellID === "string"
+      ? metadata.shellID
+      : undefined;
+  const input = toolInputRecord(tool);
+  const commandKey = typeof input?.command === "string" ? "command" : "cmd";
+  const inputDetails =
+    input && category === "shell"
+      ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== commandKey))
+      : input;
   const label =
-    !nested && tool.state.status === "completed"
+    !nested && tool.state.status === "completed" && !shellID
       ? completedToolLabel(category, presentation.label)
       : presentation.label;
   const visibleContent = content.slice(0, maxToolOutputs);
@@ -642,7 +838,7 @@ function ToolDisclosure({
     >
       <ActivityHeader
         canExpand={canExpand}
-        detail={nested && !expanded && error ? error : presentation.detail}
+        detail={expanded ? toolStatusLabel(tool) : nested && error ? error : presentation.detail}
         error={Boolean(error)}
         expanded={expanded}
         label={label}
@@ -650,11 +846,17 @@ function ToolDisclosure({
         onPress={() => setExpanded((current) => !current)}
       />
       <View style={styles.toolDetails}>
-        {expanded && toolInputRecord(tool) ? (
-          <ExpandableText
-            style={styles.commandText}
-            text={JSON.stringify(toolInputRecord(tool), null, 2).slice(0, maxSanitizedInput)}
-          />
+        {expanded && inputDetails && Object.keys(inputDetails).length > 0 ? (
+          <ScrollView
+            accessibilityLabel={`${presentation.label} input`}
+            nestedScrollEnabled
+            style={styles.toolOutputScroll}
+          >
+            <ExpandableText
+              style={styles.commandText}
+              text={JSON.stringify(inputDetails, null, 2).slice(0, maxSanitizedInput)}
+            />
+          </ScrollView>
         ) : null}
         {expanded
           ? presentation.files.map((file) => (
@@ -668,22 +870,60 @@ function ToolDisclosure({
               </SelectableTranscriptText>
             ))
           : null}
-        {expanded && presentation.command ? (
-          <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.commandText}>
-            {`$ ${presentation.command}`}
-          </SelectableTranscriptText>
+        {expanded && category === "shell" ? (
+          <ShellObservation shellID={shellID}>
+            {(observation) => (
+              <View>
+                {observation ? (
+                  <Text style={styles.statusText}>
+                    {observation.statusLabel === "Running" && tool.state.status === "completed"
+                      ? "Running in background"
+                      : observation.statusLabel}
+                  </Text>
+                ) : null}
+                {observation?.error ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={observation.retry}
+                    style={styles.textAction}
+                  >
+                    <Text style={styles.textActionLabel}>Retry shell output</Text>
+                  </Pressable>
+                ) : null}
+                {observation?.snapshot?.truncated ? (
+                  <Text style={styles.omittedText}>Showing recent output.</Text>
+                ) : null}
+                <ShellOutput
+                  command={firstInputString(input, ["command", "cmd"], maxSanitizedInput)}
+                  text={
+                    observation
+                      ? (observation.snapshot?.output ?? "")
+                      : visibleContent
+                          .flatMap((item) =>
+                            item.type === "text" ? [parseSubagentProtocolText(item.text).text] : [],
+                          )
+                          .join("\n\n")
+                  }
+                />
+              </View>
+            )}
+          </ShellObservation>
         ) : null}
         {expanded
           ? keyToolContent(visibleContent).map(({ item, key }) =>
               item.type === "text" ? (
-                category === "shell" ? (
-                  <ShellOutput key={key} text={parseSubagentProtocolText(item.text).text} />
-                ) : (
-                  <ExpandableText
+                category === "shell" ? null : (
+                  <ScrollView
                     key={key}
-                    style={styles.outputText}
-                    text={parseSubagentProtocolText(item.text).text}
-                  />
+                    accessibilityLabel={`${presentation.label} output`}
+                    nestedScrollEnabled
+                    style={styles.toolOutputScroll}
+                  >
+                    <ExpandableText
+                      style={styles.outputText}
+                      text={parseSubagentProtocolText(item.text).text}
+                    />
+                  </ScrollView>
                 )
               ) : (
                 <SelectableTranscriptText
@@ -799,18 +1039,15 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
           largeText={largeText}
           onPress={() => setExpanded((current) => !current)}
         />
-        {expanded ? (
-          <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.commandText}>
-            {`$ ${message.command}`}
-          </SelectableTranscriptText>
+        {expanded && message.output?.output ? (
+          <ShellOutput command={message.command} text={message.output.output} />
         ) : null}
-        {expanded && message.output?.output ? <ShellOutput text={message.output.output} /> : null}
       </View>
     </View>
   );
 }
 
-function ShellOutput({ text }: { text: string }) {
+function ShellOutput({ command, text }: { command?: string | undefined; text: string }) {
   const safeText = sanitizeTranscriptText(text, text.length);
   return (
     <View style={styles.shellOutputBox}>
@@ -823,9 +1060,18 @@ function ShellOutput({ text }: { text: string }) {
         showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
         style={styles.shellOutputScroll}
-        contentContainerStyle={styles.shellOutputContent}
       >
-        <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.shellOutputText}>
+        {command ? (
+          <View style={styles.shellCommandHeader}>
+            <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.shellCommand}>
+              {sanitizeTranscriptText(command, maxSanitizedInput)}
+            </SelectableTranscriptText>
+          </View>
+        ) : null}
+        <SelectableTranscriptText
+          dynamicTypeRamp={typeRamp.body}
+          style={[styles.shellOutputText, !command && styles.shellOutputWithoutCommand]}
+        >
           {safeText}
         </SelectableTranscriptText>
       </ScrollView>
@@ -836,14 +1082,20 @@ function ShellOutput({ text }: { text: string }) {
 function AssistantFooter({
   message,
   modelName,
+  turnDuration,
 }: {
   message: AssistantMessage;
   modelName?: string | undefined;
+  turnDuration?: number | null | undefined;
 }) {
   const duration =
-    message.time.completed !== undefined
-      ? formatDuration(message.time.completed - message.time.created)
-      : undefined;
+    turnDuration === null
+      ? undefined
+      : turnDuration !== undefined
+        ? formatDuration(turnDuration)
+        : message.time.completed !== undefined
+          ? formatDuration(message.time.completed - message.time.created)
+          : undefined;
   return (
     <Text dynamicTypeRamp={typeRamp.caption} style={styles.assistantFooter}>
       {sanitizeTranscriptText(sentenceCase(message.agent || "Assistant"), 128)} ·{" "}
@@ -1323,7 +1575,13 @@ function toolPresentation(tool: AssistantTool) {
     detail = command;
   } else if (skillToolNames.has(name)) {
     label = "Skill";
-    detail = firstInputString(input, ["name", "skill"]);
+    detail = firstInputString(input, ["id", "name", "skill"]);
+  } else if (name === "execute") {
+    label = "Execute";
+    detail = firstInputString(input, ["code"]);
+  } else if (name === "webfetch") {
+    label = "Webfetch";
+    detail = firstInputString(input, ["url"]);
   }
 
   return {
@@ -1493,17 +1751,33 @@ function keyDisclosureText(entries: string[]) {
 const styles = StyleSheet.create({
   shellOutputBox: {
     backgroundColor: palette.raised,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.border,
     borderRadius: radius.sm,
     overflow: "hidden",
     marginVertical: space.xs,
   },
-  shellOutputToolbar: { alignItems: "flex-end", paddingHorizontal: space.xs },
+  shellOutputToolbar: {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    zIndex: 1,
+  },
+  shellCommandHeader: {
+    backgroundColor: palette.background,
+    borderBottomColor: palette.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    padding: 12,
+    paddingRight: 48,
+  },
+  shellCommand: { ...typography.code, color: palette.ink },
   shellOutputScroll: { maxHeight: 240 },
-  shellOutputText: { ...typography.code, color: palette.dim },
-  shellOutputContent: { paddingHorizontal: space.sm, paddingBottom: space.sm },
+  shellOutputText: { ...typography.code, color: palette.dim, padding: 12 },
+  shellOutputWithoutCommand: { paddingRight: 48 },
+  toolOutputScroll: { maxHeight: 240, backgroundColor: palette.raised, borderRadius: radius.sm },
   activityGroup: {
-    marginHorizontal: space.lg,
-    marginVertical: space.xs,
+    marginHorizontal: space.md,
+    marginVertical: 0,
     overflow: "hidden",
   },
   commandText: {
@@ -1515,17 +1789,18 @@ const styles = StyleSheet.create({
   activityGroupHeader: {
     alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: space.sm,
-    justifyContent: "space-between",
-    minHeight: 48,
+    justifyContent: "flex-start",
+    minHeight: 44,
     paddingHorizontal: 0,
     paddingVertical: space.sm,
   },
   activity: {
     paddingHorizontal: 0,
   },
-  activityAction: { color: palette.signal, fontSize: 11, fontWeight: "700" },
+  loadedSkill: { minHeight: 44, justifyContent: "center", paddingVertical: 4 },
+  activityAction: { color: palette.dim, fontSize: 14 },
   activityError: {
     borderBottomWidth: 0,
     marginHorizontal: -space.sm,
@@ -1543,7 +1818,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   activityCopyLargeText: { alignItems: "flex-start", flexDirection: "column", gap: 2 },
-  activityDetail: { color: palette.dim, flexShrink: 1, fontSize: 13, lineHeight: 18 },
+  activityDetail: { color: palette.dim, flexShrink: 1, fontSize: 14, lineHeight: 18 },
   activityFile: {
     ...typography.code,
     borderTopColor: palette.border,
@@ -1561,17 +1836,18 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   activityHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
-  activityLabel: { ...typography.control, color: palette.ink },
+  activityLabel: { color: palette.ink, fontSize: 14, lineHeight: 20, fontWeight: "500" },
+  activitySummary: { color: palette.dim, fontSize: 14, lineHeight: 20, flexShrink: 1 },
   activityNested: { marginLeft: 0 },
   compactActivity: { paddingLeft: space.sm, gap: 2 },
-  toolDetails: { paddingLeft: space.md },
-  responseFooter: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.sm },
-  activityStandalone: { marginHorizontal: space.lg, paddingVertical: space.xs },
-  assistantFooter: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.sm },
+  toolDetails: { paddingLeft: 0 },
+  responseFooter: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.xs },
+  activityStandalone: { marginHorizontal: space.md, paddingVertical: space.xs },
+  assistantFooter: { color: palette.dim, fontSize: 14, lineHeight: 20, flexShrink: 1 },
   assistantRow: {
-    gap: space.sm,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
+    gap: space.xs,
+    paddingHorizontal: space.md,
+    paddingVertical: space.xs,
   },
   attachmentChip: {
     backgroundColor: palette.background,
@@ -1584,14 +1860,11 @@ const styles = StyleSheet.create({
   },
   attachmentLabel: { color: palette.dim, fontSize: 11, fontWeight: "600" },
   attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
-  bodyText: { color: palette.ink, fontSize: 17, lineHeight: 26 },
+  bodyText: { color: palette.ink, fontSize: 16, lineHeight: 23 },
   disclosure: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
+    backgroundColor: "transparent",
   },
-  disclosureAction: { color: palette.signal, fontSize: 12, fontWeight: "700" },
+  disclosureAction: { color: palette.dim, fontSize: 14 },
   disclosureActionLargeText: { alignSelf: "flex-start" },
   disclosureHeader: {
     alignItems: "center",
@@ -1600,7 +1873,7 @@ const styles = StyleSheet.create({
     gap: space.xs,
     justifyContent: "space-between",
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 0,
     paddingVertical: 10,
   },
   disclosureHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
@@ -1609,7 +1882,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "500",
     minWidth: 0,
   },
   disclosureLabelLargeText: { flex: 0, width: "100%" },
@@ -1619,22 +1892,18 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingRight: space.md,
   },
-  diffActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
+  diffActionLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
   errorText: { color: palette.danger, fontSize: 14, lineHeight: 21 },
   linkText: { color: markdownPalette.linkText, textDecorationLine: "underline" },
   notice: {
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    marginHorizontal: space.lg,
-    paddingVertical: 12,
+    marginHorizontal: space.md,
+    paddingVertical: space.xs,
   },
   noticeLabel: { ...typography.label, color: palette.dim },
-  noticeText: { color: palette.dim, fontSize: 13, lineHeight: 19, marginTop: 5 },
+  noticeText: { color: palette.dim, fontSize: 14, lineHeight: 19, marginTop: 5 },
   omittedText: { color: palette.dim, fontSize: 11, marginTop: 7 },
   outputText: {
     ...typography.code,
-    borderTopColor: palette.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
     color: palette.dim,
     padding: 12,
   },
@@ -1643,7 +1912,7 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: markdownPalette.reasoning,
   },
-  reasoningText: { color: palette.dim, fontSize: 13, lineHeight: 19 },
+  reasoningText: { color: palette.dim, fontSize: 14, lineHeight: 19 },
   statusText: { color: palette.dim, fontSize: 12 },
   subagent: {
     backgroundColor: palette.card,
@@ -1664,7 +1933,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   subagentAction: { justifyContent: "center", minHeight: 44, paddingRight: space.md },
-  subagentActionLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
+  subagentActionLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
   subagentActions: { flexDirection: "row", flexWrap: "wrap" },
   subagentAgent: { color: palette.dim, fontSize: 12 },
   subagentHeading: {
@@ -1692,13 +1961,14 @@ const styles = StyleSheet.create({
   textActionLabel: { color: palette.signal, fontSize: 12, fontWeight: "700" },
   userBubble: {
     backgroundColor: palette.prompt,
-    borderRadius: 16,
-    maxWidth: "80%",
-    padding: 14,
+    borderRadius: radius.sm,
+    maxWidth: "90%",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   userBubbleLargeText: { maxWidth: "100%" },
   // Supply intrinsic text width to Yoga; the native selection view supplies height.
   textWidthMeasurement: { height: 0, overflow: "hidden", opacity: 0 },
-  userRow: { alignItems: "flex-end", paddingHorizontal: space.lg, paddingVertical: space.sm },
-  userText: { color: palette.ink, fontSize: 17, lineHeight: 25 },
+  userRow: { alignItems: "flex-end", paddingHorizontal: space.md, paddingVertical: space.md },
+  userText: { color: palette.ink, fontSize: 16, lineHeight: 23 },
 });

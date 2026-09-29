@@ -225,7 +225,7 @@ test("does not refetch connection queries for file-change hints", () => {
   queryClient.clear();
 });
 
-test("does not refetch connection queries for shell advisory events", () => {
+test("shell lifecycle events refresh shell output only within the owning connection and location", () => {
   const queryClient = new QueryClient();
   const invalidate = jest.spyOn(queryClient, "invalidateQueries");
   const scheduled: Array<() => void> = [];
@@ -233,18 +233,34 @@ test("does not refetch connection queries for shell advisory events", () => {
     scheduled.push(callback);
   });
 
+  const affected = openCodeQueryKeys.shell("connection-1", { directory: "/workspace" }, "sh_test");
+  const unaffected = [
+    openCodeQueryKeys.shell("connection-2", { directory: "/workspace" }, "sh_test"),
+    openCodeQueryKeys.shell("connection-1", { directory: "/other" }, "sh_test"),
+    openCodeQueryKeys.shell(
+      "connection-1",
+      { directory: "/workspace", workspaceID: "other" },
+      "sh_test",
+    ),
+    openCodeQueryKeys.messages("connection-1", { directory: "/workspace" }, "ses_test", {}),
+  ];
+  for (const key of [affected, ...unaffected]) queryClient.setQueryData(key, {});
+
   for (const [index, type] of ["shell.created", "shell.exited", "shell.deleted"].entries()) {
     bridge.apply({
       created: index + 1,
-      data: {},
+      data: { id: "sh_test", status: "exited" },
       id: `event-shell-${index}`,
       location: { directory: "/workspace" },
       type,
     } as unknown as OpenCodeEvent);
   }
 
-  expect(scheduled).toHaveLength(0);
-  expect(invalidate).not.toHaveBeenCalled();
+  expect(scheduled).toHaveLength(1);
+  scheduled[0]?.();
+  expect(invalidate).toHaveBeenCalledTimes(1);
+  expect(queryClient.getQueryState(affected)?.isInvalidated).toBe(true);
+  for (const key of unaffected) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false);
   queryClient.clear();
 });
 

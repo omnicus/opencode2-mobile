@@ -20,6 +20,7 @@ export function SessionExecutionPanel({
   active,
   admissions,
   busyAction,
+  canBackground = false,
   formRequests,
   inbox,
   onAllowRetry,
@@ -38,6 +39,7 @@ export function SessionExecutionPanel({
   active: boolean;
   admissions: PromptAdmission[];
   busyAction?: "background" | "interrupt" | "wait" | undefined;
+  canBackground?: boolean;
   formRequests?: ReactNode;
   inbox: SessionInboxInfo[];
   onAllowRetry: (admissionID: string) => void;
@@ -93,7 +95,7 @@ export function SessionExecutionPanel({
                   : "Working"}
             </Text>
           </View>
-          {onBackground && permissions.length === 0 && !formRequests ? (
+          {canBackground && onBackground && permissions.length === 0 && !formRequests ? (
             <Pressable
               accessibilityRole="button"
               accessibilityState={{ disabled: Boolean(busyAction) }}
@@ -266,7 +268,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
     padding: space.md,
   },
-  cardCopy: { color: palette.dim, fontSize: 13, lineHeight: 19 },
+  cardCopy: { color: palette.dim, fontSize: 14, lineHeight: 19 },
   cardEyebrow: { ...typography.label, color: palette.warm },
   disabled: { opacity: 0.5 },
   executionRow: {
@@ -280,7 +282,7 @@ const styles = StyleSheet.create({
   },
   executionTitle: { color: palette.dim, flexShrink: 1, fontSize: 12 },
   stopButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
-  stopLabel: { color: palette.ink, fontSize: 13 },
+  stopLabel: { color: palette.ink, fontSize: 14 },
   headingRow: { alignItems: "center", flexDirection: "row", flexShrink: 1, gap: space.sm },
   inboxCard: {
     backgroundColor: palette.card,

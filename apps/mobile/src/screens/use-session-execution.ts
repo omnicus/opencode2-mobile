@@ -55,6 +55,7 @@ import {
   reconcilePromptAdmission,
 } from "./prompt-admission-model";
 import type { ComposerSubmitIntent } from "./session-composer-model";
+import { hasForegroundBackgroundableTool } from "./session-transcript-model";
 
 type SessionExecutionOptions = {
   client: OpenCodeClient | undefined;
@@ -171,6 +172,8 @@ export function useSessionExecution({
     queryKey: [...openCodeQueryKeys.agents(scopedConnectionId, location), "default"],
   });
   const active = Boolean(activeSessionsQuery.data?.[sessionID]);
+  const canBackground =
+    enabled && active && !activeSessionsQuery.isError && hasForegroundBackgroundableTool(messages);
   const executionStateReady = activeSessionsQuery.isSuccess && inboxQuery.isSuccess;
   const inbox = inboxQuery.data ?? [];
   const admissions = admissionsQuery.data ?? [];
@@ -787,6 +790,7 @@ export function useSessionExecution({
 
   return {
     active,
+    canBackground,
     allowRetry: (admissionID: string) => void allowRetry(admissionID),
     admissions,
     agents,
@@ -878,7 +882,7 @@ export function useSessionExecution({
   }
 
   function mutateControl(action: "background" | "interrupt" | "wait") {
-    if (!client) return;
+    if (!client || (action === "background" && (!canBackground || busyAction))) return;
     controlMutation.mutate({
       action,
       requestAdmissionKey: admissionKey,

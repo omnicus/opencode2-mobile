@@ -1235,7 +1235,7 @@ const styles = StyleSheet.create({
   },
   guidanceText: {
     color: palette.dim,
-    fontSize: 13,
+    fontSize: 14,
     lineHeight: 20,
   },
   guidanceTitle: {
@@ -1609,7 +1609,7 @@ const styles = StyleSheet.create({
   },
   warningText: {
     color: palette.dim,
-    fontSize: 13,
+    fontSize: 14,
     lineHeight: 19,
     marginTop: space.xs,
   },

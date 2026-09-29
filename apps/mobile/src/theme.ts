@@ -1,17 +1,16 @@
 import { Platform } from "react-native";
 
-// PR #33's charcoal cards and restrained content accents are the mobile baseline.
-// Keep color for links and feedback; navigation and primary controls are monochrome.
+// OpenCode's mobile web palette, with native system fonts and touch targets.
 export const palette = {
   accent: "#8ab4f8",
   activity: "#56b6c2",
-  background: "#000000",
+  background: "#161616",
   border: "#2c2c2c",
-  card: "#141414",
+  card: "#242424",
   danger: "#ff6b81",
   dim: "#a0a0a0",
   info: "#8ab4f8",
-  ink: "#eeeeee",
+  ink: "#fafafa",
   raised: "#242424",
   prompt: "#3a3a3a",
   signal: "#ffffff",
@@ -30,11 +29,11 @@ export const diffPalette = {
 } as const;
 
 export const markdownPalette = {
-  code: "#a8d5ba",
-  reasoning: "#c4b5fd",
+  code: "#fafafa",
+  reasoning: "#a0a0a0",
   link: "#8ab4f8",
   linkText: "#8ab4f8",
-  strong: "#eeeeee",
+  strong: "#fafafa",
 } as const;
 
 export const space = {
@@ -77,7 +76,7 @@ export const typography = {
   label: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
   code: {
     fontFamily: Platform.select({ ios: "Menlo", default: "monospace" }),
-    fontSize: 13,
+    fontSize: 14,
     lineHeight: 20,
   },
 } as const;

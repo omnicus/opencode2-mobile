@@ -995,16 +995,16 @@ export function ActionButton({
 }
 
 const styles = StyleSheet.create({
-  sessionTabs: { flexDirection: "row", gap: space.md },
+  sessionTabs: { flexDirection: "row", gap: space.sm },
   sessionTab: {
     minHeight: 44,
     justifyContent: "center",
-    borderBottomWidth: 2,
+    borderBottomWidth: 1,
     borderBottomColor: "transparent",
     paddingHorizontal: space.xs,
   },
   sessionTabSelected: { borderBottomColor: palette.ink },
-  sessionTabText: { ...typography.control, color: palette.dim },
+  sessionTabText: { color: palette.dim, fontSize: 14, lineHeight: 20 },
   sessionTabTextSelected: { color: palette.ink },
   sessionConnectionIssue: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
   locationFailure: {
@@ -1057,7 +1057,7 @@ const styles = StyleSheet.create({
   branchControlPressed: { opacity: 0.55 },
   branchDetailName: { color: palette.ink, fontSize: 17, lineHeight: 25 },
   branchDetailNote: { color: palette.warm, fontSize: 14, lineHeight: 20 },
-  branchName: { color: palette.dim, flexShrink: 1, fontSize: 13, minWidth: 0 },
+  branchName: { color: palette.dim, flexShrink: 1, fontSize: 14, minWidth: 0 },
   actionCard: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -1105,7 +1105,7 @@ const styles = StyleSheet.create({
   },
   connectionName: {
     color: palette.dim,
-    fontSize: 13,
+    fontSize: 14,
     textAlign: "right",
   },
   connectionNameControl: {
@@ -1178,7 +1178,7 @@ const styles = StyleSheet.create({
   navigationItemPressed: { opacity: 0.68 },
   navigationLabel: {
     color: palette.dim,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "600",
     textAlign: "center",
   },

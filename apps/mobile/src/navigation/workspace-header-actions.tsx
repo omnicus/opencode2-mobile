@@ -53,8 +53,8 @@ export function WorkspaceHeaderActions({
           accessibilityElementsHidden
           color={palette.signal}
           importantForAccessibility="no-hide-descendants"
-          name="settings"
-          size={25}
+          name="more-horizontal"
+          size={20}
         />
       </Pressable>
       <ModalSheet
@@ -151,10 +151,6 @@ function MenuButton({
 const styles = StyleSheet.create({
   actions: {
     alignItems: "center",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: 24,
-    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
   },
   disclosure: { color: palette.dim, fontSize: 18, marginLeft: space.sm },
