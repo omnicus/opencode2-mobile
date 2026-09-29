@@ -41,6 +41,8 @@ test("renders active execution and mutable queued inbox work", () => {
   );
 
   expect(screen.getByText("Working")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Move to background" }));
+  expect(callbacks.onBackground).toHaveBeenCalledTimes(1);
   fireEvent.press(screen.getByRole("button", { name: "Stop" }));
   expect(callbacks.onInterrupt).toHaveBeenCalledTimes(1);
   expect(screen.getByText("Queued prompt")).toBeOnTheScreen();

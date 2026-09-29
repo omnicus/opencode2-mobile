@@ -1,6 +1,15 @@
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { memo, useEffect, useState } from "react";
-import { Alert, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Alert,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
 import { applicationName } from "../application-name";
 import { CopyTextButton } from "../components/copy-text-button";
@@ -45,7 +54,7 @@ export type TranscriptItem =
 export function groupTranscriptMessages(
   messages: SessionMessageInfo[],
   detailed: boolean,
-  showReasoning: boolean,
+  _showReasoning: boolean,
 ): TranscriptItem[] {
   if (detailed) return messages;
   const result: TranscriptItem[] = [];
@@ -54,7 +63,7 @@ export function groupTranscriptMessages(
   let running = false;
   const flush = () => {
     const first = pending[0];
-    if (first && count > 1) {
+    if (first && count > 0) {
       result.push({
         type: "activity-group",
         id: `activity:${first.id}`,
@@ -62,21 +71,37 @@ export function groupTranscriptMessages(
         count,
         running,
       });
-    } else if (count > 0) result.push(...pending);
+    } else result.push(...pending);
     pending = [];
     count = 0;
     running = false;
   };
-  for (const message of messages) {
+  // Split mixed assistant messages at prose boundaries so adjacent tool runs
+  // share one disclosure, even when the server batches prose and tools together.
+  const segments = messages.flatMap((message): SessionMessageInfo[] => {
+    if (message.type !== "assistant" || message.error || message.retry) return [message];
+    const runs: AssistantMessage["content"][] = [];
+    for (const part of message.content) {
+      const previous = runs[runs.length - 1];
+      if (previous && (previous[0]?.type === "text") === (part.type === "text"))
+        previous.push(part);
+      else runs.push([part]);
+    }
+    if (runs.length < 2) return [message];
+    return runs.map((content, index) => ({
+      ...message,
+      id: index === 0 ? message.id : `${message.id}:segment:${index}`,
+      content,
+    }));
+  });
+  for (const message of segments) {
     if (
       message.type === "assistant" &&
       !message.error &&
       !message.retry &&
       message.content.length > 0 &&
       message.content.every((part) =>
-        part.type === "reasoning"
-          ? !showReasoning
-          : part.type === "tool" && part.state.status !== "error" && !getSubagentPresentation(part),
+        part.type === "reasoning" ? true : part.type === "tool" && !getSubagentPresentation(part),
       )
     ) {
       pending.push(message);
@@ -96,27 +121,18 @@ export function groupTranscriptMessages(
 
 export function activitySummary(messages: SessionMessageInfo[]) {
   const counts = new Map<string, number>();
+  let failures = 0;
   for (const message of messages) {
     if (message.type !== "assistant") continue;
     for (const part of message.content) {
       if (part.type !== "tool") continue;
-      const category = toolCategory(part);
-      const label =
-        category === "exploration"
-          ? "lookup"
-          : category === "shell"
-            ? "command"
-            : category === "edit"
-              ? "edit"
-              : category === "skill"
-                ? "skill call"
-                : "tool call";
+      if (part.state.status === "error") failures += 1;
+      const label = capitalize(part.name);
       counts.set(label, (counts.get(label) ?? 0) + 1);
     }
   }
-  return [...counts]
-    .map(([label, count]) => `${count} ${label}${count === 1 ? "" : "s"}`)
-    .join(" · ");
+  const total = [...counts.values()].reduce((sum, count) => sum + count, 0);
+  return `Used ${total} ${[...counts.keys()].join(", ")}${failures ? ` · ${failures} failed` : ""}`;
 }
 
 export function TranscriptActivityGroup({
@@ -146,16 +162,18 @@ export function TranscriptActivityGroup({
         style={styles.activityGroupHeader}
       >
         <Text dynamicTypeRamp={typeRamp.control} style={[styles.activityLabel, { flexShrink: 1 }]}>
-          {item.running ? (waitingFor ? `Waiting for ${waitingFor} · ` : "Working · ") : ""}
           {activitySummary(item.messages)}
         </Text>
-        <Text style={styles.disclosureAction}>{expanded ? "Hide" : "Show"}</Text>
+        <Text accessibilityElementsHidden style={styles.disclosureAction}>
+          {expanded ? "⌄" : "›"}
+        </Text>
       </Pressable>
       {expanded
         ? item.messages.map((message) => (
             <SessionTranscriptRow
               key={message.id}
               detailed
+              compactActivity
               message={message}
               largeText={largeText}
               showReasoning={showReasoning}
@@ -170,6 +188,8 @@ export function TranscriptActivityGroup({
 
 export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   detailed = false,
+  compactActivity = false,
+  hideFooter = false,
   showReasoning = true,
   largeText = false,
   message,
@@ -178,6 +198,8 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
   onOpenSubagent,
 }: {
   detailed?: boolean;
+  compactActivity?: boolean;
+  hideFooter?: boolean;
   showReasoning?: boolean;
   largeText?: boolean;
   message: SessionMessageInfo;
@@ -215,7 +237,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
         })
         .join("\n\n");
       return (
-        <View style={styles.assistantRow}>
+        <View style={compactActivity ? styles.compactActivity : styles.assistantRow}>
           {(detailed
             ? visibleContent.map(
                 (part, index): AssistantPresentationItem => ({
@@ -286,6 +308,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
             return (
               <ToolDisclosure
                 key={key}
+                nested={compactActivity}
                 largeText={largeText}
                 onOpenDiff={onOpenDiff}
                 onOpenSubagent={onOpenSubagent}
@@ -309,16 +332,18 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           {message.content.length === 0 && !message.error ? (
             <Text style={styles.statusText}>No projected content</Text>
           ) : null}
-          {hasNarrativeContent(message) ? (
-            <AssistantFooter message={message} modelName={modelName} />
-          ) : null}
-          {responseText ? (
-            <CopyTextButton
-              iconOnly
-              label={copyTruncated ? "Copy available response" : "Copy response"}
-              text={responseText}
-            />
-          ) : null}
+          <View style={styles.responseFooter}>
+            {!compactActivity && !hideFooter && hasNarrativeContent(message) ? (
+              <AssistantFooter message={message} modelName={modelName} />
+            ) : null}
+            {responseText && !hideFooter ? (
+              <CopyTextButton
+                iconOnly
+                label={copyTruncated ? "Copy available response" : "Copy response"}
+                text={responseText}
+              />
+            ) : null}
+          </View>
         </View>
       );
     }
@@ -617,56 +642,73 @@ function ToolDisclosure({
     >
       <ActivityHeader
         canExpand={canExpand}
-        detail={presentation.detail}
+        detail={nested && !expanded && error ? error : presentation.detail}
+        error={Boolean(error)}
         expanded={expanded}
         label={label}
         largeText={largeText}
         onPress={() => setExpanded((current) => !current)}
       />
-      {expanded
-        ? presentation.files.map((file) => (
-            <SelectableTranscriptText
-              dynamicTypeRamp={typeRamp.control}
-              key={file}
-              selectable
-              style={styles.activityFile}
-            >
-              {file}
-            </SelectableTranscriptText>
-          ))
-        : null}
-      {expanded && presentation.command ? (
-        <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.commandText}>
-          {`$ ${presentation.command}`}
-        </SelectableTranscriptText>
-      ) : null}
-      {expanded
-        ? keyToolContent(visibleContent).map(({ item, key }) =>
-            item.type === "text" ? (
-              <ExpandableText
-                key={key}
-                style={styles.outputText}
-                text={parseSubagentProtocolText(item.text).text}
-              />
-            ) : (
+      <View style={styles.toolDetails}>
+        {expanded && toolInputRecord(tool) ? (
+          <ExpandableText
+            style={styles.commandText}
+            text={JSON.stringify(toolInputRecord(tool), null, 2).slice(0, maxSanitizedInput)}
+          />
+        ) : null}
+        {expanded
+          ? presentation.files.map((file) => (
               <SelectableTranscriptText
-                dynamicTypeRamp={typeRamp.body}
-                key={key}
-                style={styles.outputText}
+                dynamicTypeRamp={typeRamp.control}
+                key={file}
+                selectable
+                style={styles.activityFile}
               >
-                {sanitizeTranscriptText(
-                  item.name?.trim() ? basename(item.name.trim()) : "File result",
-                  256,
-                )}
+                {file}
               </SelectableTranscriptText>
-            ),
-          )
-        : null}
-      {expanded && content.length > visibleContent.length ? (
-        <Text style={styles.omittedText}>Additional tool output omitted on this device.</Text>
-      ) : null}
-      {error ? <ExpandableText error style={styles.errorText} text={error} /> : null}
-      {!nested && category === "edit" && onOpenDiff ? <DiffAction onPress={onOpenDiff} /> : null}
+            ))
+          : null}
+        {expanded && presentation.command ? (
+          <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.commandText}>
+            {`$ ${presentation.command}`}
+          </SelectableTranscriptText>
+        ) : null}
+        {expanded
+          ? keyToolContent(visibleContent).map(({ item, key }) =>
+              item.type === "text" ? (
+                category === "shell" ? (
+                  <ShellOutput key={key} text={parseSubagentProtocolText(item.text).text} />
+                ) : (
+                  <ExpandableText
+                    key={key}
+                    style={styles.outputText}
+                    text={parseSubagentProtocolText(item.text).text}
+                  />
+                )
+              ) : (
+                <SelectableTranscriptText
+                  dynamicTypeRamp={typeRamp.body}
+                  key={key}
+                  style={styles.outputText}
+                >
+                  {sanitizeTranscriptText(
+                    item.name?.trim() ? basename(item.name.trim()) : "File result",
+                    256,
+                  )}
+                </SelectableTranscriptText>
+              ),
+            )
+          : null}
+        {expanded && content.length > visibleContent.length ? (
+          <Text style={styles.omittedText}>Additional tool output omitted on this device.</Text>
+        ) : null}
+        {error && (!nested || expanded) ? (
+          <ExpandableText error style={styles.errorText} text={error} />
+        ) : null}
+        {(!nested || expanded) && category === "edit" && onOpenDiff ? (
+          <DiffAction onPress={onOpenDiff} />
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -687,6 +729,7 @@ function DiffAction({ onPress }: { onPress: () => void }) {
 
 function ActivityHeader({
   canExpand,
+  error = false,
   detail,
   expanded,
   label,
@@ -694,6 +737,7 @@ function ActivityHeader({
   onPress,
 }: {
   canExpand: boolean;
+  error?: boolean;
   detail?: string | undefined;
   expanded: boolean;
   label: string;
@@ -703,6 +747,7 @@ function ActivityHeader({
   return (
     <Pressable
       accessibilityRole={canExpand ? "button" : undefined}
+      accessibilityLabel={`${label}${detail ? ` ${detail}` : ""}${canExpand ? (expanded ? " Hide" : " Show") : ""}`}
       accessibilityState={canExpand ? { expanded } : undefined}
       disabled={!canExpand}
       onPress={onPress}
@@ -719,8 +764,8 @@ function ActivityHeader({
         {detail ? (
           <Text
             dynamicTypeRamp={typeRamp.control}
-            numberOfLines={largeText ? undefined : 2}
-            style={styles.activityDetail}
+            numberOfLines={largeText ? undefined : 1}
+            style={[styles.activityDetail, error && { color: palette.danger }]}
           >
             {sanitizeTranscriptText(detail, 512)}
           </Text>
@@ -731,7 +776,7 @@ function ActivityHeader({
           dynamicTypeRamp={typeRamp.control}
           style={[styles.activityAction, largeText && styles.activityActionLargeText]}
         >
-          {expanded ? "Hide" : "Show"}
+          {expanded ? "⌄" : "›"}
         </Text>
       ) : null}
     </Pressable>
@@ -759,10 +804,31 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
             {`$ ${message.command}`}
           </SelectableTranscriptText>
         ) : null}
-        {expanded && message.output?.output ? (
-          <ExpandableText style={styles.outputText} text={message.output.output} />
-        ) : null}
+        {expanded && message.output?.output ? <ShellOutput text={message.output.output} /> : null}
       </View>
+    </View>
+  );
+}
+
+function ShellOutput({ text }: { text: string }) {
+  const safeText = sanitizeTranscriptText(text, text.length);
+  return (
+    <View style={styles.shellOutputBox}>
+      <View style={styles.shellOutputToolbar}>
+        <CopyTextButton iconOnly label="Copy shell output" text={safeText} />
+      </View>
+      <ScrollView
+        accessibilityLabel="Shell output"
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        style={styles.shellOutputScroll}
+        contentContainerStyle={styles.shellOutputContent}
+      >
+        <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.shellOutputText}>
+          {safeText}
+        </SelectableTranscriptText>
+      </ScrollView>
     </View>
   );
 }
@@ -1269,6 +1335,7 @@ function toolPresentation(tool: AssistantTool) {
 }
 
 function canExpandTool(tool: AssistantTool) {
+  if (toolInputRecord(tool)) return true;
   if (tool.state.status === "error") return true;
   if (tool.state.status !== "completed") return false;
   return Boolean(tool.state.content?.length || toolPresentation(tool).files.length);
@@ -1424,10 +1491,18 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
+  shellOutputBox: {
+    backgroundColor: palette.raised,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+    marginVertical: space.xs,
+  },
+  shellOutputToolbar: { alignItems: "flex-end", paddingHorizontal: space.xs },
+  shellOutputScroll: { maxHeight: 240 },
+  shellOutputText: { ...typography.code, color: palette.dim },
+  shellOutputContent: { paddingHorizontal: space.sm, paddingBottom: space.sm },
   activityGroup: {
-    backgroundColor: palette.card,
-    borderRadius: radius.md,
-    marginHorizontal: space.md,
+    marginHorizontal: space.lg,
     marginVertical: space.xs,
     overflow: "hidden",
   },
@@ -1444,15 +1519,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
     justifyContent: "space-between",
     minHeight: 48,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: 0,
     paddingVertical: space.sm,
   },
   activity: {
-    backgroundColor: palette.card,
-    borderRadius: radius.md,
-    paddingHorizontal: space.sm,
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 0,
   },
   activityAction: { color: palette.signal, fontSize: 11, fontWeight: "700" },
   activityError: {
@@ -1467,7 +1538,7 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
     flex: 1,
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: space.xs,
     minWidth: 0,
   },
@@ -1491,7 +1562,10 @@ const styles = StyleSheet.create({
   },
   activityHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
   activityLabel: { ...typography.control, color: palette.ink },
-  activityNested: { marginLeft: 12 },
+  activityNested: { marginLeft: 0 },
+  compactActivity: { paddingLeft: space.sm, gap: 2 },
+  toolDetails: { paddingLeft: space.md },
+  responseFooter: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: space.sm },
   activityStandalone: { marginHorizontal: space.lg, paddingVertical: space.xs },
   assistantFooter: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.sm },
   assistantRow: {
@@ -1618,9 +1692,9 @@ const styles = StyleSheet.create({
   textActionLabel: { color: palette.signal, fontSize: 12, fontWeight: "700" },
   userBubble: {
     backgroundColor: palette.prompt,
-    borderRadius: 28,
+    borderRadius: 16,
     maxWidth: "80%",
-    padding: 16,
+    padding: 14,
   },
   userBubbleLargeText: { maxWidth: "100%" },
   // Supply intrinsic text width to Yoga; the native selection view supplies height.

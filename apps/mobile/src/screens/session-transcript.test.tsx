@@ -10,6 +10,7 @@ import {
   activitySummary,
   groupTranscriptMessages,
   SessionTranscriptRow,
+  TranscriptActivityGroup,
 } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
@@ -79,6 +80,56 @@ test("message text supports native selection without separate copy or selection 
   expect(screen.queryByRole("button", { name: "Copy text" })).toBeNull();
 });
 
+test("nested activity reveals individual calls before their output", () => {
+  const output = `${"shell output\n".repeat(4000)}last output line`;
+  const original = messages.find((message) => message.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const tool = original.content.find(
+    (part) => part.type === "tool" && part.state.status === "completed",
+  );
+  if (tool?.type !== "tool" || tool.state.status !== "completed") throw new Error("fixture");
+  const message: SessionMessageInfo = {
+    ...original,
+    content: [
+      {
+        ...tool,
+        name: "shell",
+        state: {
+          ...tool.state,
+          input: { command: "echo nested" },
+          content: [{ type: "text" as const, text: output }],
+        },
+      },
+    ],
+  };
+  render(
+    <TranscriptActivityGroup
+      item={{
+        type: "activity-group",
+        id: "activity",
+        messages: [message],
+        count: 1,
+        running: false,
+      }}
+      largeText={false}
+      showReasoning
+      onOpenDiff={jest.fn()}
+      onOpenSubagent={jest.fn()}
+    />,
+  );
+  expect(screen.queryByText(output)).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "1 tool calls" }));
+  expect(screen.queryByText(output)).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: /Shell.*Show/ }));
+  expect(screen.getByText(output)).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: /Show more/ })).toBeNull();
+  expect(screen.getByLabelText("Shell output")).toHaveStyle({ maxHeight: 240 });
+  expect(screen.getByLabelText("Shell output").props.nestedScrollEnabled).toBe(true);
+  expect(screen.getByRole("button", { name: "Copy shell output" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: /Shell.*Hide/ }));
+  expect(screen.queryByText(output)).toBeNull();
+});
+
 test("activity summaries count operations rather than inventing file counts", () => {
   const message = messages.find((item) => item.type === "assistant");
   if (!message) throw new Error("fixture");
@@ -95,7 +146,7 @@ test("activity summaries count operations rather than inventing file counts", ()
         })),
       },
     ]),
-  ).toBe("2 lookups · 1 command · 1 edit");
+  ).toBe("Used 4 Glob, Grep, Shell, Patch");
 });
 
 test("cross-message grouping respects replies, errors, reasoning visibility and detailed mode", () => {
@@ -118,11 +169,21 @@ test("cross-message grouping respects replies, errors, reasoning visibility and 
   expect(groupTranscriptMessages([clean, reasoning, second], false, false)).toMatchObject([
     { type: "activity-group", count: 2 },
   ]);
-  expect(groupTranscriptMessages([clean, reasoning, second], false, true)).toHaveLength(3);
+  expect(groupTranscriptMessages([clean, reasoning, second], false, true)).toMatchObject([
+    { type: "activity-group", count: 2, messages: [clean, reasoning, second] },
+  ]);
   expect(groupTranscriptMessages([clean, reply, second], false, false)).toHaveLength(3);
   expect(groupTranscriptMessages([clean, second], true, false)).toEqual([clean, second]);
+  const mixed = { ...clean, content: [{ type: "text" as const, text: "Progress" }, tool] };
+  expect(groupTranscriptMessages([mixed, second], false, true)).toMatchObject([
+    { type: "assistant", content: [{ type: "text", text: "Progress" }] },
+    { type: "activity-group", count: 2 },
+  ]);
   const failed = { ...second, error: { type: "ToolError", message: "Failed" } };
-  expect(groupTranscriptMessages([clean, failed], false, false)).toEqual([clean, failed]);
+  expect(groupTranscriptMessages([clean, failed], false, false)).toMatchObject([
+    { type: "activity-group", count: 1 },
+    failed,
+  ]);
 });
 
 test("reasoning can be hidden without hiding replies or tool failures", () => {
