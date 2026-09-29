@@ -162,7 +162,14 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
             bridge.apply(event);
             const eventLocation = event.location;
             if (eventLocation) {
-              setEventLocations((current) => appendEventLocation(current, eventLocation));
+              setEventLocations((current) => {
+                const next = appendEventLocation(current, eventLocation);
+                // Reconsider retired locations when actual attention arrives,
+                // even if a generic event already introduced the location.
+                return event.type === "permission.asked" || event.type === "form.created"
+                  ? [...next]
+                  : next;
+              });
             }
             diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, {
               atMs: Date.now(),

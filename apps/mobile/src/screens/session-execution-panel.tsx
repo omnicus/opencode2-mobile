@@ -56,6 +56,9 @@ export function SessionExecutionPanel({
   replyingPermissionId?: string | undefined;
 }) {
   const { height } = useWindowDimensions();
+  // Agent-mode reminders and other control inputs are server-owned inbox work,
+  // not user prompts that should offer steering or cancellation controls.
+  const promptInbox = inbox.filter((item) => item.type === "user");
   const inboxIds = new Set(inbox.map((item) => item.id));
   const localOverlays = admissions.filter(
     (admission) =>
@@ -64,7 +67,7 @@ export function SessionExecutionPanel({
   );
   if (
     !active &&
-    inbox.length === 0 &&
+    promptInbox.length === 0 &&
     localOverlays.length === 0 &&
     permissions.length === 0 &&
     !formRequests
@@ -166,7 +169,7 @@ export function SessionExecutionPanel({
         </View>
       ))}
 
-      {inbox.map((item) => (
+      {promptInbox.map((item) => (
         <View key={item.id} style={styles.inboxCard}>
           <View style={styles.inboxHeading}>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>

@@ -8,7 +8,7 @@ import type {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Pressable, Text } from "react-native";
-
+import { ConnectionEventQueryBridge } from "./connection-event-query-bridge";
 import { FollowedProjectsProvider, useFollowedProjects } from "./followed-projects-context";
 import { openCodeQueryKeys } from "./open-code-query-keys";
 
@@ -628,16 +628,166 @@ test.each([false, true])(
   },
 );
 
-test.each(["notification", "event", "cached-form"])(
+test("does not resurrect a retired worktree from generic event hints when returning to the project", async () => {
+  const directory = "/b/.worktree/retired";
+  mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
+    cursor: {},
+    data: [
+      projectID === "project-b"
+        ? mockSession("ses_retired", projectID, directory, 2)
+        : mockSession("ses_alpha", projectID, "/a", 3),
+    ],
+  }));
+  mockDirectoryExists.mockImplementation(
+    async (_client, _root, candidate) => candidate !== directory,
+  );
+  const permissions = mockListPermissions.getMockImplementation();
+  mockListPermissions.mockImplementation(async (client, location, options) => {
+    if (location.directory === directory) throw new Error("Location no longer exists");
+    if (!permissions) throw new Error("fixture");
+    return permissions(client, location, options);
+  });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const tree = () => (
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>
+  );
+  let view = render(tree());
+  try {
+    await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
+    mockEventLocations = [{ directory }];
+    mockRevision += 1;
+    view.rerender(tree());
+    fireEvent.press(screen.getByRole("button", { name: "Refresh sessions" }));
+    await waitFor(() => expect(screen.getByText("freshness:current")).toBeOnTheScreen());
+    expect(screen.queryByText(/^unavailable:/)).toBeNull();
+    expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
+      false,
+    );
+    expect(mockGetOpenCodeLocation.mock.calls.some((call) => call[1].directory === directory)).toBe(
+      false,
+    );
+    view.unmount();
+    view = render(tree());
+    await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
+    expect(screen.queryByText(/^unavailable:/)).toBeNull();
+    expect(mockListPermissions.mock.calls.some((call) => call[1].directory === directory)).toBe(
+      false,
+    );
+    expect(mockGetOpenCodeLocation.mock.calls.some((call) => call[1].directory === directory)).toBe(
+      false,
+    );
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("fresh attention can reopen a retired location and an empty REST snapshot retires it again", async () => {
+  const directory = "/b/.worktree/retired";
+  mockEventLocations = [{ directory }];
+  mockDirectoryExists.mockImplementation(
+    async (_client, _root, candidate) => candidate !== directory,
+  );
+  mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
+    cursor: {},
+    data: [
+      projectID === "project-b"
+        ? mockSession("ses_retired", projectID, directory, 2)
+        : mockSession("ses_alpha", projectID, "/a", 3),
+    ],
+  }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const tree = () => (
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>
+  );
+  const view = render(tree());
+  try {
+    await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
+    expect(mockListForms.mock.calls.some((call) => call[1].directory === directory)).toBe(false);
+    const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (flush) => flush());
+    bridge.apply({
+      type: "form.created",
+      id: "evt_new",
+      created: 2,
+      location: { directory },
+      data: {
+        form: {
+          id: "form_new",
+          sessionID: "ses_retired",
+          title: "Input",
+          fields: [{ key: "answer", type: "string" }],
+        },
+      },
+    });
+    view.rerender(tree());
+    await waitFor(() =>
+      expect(mockListForms.mock.calls.some((call) => call[1].directory === directory)).toBe(true),
+    );
+    await waitFor(() => expect(screen.getByText("complete:1:1:0")).toBeOnTheScreen());
+    const calls = mockListForms.mock.calls.filter((call) => call[1].directory === directory).length;
+    view.rerender(tree());
+    fireEvent.press(screen.getByRole("button", { name: "Refresh sessions" }));
+    await waitFor(() => expect(screen.getByText("freshness:current")).toBeOnTheScreen());
+    expect(mockListForms.mock.calls.filter((call) => call[1].directory === directory)).toHaveLength(
+      calls,
+    );
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test.each(["notification", "permission-event", "form-event", "cached-form"])(
   "keeps %s attention at a missing historical directory",
   async (source) => {
     const location = { directory: "/b/sub" };
     mockDirectoryExists.mockResolvedValue(false);
     if (source === "notification") mockAttentionLocations = [location];
-    if (source === "event") mockEventLocations = [location];
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: Infinity } },
     });
+    if (source === "permission-event" || source === "form-event") {
+      mockEventLocations = [location];
+      const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (flush) =>
+        flush(),
+      );
+      bridge.apply(
+        source === "permission-event"
+          ? {
+              type: "permission.asked",
+              id: "evt_attention",
+              created: 1,
+              location,
+              data: { id: "per_beta", sessionID: "ses_beta", action: "shell", resources: [] },
+            }
+          : {
+              type: "form.created",
+              id: "evt_attention",
+              created: 1,
+              location,
+              data: {
+                form: {
+                  fields: [{ key: "answer", type: "string" }],
+                  id: "form_beta",
+                  sessionID: "ses_beta",
+                  title: "Input",
+                },
+              },
+            },
+      );
+    }
     if (source === "cached-form") {
       queryClient.setQueryData(openCodeQueryKeys.forms("connection-1", location), {
         data: [{ fields: [], id: "form_beta", sessionID: "ses_beta", title: "Input" }],
