@@ -869,6 +869,8 @@ test("waits for and adopts a moved session's authoritative location", async () =
       ),
     ).toBeDefined();
 
+    fireEvent.press(await screen.findByRole("button", { name: "1 tool calls" }));
+    fireEvent.press(screen.getByRole("button", { name: /Patch.*Show/ }));
     fireEvent.press(await screen.findByRole("button", { name: "Review current changes" }));
     expect(push).toHaveBeenCalledWith("Diff", {
       connectionId: "connection-1",

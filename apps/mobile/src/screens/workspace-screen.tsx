@@ -894,6 +894,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         onCancelInbox={execution.cancelInbox}
         onCheckAdmission={execution.reconcileAdmission}
         onInterrupt={execution.interrupt}
+        onBackground={execution.background}
         onQueueInbox={execution.queueInbox}
         onReplyPermission={workspaceSelection.replyPermission}
         onSteerInbox={execution.steerInbox}
@@ -1032,7 +1033,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           onScrollBeginDrag={handleScrollBeginDrag}
           onScrollEndDrag={handleScrollEndDrag}
           ref={transcriptListRef}
-          renderItem={({ item }) =>
+          renderItem={({ item, index }) =>
             item.type === "activity-group" ? (
               <TranscriptActivityGroup
                 waitingFor={
@@ -1050,6 +1051,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               />
             ) : (
               <SessionTranscriptRow
+                hideFooter={
+                  transcriptItems[index + 1]?.type === "activity-group" ||
+                  transcriptItems[index + 1]?.type === "assistant"
+                }
                 detailed={transcriptPreferences.detailed}
                 showReasoning={transcriptPreferences.reasoning}
                 largeText={largeText}

@@ -26,6 +26,7 @@ export function SessionExecutionPanel({
   onCancelInbox,
   onCheckAdmission,
   onInterrupt,
+  onBackground,
   onQueueInbox,
   onReplyPermission,
   onSteerInbox,
@@ -43,6 +44,7 @@ export function SessionExecutionPanel({
   onCancelInbox: (inboxID: string) => void;
   onCheckAdmission: (admissionID: string) => void;
   onInterrupt: () => void;
+  onBackground?: () => void;
   onQueueInbox: (inboxID: string) => void;
   onReplyPermission: (requestID: string, sessionID: string, reply: PermissionReply) => void;
   onSteerInbox: (inboxID: string) => void;
@@ -91,6 +93,19 @@ export function SessionExecutionPanel({
                   : "Working"}
             </Text>
           </View>
+          {onBackground && permissions.length === 0 && !formRequests ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(busyAction) }}
+              disabled={Boolean(busyAction)}
+              onPress={onBackground}
+              style={[styles.stopButton, busyAction && styles.disabled]}
+            >
+              <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
+                {busyAction === "background" ? "Moving to background" : "Move to background"}
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityHint="Interrupts the current session"
@@ -257,6 +272,7 @@ const styles = StyleSheet.create({
   executionRow: {
     alignItems: "center",
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: space.sm,
     justifyContent: "space-between",
     paddingHorizontal: space.sm,
