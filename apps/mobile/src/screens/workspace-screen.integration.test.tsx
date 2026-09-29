@@ -13,6 +13,7 @@ import { type InfiniteData, QueryClient, QueryClientProvider } from "@tanstack/r
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 import { Dimensions, FlatList, Platform, RefreshControl } from "react-native";
+import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
 import { SessionScreen, WorkspaceScreen } from "./workspace-screen";
@@ -27,6 +28,23 @@ const location = {
 };
 const mockListForms = jest.fn(async () => ({ data: [], location }));
 const mockListPermissions = jest.fn(async () => ({ data: [], location }));
+const mockGetShell = jest.fn(async () => ({
+  location,
+  data: {
+    id: "sh_background",
+    status: "running",
+    command: "build",
+    cwd: "/workspace",
+    shell: "sh",
+    file: "/output",
+    metadata: {},
+    time: { started: 1 },
+  },
+}));
+const mockShellOutput = jest.fn(async () => ({
+  location,
+  data: { output: "Build progress 50%", cursor: 18, size: 18, truncated: false },
+}));
 const mockReplyPermission = jest.fn();
 const mockSetLocation = jest.fn();
 const mockWorkspaceRefetch = jest.fn<() => Promise<void>>(async () => undefined);
@@ -58,6 +76,11 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
     tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
   })),
   getOpenCodeSessionMessage: jest.fn(),
+  getOpenCodeShell: () => mockGetShell(),
+  getOpenCodeShellOutput: () => mockShellOutput(),
+  isShellNotFoundError: (error: unknown) =>
+    (error as { _tag?: string })?._tag === "ShellNotFoundError",
+  maxShellOutputBytes: 64 * 1024,
   getOpenCodeVcsDiff: jest.fn(async () => ({ data: [] })),
   getOpenCodeVcs: jest.fn(async () => ({
     data: { branch: { current: "docs/mobile-workflow-screenshots" } },
@@ -882,6 +905,100 @@ test("waits for and adopts a moved session's authoritative location", async () =
     queryClient.clear();
     if (previousGetSession) mockGetSession.mockImplementation(previousGetSession);
     if (previousListMessages) mockListMessages.mockImplementation(previousListMessages);
+  }
+});
+
+test("expanded background shell follows command output after the session is idle", async () => {
+  mockListMessages.mockImplementationOnce(async () => ({
+    cursor: {},
+    data: [
+      {
+        type: "assistant",
+        id: "msg_background",
+        agent: "build",
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 1, completed: 2 },
+        content: [
+          {
+            type: "tool",
+            id: "tool_background",
+            name: "shell",
+            time: { created: 1, completed: 2 },
+            state: {
+              status: "completed",
+              input: { command: "build" },
+              metadata: { status: "running", shellID: "sh_background" },
+              content: [
+                {
+                  type: "text",
+                  text: "Command moved to the background. You will be notified when it finishes.",
+                },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "background-shell",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    fireEvent.press(await screen.findByRole("button", { name: "1 tool calls" }));
+    fireEvent.press(screen.getByRole("button", { name: /Shell.*Show/ }));
+    expect(await screen.findByText("Build progress 50%")).toBeOnTheScreen();
+    expect(screen.queryByText(/Command moved to the background/)).toBeNull();
+    mockGetShell.mockResolvedValueOnce({
+      location,
+      data: {
+        id: "sh_background",
+        status: "exited",
+        command: "build",
+        cwd: "/workspace",
+        shell: "sh",
+        file: "/output",
+        metadata: {},
+        time: { started: 1 },
+      },
+    });
+    mockShellOutput.mockResolvedValueOnce({
+      location,
+      data: {
+        output: "\nBuild complete",
+        cursor: 33,
+        size: 33,
+        truncated: false,
+      },
+    });
+    act(() =>
+      new ConnectionEventQueryBridge(queryClient, "connection-1", (flush) => flush()).apply({
+        type: "shell.exited",
+        id: "evt_shell",
+        created: 3,
+        location,
+        data: { id: "sh_background", status: "exited", exit: 0 },
+      }),
+    );
+    expect(await screen.findByText("Build progress 50%\nBuild complete")).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
   }
 });
 

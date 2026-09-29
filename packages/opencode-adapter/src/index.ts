@@ -225,6 +225,58 @@ export async function getOpenCodeVcs(
   return response;
 }
 
+export const maxShellOutputBytes = 64 * 1024;
+
+export async function getOpenCodeShell(
+  client: OpenCodeClient,
+  location: LocationRef,
+  id: string,
+  options?: OpenCodeRequestOptions,
+) {
+  const response = await client.shell.get({ id, location: locationInput(location) }, options);
+  validateResolvedLocation(response.location);
+  if (
+    !isRecord(response.data) ||
+    response.data.id !== id ||
+    !["running", "exited", "timeout", "killed"].includes(response.data.status)
+  ) {
+    throw new Error("MALFORMED_SHELL_INFO");
+  }
+  return response;
+}
+
+export async function getOpenCodeShellOutput(
+  client: OpenCodeClient,
+  location: LocationRef,
+  id: string,
+  options?: OpenCodeRequestOptions & { cursor?: number; limit?: number },
+) {
+  const cursor = options?.cursor ?? 0;
+  const limit = Math.min(options?.limit ?? maxShellOutputBytes, maxShellOutputBytes);
+  if (!Number.isSafeInteger(cursor) || cursor < 0 || !Number.isSafeInteger(limit) || limit < 1) {
+    throw new Error("INVALID_SHELL_OUTPUT_RANGE");
+  }
+  const response = await client.shell.output(
+    { id, location: locationInput(location), cursor, limit },
+    options?.signal ? { signal: options.signal } : undefined,
+  );
+  validateResolvedLocation(response.location);
+  const data = response.data;
+  if (
+    !isRecord(data) ||
+    typeof data.output !== "string" ||
+    data.output.length > maxShellOutputBytes ||
+    !Number.isSafeInteger(data.cursor) ||
+    data.cursor < 0 ||
+    !Number.isSafeInteger(data.size) ||
+    data.size < data.cursor ||
+    typeof data.truncated !== "boolean"
+  ) {
+    throw new Error("MALFORMED_SHELL_OUTPUT");
+  }
+  return response;
+}
+
 export async function getOpenCodeVcsDiff(
   client: OpenCodeClient,
   location: LocationRef,
@@ -1944,6 +1996,9 @@ export type {
   SessionMessageInfo,
   SessionMessagesResponse,
   SessionsResponse,
+  ShellGetOutput,
+  ShellOutputOutput,
   SkillInfo,
 } from "@opencode/client";
+export { isShellNotFoundError } from "@opencode/client";
 export type { OpenCodeEvent };

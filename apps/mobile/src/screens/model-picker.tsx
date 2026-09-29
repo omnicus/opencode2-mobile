@@ -129,7 +129,7 @@ export function ModelPicker({
           const favorite = favoritesByID.has(modelIdentityKey(item));
           const selected = item.id === model?.id && item.providerID === model.providerID;
           return (
-            <View style={styles.row}>
+            <View style={[styles.row, selected && styles.selectedRow]}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel={`${item.name}, ${item.providerID}`}
@@ -199,20 +199,21 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.border,
+    borderRadius: 6,
+    paddingHorizontal: space.sm,
   },
   choice: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 64,
+    minHeight: 52,
     paddingVertical: space.sm,
     paddingRight: space.sm,
     gap: space.sm,
   },
   copy: { flex: 1, minWidth: 0 },
-  label: { ...typography.heading, color: palette.ink },
+  selectedRow: { backgroundColor: palette.raised },
+  label: { ...typography.body, color: palette.ink },
   provider: { ...typography.caption, color: palette.dim, marginTop: 3 },
   star: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
   starText: { fontSize: 26, color: palette.dim },

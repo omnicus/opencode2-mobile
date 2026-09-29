@@ -156,8 +156,8 @@ const styles = StyleSheet.create({
   compactScroll: { flexGrow: 0, flexShrink: 1 },
   closeButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.sm },
   closeLabel: { ...typography.control, color: palette.signal },
-  content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },
-  fixedContent: { flex: 1, gap: space.md, padding: space.lg, paddingBottom: space.xl },
+  content: { gap: space.md, padding: space.md, paddingBottom: space.xl },
+  fixedContent: { flex: 1, gap: space.md, padding: space.md, paddingBottom: space.xl },
   header: {
     alignItems: "center",
     borderBottomColor: palette.border,

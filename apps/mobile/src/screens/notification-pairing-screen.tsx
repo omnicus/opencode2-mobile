@@ -527,7 +527,7 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     overflow: "hidden",
   },
-  cameraHint: { color: palette.dim, fontSize: 13, padding: space.md, textAlign: "center" },
+  cameraHint: { color: palette.dim, fontSize: 14, padding: space.md, textAlign: "center" },
   closeButton: { justifyContent: "center", minHeight: 44, paddingLeft: space.md },
   closeLabel: { ...typography.control, color: palette.signal },
   codeInput: {
@@ -584,7 +584,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   previewEyebrow: { ...typography.label, color: palette.success },
-  previewMeta: { color: palette.dim, fontSize: 13, lineHeight: 19, marginTop: space.sm },
+  previewMeta: { color: palette.dim, fontSize: 14, lineHeight: 19, marginTop: space.sm },
   previewName: { ...typography.heading, color: palette.ink, marginTop: space.xs },
   previewOrigin: { color: palette.ink, fontSize: 14, marginTop: space.xs },
   safeArea: { backgroundColor: palette.background, flex: 1 },

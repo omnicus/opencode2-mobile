@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   lineMeta: { color: palette.dim },
   pressed: { opacity: 0.7 },
   retry: { justifyContent: "center", minHeight: 44, paddingRight: space.md },
-  retryLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
+  retryLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
   state: { gap: space.sm },
   stateDetail: { color: palette.dim, fontSize: 15, lineHeight: 22 },
   stateTitle: { ...typography.heading, color: palette.ink },

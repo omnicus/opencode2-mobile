@@ -69,11 +69,13 @@ import { FormRequestList } from "./form-request-list";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
+import { SessionShellScope } from "./session-shell-output";
 import {
-  groupTranscriptMessages,
+  buildTranscriptPresentation,
   SessionTranscriptRow,
   TranscriptActivityGroup,
   type TranscriptItem,
+  TranscriptUpdatesGroup,
 } from "./session-transcript";
 import {
   resolveTranscriptLiveFollow,
@@ -478,6 +480,15 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
 }
 
 export function SessionScreen({ navigation, route }: SessionProps) {
+  const [screenFocused, setScreenFocused] = useState(() => navigation.isFocused?.() ?? true);
+  useEffect(() => {
+    const focus = navigation.addListener?.("focus", () => setScreenFocused(true));
+    const blur = navigation.addListener?.("blur", () => setScreenFocused(false));
+    return () => {
+      focus?.();
+      blur?.();
+    };
+  }, [navigation]);
   const transcriptPreferences = useTranscriptPreferences();
   const runtime = useConnectionRuntime();
   const modelFavorites = useModelFavorites(runtime.connectionId, runtime.connectionUpdatedAtMs);
@@ -602,7 +613,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         ? ({ state: "loading" } as const)
         : ({ state: "none" } as const);
   const messages = flattenTranscriptPages(messagesQuery.data?.pages);
-  const transcriptItems = groupTranscriptMessages(
+  const { items: transcriptItems, footers: transcriptFooters } = buildTranscriptPresentation(
     messages,
     transcriptPreferences.detailed,
     transcriptPreferences.reasoning,
@@ -878,6 +889,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         active={execution.active}
         admissions={execution.admissions}
         busyAction={execution.busyAction}
+        canBackground={execution.canBackground}
         formRequests={
           sessionForms.length > 0 ? (
             <FormRequestList
@@ -973,110 +985,136 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         accessibilityElementsHidden={selectedTab === "changes"}
         importantForAccessibility={selectedTab === "changes" ? "no-hide-descendants" : "auto"}
       >
-        <FlatList
-          accessibilityLabel="Session transcript"
-          contentContainerStyle={[styles.detailContent, largeText && styles.detailContentLargeText]}
-          data={transcriptItems}
-          extraData={fontScale}
-          initialNumToRender={12}
-          inverted
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          keyboardShouldPersistTaps="handled"
-          key={`session-transcript:${fontScale}`}
-          keyExtractor={(message) => message.id}
-          ListEmptyComponent={
-            messagesQuery.isPending ? (
-              <View style={styles.transcriptState}>
-                <ActivityIndicator accessibilityLabel="Loading transcript" color={palette.signal} />
+        <SessionShellScope.Provider
+          value={{
+            client,
+            connectionId: routeConnectionId,
+            location: sessionLocation,
+            enabled: Boolean(
+              client &&
+                connectionId === routeConnectionId &&
+                sessionLocationReady &&
+                screenFocused &&
+                selectedTab === "session",
+            ),
+          }}
+        >
+          <FlatList
+            accessibilityLabel="Session transcript"
+            contentContainerStyle={[
+              styles.detailContent,
+              largeText && styles.detailContentLargeText,
+            ]}
+            data={transcriptItems}
+            extraData={fontScale}
+            initialNumToRender={12}
+            inverted
+            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+            keyboardShouldPersistTaps="handled"
+            key={`session-transcript:${fontScale}`}
+            keyExtractor={(message) => message.id}
+            ListEmptyComponent={
+              messagesQuery.isPending ? (
+                <View style={styles.transcriptState}>
+                  <ActivityIndicator
+                    accessibilityLabel="Loading transcript"
+                    color={palette.signal}
+                  />
+                </View>
+              ) : messagesQuery.isError ? (
+                <View style={styles.transcriptState}>
+                  <InlineError
+                    message={
+                      messagesQuery.error instanceof Error &&
+                      messagesQuery.error.message === "MALFORMED_MESSAGE_LIST"
+                        ? "This server returned unsupported transcript data."
+                        : "The transcript could not be loaded. Refresh and try again."
+                    }
+                  />
+                </View>
+              ) : null
+            }
+            ListFooterComponent={
+              <View style={styles.detailHeader}>
+                {sessionQuery.isPending ? <ActivityIndicator color={palette.signal} /> : null}
+                {sessionQuery.isError ? (
+                  <InlineError message="The session could not be loaded." />
+                ) : null}
+                {canLoadOlder ? (
+                  <SmallButton
+                    label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
+                    onPress={() => {
+                      if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
+                    }}
+                  />
+                ) : null}
+                {!canLoadOlder && messagesQuery.hasNextPage ? (
+                  <Text style={styles.transcriptLimit}>
+                    Older messages are not loaded on this device.
+                  </Text>
+                ) : null}
               </View>
-            ) : messagesQuery.isError ? (
-              <View style={styles.transcriptState}>
-                <InlineError
-                  message={
-                    messagesQuery.error instanceof Error &&
-                    messagesQuery.error.message === "MALFORMED_MESSAGE_LIST"
-                      ? "This server returned unsupported transcript data."
-                      : "The transcript could not be loaded. Refresh and try again."
+            }
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            maxToRenderPerBatch={12}
+            onContentSizeChange={scheduleLiveEdgeScroll}
+            onLayout={scheduleLiveEdgeScroll}
+            onMomentumScrollBegin={handleMomentumScrollBegin}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
+            onScroll={handleTranscriptScroll}
+            onScrollBeginDrag={handleScrollBeginDrag}
+            onScrollEndDrag={handleScrollEndDrag}
+            ref={transcriptListRef}
+            renderItem={({ item }) =>
+              item.type === "activity-group" ? (
+                <TranscriptActivityGroup
+                  waitingFor={
+                    sessionPermissions.length > 0
+                      ? "permission"
+                      : sessionForms.length > 0
+                        ? "input"
+                        : undefined
                   }
+                  item={item}
+                  largeText={largeText}
+                  showReasoning={transcriptPreferences.reasoning}
+                  onOpenDiff={openDiff}
+                  onOpenSubagent={openSubagent}
                 />
-              </View>
-            ) : null
-          }
-          ListFooterComponent={
-            <View style={styles.detailHeader}>
-              {sessionQuery.isPending ? <ActivityIndicator color={palette.signal} /> : null}
-              {sessionQuery.isError ? (
-                <InlineError message="The session could not be loaded." />
-              ) : null}
-              {canLoadOlder ? (
-                <SmallButton
-                  label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
-                  onPress={() => {
-                    if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
-                  }}
+              ) : item.type === "updates-group" ? (
+                <TranscriptUpdatesGroup
+                  item={item}
+                  largeText={largeText}
+                  onOpenSubagent={openSubagent}
                 />
-              ) : null}
-              {!canLoadOlder && messagesQuery.hasNextPage ? (
-                <Text style={styles.transcriptLimit}>
-                  Older messages are not loaded on this device.
-                </Text>
-              ) : null}
-            </View>
-          }
-          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-          maxToRenderPerBatch={12}
-          onContentSizeChange={scheduleLiveEdgeScroll}
-          onLayout={scheduleLiveEdgeScroll}
-          onMomentumScrollBegin={handleMomentumScrollBegin}
-          onMomentumScrollEnd={handleMomentumScrollEnd}
-          onScroll={handleTranscriptScroll}
-          onScrollBeginDrag={handleScrollBeginDrag}
-          onScrollEndDrag={handleScrollEndDrag}
-          ref={transcriptListRef}
-          renderItem={({ item, index }) =>
-            item.type === "activity-group" ? (
-              <TranscriptActivityGroup
-                waitingFor={
-                  sessionPermissions.length > 0
-                    ? "permission"
-                    : sessionForms.length > 0
-                      ? "input"
+              ) : (
+                <SessionTranscriptRow
+                  hideFooter={!transcriptFooters.has(item.id)}
+                  turnDuration={transcriptFooters.get(item.id) ?? null}
+                  detailed={transcriptPreferences.detailed}
+                  showReasoning={transcriptPreferences.reasoning}
+                  largeText={largeText}
+                  message={item}
+                  modelName={
+                    item.type === "assistant"
+                      ? execution.models.find(
+                          (model) =>
+                            model.id === item.model.id &&
+                            model.providerID === item.model.providerID,
+                        )?.name
                       : undefined
-                }
-                item={item}
-                largeText={largeText}
-                showReasoning={transcriptPreferences.reasoning}
-                onOpenDiff={openDiff}
-                onOpenSubagent={openSubagent}
-              />
-            ) : (
-              <SessionTranscriptRow
-                hideFooter={
-                  transcriptItems[index + 1]?.type === "activity-group" ||
-                  transcriptItems[index + 1]?.type === "assistant"
-                }
-                detailed={transcriptPreferences.detailed}
-                showReasoning={transcriptPreferences.reasoning}
-                largeText={largeText}
-                message={item}
-                modelName={
-                  item.type === "assistant"
-                    ? execution.models.find(
-                        (model) =>
-                          model.id === item.model.id && model.providerID === item.model.providerID,
-                      )?.name
-                    : undefined
-                }
-                onOpenDiff={openDiff}
-                onOpenSubagent={openSubagent}
-              />
-            )
-          }
-          scrollEventThrottle={16}
-          style={styles.transcriptList}
-          updateCellsBatchingPeriod={40}
-          windowSize={7}
-        />
+                  }
+                  onOpenDiff={openDiff}
+                  onOpenSubagent={openSubagent}
+                />
+              )
+            }
+            scrollEventThrottle={16}
+            style={styles.transcriptList}
+            updateCellsBatchingPeriod={40}
+            windowSize={7}
+          />
+        </SessionShellScope.Provider>
         {(!liveFollowEnabled || latestJumpPending) && messages.length > 0 ? (
           <Pressable
             accessibilityHint="Returns to new transcript output and resumes live follow"
@@ -1483,7 +1521,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
   },
   childState: { color: palette.signal, fontSize: 11, fontWeight: "800" },
-  childTitle: { color: palette.ink, flex: 1, fontSize: 13, fontWeight: "700" },
+  childTitle: { color: palette.ink, flex: 1, fontSize: 14, fontWeight: "700" },
   backgroundCount: { color: palette.dim, fontSize: 12, fontWeight: "700", marginTop: 3 },
   badge: {
     backgroundColor: palette.signalDark,
@@ -1498,7 +1536,7 @@ const styles = StyleSheet.create({
   badgeMuted: { backgroundColor: palette.card, borderColor: palette.border },
   badges: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.xs },
   clearSearch: { justifyContent: "center", minHeight: 44, paddingLeft: space.sm },
-  clearSearchLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
+  clearSearchLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
   connectionNotice: { color: palette.warm, fontSize: 12, lineHeight: 18, marginBottom: 2 },
   contextLabel: { color: palette.dim, fontSize: 12, fontWeight: "600" },
   contextRow: {
@@ -1514,7 +1552,7 @@ const styles = StyleSheet.create({
   contextRowLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
   contextRowCopy: { flex: 1, minWidth: 0 },
   contextValue: { color: palette.ink, fontSize: 15, marginTop: 4 },
-  countLabel: { color: palette.dim, fontSize: 13, fontWeight: "600" },
+  countLabel: { color: palette.dim, fontSize: 14, fontWeight: "600" },
   deleteButton: {
     alignItems: "center",
     borderColor: palette.danger,
@@ -1534,14 +1572,14 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   detailContentLargeText: { paddingBottom: 140 },
-  detailHeader: { paddingHorizontal: space.lg, paddingTop: space.lg },
+  detailHeader: { paddingHorizontal: space.md, paddingTop: space.md },
   emptyState: { alignItems: "center", minHeight: 160, padding: space.xl },
   error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
   eyebrow: { ...typography.label, color: palette.dim },
   headerAction: {
     alignItems: "center",
     borderColor: palette.border,
-    borderRadius: 999,
+    borderRadius: radius.sm,
     borderWidth: 1,
     justifyContent: "center",
     minHeight: 44,
@@ -1552,7 +1590,7 @@ const styles = StyleSheet.create({
   headerActionLabel: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   headerActionLabelAttention: { color: palette.warm },
   headingCopy: { flex: 1, minWidth: 180 },
-  homeHeader: { paddingHorizontal: space.lg, paddingTop: space.lg },
+  homeHeader: { paddingHorizontal: space.md, paddingTop: space.md },
   homeHeaderPhone: { paddingTop: space.sm },
   homeTitle: {
     color: palette.ink,
@@ -1596,7 +1634,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   listFooter: { alignItems: "center", padding: space.lg },
-  inboxSectionHeader: { paddingHorizontal: space.lg },
+  inboxSectionHeader: { paddingHorizontal: space.md },
   listSectionHeader: {
     alignItems: "center",
     flexDirection: "row",
@@ -1631,13 +1669,13 @@ const styles = StyleSheet.create({
   pickerRowSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   pickerTitle: { color: palette.ink, fontSize: 15, fontWeight: "700" },
   pressed: { opacity: 0.7 },
-  scopeAction: { color: palette.signal, fontSize: 13, fontWeight: "700", marginLeft: space.sm },
+  scopeAction: { color: palette.signal, fontSize: 14, fontWeight: "700", marginLeft: space.sm },
   scopeActionLargeText: { marginLeft: 0, marginTop: space.xs },
   searchField: {
     alignItems: "center",
     backgroundColor: palette.card,
     borderColor: palette.border,
-    borderRadius: 24,
+    borderRadius: radius.sm,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     marginTop: space.sm,
@@ -1676,9 +1714,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: palette.background,
     flexDirection: "row",
-    minHeight: 68,
-    paddingHorizontal: space.lg,
-    paddingVertical: 14,
+    minHeight: 60,
+    paddingHorizontal: space.md,
+    paddingVertical: 10,
   },
   sessionRowLargeText: { alignItems: "flex-start" },
   sessionStatus: { fontSize: 12, fontWeight: "700" },
@@ -1694,9 +1732,9 @@ const styles = StyleSheet.create({
   sessionTitle: {
     color: palette.ink,
     flex: 1,
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: "400",
-    lineHeight: 24,
+    lineHeight: 22,
     minWidth: 0,
   },
   sessionTopRow: {
@@ -1731,7 +1769,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: space.sm,
   },
-  smallButtonLabel: { color: palette.signal, fontSize: 13, fontWeight: "700" },
+  smallButtonLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
   swipeActions: { flexDirection: "row" },
   swipeContainer: { backgroundColor: palette.background },

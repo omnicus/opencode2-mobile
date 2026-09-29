@@ -86,6 +86,7 @@ export function RootNavigation() {
         headerShown: !tablet,
         headerStyle: { backgroundColor: palette.background },
         headerTintColor: palette.ink,
+        headerTitleStyle: { fontSize: 16, fontWeight: "500" },
       }}
     >
       <Stack.Screen
@@ -283,8 +284,8 @@ const styles = StyleSheet.create({
   headerTitle: {
     color: palette.ink,
     flex: 1,
-    fontSize: 17,
-    fontWeight: "700",
+    fontSize: 15,
+    fontWeight: "500",
     textAlign: "center",
   },
 });

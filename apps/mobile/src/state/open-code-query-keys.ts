@@ -181,6 +181,9 @@ export const openCodeQueryKeys = {
   skills(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "skills"] as const;
   },
+  shell(connectionId: string, location: LocationRef, id: string) {
+    return [...locationKey(connectionId, location), "shell", id] as const;
+  },
 };
 
 function connectionKey(connectionId: string) {

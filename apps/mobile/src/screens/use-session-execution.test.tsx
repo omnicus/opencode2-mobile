@@ -265,7 +265,8 @@ test("requires explicit active-turn delivery and applies inbox and execution con
   await waitFor(() => expect(mockInterrupt).toHaveBeenCalledTimes(1));
   expect(mockInterrupt.mock.calls[0]?.[2]).toBe(false);
   act(() => hook.result.current.background());
-  await waitFor(() => expect(mockBackground).toHaveBeenCalledTimes(1));
+  expect(hook.result.current.canBackground).toBe(false);
+  expect(mockBackground).not.toHaveBeenCalled();
   act(() => hook.result.current.wait());
   await waitFor(() => expect(mockWait).toHaveBeenCalledTimes(1));
 });
@@ -291,6 +292,64 @@ test("submits a command through the command endpoint with the existing admission
   });
   expect(mockPrompt).not.toHaveBeenCalled();
   await waitFor(() => expect(clearDraft).toHaveBeenCalledTimes(1));
+});
+
+test("background control follows a live foreground tool and rejects completed or stale work", async () => {
+  mockListActive.mockResolvedValue({ ses_a: { type: "running" } });
+  const queryClient = createQueryClient();
+  const message: SessionMessageInfo = {
+    type: "assistant",
+    id: "msg_blocking",
+    agent: "build",
+    model: { id: "model", providerID: "provider" },
+    time: { created: 1 },
+    content: [
+      {
+        type: "tool",
+        id: "tool_shell",
+        name: "shell",
+        time: { created: 1 },
+        state: { status: "running", input: { command: "test" }, metadata: {} },
+      },
+    ],
+  };
+  const hook = renderHook(
+    ({ messages }: { messages: SessionMessageInfo[] }) =>
+      useSessionExecution({
+        ...executionOptions("ses_a"),
+        messages,
+      }),
+    { initialProps: { messages: [message] }, wrapper: queryWrapper(queryClient) },
+  );
+  await waitFor(() => expect(hook.result.current.canBackground).toBe(true));
+  act(() => hook.result.current.background());
+  await waitFor(() => expect(mockBackground).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(hook.result.current.busyAction).toBeUndefined());
+  const part = message.content[0];
+  if (part?.type !== "tool" || part.state.status !== "running") throw new Error("fixture");
+  for (const changed of [
+    { ...message, time: { created: 1, completed: 2 } },
+    { ...message, content: [{ ...part, name: "read" }] },
+    {
+      ...message,
+      content: [{ ...part, state: { ...part.state, metadata: { background: true } } }],
+    },
+    { ...message, content: [{ ...part, state: { status: "streaming" as const, input: "{}" } }] },
+  ]) {
+    hook.rerender({ messages: [changed] });
+    expect(hook.result.current.canBackground).toBe(false);
+    act(() => hook.result.current.background());
+    expect(mockBackground).toHaveBeenCalledTimes(1);
+  }
+  hook.rerender({
+    messages: [
+      { type: "idle", id: "msg_idle", outcome: "succeeded", time: { created: 2 } },
+      message,
+    ],
+  });
+  expect(hook.result.current.canBackground).toBe(false);
+  hook.rerender({ messages: [{ ...message, content: [{ ...part, name: "subagent" }] }] });
+  expect(hook.result.current.canBackground).toBe(true);
 });
 
 test("offers an explicit duplicate-risk retry when a command response is lost", async () => {

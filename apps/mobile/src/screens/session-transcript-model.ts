@@ -39,6 +39,25 @@ export function flattenTranscriptPages(pages: SessionMessagesResponse[] | undefi
   return newestFirst;
 }
 
+// Backgrounding detaches blocking tools, not model generation or arbitrary work.
+// Messages arrive newest-first. Never offer an action for an older turn's tool.
+export function hasForegroundBackgroundableTool(messages: SessionMessageInfo[]) {
+  for (const message of messages) {
+    if (message.type === "idle" || message.type === "user") return false;
+    if (message.type !== "assistant") continue;
+    if (message.time.completed !== undefined) return false;
+    return message.content.some(
+      (part) =>
+        part.type === "tool" &&
+        (part.name === "shell" || part.name === "subagent") &&
+        part.state.status === "running" &&
+        part.state.metadata.background !== true &&
+        part.state.input.background !== true,
+    );
+  }
+  return false;
+}
+
 export function getSubagentPresentation(tool: AssistantTool): SubagentPresentation | undefined {
   const toolName = tool.name.trim().toLocaleLowerCase();
   if (toolName !== "subagent" && toolName !== "task") return undefined;

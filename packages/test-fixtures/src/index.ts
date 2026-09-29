@@ -21,6 +21,8 @@ export type FakeOpenCodeApiOptions = {
   serverInfoPath?: "/api/info" | "/api/status";
   sessions?: FakeSession[];
   skills?: unknown[];
+  shells?: Record<string, { info: unknown; output: string }>;
+  shellOutputResponse?: unknown;
   vcs?: unknown;
   vcsDiff?: unknown[];
 };
@@ -114,6 +116,26 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     }
     if (url.pathname === "/api/vcs/diff") {
       return json({ data: options.vcsDiff ?? [], location: resolvedLocation(options, url) });
+    }
+    const shellMatch = url.pathname.match(/^\/api\/shell\/([^/]+)(\/output)?$/);
+    if (shellMatch && method === "GET") {
+      const id = decodeURIComponent(shellMatch[1] ?? "");
+      const shell = options.shells?.[id];
+      if (!shell) return json({ _tag: "ShellNotFoundError", id, message: "Shell not found" }, 404);
+      if (!shellMatch[2])
+        return json({ location: resolvedLocation(options, url), data: shell.info });
+      const bytes = new TextEncoder().encode(shell.output);
+      const start = Math.min(Number(url.searchParams.get("cursor") ?? 0), bytes.length);
+      const end = Math.min(start + Number(url.searchParams.get("limit") ?? 65536), bytes.length);
+      return json({
+        location: resolvedLocation(options, url),
+        data: options.shellOutputResponse ?? {
+          output: new TextDecoder().decode(bytes.slice(start, end)),
+          cursor: end,
+          size: bytes.length,
+          truncated: false,
+        },
+      });
     }
     if (url.pathname === "/api/agent") {
       return json({ location: resolvedLocation(options, url), data: options.agents ?? [] });

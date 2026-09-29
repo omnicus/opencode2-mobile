@@ -17,6 +17,22 @@ const callbacks = {
   onWait: jest.fn(),
 };
 
+test("ordinary active execution does not advertise a background action", () => {
+  render(
+    <SessionExecutionPanel
+      active
+      admissions={[]}
+      inbox={[]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set()}
+      {...callbacks}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Stop" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Move to background" })).toBeNull();
+});
+
 test("renders active execution and mutable queued inbox work", () => {
   const inbox = [
     {
@@ -31,6 +47,7 @@ test("renders active execution and mutable queued inbox work", () => {
   render(
     <SessionExecutionPanel
       active
+      canBackground
       admissions={[]}
       inbox={inbox}
       permissionReplyError={false}

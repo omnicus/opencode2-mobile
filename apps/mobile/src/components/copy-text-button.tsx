@@ -44,7 +44,7 @@ export function CopyTextButton({
       style={styles.action}
     >
       {iconOnly && !status ? (
-        <Feather accessible={false} name="copy" size={20} color={palette.dim} />
+        <Feather accessible={false} name="copy" size={14} color={palette.dim} />
       ) : (
         <Text style={styles.label}>
           {status === "copied" ? "Copied" : status === "failed" ? "Retry copy" : label}

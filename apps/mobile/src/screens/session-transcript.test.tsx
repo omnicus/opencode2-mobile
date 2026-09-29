@@ -8,12 +8,21 @@ import { resetTranscriptPerformanceMetrics } from "../state/transcript-performan
 import { markdownPalette, palette } from "../theme";
 import {
   activitySummary,
+  buildTranscriptPresentation,
   groupTranscriptMessages,
   SessionTranscriptRow,
   TranscriptActivityGroup,
+  TranscriptUpdatesGroup,
 } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
+
+jest.mock("@opencode2-mobile/opencode-adapter", () => ({
+  getOpenCodeShell: jest.fn(),
+  getOpenCodeShellOutput: jest.fn(),
+  isShellNotFoundError: jest.fn(() => false),
+  maxShellOutputBytes: 64 * 1024,
+}));
 
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 
@@ -96,7 +105,7 @@ test("nested activity reveals individual calls before their output", () => {
         name: "shell",
         state: {
           ...tool.state,
-          input: { command: "echo nested" },
+          input: { command: "echo nested", workdir: "/workspace", timeout: 5000 },
           content: [{ type: "text" as const, text: output }],
         },
       },
@@ -122,6 +131,9 @@ test("nested activity reveals individual calls before their output", () => {
   expect(screen.queryByText(output)).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: /Shell.*Show/ }));
   expect(screen.getByText(output)).toBeOnTheScreen();
+  expect(screen.getAllByText("echo nested")).toHaveLength(1);
+  expect(screen.getByText(/"workdir": "\/workspace"/)).toBeOnTheScreen();
+  expect(screen.getByText(/"timeout": 5000/)).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: /Show more/ })).toBeNull();
   expect(screen.getByLabelText("Shell output")).toHaveStyle({ maxHeight: 240 });
   expect(screen.getByLabelText("Shell output").props.nestedScrollEnabled).toBe(true);
@@ -148,6 +160,45 @@ test("activity summaries count operations rather than inventing file counts", ()
     ]),
   ).toBe("Used 4 Glob, Grep, Shell, Patch");
 });
+
+test.each([
+  [
+    "execute",
+    { code: "return await tools.browser.tabs.list();" },
+    "return await tools.browser.tabs.list();",
+  ],
+  ["webfetch", { url: "https://example.test/docs" }, "https://example.test/docs"],
+  ["websearch", { query: "native shell output" }, "native shell output"],
+] satisfies [string, Record<string, string>, string][])(
+  "collapsed %s tools show the same input preview as the web client",
+  (name, input, preview) => {
+    const original = messages.find((message) => message.type === "assistant");
+    if (!original) throw new Error("fixture");
+    render(
+      <SessionTranscriptRow
+        detailed
+        message={{
+          ...original,
+          content: [
+            {
+              type: "tool",
+              id: "tool_preview",
+              name,
+              time: { created: 1 },
+              state: {
+                status: "completed",
+                input,
+                content: [{ type: "text", text: "Tool result" }],
+              },
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(preview)).toBeOnTheScreen();
+    expect(screen.queryByText("Tool result")).toBeNull();
+  },
+);
 
 test("cross-message grouping respects replies, errors, reasoning visibility and detailed mode", () => {
   const original = messages.find((message) => message.type === "assistant");
@@ -197,6 +248,142 @@ test("reasoning can be hidden without hiding replies or tool failures", () => {
   expect(screen.getByText("Reasoning detail")).toBeOnTheScreen();
 });
 
+test("newest-first pages keep six calls before commentary and five after it", () => {
+  const original = messages.find((message) => message.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const tool = original.content.find((part) => part.type === "tool");
+  if (!tool) throw new Error("fixture");
+  const { retry: _retry, ...assistant } = original;
+  const calls = (count: number, prefix: string) =>
+    Array.from({ length: count }, (_, index) => ({
+      ...tool,
+      id: `${prefix}-${index}`,
+      name: index % 2 ? "grep" : "read",
+    }));
+  const older = { ...assistant, id: "older", content: calls(6, "before") };
+  const mixed = {
+    ...assistant,
+    id: "mixed",
+    content: [{ type: "text" as const, text: "Progress commentary" }, ...calls(5, "after")],
+  };
+  const presentation = buildTranscriptPresentation([mixed, older], false, true);
+  expect([...presentation.items].reverse()).toMatchObject([
+    { type: "activity-group", count: 6 },
+    { type: "assistant", content: [{ type: "text", text: "Progress commentary" }] },
+    { type: "activity-group", count: 5 },
+  ]);
+  const newer = { ...assistant, id: "newer", content: calls(1, "new") };
+  const streamed = buildTranscriptPresentation([newer, mixed, older], false, true);
+  expect(streamed.items[0]).toMatchObject({ id: presentation.items[0]?.id, count: 6 });
+  expect(
+    presentation.items[0]?.type === "activity-group" &&
+      presentation.items[0].messages.flatMap((message) =>
+        message.type === "assistant"
+          ? message.content.map((part) => (part.type === "tool" ? part.id : ""))
+          : [],
+      ),
+  ).toEqual(["after-0", "after-1", "after-2", "after-3", "after-4"]);
+});
+
+test("updates remain inspectable and successful idle rows do not divide a turn footer", () => {
+  const original = messages.find((message) => message.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const { retry: _retry, ...assistant } = original;
+  const user: SessionMessageInfo = {
+    type: "user",
+    id: "start",
+    text: "Prompt",
+    time: { created: 0 },
+  };
+  const first = {
+    ...assistant,
+    id: "first",
+    content: [{ type: "text" as const, text: "Publishing" }],
+    time: { created: 1000, completed: 5000 },
+  };
+  const idle: SessionMessageInfo = {
+    type: "idle",
+    id: "idle",
+    outcome: "succeeded",
+    time: { created: 5001 },
+  };
+  const update: SessionMessageInfo = {
+    type: "synthetic",
+    id: "update",
+    description: "long background command",
+    text: "Background result",
+    time: { created: 6000 },
+  };
+  const last = {
+    ...first,
+    id: "last",
+    content: [{ type: "text" as const, text: "Published" }],
+    time: { created: 100000, completed: 113000 },
+  };
+  const result = buildTranscriptPresentation([last, update, idle, first, user], false, true);
+  expect(result.items.map((item) => item.type)).toEqual([
+    "assistant",
+    "updates-group",
+    "assistant",
+    "user",
+  ]);
+  expect([...result.footers]).toEqual([["last", 113000]]);
+  const group = result.items[1];
+  if (group?.type !== "updates-group") throw new Error("expected updates");
+  render(<TranscriptUpdatesGroup item={group} largeText={false} onOpenSubagent={jest.fn()} />);
+  expect(screen.queryByText("long background command")).toBeNull();
+  expect(screen.queryByText("Background result")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Updates Show" }));
+  expect(screen.getByText("long background command")).toBeOnTheScreen();
+  expect(screen.getByText("Background result")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Updates Hide" }));
+  expect(screen.queryByText("Background result")).toBeNull();
+  expect(
+    buildTranscriptPresentation([last, first], false, true).footers.get("last"),
+  ).toBeUndefined();
+  expect(buildTranscriptPresentation([last, update, idle, first, user], true, true).items).toEqual([
+    last,
+    update,
+    idle,
+    first,
+    user,
+  ]);
+});
+
+test("turn footer timing resets at a user prompt and failed outcomes stay visible", () => {
+  const original = messages.find((message) => message.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const { retry: _retry, ...assistant } = original;
+  const user: SessionMessageInfo = {
+    type: "user",
+    id: "user",
+    text: "Prompt",
+    time: { created: 0 },
+  };
+  const reply = {
+    ...assistant,
+    content: [{ type: "text" as const, text: "Reply" }],
+    time: { created: 1000, completed: 2000 },
+  };
+  const failed: SessionMessageInfo = {
+    type: "idle",
+    id: "failed",
+    outcome: "failed",
+    time: { created: 2100 },
+  };
+  const second = { ...reply, id: "second", time: { created: 3000, completed: 8000 } };
+  const result = buildTranscriptPresentation(
+    [second, { ...user, id: "next", time: { created: 2500 } }, failed, reply, user],
+    false,
+    false,
+  );
+  expect([...result.footers]).toEqual([
+    [reply.id, 2000],
+    ["second", 5500],
+  ]);
+  expect(result.items).toContain(failed);
+});
+
 test("compact system notices expand and detailed mode shows their content", () => {
   const message = messages.find((item) => item.type === "synthetic");
   if (!message) throw new Error("fixture");
@@ -206,6 +393,64 @@ test("compact system notices expand and detailed mode shows their content", () =
   expect(screen.getByText("Generated")).toBeOnTheScreen();
   view.rerender(<SessionTranscriptRow detailed message={message} />);
   expect(screen.getByText("Generated")).toBeOnTheScreen();
+});
+
+test("skill calls use the generated id or metadata name in a compact loaded label", () => {
+  const original = messages.find((message) => message.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const { retry: _retry, ...assistant } = original;
+  const tool = {
+    type: "tool" as const,
+    id: "tool_skill",
+    name: "skill",
+    time: { created: 1 },
+    state: {
+      status: "completed" as const,
+      input: { id: "native-ui" },
+      content: [{ type: "text" as const, text: "Skill instructions" }] as [
+        { type: "text"; text: string },
+      ],
+    },
+  };
+  const view = render(
+    <SessionTranscriptRow detailed message={{ ...assistant, content: [tool] }} />,
+  );
+  expect(screen.getByText("Loaded native-ui skill")).toBeOnTheScreen();
+  expect(screen.queryByText(/"id":/)).toBeNull();
+  expect(screen.queryByText("Skill instructions")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Loaded native-ui skill" }));
+  expect(screen.getByText("Skill instructions")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Loaded native-ui skill" }));
+  expect(screen.queryByText("Skill instructions")).toBeNull();
+  view.rerender(
+    <SessionTranscriptRow
+      detailed
+      message={{
+        ...assistant,
+        content: [{ ...tool, state: { ...tool.state, metadata: { name: "Native UI" } } }],
+      }}
+    />,
+  );
+  expect(screen.getByText("Loaded Native UI skill")).toBeOnTheScreen();
+  view.rerender(
+    <SessionTranscriptRow
+      detailed
+      message={{
+        ...assistant,
+        content: [
+          {
+            ...tool,
+            state: {
+              status: "error",
+              input: tool.state.input,
+              error: { type: "ToolError", message: "Skill missing" },
+            },
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByText("Skill missing")).toBeOnTheScreen();
 });
 
 test("detailed mode renders grouped tool executions individually", () => {
@@ -232,6 +477,7 @@ test.each([
 ] as const)("renders the idle outcome $outcome", ({ outcome, label }) => {
   render(
     <SessionTranscriptRow
+      detailed
       message={{ id: "msg_idle", time: { created: 1 }, type: "idle", outcome }}
     />,
   );
@@ -501,7 +747,7 @@ test("shows the responding model display name and measured runtime in the footer
       }}
     />,
   );
-  expect(screen.getByText("Plan · Model One · 28s")).toHaveStyle({ fontSize: 15, lineHeight: 22 });
+  expect(screen.getByText("Plan · Model One · 28s")).toHaveStyle({ fontSize: 14, lineHeight: 20 });
 });
 
 test("renders fenced assistant code without markdown fence markers", () => {
@@ -863,7 +1109,7 @@ test("groups completed assistant activity and places narrative metadata in the f
   expect(screen.getByText("Ran")).toBeOnTheScreen();
   expect(screen.getByText("pnpm test")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: /^Ran/ }));
-  expect(screen.getByText("$ pnpm test")).toBeOnTheScreen();
+  expect(screen.getByText("pnpm test")).toBeOnTheScreen();
   expect(screen.getByText("Build · model-1 · 2s")).toBeOnTheScreen();
 });
 
@@ -893,7 +1139,7 @@ test("hides repeated assistant metadata for a tool-only turn", () => {
     />,
   );
 
-  expect(screen.getByText("Used Skill")).toBeOnTheScreen();
+  expect(screen.getByText("Loaded review skill")).toBeOnTheScreen();
   expect(screen.queryByText("Build · model-1 · 500ms")).toBeNull();
 });
 
