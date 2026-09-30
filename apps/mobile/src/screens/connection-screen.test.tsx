@@ -1,6 +1,7 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 
+import { palette, typography } from "../theme";
 import { ConnectionScreen } from "./connection-screen";
 
 const mockCreateOpenCodeClient = jest.fn();
@@ -113,6 +114,10 @@ beforeEach(() => {
 
 test("requires approval before sending credentials over HTTP", async () => {
   await render(<ConnectionScreen />);
+  expect(screen.getByLabelText("Server origin")).toHaveStyle({
+    ...typography.body,
+    color: palette.ink,
+  });
 
   await fireEvent.changeText(
     screen.getByPlaceholderText("http://100.64.0.10:4096"),
@@ -126,6 +131,7 @@ test("requires approval before sending credentials over HTTP", async () => {
     "Approve private-network HTTP before connecting without TLS.",
   );
   expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
+  expect(screen.getByRole("alert")).toHaveStyle({ ...typography.body, color: palette.danger });
 });
 
 test("offers an opt-in device authentication lock", async () => {

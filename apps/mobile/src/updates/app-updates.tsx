@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.heading, color: palette.ink },
   copy: { ...typography.body, color: palette.dim },
-  error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
+  error: { ...typography.body, color: palette.danger },
   button: {
     minHeight: 44,
     justifyContent: "center",

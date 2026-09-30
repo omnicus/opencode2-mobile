@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react-native";
 import type { ReactNode } from "react";
 
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
+import { palette, typography } from "../theme";
 import { FollowedProjectsScreen } from "./followed-projects-screen";
 
 jest.mock("../state/workspace-selection-context", () => ({ useWorkspaceSelection: jest.fn() }));
@@ -28,7 +29,7 @@ test.each(["projectsError", "empty"])("offers recovery for %s", (state) => {
     />,
   );
   if (state === "empty") expect(screen.getByText("No server projects found")).toBeOnTheScreen();
-  else expect(screen.getByRole("alert")).toBeOnTheScreen();
+  else expect(screen.getByRole("alert")).toHaveStyle({ ...typography.body, color: palette.danger });
   fireEvent.press(
     screen.getByRole("button", {
       name: state === "empty" ? "Refresh projects" : "Retry loading projects",

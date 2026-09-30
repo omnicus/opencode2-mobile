@@ -1,7 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import type { SessionInboxInfo } from "@opencode2-mobile/opencode-adapter";
-import { fireEvent, render, screen } from "@testing-library/react-native";
-
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { palette, typography } from "../theme";
 import type { PromptAdmission } from "./prompt-admission-model";
 import { SessionExecutionPanel } from "./session-execution-panel";
 
@@ -16,6 +16,231 @@ const callbacks = {
   onSteerInbox: jest.fn(),
   onWait: jest.fn(),
 };
+
+test.each(["admitted", "queued", "steered", "promoted", "executing"] as const)(
+  "the %s handoff keeps Working without a non-actionable admission card",
+  (status) => {
+    render(
+      <SessionExecutionPanel
+        active
+        admissions={[
+          {
+            id: "msg_handoff",
+            kind: "prompt",
+            durable: true,
+            status,
+            submittedAtMs: 1,
+          },
+        ]}
+        inbox={[]}
+        permissions={[]}
+        permissionReplyError={false}
+        projectedMessageIds={new Set()}
+        {...callbacks}
+      />,
+    );
+    expect(screen.getByText("Working")).toBeOnTheScreen();
+    expect(
+      screen.queryByText("Waiting for the durable inbox item or projected message."),
+    ).toBeNull();
+    expect(screen.queryByText(status.toUpperCase())).toBeNull();
+  },
+);
+
+test("a brief steering inbox snapshot without a local admission never flashes controls", () => {
+  jest.useFakeTimers({ now: 1_000 });
+  try {
+    const props = {
+      active: false,
+      admissions: [],
+      permissions: [],
+      permissionReplyError: false,
+      projectedMessageIds: new Set<string>(),
+      ...callbacks,
+    };
+    const view = render(
+      <SessionExecutionPanel
+        {...props}
+        inbox={[
+          {
+            id: "msg_steering",
+            type: "user",
+            sessionID: "ses_test",
+            delivery: "steer",
+            payload: { text: "Prompt" },
+            time: { created: 1 },
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByText("STEERING")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Queue next" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    act(() => jest.advanceTimersByTime(100));
+    view.rerender(<SessionExecutionPanel {...props} inbox={[]} />);
+    act(() => jest.advanceTimersByTime(500));
+    expect(screen.queryByLabelText("Session execution")).toBeNull();
+    view.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("a prompt promoted within 200ms never flashes admission or inbox action cards", () => {
+  jest.useFakeTimers({ now: 1_000 });
+  try {
+    const admission: PromptAdmission = {
+      id: "msg_fast",
+      kind: "prompt",
+      durable: false,
+      status: "submitting",
+      submittedAtMs: Date.now(),
+    };
+    const props = {
+      active: false,
+      admissions: [admission],
+      inbox: [] as SessionInboxInfo[],
+      permissions: [],
+      permissionReplyError: false,
+      projectedMessageIds: new Set<string>(),
+      ...callbacks,
+    };
+    const view = render(<SessionExecutionPanel {...props} />);
+    expect(screen.queryByText("SENDING")).toBeNull();
+    act(() => jest.advanceTimersByTime(100));
+    view.rerender(
+      <SessionExecutionPanel
+        {...props}
+        active
+        admissions={[{ ...admission, durable: true, status: "queued" }]}
+        inbox={[
+          {
+            id: admission.id,
+            type: "user",
+            sessionID: "ses_test",
+            delivery: "queue",
+            payload: { text: "Quick prompt" },
+            time: { created: Date.now() },
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByText("QUEUED")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Steer now" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    act(() => jest.advanceTimersByTime(100));
+    view.rerender(
+      <SessionExecutionPanel {...props} active projectedMessageIds={new Set([admission.id])} />,
+    );
+    act(() => jest.advanceTimersByTime(1_000));
+    expect(screen.queryByText("SENDING")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    view.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test.each(["submitting", "queued"] as const)(
+  "a persistent %s prompt appears after the grace period even across refetches",
+  (status) => {
+    jest.useFakeTimers({ now: 1_000 });
+    try {
+      const admission: PromptAdmission = {
+        id: "msg_slow",
+        kind: "prompt",
+        durable: status === "queued",
+        status,
+        submittedAtMs: Date.now(),
+      };
+      const props = {
+        active: false,
+        admissions: [admission],
+        inbox:
+          status === "queued"
+            ? ([
+                {
+                  id: admission.id,
+                  type: "user",
+                  sessionID: "ses_test",
+                  delivery: "queue",
+                  payload: { text: "Waiting prompt" },
+                  time: { created: Date.now() },
+                },
+              ] satisfies SessionInboxInfo[])
+            : [],
+        permissions: [],
+        permissionReplyError: false,
+        projectedMessageIds: new Set<string>(),
+        ...callbacks,
+      };
+      const view = render(<SessionExecutionPanel {...props} />);
+      act(() => jest.advanceTimersByTime(300));
+      view.rerender(<SessionExecutionPanel {...props} admissions={[{ ...admission }]} />);
+      act(() => jest.advanceTimersByTime(199));
+      expect(screen.queryByLabelText("Session execution")).toBeNull();
+      act(() => jest.advanceTimersByTime(1));
+      expect(screen.getByText(status === "queued" ? "QUEUED" : "Sending")).toBeOnTheScreen();
+      if (status === "queued") {
+        fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+        expect(callbacks.onCancelInbox).toHaveBeenCalledWith(admission.id);
+      }
+      view.unmount();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  },
+);
+
+test("a projected prompt never retains stale inbox action cards", () => {
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[]}
+      inbox={[
+        {
+          id: "msg_projected",
+          type: "user",
+          sessionID: "ses_test",
+          delivery: "steer",
+          payload: { text: "Already in transcript" },
+          time: { created: 1 },
+        },
+      ]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set(["msg_projected"])}
+      {...callbacks}
+    />,
+  );
+  expect(screen.queryByLabelText("Session execution")).toBeNull();
+});
+
+test("unknown delivery bypasses the grace period", () => {
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[
+        {
+          id: "msg_recent_unknown",
+          kind: "prompt",
+          durable: false,
+          status: "unknown-delivery",
+          retryOffered: true,
+          submittedAtMs: Date.now(),
+        },
+      ]}
+      inbox={[]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set()}
+      {...callbacks}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Check delivery" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Allow retry (may duplicate)" })).toBeOnTheScreen();
+});
 
 test("ordinary active execution does not advertise a background action", () => {
   render(
@@ -33,7 +258,7 @@ test("ordinary active execution does not advertise a background action", () => {
   expect(screen.queryByRole("button", { name: "Move to background" })).toBeNull();
 });
 
-test("renders active execution and mutable queued inbox work", () => {
+test("renders active execution and mutable queued inbox work", async () => {
   const inbox = [
     {
       delivery: "queue",
@@ -62,7 +287,12 @@ test("renders active execution and mutable queued inbox work", () => {
   expect(callbacks.onBackground).toHaveBeenCalledTimes(1);
   fireEvent.press(screen.getByRole("button", { name: "Stop" }));
   expect(callbacks.onInterrupt).toHaveBeenCalledTimes(1);
-  expect(screen.getByText("Queued prompt")).toBeOnTheScreen();
+  await waitFor(() => expect(screen.getByText("Queued prompt")).toBeOnTheScreen());
+  expect(screen.getByText("Queued prompt")).toHaveStyle({ ...typography.body, color: palette.ink });
+  expect(screen.getByText("QUEUED")).toHaveStyle({ ...typography.label, color: palette.dim });
+  expect(screen.getByRole("button", { name: "Cancel" })).toHaveStyle({
+    borderColor: palette.border,
+  });
   fireEvent.press(screen.getByRole("button", { name: "Steer now" }));
   fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
   expect(callbacks.onSteerInbox).toHaveBeenCalledWith("msg_queued");
@@ -95,8 +325,9 @@ test("agent-switch reminders do not become actionable steering cards", () => {
   expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
 });
 
-test("keeps a real steering prompt actionable alongside internal mode reminders", () => {
-  render(
+test("steering never offers Queue next, even when it remains pending", () => {
+  jest.useFakeTimers();
+  const view = render(
     <SessionExecutionPanel
       active={false}
       admissions={[]}
@@ -124,12 +355,16 @@ test("keeps a real steering prompt actionable alongside internal mode reminders"
       ]}
     />,
   );
-  expect(screen.getAllByText("STEERING")).toHaveLength(1);
-  expect(screen.getByText("Please check the tests")).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Queue next" }));
-  expect(callbacks.onQueueInbox).toHaveBeenLastCalledWith("msg_followup");
-  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
-  expect(callbacks.onCancelInbox).toHaveBeenLastCalledWith("msg_followup");
+  try {
+    act(() => jest.advanceTimersByTime(5_000));
+    expect(screen.queryByText("STEERING")).toBeNull();
+    expect(screen.queryByText("Please check the tests")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Queue next" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+  } finally {
+    view.unmount();
+    jest.useRealTimers();
+  }
 });
 
 test("keeps unknown delivery visible until reconciliation finds the stable ID", () => {
@@ -153,6 +388,10 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
   );
 
   expect(screen.getByText("DELIVERY UNKNOWN")).toBeOnTheScreen();
+  expect(screen.getByText(/server may have admitted this prompt/)).toHaveStyle({
+    ...typography.body,
+    color: palette.dim,
+  });
   fireEvent.press(screen.getByRole("button", { name: "Check delivery" }));
   expect(callbacks.onCheckAdmission).toHaveBeenCalledWith("msg_unknown");
 

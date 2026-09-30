@@ -237,16 +237,14 @@ const styles = StyleSheet.create({
   },
   buttonPressed: { opacity: 0.7 },
   copy: {
+    ...typography.body,
     color: palette.dim,
-    fontSize: 16,
-    lineHeight: 24,
     marginTop: space.md,
     maxWidth: 440,
   },
   error: {
+    ...typography.body,
     color: palette.danger,
-    fontSize: 14,
-    lineHeight: 20,
     marginTop: space.md,
   },
   errorEyebrow: {

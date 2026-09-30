@@ -907,7 +907,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         onCheckAdmission={execution.reconcileAdmission}
         onInterrupt={execution.interrupt}
         onBackground={execution.background}
-        onQueueInbox={execution.queueInbox}
         onReplyPermission={workspaceSelection.replyPermission}
         onSteerInbox={execution.steerInbox}
         permissionReplyError={workspaceSelection.permissionReplyError}
@@ -947,7 +946,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         model={execution.selectedModel}
         models={execution.models}
         onAgentChange={execution.switchAgent}
-        onDeliveryChange={execution.setDelivery}
         onDraftChange={draft.setDraft}
         onModelChange={execution.switchModel}
         onMentionSearchChange={setMentionSearch}
@@ -1538,7 +1536,7 @@ const styles = StyleSheet.create({
   clearSearch: { justifyContent: "center", minHeight: 44, paddingLeft: space.sm },
   clearSearchLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
   connectionNotice: { color: palette.warm, fontSize: 12, lineHeight: 18, marginBottom: 2 },
-  contextLabel: { color: palette.dim, fontSize: 12, fontWeight: "600" },
+  contextLabel: { ...typography.label, color: palette.dim },
   contextRow: {
     alignItems: "center",
     borderBottomColor: palette.border,
@@ -1551,8 +1549,8 @@ const styles = StyleSheet.create({
   },
   contextRowLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
   contextRowCopy: { flex: 1, minWidth: 0 },
-  contextValue: { color: palette.ink, fontSize: 15, marginTop: 4 },
-  countLabel: { color: palette.dim, fontSize: 14, fontWeight: "600" },
+  contextValue: { ...typography.body, color: palette.ink, marginTop: 4 },
+  countLabel: { ...typography.control, color: palette.dim },
   deleteButton: {
     alignItems: "center",
     borderColor: palette.danger,
@@ -1574,7 +1572,7 @@ const styles = StyleSheet.create({
   detailContentLargeText: { paddingBottom: 140 },
   detailHeader: { paddingHorizontal: space.md, paddingTop: space.md },
   emptyState: { alignItems: "center", minHeight: 160, padding: space.xl },
-  error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
+  error: { ...typography.body, color: palette.danger },
   eyebrow: { ...typography.label, color: palette.dim },
   headerAction: {
     alignItems: "center",
@@ -1604,12 +1602,12 @@ const styles = StyleSheet.create({
   homeTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
   homeTitleRowLargeText: { alignItems: "flex-start", flexDirection: "column" },
   input: {
+    ...typography.body,
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.md,
     borderWidth: 1,
     color: palette.ink,
-    fontSize: 15,
     minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 12,
@@ -1642,8 +1640,8 @@ const styles = StyleSheet.create({
     paddingBottom: space.sm,
   },
   listSectionTitle: { color: palette.dim, flex: 1, fontSize: 14, fontWeight: "500" },
-  muted: { color: palette.dim, fontSize: 14, lineHeight: 21, marginTop: space.xs },
-  newSessionCopy: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.xs },
+  muted: { ...typography.body, color: palette.dim, marginTop: space.xs },
+  newSessionCopy: { ...typography.body, color: palette.dim, marginTop: space.xs },
   newSessionIntro: { marginBottom: space.sm },
   newSessionPrompt: {
     color: palette.ink,
@@ -1658,7 +1656,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     paddingBottom: space.md,
   },
-  pathText: { color: palette.dim, fontSize: 12, lineHeight: 18, marginTop: space.xs },
+  pathText: { ...typography.caption, color: palette.dim, marginTop: space.xs },
   pickerRow: {
     borderColor: palette.border,
     borderRadius: radius.md,
@@ -1667,7 +1665,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   pickerRowSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  pickerTitle: { color: palette.ink, fontSize: 15, fontWeight: "700" },
+  pickerTitle: { ...typography.heading, color: palette.ink },
   pressed: { opacity: 0.7 },
   scopeAction: { color: palette.signal, fontSize: 14, fontWeight: "700", marginLeft: space.sm },
   scopeActionLargeText: { marginLeft: 0, marginTop: space.xs },
@@ -1682,7 +1680,13 @@ const styles = StyleSheet.create({
     minHeight: 48,
     paddingHorizontal: 14,
   },
-  searchInput: { color: palette.ink, flex: 1, fontSize: 15, minHeight: 46, paddingVertical: 10 },
+  searchInput: {
+    ...typography.body,
+    color: palette.ink,
+    flex: 1,
+    minHeight: 46,
+    paddingVertical: 10,
+  },
   sectionCard: {
     backgroundColor: palette.card,
     borderColor: palette.border,
@@ -1754,13 +1758,12 @@ const styles = StyleSheet.create({
   },
   sheetRowCopy: { flex: 1, minWidth: 0 },
   sheetRowSelected: { backgroundColor: palette.signalDark },
-  sheetRowSubtitle: { color: palette.dim, fontSize: 12, lineHeight: 17, marginTop: 3 },
+  sheetRowSubtitle: { ...typography.caption, color: palette.dim, marginTop: 3 },
   sheetRowTitle: { ...typography.heading, color: palette.ink },
   sheetSection: { marginTop: space.xs },
   sheetSectionLabel: {
+    ...typography.label,
     color: palette.dim,
-    fontSize: 12,
-    fontWeight: "700",
     marginBottom: space.xs,
   },
   smallButton: {
@@ -1769,7 +1772,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: space.sm,
   },
-  smallButtonLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
+  smallButtonLabel: { ...typography.control, color: palette.signal },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
   swipeActions: { flexDirection: "row" },
   swipeContainer: { backgroundColor: palette.background },
@@ -1783,13 +1786,12 @@ const styles = StyleSheet.create({
   swipeDeleteLabel: { color: palette.background, fontSize: 12, fontWeight: "700" },
   title: { color: palette.ink, fontSize: 34, fontWeight: "700", letterSpacing: -1, lineHeight: 40 },
   titleInput: {
+    ...typography.body,
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.lg,
     borderWidth: 1,
     color: palette.ink,
-    fontSize: 18,
-    lineHeight: 25,
     minHeight: 118,
     padding: space.md,
   },

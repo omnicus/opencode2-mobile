@@ -265,11 +265,12 @@ measurements remain pending before final budgets are set.
       held in SecureStore, with backup exclusion and deletion tests.
 - [x] Load and select agents and models.
 - [x] Generate a stable admission ID before every prompt submission.
-- [x] Render the admitted inbox item as a temporary overlay and replace it by ID
-      when the projected transcript message appears.
+- [x] Keep normal admission progress compact, delay queued inbox controls through
+      transient handoffs, and remove them by ID when the transcript message appears.
 - [x] Track admitted, queued or steered, promoted, executing, cancelled,
       completed, and unknown-delivery states separately.
-- [x] Expose queue and steer choices while execution is active.
+- [x] Apply the device-owned queue or steer default from Settings while execution
+      is active, with Steer as the initial default and no per-send choice card.
 - [x] Display queued and active execution state.
 - [x] Add interrupt, background, and wait behavior where useful.
 - [x] Prevent accidental duplicate submission without hiding server conflicts.

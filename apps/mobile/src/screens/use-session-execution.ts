@@ -37,6 +37,7 @@ import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
+import { useTranscriptPreferences } from "../state/transcript-preferences";
 import {
   deleteUnresolvedPromptAdmission,
   listUnresolvedPromptAdmissions,
@@ -51,7 +52,6 @@ import {
   markPromptInterrupted,
   markPromptRetryOffered,
   type PromptAdmission,
-  type PromptDelivery,
   reconcilePromptAdmission,
 } from "./prompt-admission-model";
 import type { ComposerSubmitIntent } from "./session-composer-model";
@@ -94,7 +94,8 @@ export function useSessionExecution({
   const inboxKey = openCodeQueryKeys.inbox(scopedConnectionId, location, sessionID);
   const sessionKey = openCodeQueryKeys.session(scopedConnectionId, location, sessionID);
   const executionScope = `${routeConnectionId}\u0000${sessionID}`;
-  const [delivery, setDelivery] = useState<PromptDelivery>();
+  const preferences = useTranscriptPreferences();
+  const delivery = preferences.defaultDelivery ?? "steer";
   const [error, setError] = useState<string>();
   const [busyAction, setBusyAction] = useState<"background" | "interrupt" | "wait">();
   const controllersRef = useRef(new Set<AbortController>());
@@ -206,18 +207,12 @@ export function useSessionExecution({
     const controllers = controllersRef.current;
     submittingRef.current = false;
     setBusyAction(undefined);
-    setDelivery(undefined);
     setError(undefined);
     return () => {
       for (const controller of controllers) controller.abort();
       controllers.clear();
     };
   }, [executionScope]);
-
-  useEffect(() => {
-    if (active) return;
-    setDelivery(undefined);
-  }, [active]);
 
   useEffect(() => {
     if (!draftReady || admissions.length === 0) return;
@@ -656,7 +651,7 @@ export function useSessionExecution({
       !client ||
       !draftReady ||
       !executionStateReady ||
-      (active && !delivery) ||
+      preferences.busy ||
       submittingRef.current ||
       submissionMutation.isPending ||
       unresolvedAdmission
@@ -823,14 +818,13 @@ export function useSessionExecution({
     mentionLoading: agentsQuery.isPending || skillsQuery.isPending,
     mentionUnavailable: agentsQuery.isError || skillsQuery.isError,
     projectedMessageIds,
-    setDelivery,
     submit,
     submitDisabled:
       submissionMutation.isPending ||
       switchAgentMutation.isPending ||
       switchModelMutation.isPending ||
       unresolvedAdmission ||
-      (active && !delivery) ||
+      preferences.busy ||
       !executionStateReady ||
       !admissionsQuery.isSuccess ||
       !draftReady ||
