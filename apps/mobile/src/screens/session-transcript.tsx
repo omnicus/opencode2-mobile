@@ -16,6 +16,7 @@ import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
+import type { PendingPromptPreview } from "./prompt-admission-model";
 import { ShellObservation } from "./session-shell-output";
 import {
   getSubagentPresentation,
@@ -56,6 +57,40 @@ export type TranscriptItem =
       count: number;
       running: boolean;
     };
+
+export type TranscriptListItem = TranscriptItem | PendingPromptPreview;
+
+export function PendingPromptRow({
+  preview,
+  largeText = false,
+}: {
+  preview: PendingPromptPreview;
+  largeText?: boolean;
+}) {
+  const label = {
+    sending: "Sending",
+    queued: "Queued",
+    steering: "Waiting to steer",
+    "awaiting-transcript": "Sent · waiting for transcript",
+    "unknown-delivery": "Delivery unknown",
+  }[preview.status];
+  return (
+    <View style={styles.userRow}>
+      <View
+        style={[styles.userBubble, styles.pendingBubble, largeText && styles.userBubbleLargeText]}
+      >
+        <ExpandableText measureWidth style={styles.pendingText} text={preview.text} />
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.caption}
+          style={styles.pendingLabel}
+        >
+          {label}
+        </Text>
+      </View>
+    </View>
+  );
+}
 
 export function groupTranscriptMessages(
   messages: SessionMessageInfo[],
@@ -1974,6 +2009,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   userBubbleLargeText: { maxWidth: "100%" },
+  pendingBubble: {
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderWidth: 1,
+    gap: space.xs,
+  },
+  pendingText: { ...typography.body, color: palette.dim },
+  pendingLabel: { ...typography.caption, color: palette.dim },
   // Supply intrinsic text width to Yoga; the native selection view supplies height.
   textWidthMeasurement: { height: 0, overflow: "hidden", opacity: 0 },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.md, paddingVertical: space.md },
