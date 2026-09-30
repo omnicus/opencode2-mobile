@@ -313,6 +313,9 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
   while (!pendingText.props.selectable && pendingText.parent) pendingText = pendingText.parent;
   expect(pendingText).toHaveStyle({ ...typography.body, color: palette.dim });
   expect(screen.getByText("Sent · waiting for transcript")).toBeOnTheScreen();
+  // Wait for the initial REST snapshot before simulating a later projection.
+  // Otherwise that in-flight snapshot can overwrite the injected message on CI.
+  await screen.findByText("Newest answer");
   act(() => {
     queryClient.setQueryData(
       openCodeQueryKeys.messages("connection-1", scope, "ses_transcript", {
