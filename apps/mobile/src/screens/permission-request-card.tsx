@@ -123,7 +123,7 @@ export function PermissionRequestCard({
         </Text>
       ) : null}
       {error ? (
-        <Text accessibilityRole="alert" style={styles.reject}>
+        <Text accessibilityRole="alert" style={styles.error}>
           The server did not accept that reply. Review the refreshed request and try again.
         </Text>
       ) : null}
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 8,
   },
-  title: { ...typography.heading, color: palette.warm },
+  title: { ...typography.heading, color: palette.ink },
   action: { ...typography.body, color: palette.ink },
   commandBox: { backgroundColor: palette.background, borderRadius: radius.sm },
   command: {
@@ -190,6 +190,7 @@ const styles = StyleSheet.create({
   primaryLabel: { color: palette.background },
   buttonLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
   reject: { color: palette.danger },
+  error: { ...typography.body, color: palette.danger },
   disabled: { opacity: 0.5 },
   detailsButton: { minHeight: 44, justifyContent: "center" },
 });

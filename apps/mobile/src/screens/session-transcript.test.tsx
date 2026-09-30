@@ -5,7 +5,7 @@ import * as Clipboard from "expo-clipboard";
 import { Alert, Linking, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
-import { markdownPalette, palette } from "../theme";
+import { markdownPalette, palette, typography } from "../theme";
 import {
   activitySummary,
   buildTranscriptPresentation,
@@ -16,6 +16,25 @@ import {
 } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
+
+test("assistant prose uses the shared body typography and text color", async () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("fixture");
+  render(
+    <SessionTranscriptRow
+      message={{ ...message, content: [{ type: "text", text: "Themed response" }] }}
+    />,
+  );
+  let text = screen.getByText("Themed response");
+  while (!text.props.selectable && text.parent) text = text.parent;
+  expect(text).toHaveStyle({
+    ...typography.body,
+    color: palette.ink,
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Copy response" })).toBeOnTheScreen(),
+  );
+});
 
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   getOpenCodeShell: jest.fn(),
@@ -747,7 +766,7 @@ test("shows the responding model display name and measured runtime in the footer
       }}
     />,
   );
-  expect(screen.getByText("Plan · Model One · 28s")).toHaveStyle({ fontSize: 14, lineHeight: 20 });
+  expect(screen.getByText("Plan · Model One · 28s")).toHaveStyle(typography.caption);
 });
 
 test("renders fenced assistant code without markdown fence markers", () => {
