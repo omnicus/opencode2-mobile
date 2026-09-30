@@ -52,6 +52,7 @@ import {
   markPromptInterrupted,
   markPromptRetryOffered,
   type PromptAdmission,
+  pendingPromptPreviews,
   reconcilePromptAdmission,
 } from "./prompt-admission-model";
 import type { ComposerSubmitIntent } from "./session-composer-model";
@@ -233,6 +234,10 @@ export function useSessionExecution({
           ...(session?.outcome ? { sessionOutcome: session.outcome } : {}),
           sessionRunning: active,
         });
+        if (projectedMessage && next.previewText !== undefined) {
+          next = { ...next };
+          delete next.previewText;
+        }
         if (
           next.durable &&
           !next.confirmationHandled &&
@@ -661,6 +666,7 @@ export function useSessionExecution({
     submittingRef.current = true;
     const admission = {
       ...createPromptAdmission(active ? delivery : "steer"),
+      ...(intent.type === "prompt" ? { previewText: text } : {}),
       draftRevision,
       kind: intent.type,
     };
@@ -784,6 +790,7 @@ export function useSessionExecution({
   }
 
   return {
+    pendingPrompts: enabled ? pendingPromptPreviews(admissions, inbox, projectedMessageIds) : [],
     active,
     canBackground,
     allowRetry: (admissionID: string) => void allowRetry(admissionID),

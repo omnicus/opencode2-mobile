@@ -265,8 +265,8 @@ measurements remain pending before final budgets are set.
       held in SecureStore, with backup exclusion and deletion tests.
 - [x] Load and select agents and models.
 - [x] Generate a stable admission ID before every prompt submission.
-- [x] Keep normal admission progress compact, delay queued inbox controls through
-      transient handoffs, and remove them by ID when the transcript message appears.
+- [x] Show immediate muted, memory-only prompt bubbles, delay queued inbox controls
+      through transient handoffs, and replace pending bubbles by ID on projection.
 - [x] Track admitted, queued or steered, promoted, executing, cancelled,
       completed, and unknown-delivery states separately.
 - [x] Apply the device-owned queue or steer default from Settings while execution

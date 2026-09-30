@@ -1,3 +1,4 @@
+import type { SessionInboxInfo } from "@opencode2-mobile/opencode-adapter";
 import * as Crypto from "expo-crypto";
 
 export type PromptDelivery = "queue" | "steer";
@@ -15,6 +16,8 @@ export type PromptAdmissionStatus =
   | "unknown-delivery";
 
 export type PromptAdmission = {
+  // In-memory UI preview only. Never include this in admission recovery storage.
+  previewText?: string;
   confirmationHandled?: boolean;
   delivery?: PromptDelivery;
   draftRevision?: number;
@@ -26,6 +29,57 @@ export type PromptAdmission = {
   status: PromptAdmissionStatus;
   submittedAtMs: number;
 };
+
+export type PendingPromptPreview = {
+  type: "pending-prompt";
+  id: string;
+  text: string;
+  status: "sending" | "queued" | "steering" | "awaiting-transcript" | "unknown-delivery";
+  createdAtMs: number;
+};
+
+export function pendingPromptPreviews(
+  admissions: PromptAdmission[],
+  inbox: SessionInboxInfo[],
+  projectedMessageIds: Set<string>,
+): PendingPromptPreview[] {
+  const previews = new Map<string, PendingPromptPreview>();
+  for (const admission of admissions) {
+    if (
+      admission.kind !== "prompt" ||
+      admission.previewText === undefined ||
+      projectedMessageIds.has(admission.id) ||
+      admission.status === "cancelled" ||
+      admission.status === "completed"
+    )
+      continue;
+    previews.set(admission.id, {
+      type: "pending-prompt",
+      id: admission.id,
+      text: admission.previewText,
+      status:
+        admission.status === "unknown-delivery"
+          ? "unknown-delivery"
+          : admission.status === "submitting" && !admission.durable
+            ? "sending"
+            : "awaiting-transcript",
+      createdAtMs: admission.submittedAtMs,
+    });
+  }
+  for (const item of inbox) {
+    if (item.type !== "user" || projectedMessageIds.has(item.id)) continue;
+    previews.set(item.id, {
+      type: "pending-prompt",
+      id: item.id,
+      text: item.payload.text,
+      status: item.delivery === "queue" ? "queued" : "steering",
+      createdAtMs: previews.get(item.id)?.createdAtMs ?? item.time.created,
+    });
+  }
+  return [...previews.values()].sort(
+    (left, right) => right.createdAtMs - left.createdAtMs || right.id.localeCompare(left.id),
+  );
+}
 
 export type PromptAdmissionObservation = {
   inboxDelivery?: PromptDelivery;

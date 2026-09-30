@@ -278,6 +278,45 @@ test("uses the saved queue default and applies inbox and execution controls", as
   await waitFor(() => expect(mockWait).toHaveBeenCalledTimes(1));
 });
 
+test.each(["steer", "queue"] as const)(
+  "shows a %s preview immediately, before server acceptance",
+  async (delivery) => {
+    mockPreferences.defaultDelivery = delivery;
+    mockListActive.mockResolvedValue({ ses_a: { type: "running" } });
+    let accept: ((item: SessionInboxInfo) => void) | undefined;
+    mockPrompt.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          accept = resolve;
+        }),
+    );
+    const hook = renderExecutionHook();
+    await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+    act(() => hook.result.current.submit("Pending follow-up"));
+    await waitFor(() => expect(hook.result.current.pendingPrompts).toHaveLength(1));
+    const id = hook.result.current.admissions[0]?.id;
+    expect(hook.result.current.pendingPrompts[0]).toMatchObject({
+      id,
+      text: "Pending follow-up",
+      status: "sending",
+    });
+    await waitFor(() => expect(accept).toBeDefined());
+    expect(
+      mockAdmissionDb.runAsync.mock.calls.some((args) => args.includes("Pending follow-up")),
+    ).toBe(false);
+    await act(async () => {
+      accept?.(userInbox(id ?? "", delivery));
+    });
+    await waitFor(() =>
+      expect(hook.result.current.pendingPrompts[0]?.status).toBe(
+        delivery === "queue" ? "queued" : "steering",
+      ),
+    );
+    expect(hook.result.current.pendingPrompts).toHaveLength(1);
+    hook.unmount();
+  },
+);
+
 test("submits a command through the command endpoint with the existing admission guard", async () => {
   const clearDraft = jest.fn();
   const hook = renderExecutionHook({ onAdmissionConfirmed: clearDraft });

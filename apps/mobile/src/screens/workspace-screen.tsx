@@ -72,9 +72,10 @@ import { SessionExecutionPanel } from "./session-execution-panel";
 import { SessionShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
+  PendingPromptRow,
   SessionTranscriptRow,
   TranscriptActivityGroup,
-  type TranscriptItem,
+  type TranscriptListItem,
   TranscriptUpdatesGroup,
 } from "./session-transcript";
 import {
@@ -523,7 +524,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const deferredMentionSearch = useDeferredValue(mentionSearch);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
-  const transcriptListRef = useRef<FlatList<TranscriptItem>>(null);
+  const transcriptListRef = useRef<FlatList<TranscriptListItem>>(null);
   const liveFollowEnabledRef = useRef(true);
   const latestJumpPendingRef = useRef(false);
   const userScrollSessionRef = useRef(false);
@@ -613,11 +614,12 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         ? ({ state: "loading" } as const)
         : ({ state: "none" } as const);
   const messages = flattenTranscriptPages(messagesQuery.data?.pages);
-  const { items: transcriptItems, footers: transcriptFooters } = buildTranscriptPresentation(
-    messages,
-    transcriptPreferences.detailed,
-    transcriptPreferences.reasoning,
-  );
+  const { items: projectedTranscriptItems, footers: transcriptFooters } =
+    buildTranscriptPresentation(
+      messages,
+      transcriptPreferences.detailed,
+      transcriptPreferences.reasoning,
+    );
   const draft = useSessionDraft(routeConnectionId, sessionID);
   const execution = useSessionExecution({
     client: sessionLocationReady ? client : undefined,
@@ -633,6 +635,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     session,
     sessionID,
   });
+  const transcriptItems: TranscriptListItem[] = [
+    ...execution.pendingPrompts,
+    ...projectedTranscriptItems,
+  ];
   const sessionPermissions = workspaceSelection.permissions.filter(
     (request) => request.sessionID === sessionID,
   );
@@ -770,7 +776,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   }
 
   function scheduleLiveEdgeScroll() {
-    if (!liveFollowEnabledRef.current || messages.length === 0 || followFrameRef.current !== null) {
+    if (
+      !liveFollowEnabledRef.current ||
+      transcriptItems.length === 0 ||
+      followFrameRef.current !== null
+    ) {
       return;
     }
     followFrameRef.current = requestAnimationFrame(() => {
@@ -1064,7 +1074,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             onScrollEndDrag={handleScrollEndDrag}
             ref={transcriptListRef}
             renderItem={({ item }) =>
-              item.type === "activity-group" ? (
+              item.type === "pending-prompt" ? (
+                <PendingPromptRow preview={item} largeText={largeText} />
+              ) : item.type === "activity-group" ? (
                 <TranscriptActivityGroup
                   waitingFor={
                     sessionPermissions.length > 0
@@ -1113,7 +1125,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             windowSize={7}
           />
         </SessionShellScope.Provider>
-        {(!liveFollowEnabled || latestJumpPending) && messages.length > 0 ? (
+        {(!liveFollowEnabled || latestJumpPending) && transcriptItems.length > 0 ? (
           <Pressable
             accessibilityHint="Returns to new transcript output and resumes live follow"
             accessibilityLabel="Scroll to latest"

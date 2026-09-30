@@ -16,6 +16,7 @@ import { Dimensions, FlatList, Platform, RefreshControl } from "react-native";
 import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
+import { palette, typography } from "../theme";
 import { SessionScreen, WorkspaceScreen } from "./workspace-screen";
 
 jest.mock("../state/transcript-preferences", () => ({
@@ -275,6 +276,68 @@ const mockGetSession = jest.mocked(getOpenCodeSession);
 const mockGetLocation = jest.mocked(getOpenCodeLocation);
 const mockListAgents = jest.mocked(listOpenCodeAgents);
 const mockListMessages = jest.mocked(listOpenCodeMessages);
+
+test("shows a muted sent prompt before transcript projection and replaces it by stable ID", async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const scope = { directory: "/workspace" };
+  const id = "msg_pending_preview";
+  queryClient.setQueryData(
+    openCodeQueryKeys.promptAdmissions("connection-1", scope, "ses_transcript"),
+    [
+      {
+        id,
+        kind: "prompt",
+        durable: true,
+        status: "steered",
+        submittedAtMs: 1,
+        previewText: "Pending follow-up",
+      },
+    ],
+  );
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "pending-session",
+          name: "Session",
+          params: { connectionId: "connection-1", location: scope, sessionID: "ses_transcript" },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  await screen.findByText("Pending follow-up");
+  let pendingText = screen.getByText("Pending follow-up");
+  while (!pendingText.props.selectable && pendingText.parent) pendingText = pendingText.parent;
+  expect(pendingText).toHaveStyle({ ...typography.body, color: palette.dim });
+  expect(screen.getByText("Sent · waiting for transcript")).toBeOnTheScreen();
+  act(() => {
+    queryClient.setQueryData(
+      openCodeQueryKeys.messages("connection-1", scope, "ses_transcript", {
+        limit: 40,
+        order: "desc",
+      }),
+      {
+        pages: [
+          {
+            cursor: {},
+            data: [{ id, type: "user", text: "Pending follow-up", time: { created: 1 } }],
+          },
+        ],
+        pageParams: [undefined],
+      },
+    );
+  });
+  await waitFor(() => expect(screen.queryByText("Sent · waiting for transcript")).toBeNull());
+  expect(screen.getAllByText("Pending follow-up")).toHaveLength(1);
+  let deliveredText = screen.getByText("Pending follow-up");
+  while (!deliveredText.props.selectable && deliveredText.parent)
+    deliveredText = deliveredText.parent;
+  expect(deliveredText).toHaveStyle({ ...typography.body, color: palette.ink });
+  view.unmount();
+});
 
 test("updates the navigation title when the server session name changes", async () => {
   const setOptions = jest.fn();
