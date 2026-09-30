@@ -334,8 +334,17 @@ function ChoiceButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}>{label}</Text>
-      {description ? <Text style={styles.description}>{description}</Text> : null}
+      <Text
+        dynamicTypeRamp={typeRamp.control}
+        style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}
+      >
+        {label}
+      </Text>
+      {description ? (
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.description}>
+          {description}
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -368,6 +377,7 @@ function FormButton({
       ]}
     >
       <Text
+        dynamicTypeRamp={typeRamp.control}
         style={[
           styles.buttonLabel,
           primary && styles.buttonPrimaryLabel,
@@ -450,23 +460,23 @@ const styles = StyleSheet.create({
     minHeight: 44,
     padding: space.sm,
   },
-  choiceLabel: { color: palette.ink, fontSize: 14, fontWeight: "700" },
+  choiceLabel: { ...typography.control, color: palette.ink },
   choiceLabelSelected: { color: palette.signal },
   choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   constraint: { ...typography.caption, color: palette.dim },
   description: { ...typography.caption, color: palette.dim },
   disabled: { opacity: 0.5 },
   error: { ...typography.body, color: palette.danger },
-  eyebrow: { ...typography.heading, color: palette.warm },
+  eyebrow: { ...typography.label, color: palette.dim },
   field: { gap: space.xs },
   fieldHeading: { gap: 2 },
   input: {
+    ...typography.body,
     backgroundColor: palette.background,
     borderColor: palette.border,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.ink,
-    fontSize: 15,
     minHeight: 44,
     paddingHorizontal: space.sm,
     paddingVertical: space.sm,

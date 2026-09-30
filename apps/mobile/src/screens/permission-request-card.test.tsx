@@ -1,5 +1,6 @@
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
+import { palette, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
 
 const command = `python3 - <<'PY'\n${"print('review me')\n".repeat(100)}PY`;
@@ -10,6 +11,18 @@ const request = {
   resources: [command],
   save: ["python3 *"],
 };
+
+test("permission messages use neutral headings and shared error typography", () => {
+  render(<PermissionRequestCard request={request} replying={false} error onReply={jest.fn()} />);
+  expect(screen.getByText("Permission required")).toHaveStyle({
+    ...typography.heading,
+    color: palette.ink,
+  });
+  expect(screen.getByRole("alert")).toHaveStyle({
+    ...typography.body,
+    color: palette.danger,
+  });
+});
 
 test("shell requests show a short preview and preserve full commands and scope in Details", () => {
   const reply = jest.fn();
