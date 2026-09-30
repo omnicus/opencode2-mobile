@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { AppState, type AppStateStatus } from "react-native";
+import { palette, typography } from "../theme";
 
 import { AppUpdateCard, AppUpdatesProvider } from "./app-updates";
 
@@ -46,6 +47,10 @@ test("can recover from update-service failure without any connection providers",
     </AppUpdatesProvider>,
   );
   await screen.findByText("Couldn't check or download an app update. Try again.");
+  expect(screen.getByText("Couldn't check or download an app update. Try again.")).toHaveStyle({
+    ...typography.body,
+    color: palette.danger,
+  });
   mockCheck.mockResolvedValueOnce({ isAvailable: true });
   fireEvent.press(screen.getByRole("button", { name: "Check for app updates" }));
   const restart = await screen.findByRole("button", { name: "Restart to apply update" });

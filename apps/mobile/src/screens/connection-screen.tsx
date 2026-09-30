@@ -1165,9 +1165,8 @@ function ptyProbeErrorMessage(error: unknown) {
 
 const styles = StyleSheet.create({
   appLockError: {
+    ...typography.caption,
     color: palette.danger,
-    fontSize: 12,
-    lineHeight: 18,
     marginTop: space.sm,
   },
   appLockRow: { marginTop: space.lg },
@@ -1180,19 +1179,17 @@ const styles = StyleSheet.create({
     maxWidth: 680,
   },
   error: {
+    ...typography.body,
     backgroundColor: palette.background,
     borderColor: palette.danger,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.danger,
-    fontSize: 14,
-    lineHeight: 20,
     padding: space.md,
   },
   emptyCopy: {
+    ...typography.body,
     color: palette.dim,
-    fontSize: 14,
-    lineHeight: 20,
   },
   diagnosticsText: {
     ...typography.code,
@@ -1219,10 +1216,8 @@ const styles = StyleSheet.create({
   },
   flex: { flex: 1 },
   footer: {
+    ...typography.caption,
     color: palette.dim,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 10,
-    letterSpacing: 1.2,
     marginTop: space.lg,
     textAlign: "center",
   },
@@ -1234,9 +1229,8 @@ const styles = StyleSheet.create({
     paddingBottom: space.lg,
   },
   guidanceText: {
+    ...typography.body,
     color: palette.dim,
-    fontSize: 14,
-    lineHeight: 20,
   },
   guidanceTitle: {
     ...typography.label,
@@ -1267,20 +1261,19 @@ const styles = StyleSheet.create({
     color: palette.ink,
   },
   input: {
+    ...typography.body,
     backgroundColor: palette.background,
     borderColor: palette.border,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.ink,
-    fontSize: 15,
     minHeight: 48,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
   intro: {
+    ...typography.body,
     color: palette.dim,
-    fontSize: 16,
-    lineHeight: 24,
     marginTop: space.md,
     maxWidth: 560,
   },
@@ -1310,19 +1303,16 @@ const styles = StyleSheet.create({
     gap: space.lg,
   },
   metricValue: {
+    ...typography.heading,
     color: palette.ink,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 17,
-    fontWeight: "600",
   },
   notice: {
+    ...typography.body,
     backgroundColor: palette.background,
     borderColor: palette.success,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.success,
-    fontSize: 14,
-    lineHeight: 20,
     padding: space.md,
   },
   panel: {
@@ -1382,10 +1372,9 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   profileName: {
+    ...typography.heading,
     color: palette.ink,
     flex: 1,
-    fontSize: 16,
-    fontWeight: "700",
   },
   profileNameRow: {
     alignItems: "center",
@@ -1393,20 +1382,16 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   profileOrigin: {
+    ...typography.code,
     color: palette.dim,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 12,
   },
   profileSection: {
     gap: space.sm,
     marginTop: space.xl,
   },
   product: {
+    ...typography.label,
     color: palette.signal,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1.4,
   },
   result: {
     backgroundColor: palette.background,
@@ -1433,9 +1418,8 @@ const styles = StyleSheet.create({
     color: palette.success,
   },
   runtimeCopy: {
+    ...typography.caption,
     color: palette.dim,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 11,
   },
   runtimeActions: {
     flexDirection: "row",
@@ -1567,14 +1551,12 @@ const styles = StyleSheet.create({
     width: 8,
   },
   streamCode: {
+    ...typography.code,
     color: palette.signal,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontWeight: "700",
   },
   streamCopy: {
+    ...typography.body,
     color: palette.ink,
-    fontSize: 14,
-    lineHeight: 21,
   },
   streamResult: {
     backgroundColor: palette.card,
@@ -1608,9 +1590,8 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   warningText: {
+    ...typography.body,
     color: palette.dim,
-    fontSize: 14,
-    lineHeight: 19,
     marginTop: space.xs,
   },
   warningTitle: {

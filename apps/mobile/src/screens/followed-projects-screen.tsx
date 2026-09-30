@@ -222,9 +222,9 @@ function projectLabel(project: { canonical: string; id: string; name?: string })
 
 const styles = StyleSheet.create({
   content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },
-  copy: { color: palette.dim, fontSize: 14, lineHeight: 21 },
+  copy: { ...typography.body, color: palette.dim },
   disabled: { opacity: 0.5 },
-  error: { color: palette.danger, fontSize: 14, lineHeight: 20 },
+  error: { ...typography.body, color: palette.danger },
   eyebrow: { ...typography.label, color: palette.dim },
   followState: { ...typography.label, color: palette.dim },
   followStateSelected: { color: palette.signal },
@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   projectMain: { gap: space.xs, minHeight: 72, padding: space.md },
-  projectPath: { color: palette.dim, fontSize: 12, lineHeight: 17 },
+  projectPath: { ...typography.caption, color: palette.dim },
   projectSelected: { borderColor: palette.signal },
   projectTitle: { ...typography.heading, color: palette.ink },
   state: { alignItems: "center", gap: space.sm, paddingVertical: space.xl },

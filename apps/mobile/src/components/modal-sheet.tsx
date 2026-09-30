@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
-import { palette, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
+import { palette, radius, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
 
 export function ModalSheet({
   children,
@@ -150,7 +150,13 @@ const styles = StyleSheet.create({
   frame: { flex: 1 },
   overlay: { backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center" },
   bottom: { justifyContent: "flex-end" },
-  panel: { width: "100%", maxWidth: 640, maxHeight: "90%", borderRadius: 18, overflow: "hidden" },
+  panel: {
+    width: "100%",
+    maxWidth: 640,
+    maxHeight: "90%",
+    borderRadius: radius.lg,
+    overflow: "hidden",
+  },
   compactPanel: { flex: 0, flexShrink: 1 },
   compactKeyboardView: { flex: 0, flexShrink: 1 },
   compactScroll: { flexGrow: 0, flexShrink: 1 },

@@ -3,18 +3,17 @@ import type {
   PermissionRequest,
   SessionInboxInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { WorkingIndicator } from "../components/working-indicator";
 import { control, palette, radius, space, typeRamp, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
-import {
-  type PromptAdmission,
-  promptAdmissionLabel,
-  promptAdmissionNeedsOverlay,
-} from "./prompt-admission-model";
+import { type PromptAdmission, promptAdmissionNeedsOverlay } from "./prompt-admission-model";
 import { sanitizeTranscriptText } from "./session-transcript-model";
+
+// Fast admissions normally reach the transcript before a card can be read.
+const promptCardDelayMs = 500;
 
 export function SessionExecutionPanel({
   active,
@@ -28,7 +27,6 @@ export function SessionExecutionPanel({
   onCheckAdmission,
   onInterrupt,
   onBackground,
-  onQueueInbox,
   onReplyPermission,
   onSteerInbox,
   permissionReplyError,
@@ -47,7 +45,6 @@ export function SessionExecutionPanel({
   onCheckAdmission: (admissionID: string) => void;
   onInterrupt: () => void;
   onBackground?: () => void;
-  onQueueInbox: (inboxID: string) => void;
   onReplyPermission: (requestID: string, sessionID: string, reply: PermissionReply) => void;
   onSteerInbox: (inboxID: string) => void;
   permissionReplyError: boolean;
@@ -56,17 +53,81 @@ export function SessionExecutionPanel({
   replyingPermissionId?: string | undefined;
 }) {
   const { height } = useWindowDimensions();
-  // Agent-mode reminders and other control inputs are server-owned inbox work,
-  // not user prompts that should offer steering or cancellation controls.
-  const promptInbox = inbox.filter((item) => item.type === "user");
+  const [, refreshDisplay] = useState(0);
+  const [inboxDeadlines, setInboxDeadlines] = useState<Map<string, number>>(() => new Map());
+  const now = Date.now();
+
+  useEffect(() => {
+    const ids = inbox
+      .filter(
+        (item) =>
+          item.type === "user" && item.delivery === "queue" && !projectedMessageIds.has(item.id),
+      )
+      .map((item) => item.id);
+    setInboxDeadlines((current) => {
+      if (ids.length === current.size && ids.every((id) => current.has(id))) return current;
+      return new Map(ids.map((id) => [id, current.get(id) ?? Date.now() + promptCardDelayMs]));
+    });
+  }, [inbox, projectedMessageIds]);
+
+  const settlingAdmissionIds = new Set(
+    admissions
+      .filter(
+        (admission) =>
+          admission.status !== "unknown-delivery" &&
+          now < admission.submittedAtMs + promptCardDelayMs,
+      )
+      .map((admission) => admission.id),
+  );
+
+  useEffect(() => {
+    const admissionDeadlines = admissions
+      .filter(
+        (admission) =>
+          admission.status !== "unknown-delivery" &&
+          admission.status !== "cancelled" &&
+          admission.status !== "completed" &&
+          !projectedMessageIds.has(admission.id),
+      )
+      .map((admission) => admission.submittedAtMs + promptCardDelayMs);
+    const deadlines = [...admissionDeadlines, ...inboxDeadlines.values()].filter(
+      (deadline) => deadline > now,
+    );
+    if (deadlines.length === 0) return;
+    const timer = setTimeout(
+      () => refreshDisplay((revision) => revision + 1),
+      Math.max(0, Math.min(...deadlines) - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [admissions, projectedMessageIds, inboxDeadlines, now]);
+
+  // Steering is already selected by the delivery preference. Only queued prompts
+  // need persistent controls while they wait for the current execution to finish.
+  const promptInbox = inbox.filter(
+    (item) =>
+      item.type === "user" &&
+      item.delivery === "queue" &&
+      !projectedMessageIds.has(item.id) &&
+      now >= (inboxDeadlines.get(item.id) ?? Infinity) &&
+      !settlingAdmissionIds.has(item.id),
+  );
   const inboxIds = new Set(inbox.map((item) => item.id));
   const localOverlays = admissions.filter(
     (admission) =>
+      admission.status === "unknown-delivery" &&
       !inboxIds.has(admission.id) &&
+      promptAdmissionNeedsOverlay(admission, projectedMessageIds.has(admission.id)),
+  );
+  const sending = admissions.some(
+    (admission) =>
+      admission.status === "submitting" &&
+      !inboxIds.has(admission.id) &&
+      !settlingAdmissionIds.has(admission.id) &&
       promptAdmissionNeedsOverlay(admission, projectedMessageIds.has(admission.id)),
   );
   if (
     !active &&
+    !sending &&
     promptInbox.length === 0 &&
     localOverlays.length === 0 &&
     permissions.length === 0 &&
@@ -142,30 +203,36 @@ export function SessionExecutionPanel({
 
       {formRequests}
 
+      {!active && sending ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.caption}
+          style={styles.sending}
+        >
+          Sending
+        </Text>
+      ) : null}
+
       {localOverlays.map((admission) => (
         <View key={admission.id} style={styles.admissionCard}>
           <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-            {promptAdmissionLabel(admission.status).toUpperCase()}
+            DELIVERY UNKNOWN
           </Text>
           <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
-            {admission.status === "unknown-delivery"
-              ? admission.kind === "command"
-                ? "The server may have run this command. Check the transcript before sending it again."
-                : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."
-              : "Waiting for the durable inbox item or projected message."}
+            {admission.kind === "command"
+              ? "The server may have run this command. Check the transcript before sending it again."
+              : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."}
           </Text>
-          {admission.status === "unknown-delivery" ? (
-            <View style={styles.actionRow}>
-              <PanelButton label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
-              {admission.retryOffered ? (
-                <PanelButton
-                  danger
-                  label="Allow retry (may duplicate)"
-                  onPress={() => onAllowRetry(admission.id)}
-                />
-              ) : null}
-            </View>
-          ) : null}
+          <View style={styles.actionRow}>
+            <PanelButton label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
+            {admission.retryOffered ? (
+              <PanelButton
+                danger
+                label="Allow retry (may duplicate)"
+                onPress={() => onAllowRetry(admission.id)}
+              />
+            ) : null}
+          </View>
         </View>
       ))}
 
@@ -173,7 +240,7 @@ export function SessionExecutionPanel({
         <View key={item.id} style={styles.inboxCard}>
           <View style={styles.inboxHeading}>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-              {item.delivery === "queue" ? "QUEUED" : "STEERING"}
+              QUEUED
             </Text>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.inboxType}>
               {inboxTypeLabel(item)}
@@ -185,11 +252,7 @@ export function SessionExecutionPanel({
             </Text>
           ) : null}
           <View style={styles.actionRow}>
-            {item.delivery === "queue" ? (
-              <PanelButton label="Steer now" onPress={() => onSteerInbox(item.id)} />
-            ) : (
-              <PanelButton label="Queue next" onPress={() => onQueueInbox(item.id)} />
-            )}
+            <PanelButton label="Steer now" onPress={() => onSteerInbox(item.id)} />
             <PanelButton danger label="Cancel" onPress={() => onCancelInbox(item.id)} />
           </View>
         </View>
@@ -258,7 +321,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: "center",
   },
-  actionButtonDanger: { borderColor: palette.danger },
+  actionButtonDanger: { borderColor: palette.border },
   actionLabel: { ...typography.control, color: palette.ink },
   actionLabelDanger: { color: palette.danger },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
@@ -271,8 +334,9 @@ const styles = StyleSheet.create({
     gap: space.sm,
     padding: space.md,
   },
-  cardCopy: { color: palette.dim, fontSize: 14, lineHeight: 19 },
-  cardEyebrow: { ...typography.label, color: palette.warm },
+  cardCopy: { ...typography.body, color: palette.dim },
+  sending: { ...typography.caption, color: palette.dim },
+  cardEyebrow: { ...typography.label, color: palette.dim },
   disabled: { opacity: 0.5 },
   executionRow: {
     alignItems: "center",
@@ -283,9 +347,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     minHeight: 44,
   },
-  executionTitle: { color: palette.dim, flexShrink: 1, fontSize: 12 },
+  executionTitle: { ...typography.caption, color: palette.dim, flexShrink: 1 },
   stopButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
-  stopLabel: { color: palette.ink, fontSize: 14 },
+  stopLabel: { ...typography.control, color: palette.ink },
   headingRow: { alignItems: "center", flexDirection: "row", flexShrink: 1, gap: space.sm },
   inboxCard: {
     backgroundColor: palette.card,
@@ -302,9 +366,9 @@ const styles = StyleSheet.create({
     gap: space.xs,
     justifyContent: "space-between",
   },
-  inboxType: { color: palette.dim, fontSize: 11, fontWeight: "700" },
+  inboxType: { ...typography.label, color: palette.dim },
   pressed: { opacity: 0.62 },
-  promptPreview: { color: palette.ink, fontSize: 14, lineHeight: 20 },
+  promptPreview: { ...typography.body, color: palette.ink },
   content: { gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.xs },
   shell: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },
 });

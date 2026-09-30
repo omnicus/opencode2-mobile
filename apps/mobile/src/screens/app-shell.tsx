@@ -377,6 +377,35 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
 
         <View style={styles.settingCard}>
           <View style={styles.settingText}>
+            <Text style={styles.cardTitle}>Default follow-up delivery</Text>
+            <Text style={styles.cardCopy}>
+              Steer updates the current work. Queue waits until it finishes.
+            </Text>
+            <View accessibilityLabel="Default follow-up delivery" accessibilityRole="radiogroup">
+              {(["steer", "queue"] as const).map((delivery) => (
+                <Pressable
+                  key={delivery}
+                  accessibilityRole="radio"
+                  accessibilityState={{
+                    checked: transcript.defaultDelivery === delivery,
+                    disabled: transcript.busy,
+                  }}
+                  disabled={transcript.busy}
+                  onPress={() => void transcript.update({ defaultDelivery: delivery })}
+                  style={{ minHeight: 48, justifyContent: "center" }}
+                >
+                  <Text style={styles.cardTitle}>
+                    {transcript.defaultDelivery === delivery ? "✓ " : ""}
+                    {delivery === "steer" ? "Steer" : "Queue"}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.settingCard}>
+          <View style={styles.settingText}>
             <Text style={styles.cardTitle}>Detailed transcript</Text>
             <Text style={styles.cardCopy}>
               {transcript.detailed
@@ -409,7 +438,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         </View>
         {transcript.error ? (
           <Text accessibilityRole="alert" style={styles.errorText}>
-            Transcript preferences could not be loaded or saved. Try changing the setting again.
+            Message preferences could not be loaded or saved. Try changing the setting again.
           </Text>
         ) : null}
 
@@ -1075,7 +1104,7 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     padding: space.lg,
   },
-  cardCopy: { color: palette.dim, fontSize: 15, lineHeight: 22, marginTop: space.xs },
+  cardCopy: { ...typography.body, color: palette.dim, marginTop: space.xs },
   cardLabel: { ...typography.label, color: palette.dim },
   cardTitle: {
     ...typography.heading,
@@ -1140,7 +1169,7 @@ const styles = StyleSheet.create({
   },
   emptyMark: { color: palette.signal, fontSize: 34, fontWeight: "300", letterSpacing: -1.2 },
   errorEyebrow: { ...typography.label, color: palette.danger },
-  errorText: { color: palette.danger, fontSize: 14, lineHeight: 20, marginTop: space.sm },
+  errorText: { ...typography.body, color: palette.danger, marginTop: space.sm },
   eyebrow: { ...typography.label, color: palette.dim },
   failureCard: {
     backgroundColor: palette.background,
@@ -1150,7 +1179,7 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     padding: space.lg,
   },
-  lede: { color: palette.dim, fontSize: 16, lineHeight: 24, marginTop: space.sm, maxWidth: 620 },
+  lede: { ...typography.body, color: palette.dim, marginTop: space.sm, maxWidth: 620 },
   main: { flex: 1, minWidth: 0 },
   metric: {
     backgroundColor: palette.card,
@@ -1162,7 +1191,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.sm },
-  metricLabel: { color: palette.dim, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
+  metricLabel: { ...typography.label, color: palette.dim },
   metricValue: { color: palette.ink, fontSize: 34, fontWeight: "300", lineHeight: 41 },
   navigationItem: {
     alignItems: "center",
@@ -1236,17 +1265,14 @@ const styles = StyleSheet.create({
   },
   stateCardText: { flex: 1 },
   stateCopy: {
+    ...typography.body,
     color: palette.dim,
-    fontSize: 16,
-    lineHeight: 24,
     marginTop: space.sm,
     maxWidth: 480,
   },
   stateTitle: {
+    ...typography.title,
     color: palette.ink,
-    fontSize: 28,
-    fontWeight: "700",
-    lineHeight: 34,
     marginTop: space.sm,
   },
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },

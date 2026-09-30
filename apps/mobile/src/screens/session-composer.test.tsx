@@ -11,6 +11,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react-native
 import { useState } from "react";
 import { Keyboard, StyleSheet } from "react-native";
 
+import { typography } from "../theme";
 import type { PromptDelivery } from "./prompt-admission-model";
 import { SessionComposer } from "./session-composer";
 import type { ComposerMention, ComposerSubmitIntent } from "./session-composer-model";
@@ -143,16 +144,17 @@ test("keeps send in the focused composer toolbar", () => {
   ).toBeOnTheScreen();
 });
 
-test("requires an explicit queue or steer choice while execution is active", () => {
+test("uses the selected default without showing queue or steer choices", () => {
   const onSubmit = jest.fn();
   render(<ComposerHarness active onSubmit={onSubmit} />);
 
   const input = screen.getByLabelText("Prompt");
+  expect(input).toHaveStyle(typography.body);
   fireEvent.changeText(input, "Follow-up");
-  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   fireEvent(input, "focus");
-  fireEvent.press(screen.getByRole("radio", { name: "Queue next" }));
-  fireEvent.press(screen.getByRole("button", { name: "Queue" }));
+  expect(screen.queryByRole("radio", { name: "Queue next" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "Steer now" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Steer" }));
 
   expect(onSubmit).toHaveBeenCalledTimes(1);
 });
@@ -172,7 +174,6 @@ test("keeps the editor read-only until its encrypted draft has loaded", () => {
       mentions={[]}
       models={models}
       onAgentChange={jest.fn()}
-      onDeliveryChange={jest.fn()}
       onDraftChange={jest.fn()}
       onModelChange={jest.fn()}
       onMentionSearchChange={jest.fn()}
@@ -200,7 +201,6 @@ test("selects a server agent and model", () => {
       mentions={[]}
       models={models}
       onAgentChange={onAgentChange}
-      onDeliveryChange={jest.fn()}
       onDraftChange={jest.fn()}
       onModelChange={onModelChange}
       onMentionSearchChange={jest.fn()}
@@ -329,7 +329,7 @@ function ComposerHarness({
   onSubmit: (intent: ComposerSubmitIntent) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const [delivery, setDelivery] = useState<PromptDelivery>();
+  const delivery: PromptDelivery = "steer";
   const [agent, setAgent] = useState<string>();
   const [model, setModel] = useState<ModelRef>();
   const [mentions, setMentions] = useState<ComposerMention[]>([]);
@@ -351,7 +351,6 @@ function ComposerHarness({
       model={model}
       models={models}
       onAgentChange={setAgent}
-      onDeliveryChange={setDelivery}
       onDraftChange={(content, nextMentions) => {
         setDraft(content);
         setMentions(nextMentions);

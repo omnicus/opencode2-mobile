@@ -20,6 +20,13 @@ import type { PromptAdmission } from "./prompt-admission-model";
 import { resolveSessionAgent, useSessionExecution } from "./use-session-execution";
 
 const mockLocation = { directory: "/workspace" } satisfies LocationRef;
+const mockPreferences: { defaultDelivery: "queue" | "steer"; busy: boolean } = {
+  defaultDelivery: "steer",
+  busy: false,
+};
+jest.mock("../state/transcript-preferences", () => ({
+  useTranscriptPreferences: () => mockPreferences,
+}));
 const mockAdmissionDb = {
   getAllAsync: jest.fn<(...args: unknown[]) => Promise<unknown[]>>(async () => []),
   runAsync: jest.fn<(...args: unknown[]) => Promise<void>>(async () => undefined),
@@ -104,6 +111,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  mockPreferences.defaultDelivery = "steer";
+  mockPreferences.busy = false;
   jest.clearAllMocks();
   mockListActive.mockResolvedValue({});
   mockListInbox.mockResolvedValue([]);
@@ -235,7 +244,8 @@ test("preserves an unknown draft when the latest server snapshot has no matching
   expect(clearDraft).not.toHaveBeenCalled();
 });
 
-test("requires explicit active-turn delivery and applies inbox and execution controls", async () => {
+test("uses the saved queue default and applies inbox and execution controls", async () => {
+  mockPreferences.defaultDelivery = "queue";
   mockListActive.mockResolvedValue({ ses_a: { type: "running" } });
   mockListInbox.mockResolvedValue([userInbox("msg_queued", "queue")]);
   mockPrompt.mockImplementation(async (...args) => {
@@ -245,9 +255,6 @@ test("requires explicit active-turn delivery and applies inbox and execution con
   const hook = renderExecutionHook();
   await waitFor(() => expect(hook.result.current.active).toBe(true));
 
-  act(() => hook.result.current.submit("Follow up"));
-  expect(mockPrompt).not.toHaveBeenCalled();
-  act(() => hook.result.current.setDelivery("queue"));
   await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
   act(() => hook.result.current.submit("Follow up"));
   await waitFor(() => expect(mockPrompt).toHaveBeenCalledTimes(1));
@@ -505,7 +512,8 @@ test("keeps a late admission result scoped to the session that sent it", async (
   expect(clearB).not.toHaveBeenCalled();
 });
 
-test("resets delivery and visible errors when the session scope changes", async () => {
+test("retains the saved delivery default and clears errors when the session scope changes", async () => {
+  mockPreferences.defaultDelivery = "queue";
   mockListActive.mockResolvedValue({
     ses_a: { type: "running" },
     ses_b: { type: "running" },
@@ -519,13 +527,12 @@ test("resets delivery and visible errors when the session scope changes", async 
     },
   );
   await waitFor(() => expect(hook.result.current.active).toBe(true));
-  act(() => hook.result.current.setDelivery("queue"));
   act(() => hook.result.current.switchAgent("build"));
   await waitFor(() => expect(hook.result.current.error).toMatch(/agent/i));
 
   hook.rerender({ sessionID: "ses_b" });
 
-  await waitFor(() => expect(hook.result.current.delivery).toBeUndefined());
+  await waitFor(() => expect(hook.result.current.delivery).toBe("queue"));
   expect(hook.result.current.error).toBeUndefined();
   expect(hook.result.current.busyAction).toBeUndefined();
 });

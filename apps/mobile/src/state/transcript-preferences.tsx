@@ -1,8 +1,8 @@
 import { useSQLiteContext } from "expo-sqlite";
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
 
-type Preferences = { detailed: boolean; reasoning: boolean };
-const defaults: Preferences = { detailed: false, reasoning: false };
+type Preferences = { detailed: boolean; reasoning: boolean; defaultDelivery: "steer" | "queue" };
+const defaults: Preferences = { detailed: false, reasoning: false, defaultDelivery: "steer" };
 const Context = createContext({
   ...defaults,
   busy: false,
@@ -19,12 +19,16 @@ export function TranscriptPreferencesProvider({ children }: { children: ReactNod
   useEffect(() => {
     let active = true;
     void db
-      .getFirstAsync<{ detailed: number; reasoning: number }>(
-        "SELECT detailed, reasoning FROM transcript_preferences WHERE singleton = 1",
+      .getFirstAsync<{ detailed: number; reasoning: number; default_delivery: string }>(
+        "SELECT detailed, reasoning, default_delivery FROM transcript_preferences WHERE singleton = 1",
       )
       .then((row) => {
         if (active && row)
-          setPreferences({ detailed: row.detailed === 1, reasoning: row.reasoning === 1 });
+          setPreferences({
+            detailed: row.detailed === 1,
+            reasoning: row.reasoning === 1,
+            defaultDelivery: row.default_delivery === "queue" ? "queue" : "steer",
+          });
       })
       .catch(() => {
         if (active) setError(true);
@@ -45,9 +49,10 @@ export function TranscriptPreferencesProvider({ children }: { children: ReactNod
     const next = { ...preferences, ...patch };
     try {
       await db.runAsync(
-        "UPDATE transcript_preferences SET detailed = ?, reasoning = ? WHERE singleton = 1",
+        "UPDATE transcript_preferences SET detailed = ?, reasoning = ?, default_delivery = ? WHERE singleton = 1",
         Number(next.detailed),
         Number(next.reasoning),
+        next.defaultDelivery,
       );
       setPreferences(next);
     } catch {

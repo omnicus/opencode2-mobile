@@ -73,7 +73,6 @@ export function SessionComposer({
   model,
   models,
   onAgentChange,
-  onDeliveryChange,
   onDraftChange,
   onModelChange,
   onMentionSearchChange,
@@ -105,7 +104,6 @@ export function SessionComposer({
   model?: ModelRef | undefined;
   models: ModelInfo[];
   onAgentChange: (agent: string) => void;
-  onDeliveryChange: (delivery: PromptDelivery) => void;
   onDraftChange: (draft: string, mentions: ComposerMention[]) => void;
   onModelChange: (model: ModelRef) => void;
   onMentionSearchChange: (query: string | undefined) => void;
@@ -314,21 +312,6 @@ export function SessionComposer({
               </Text>
             ) : null}
           </ScrollView>
-        ) : null}
-
-        {expanded && active ? (
-          <View accessibilityLabel="Prompt delivery" style={styles.deliveryRow}>
-            <DeliveryButton
-              active={delivery === "steer"}
-              label="Steer now"
-              onPress={() => onDeliveryChange("steer")}
-            />
-            <DeliveryButton
-              active={delivery === "queue"}
-              label="Queue next"
-              onPress={() => onDeliveryChange("queue")}
-            />
-          </View>
         ) : null}
 
         <View style={styles.toolbar}>
@@ -671,36 +654,6 @@ function SelectorButton({
   );
 }
 
-function DeliveryButton({
-  active,
-  label,
-  onPress,
-}: {
-  active: boolean;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityState={{ checked: active }}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.deliveryButton,
-        active && styles.deliveryButtonActive,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[styles.deliveryLabel, active && styles.deliveryLabelActive]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 function OptionButton({
   compact,
   description,
@@ -756,37 +709,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: 7,
   },
-  completionDetail: { color: palette.dim, fontSize: 12, lineHeight: 16 },
+  completionDetail: { ...typography.caption, color: palette.dim },
   completionHeading: { alignItems: "center", flexDirection: "row", gap: space.xs },
   completionKind: { ...typography.label, color: palette.dim },
   completionList: { maxHeight: 220 },
   completionListContent: { gap: 4 },
   completionName: { ...typography.control, color: palette.ink, flex: 1 },
   completionState: { color: palette.dim, paddingVertical: space.sm, textAlign: "center" },
-  count: { alignSelf: "center", color: palette.dim, fontSize: 10, paddingHorizontal: space.xs },
-  deliveryButton: {
-    alignItems: "center",
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flex: 1,
-    justifyContent: "center",
-    minHeight: 48,
-    paddingHorizontal: space.sm,
+  count: {
+    ...typography.caption,
+    alignSelf: "center",
+    color: palette.dim,
+    paddingHorizontal: space.xs,
   },
-  deliveryButtonActive: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  deliveryLabel: { color: palette.dim, fontSize: 14, fontWeight: "700" },
-  deliveryLabelActive: { color: palette.signal },
-  deliveryRow: { flexDirection: "row", gap: space.xs },
   editorRow: { alignItems: "center", flexDirection: "row", minWidth: 0 },
   editorRowExpanded: { alignItems: "stretch" },
   emptyResults: { color: palette.dim, paddingVertical: space.lg, textAlign: "center" },
-  error: { color: palette.danger, fontSize: 14, lineHeight: 18 },
+  error: { ...typography.body, color: palette.danger },
   input: {
+    ...typography.body,
     color: palette.ink,
     flex: 1,
-    fontSize: 16,
-    lineHeight: 23,
   },
   inputCollapsed: { height: 42, paddingHorizontal: 4, paddingVertical: 0 },
   inputExpanded: {
@@ -803,7 +746,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   optionCompact: { marginLeft: space.md, minHeight: 50, paddingVertical: space.sm },
-  optionDescription: { color: palette.dim, fontSize: 12, marginTop: 3 },
+  optionDescription: { ...typography.caption, color: palette.dim, marginTop: 3 },
   optionLabel: { ...typography.heading, color: palette.ink },
   optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   optionSeparator: { height: space.xs },
@@ -811,11 +754,11 @@ const styles = StyleSheet.create({
   pickerListContent: { flexGrow: 1, justifyContent: "flex-start" },
   pressed: { opacity: 0.62 },
   searchInput: {
+    ...typography.body,
     borderColor: palette.border,
     borderRadius: radius.sm,
     borderWidth: 1,
     color: palette.ink,
-    fontSize: 16,
     minHeight: 48,
     paddingHorizontal: space.md,
   },
@@ -827,7 +770,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 4,
   },
-  selectorLabel: { color: palette.dim, flexShrink: 1, fontSize: 14, fontWeight: "400" },
+  selectorLabel: { ...typography.body, color: palette.dim, flexShrink: 1 },
   selectorRow: { alignItems: "center", gap: space.xs, paddingRight: space.xs },
   selectorScroller: { flex: 1 },
   sendButton: {

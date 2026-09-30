@@ -456,16 +456,19 @@ contracts and must not be copied into the adapter.
 1. App loads session metadata and the newest message page.
 2. Older messages load on demand without moving visible content.
 3. User sends text using the selected agent and model.
-4. App shows the durable admitted inbox item as a temporary delivery overlay.
+4. App keeps normal submission and handoff progress compact. Only prompts that
+   remain queued show inbox controls, after a short display grace period.
 5. Events update assistant and tool activity.
-6. If work is active, the app exposes queue or steer instead of choosing
-   silently.
+6. If work is active, the app applies the device's default follow-up delivery
+   preference from Settings. Steer is the initial default, and Queue is optional.
+   The send button names the selected delivery without a per-send choice card.
 7. User may interrupt execution.
 
-The admitted inbox item is not a projected transcript message. The app replaces
-the overlay by stable ID when the corresponding message appears and keeps
+The admitted inbox item is not a projected transcript message. The app removes
+pending controls by stable ID when the corresponding message appears and keeps
 admitted, queued or steered, promoted, executing, cancelled, completed, and
-unknown-delivery states distinct.
+unknown-delivery states distinct internally. Steering and normal handoff states
+do not create separate cards. Unknown delivery retains explicit recovery controls.
 
 ### 10.4 Resolve blocked work
 

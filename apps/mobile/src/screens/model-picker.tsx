@@ -14,7 +14,7 @@ import {
 import { ModalSheet } from "../components/modal-sheet";
 import type { useModelFavorites } from "../state/use-model-favorites";
 import { modelIdentityKey } from "../storage/model-favorites-repository";
-import { palette, space, typography } from "../theme";
+import { palette, radius, space, typography } from "../theme";
 
 export type FavoriteControls = ReturnType<typeof useModelFavorites>;
 export type CatalogState = { loading: boolean; error: boolean; retry: () => void };
@@ -186,11 +186,11 @@ export function PickerNotice({ text, retry }: { text: string; retry: () => void 
 
 const styles = StyleSheet.create({
   search: {
+    ...typography.body,
     borderWidth: 1,
     borderColor: palette.border,
-    borderRadius: 8,
+    borderRadius: radius.sm,
     color: palette.ink,
-    fontSize: 16,
     minHeight: 48,
     paddingHorizontal: space.md,
   },
@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: 6,
+    borderRadius: radius.sm,
     paddingHorizontal: space.sm,
   },
   choice: {
