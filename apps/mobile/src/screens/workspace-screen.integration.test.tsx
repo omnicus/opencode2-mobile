@@ -313,25 +313,19 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
   while (!pendingText.props.selectable && pendingText.parent) pendingText = pendingText.parent;
   expect(pendingText).toHaveStyle({ ...typography.body, color: palette.dim });
   expect(screen.getByText("Sent · waiting for transcript")).toBeOnTheScreen();
-  // Wait for the initial REST snapshot before simulating a later projection.
-  // Otherwise that in-flight snapshot can overwrite the injected message on CI.
+  // Exercise a later authoritative REST snapshot, and await its notifications.
   await screen.findByText("Newest answer");
-  act(() => {
-    queryClient.setQueryData(
-      openCodeQueryKeys.messages("connection-1", scope, "ses_transcript", {
+  mockListMessages.mockResolvedValueOnce({
+    cursor: {},
+    data: [{ id, type: "user", text: "Pending follow-up", time: { created: 1 } }],
+  });
+  await act(async () => {
+    await queryClient.refetchQueries({
+      queryKey: openCodeQueryKeys.messages("connection-1", scope, "ses_transcript", {
         limit: 40,
         order: "desc",
       }),
-      {
-        pages: [
-          {
-            cursor: {},
-            data: [{ id, type: "user", text: "Pending follow-up", time: { created: 1 } }],
-          },
-        ],
-        pageParams: [undefined],
-      },
-    );
+    });
   });
   await waitFor(() => expect(screen.queryByText("Sent · waiting for transcript")).toBeNull());
   expect(screen.getAllByText("Pending follow-up")).toHaveLength(1);
