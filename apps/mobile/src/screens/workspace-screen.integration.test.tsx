@@ -326,6 +326,9 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
         order: "desc",
       }),
     });
+    // React Query defers observer notifications to a zero-delay timer. Keep act
+    // open through that timer so React commits the snapshot before assertions.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
   await waitFor(() => expect(screen.queryByText("Sent · waiting for transcript")).toBeNull());
   expect(screen.getAllByText("Pending follow-up")).toHaveLength(1);
