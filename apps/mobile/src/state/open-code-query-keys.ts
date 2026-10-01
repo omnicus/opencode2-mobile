@@ -99,6 +99,9 @@ export const openCodeQueryKeys = {
   models(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "models"] as const;
   },
+  mcpServers(connectionId: string, location: LocationRef) {
+    return [...locationKey(connectionId, location), "mcp-servers"] as const;
+  },
   permissions(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "permissions"] as const;
   },

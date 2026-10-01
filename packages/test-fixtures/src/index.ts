@@ -13,6 +13,7 @@ export type FakeOpenCodeApiOptions = {
     workspaceID?: string;
   };
   models?: unknown[];
+  mcpServers?: unknown[];
   messagePageSize?: number;
   messages?: Record<string, unknown[]>;
   pageSize?: number;
@@ -61,6 +62,7 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
   let sessions = [...(options.sessions ?? [])];
   let pendingForms = [...(options.forms ?? [])];
   const formStates = new Map<string, unknown>();
+  const mcpByLocation = new Map<string, unknown[]>();
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(
@@ -116,6 +118,28 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     }
     if (url.pathname === "/api/vcs/diff") {
       return json({ data: options.vcsDiff ?? [], location: resolvedLocation(options, url) });
+    }
+    const mcpMatch = url.pathname.match(
+      /^\/api\/experimental\/mcp\/([^/]+)\/(connect|disconnect)$/,
+    );
+    if (url.pathname === "/api/mcp" || (mcpMatch && method === "POST")) {
+      const location = resolvedLocation(options, url);
+      const key = JSON.stringify(location);
+      const servers = mcpByLocation.get(key) ?? structuredClone(options.mcpServers ?? []);
+      mcpByLocation.set(key, servers);
+      if (!mcpMatch) return json({ location, data: servers });
+      const name = decodeURIComponent(mcpMatch[1] ?? "");
+      const server = servers.find(
+        (entry): entry is { name: string; status: unknown } =>
+          typeof entry === "object" && entry !== null && "name" in entry && entry.name === name,
+      );
+      if (!server)
+        return json(
+          { _tag: "McpServerNotFoundError", server: name, message: "MCP server not found" },
+          404,
+        );
+      server.status = { status: mcpMatch[2] === "connect" ? "connected" : "disabled" };
+      return new Response(null, { status: 204 });
     }
     const shellMatch = url.pathname.match(/^\/api\/shell\/([^/]+)(\/output)?$/);
     if (shellMatch && method === "GET") {

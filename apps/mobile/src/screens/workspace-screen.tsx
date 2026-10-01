@@ -69,6 +69,7 @@ import { FormRequestList } from "./form-request-list";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
+import { SessionLocationOptions } from "./session-location-options";
 import { SessionShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
@@ -969,6 +970,16 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     <ShellFrame
       active="Workspace"
       branch={branch}
+      sessionOptions={
+        <SessionLocationOptions
+          key={`${routeSessionScope}\u0000${sessionLocation.directory}`}
+          connectionId={routeConnectionId}
+          location={sessionLocation}
+          ready={sessionLocationReady}
+          branch={currentBranch}
+          branchStale={branch.state === "known" && branch.stale}
+        />
+      }
       sessionTabs={{
         active: selectedTab,
         onSelect: (tab) => {

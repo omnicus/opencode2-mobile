@@ -7,10 +7,12 @@ import {
   cancelOpenCodeForm,
   cancelOpenCodeSessionInboxItem,
   classifyOpenCodeError,
+  connectOpenCodeMcpServer,
   createBoundedOpenCodeFetch,
   createOpenCodeClient,
   createOpenCodeSession,
   createRedirectSafeOpenCodeFetch,
+  disconnectOpenCodeMcpServer,
   findOpenCodeFiles,
   getCurrentOpenCodeProject,
   getDefaultOpenCodeAgent,
@@ -30,6 +32,7 @@ import {
   listOpenCodeAgents,
   listOpenCodeCommands,
   listOpenCodeFormRequests,
+  listOpenCodeMcpServers,
   listOpenCodeMessages,
   listOpenCodeModels,
   listOpenCodePermissionRequests,
@@ -57,6 +60,70 @@ import {
   switchOpenCodeSessionModel,
   waitForOpenCodeSession,
 } from "./index";
+
+describe("location MCP controls", () => {
+  it("lists and connects/disconnects at the exact location without changing other locations", async () => {
+    const fixture = createFakeOpenCodeApi({
+      mcpServers: [{ name: "docs / tools", status: { status: "disabled" } }],
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    const location = { directory: "/workspace/child" };
+    const controller = new AbortController();
+    await connectOpenCodeMcpServer(client, location, "docs / tools", { signal: controller.signal });
+    expect((await listOpenCodeMcpServers(client, location)).data[0]?.status.status).toBe(
+      "connected",
+    );
+    expect(
+      (await listOpenCodeMcpServers(client, { directory: "/workspace" })).data[0]?.status.status,
+    ).toBe("disabled");
+    await disconnectOpenCodeMcpServer(client, location, "docs / tools");
+    expect((await listOpenCodeMcpServers(client, location)).data[0]?.status.status).toBe(
+      "disabled",
+    );
+    expect(fixture.requests[0]).toEqual({
+      method: "POST",
+      path: "/api/experimental/mcp/docs%20%2F%20tools/connect",
+      query: { "location[directory]": ["/workspace/child"] },
+    });
+    expect(fixture.requests[3]).toMatchObject({
+      method: "POST",
+      path: "/api/experimental/mcp/docs%20%2F%20tools/disconnect",
+      query: { "location[directory]": ["/workspace/child"] },
+    });
+  });
+
+  it.each([
+    [{ name: "docs", status: { status: "unknown" } }],
+    [{ name: "docs", status: { status: "failed" } }],
+    [{ name: "", status: { status: "connected" } }],
+    [
+      { name: "docs", status: { status: "connected" } },
+      { name: "docs", status: { status: "disabled" } },
+    ],
+  ])("rejects malformed MCP snapshots %j", async (...servers) => {
+    const fixture = createFakeOpenCodeApi({ mcpServers: servers });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(listOpenCodeMcpServers(client, { directory: "/workspace" })).rejects.toThrow();
+  });
+
+  it("preserves authentication errors and forwards cancellation to runtime actions", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ _tag: "UnauthorizedError", message: "Unauthorized" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch });
+    const signal = new AbortController().signal;
+    const error = await connectOpenCodeMcpServer(client, { directory: "/workspace" }, "docs", {
+      signal,
+    }).catch((error: unknown) => error);
+    expect(classifyOpenCodeError(error)).toBe("UNAUTHORIZED");
+    expect(fetch.mock.calls[0]?.[1]?.signal).toBe(signal);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("background shell output", () => {
   const info = {
