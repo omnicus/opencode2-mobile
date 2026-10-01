@@ -465,6 +465,10 @@ within the limits of the server APIs and mobile lifecycle.
 - [ ] Implement supported key, OAuth, and command connection flows.
 - [ ] Keep callback state and temporary secrets in SecureStore.
 - [ ] Implement MCP list, add, remove, connect, disconnect, and resource catalog.
+- [x] Add location-wide MCP list and runtime connect/disconnect from session
+      Location options, keeping the branch visible. Experimental generated
+      connect/disconnect operations are explicitly accepted for this slice;
+      add/remove, OAuth, resource browsing, and device verification remain.
 - [ ] Implement saved-permission list and removal.
 - [ ] Add reference browsing and web search where the current API supports it.
 - [ ] Add read-only configuration and plugin inspection.

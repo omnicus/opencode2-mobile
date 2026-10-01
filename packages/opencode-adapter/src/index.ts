@@ -225,6 +225,58 @@ export async function getOpenCodeVcs(
   return response;
 }
 
+export async function listOpenCodeMcpServers(
+  client: OpenCodeClient,
+  location: LocationRef,
+  options?: OpenCodeRequestOptions,
+) {
+  const response = await client.mcp.list({ location: locationInput(location) }, options);
+  validateResolvedLocation(response.location);
+  const names = new Set<string>();
+  if (
+    !Array.isArray(response.data) ||
+    !response.data.every((server) => {
+      if (
+        !isRecord(server) ||
+        typeof server.name !== "string" ||
+        !server.name.trim() ||
+        names.has(server.name) ||
+        !isRecord(server.status) ||
+        !["connected", "pending", "disabled", "failed", "needs_auth"].includes(
+          server.status.status,
+        ) ||
+        ((server.status.status === "failed" || server.status.status === "needs_auth") &&
+          typeof server.status.error !== "string")
+      )
+        return false;
+      names.add(server.name);
+      return true;
+    })
+  )
+    throw new Error("MALFORMED_MCP_LIST");
+  return response;
+}
+
+// Explicitly accepted experimental runtime operations. These affect the exact
+// location, not a session, and do not write persistent configuration.
+export function connectOpenCodeMcpServer(
+  client: OpenCodeClient,
+  location: LocationRef,
+  server: string,
+  options?: OpenCodeRequestOptions,
+) {
+  return client.mcp.connect({ server, location: locationInput(location) }, options);
+}
+
+export function disconnectOpenCodeMcpServer(
+  client: OpenCodeClient,
+  location: LocationRef,
+  server: string,
+  options?: OpenCodeRequestOptions,
+) {
+  return client.mcp.disconnect({ server, location: locationInput(location) }, options);
+}
+
 export const maxShellOutputBytes = 64 * 1024;
 
 export async function getOpenCodeShell(
@@ -1979,6 +2031,7 @@ export type {
   FormState,
   LocationGetOutput,
   LocationRef,
+  McpServer,
   MessageListInput,
   ModelDefaultOutput,
   ModelInfo,

@@ -2,7 +2,7 @@ import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
 import { createElement } from "react";
-import { Dimensions, Text } from "react-native";
+import { Dimensions, Pressable, Text } from "react-native";
 
 import { useConnections } from "../connections/connections-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -130,6 +130,49 @@ test("session tabs replace healthy connection and server labels but retain conne
   view.rerender(element());
   fireEvent.press(screen.getByRole("button", { name: /Connection problem: OFFLINE/ }));
   expect(navigate).toHaveBeenCalledWith("Settings");
+});
+
+test("keeps branch and trailing location options together on narrow phones and large text", () => {
+  jest
+    .mocked(useConnections)
+    .mockReturnValue({ profiles: [], selectedProfileId: undefined } as never);
+  jest
+    .mocked(useConnectionRuntime)
+    .mockReturnValue({ reconnectAttempt: 0, status: "connected" } as never);
+  jest
+    .mocked(useWorkspaceSelection)
+    .mockReturnValue({ attentionCoverage: { completeness: "complete" }, pendingCount: 0 } as never);
+  const originalWindow = Dimensions.get("window");
+  const originalScreen = Dimensions.get("screen");
+  try {
+    for (const fontScale of [1, 2]) {
+      Dimensions.set({
+        window: { ...originalWindow, width: 320, fontScale },
+        screen: { ...originalScreen, width: 320, fontScale },
+      });
+      const view = render(
+        createElement(ShellFrame, {
+          active: "Workspace",
+          navigate: jest.fn(),
+          branch: { state: "known", name: "feature/a-long-branch-name" },
+          sessionTabs: { active: "session", onSelect: jest.fn() },
+          sessionOptions: createElement(
+            Pressable,
+            { accessibilityRole: "button", accessibilityLabel: "Location options" },
+            createElement(Text, null, "..."),
+          ),
+        }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Current branch, feature/a-long-branch-name" }),
+      ).toBeOnTheScreen();
+      expect(screen.getByRole("button", { name: "Location options" })).toBeOnTheScreen();
+      expect(screen.getByRole("tab", { name: "Changes" })).toBeOnTheScreen();
+      view.unmount();
+    }
+  } finally {
+    Dimensions.set({ window: originalWindow, screen: originalScreen });
+  }
 });
 
 test("reveals and copies the full session branch name", async () => {

@@ -34,6 +34,17 @@ test("does not collide across connections or workspace locations", () => {
   expect(first).not.toEqual(workspace);
 });
 
+test("MCP servers are exact-location scoped, not session scoped", () => {
+  const key = openCodeQueryKeys.mcpServers("connection-1", { directory: "/workspace" });
+  expect(key).toEqual(["opencode", "connection-1", "location", "/workspace", null, "mcp-servers"]);
+  expect(key).not.toEqual(
+    openCodeQueryKeys.mcpServers("connection-2", { directory: "/workspace" }),
+  );
+  expect(key).not.toEqual(
+    openCodeQueryKeys.mcpServers("connection-1", { directory: "/workspace/child" }),
+  );
+});
+
 test("scopes composer catalogs and file searches to the exact location", () => {
   const location = { directory: "/workspace", workspaceID: "wrk_test" };
 

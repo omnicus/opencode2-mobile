@@ -12,6 +12,67 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-10-01: location-wide MCP runtime controls, pending device verification
+
+### Switch contrast follow-up
+
+A user-supplied iPhone screenshot showed that on-state MCP switches rendered as
+solid white pills. Their white track matched the native white thumb. The MCP
+switches now use the shared native switch colors, with a medium-gray on-track,
+dark off-track, and explicitly colored light thumb. A regression test against
+the rendered iOS switch props failed with the white on-track and passed after
+the shared styling was applied.
+
+The fix passed the full checks, 440 mobile tests, both Hermes exports, and all 18
+Expo Doctor checks. The contrast fix was published locally through EAS Update to
+preview for both platforms, runtime 0.1.5, after both native fingerprints matched
+the installed baseline under the preview environment. Corrected physical-device
+appearance remains pending. The screenshot confirms the earlier switch UI loaded on iPhone,
+but does not establish MCP mutation behavior or Android appearance.
+
+### Initial implementation and publication
+
+The session context bar retains the current branch and adds Location options.
+The sheet lists MCP status and offers runtime Connect/Disconnect actions for the
+exact session location. These actions are not session-only switches and do not
+write persistent configuration. The generated experimental operations are an
+explicitly accepted exception for this feature, checked against client 2.0.21
+and the published V2 OpenAPI contract.
+
+Deterministic tests cover location isolation, encoded server names, malformed
+snapshots, authentication failures, cancellation, refreshed status, disconnected
+controls, duplicate taps across sheet reopening, and uncertain mutation outcomes.
+No raw server error text is displayed. The full lint, typecheck, test, and build
+sequence passed, including 91 adapter tests, 437 mobile tests, and iOS/Android
+Hermes exports. Expo Doctor passed all 18 checks.
+
+Real-server MCP behavior and physical iOS/Android verification remain pending.
+Verify shared-location effects, restart behavior, keyboard dismissal, narrow
+screens, large text, and VoiceOver/TalkBack focus before claiming device support.
+
+The preview deployment's iOS and Android native fingerprints and runtime matched
+the installed 0.1.5 baseline under the EAS preview environment. A local EAS Update
+publication succeeded for both platforms on preview. Device installation and MCP
+verification remain pending; publication alone does not establish either.
+
+A follow-up replaces the Connect/Disconnect buttons with native on/off switches.
+Enabled state is separate from connection status: pending, authentication-required,
+and failed servers remain on, while disabled servers are off. Authentication-required
+servers can be switched off. Pending user changes update the switch immediately,
+disable repeat actions, then reconcile or roll back to the server snapshot. Failed
+connections retain a separate retry action. This switch revision has not yet been
+verified on physical devices.
+
+The switch revision passed the full lint, typecheck, test, and build sequence,
+including 439 mobile tests and both Hermes exports. Expo Doctor passed all 18
+checks. Regression coverage includes switching off authentication-required servers
+and keeping failed connections on with a separate failure status.
+
+The switch revision was subsequently published locally through EAS Update to
+preview for iOS and Android, runtime 0.1.5, after both native fingerprints matched
+the installed baseline under the EAS preview environment. Device installation
+and switch behavior remain unverified.
+
 ## 2026-09-28: transcript range selection, pending native verification
 
 The user reported that long-pressing transcript text on iOS offered Copy without

@@ -653,6 +653,18 @@ config-read operations.
 Experimental debug, migration, session-log, and undocumented operations are not
 release dependencies unless promoted into the supported generated contract.
 
+The session context bar keeps Session, Changes, and the current branch visible,
+with a trailing Location options action. Its sheet lists MCP servers with native
+on/off switches for the session's exact location. On means the server is enabled,
+not necessarily connected; connecting, authentication, and failure remain explicit
+status labels. A switch sends a runtime connect/disconnect request and reconciles
+server state, without saving a preference. These
+controls affect every session at that location, not just the open session, and
+do not edit persistent configuration. Connecting overrides disabled configuration
+until server restart. The generated experimental MCP connect/disconnect operations
+are an explicitly accepted exception for this feature. Adding/removing servers,
+OAuth onboarding, and resource browsing remain separate integration work.
+
 ## 19. Sources
 
 - <https://opencode.ai/v2/docs/>

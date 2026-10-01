@@ -617,6 +617,7 @@ export function ShellFrame({
   children,
   hideConnectionBar,
   navigate,
+  sessionOptions,
   sessionTabs,
 }: {
   active: Section;
@@ -624,6 +625,7 @@ export function ShellFrame({
   children?: ReactNode;
   hideConnectionBar?: boolean;
   navigate: (screen: Section) => void;
+  sessionOptions?: ReactNode;
   sessionTabs?: { active: "session" | "changes"; onSelect: (tab: "session" | "changes") => void };
 }) {
   const { fontScale, width } = useWindowDimensions();
@@ -754,53 +756,65 @@ export function ShellFrame({
                   </Text>
                 </View>
               )}
-              {branch ? (
-                branch.state === "known" && branch.name ? (
-                  <Pressable
-                    accessibilityHint="Opens details where you can copy the full branch name"
-                    accessibilityLabel={`Current branch, ${branch.name}${branch.stale ? ", may be outdated" : ""}`}
-                    accessibilityRole="button"
-                    onPress={() => showDetail("branch")}
-                    style={({ pressed }) => [
-                      styles.branchControl,
-                      largeText && styles.branchControlLargeText,
-                      pressed && styles.branchControlPressed,
-                    ]}
-                  >
-                    <Feather
-                      accessibilityElementsHidden
-                      color={palette.dim}
-                      importantForAccessibility="no-hide-descendants"
-                      name="git-branch"
-                      size={14}
-                    />
-                    <Text
-                      dynamicTypeRamp={typeRamp.subheading}
-                      ellipsizeMode="middle"
-                      numberOfLines={1}
-                      style={styles.branchName}
-                    >
-                      {branch.name}
-                    </Text>
-                  </Pressable>
-                ) : (
-                  <View style={[styles.branchControl, largeText && styles.branchControlLargeText]}>
-                    <Feather
-                      accessibilityElementsHidden
-                      color={palette.dim}
-                      importantForAccessibility="no-hide-descendants"
-                      name="git-branch"
-                      size={14}
-                    />
-                    <Text dynamicTypeRamp={typeRamp.subheading} style={styles.branchName}>
-                      {branch.state === "loading"
-                        ? "Checking branch"
-                        : branch.state === "none"
-                          ? "No branch"
-                          : "Branch unavailable"}
-                    </Text>
-                  </View>
-                )
+              {branch || sessionOptions ? (
+                <View
+                  style={[styles.locationControls, largeText && styles.locationControlsLargeText]}
+                >
+                  {branch ? (
+                    branch.state === "known" && branch.name ? (
+                      <Pressable
+                        accessibilityHint="Opens details where you can copy the full branch name"
+                        accessibilityLabel={`Current branch, ${branch.name}${branch.stale ? ", may be outdated" : ""}`}
+                        accessibilityRole="button"
+                        onPress={() => showDetail("branch")}
+                        style={({ pressed }) => [
+                          styles.branchControl,
+                          largeText && !sessionOptions && styles.branchControlLargeText,
+                          pressed && styles.branchControlPressed,
+                        ]}
+                      >
+                        <Feather
+                          accessibilityElementsHidden
+                          color={palette.dim}
+                          importantForAccessibility="no-hide-descendants"
+                          name="git-branch"
+                          size={14}
+                        />
+                        <Text
+                          dynamicTypeRamp={typeRamp.subheading}
+                          ellipsizeMode="middle"
+                          numberOfLines={1}
+                          style={styles.branchName}
+                        >
+                          {branch.name}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <View
+                        style={[
+                          styles.branchControl,
+                          largeText && !sessionOptions && styles.branchControlLargeText,
+                        ]}
+                      >
+                        <Feather
+                          accessibilityElementsHidden
+                          color={palette.dim}
+                          importantForAccessibility="no-hide-descendants"
+                          name="git-branch"
+                          size={14}
+                        />
+                        <Text dynamicTypeRamp={typeRamp.subheading} style={styles.branchName}>
+                          {branch.state === "loading"
+                            ? "Checking branch"
+                            : branch.state === "none"
+                              ? "No branch"
+                              : "Branch unavailable"}
+                        </Text>
+                      </View>
+                    )
+                  ) : null}
+                  {sessionOptions}
+                </View>
               ) : null}
               {!sessionTabs ? (
                 <Pressable
@@ -987,12 +1001,14 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
 }
 
 export function ActionButton({
+  accessibilityLabel,
   disabled,
   fullWidth,
   label,
   onPress,
   secondary,
 }: {
+  accessibilityLabel?: string;
   disabled?: boolean;
   fullWidth?: boolean;
   label: string;
@@ -1001,6 +1017,7 @@ export function ActionButton({
 }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(disabled) }}
       disabled={disabled}
@@ -1024,6 +1041,8 @@ export function ActionButton({
 }
 
 const styles = StyleSheet.create({
+  locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
+  locationControlsLargeText: { flex: 0, width: "100%" },
   sessionTabs: { flexDirection: "row", gap: space.sm },
   sessionTab: {
     minHeight: 44,
