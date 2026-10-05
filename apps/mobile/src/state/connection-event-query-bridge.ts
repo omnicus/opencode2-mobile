@@ -389,6 +389,9 @@ function matchesRoot(
 ) {
   const key: QueryKey = query.queryKey;
   if (key[0] !== "opencode" || key[1] !== connectionId) return false;
+  if (root === "sessions" && key[2] === "archived-session") {
+    return sessionId === undefined || key[3] === sessionId;
+  }
   if (root === "sessions" && key[2] === "project") return key[4] === "sessions";
   if (root === "sessions" && key[2] === "followed-project-sessions") return true;
   if (

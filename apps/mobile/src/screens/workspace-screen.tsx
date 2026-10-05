@@ -13,13 +13,20 @@ import {
   type SessionMessagesResponse,
 } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Dimensions,
   FlatList,
   Keyboard,
@@ -52,6 +59,7 @@ import {
 } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useModelFavorites } from "../state/use-model-favorites";
+import { useSessionArchives } from "../state/use-session-archives";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import {
@@ -66,6 +74,12 @@ import {
 import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
 import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
+import {
+  addArchivedSessions,
+  resolveSessionArchiveIds,
+  selectSessionArchiveView,
+  sessionAutoArchiveAgeMs,
+} from "./session-archive-model";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
@@ -117,6 +131,25 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [selectedDirectory, setSelectedDirectory] = useState<string>();
   const [sessionSearch, setSessionSearch] = useState("");
+  const [archivedView, setArchivedView] = useState(false);
+  const [visibleRecentLimit, setVisibleRecentLimit] = useState(recentSessionLimit);
+  useEffect(() => {
+    void connectionId;
+    void runtime.connectionUpdatedAtMs;
+    setVisibleRecentLimit(recentSessionLimit);
+  }, [connectionId, runtime.connectionUpdatedAtMs]);
+  const archives = useSessionArchives(connectionId, runtime.connectionUpdatedAtMs);
+  const [archiveNow, setArchiveNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setInterval(() => setArchiveNow(Date.now()), 60_000);
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") setArchiveNow(Date.now());
+    });
+    return () => {
+      clearInterval(timer);
+      subscription.remove();
+    };
+  }, []);
   const searchInputRef = useRef<TextInput>(null);
   const [refreshing, setRefreshing] = useState(false);
   const removeAbortRef = useRef<AbortController>(null);
@@ -128,6 +161,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setSelectedProjectId(undefined);
     setSelectedDirectory(undefined);
     setSessionSearch("");
+    setArchivedView(false);
     refreshGenerationRef.current += 1;
     setRefreshing(false);
   }, [connectionId]);
@@ -209,12 +243,75 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     workspaceSelection.setLocation(location);
   }, [location, workspaceSelection.setLocation]);
 
-  const inboxItems = workspaceInboxItems(workspaceSelection.inbox, Boolean(deferredSessionSearch));
-  const ambiguousProjectIDs = ambiguousInboxProjectIDs(workspaceSelection.inbox);
+  const loadedSessionIds = new Set(
+    [
+      ...workspaceSelection.inbox.needsYou,
+      ...workspaceSelection.inbox.working,
+      ...workspaceSelection.inbox.recent,
+    ].map((row) => row.session.id),
+  );
+  const archivedSessionQueries = useQueries({
+    queries: [...new Set([...archives.ids, ...Object.keys(archives.restoredAt)])].map(
+      (sessionID) => ({
+        enabled: Boolean(
+          (archivedView ||
+            (archives.restoredAt[sessionID] ?? 0) >= archiveNow - sessionAutoArchiveAgeMs) &&
+            client &&
+            connectionId &&
+            !loadedSessionIds.has(sessionID),
+        ),
+        queryKey: openCodeQueryKeys.archivedSession(connectionId ?? "unselected", sessionID),
+        queryFn: ({ signal }: { signal: AbortSignal }) => {
+          if (!client) throw new Error("CONNECTION_NOT_READY");
+          return getOpenCodeSession(client, sessionID, { signal });
+        },
+      }),
+    ),
+  });
+  const archiveInbox = addArchivedSessions(
+    workspaceSelection.inbox,
+    archivedSessionQueries.flatMap((query) => (query.data ? [query.data] : [])),
+    new Map(
+      projects
+        .filter((project) => workspaceSelection.followedProjectIds.includes(project.id))
+        .map((project) => [
+          project.id,
+          project.name ?? project.canonical.split("/").filter(Boolean).at(-1) ?? "Project",
+        ]),
+    ),
+    deferredSessionSearch,
+  );
+  const archivedIds =
+    !archives.loaded || archives.error
+      ? archives.ids
+      : resolveSessionArchiveIds(archiveInbox, archives.ids, archives.restoredAt, archiveNow);
+  const visibleInbox = selectSessionArchiveView(
+    archiveInbox,
+    archivedIds,
+    archivedView,
+    archives.restoredAt,
+  );
+  const needsInboxLookahead =
+    !archivedView &&
+    !deferredSessionSearch &&
+    archives.loaded &&
+    !archives.error &&
+    !workspaceSelection.sessionsLoading &&
+    !workspaceSelection.sessionsError &&
+    workspaceSelection.hasNextPage &&
+    !workspaceSelection.sessionsFetchingNextPage &&
+    visibleInbox.recent.length <= visibleRecentLimit;
+  useEffect(() => {
+    if (needsInboxLookahead) void workspaceSelection.fetchNextPage().catch(() => undefined);
+  }, [needsInboxLookahead, workspaceSelection.fetchNextPage]);
+  const inboxItems = workspaceInboxItems(
+    visibleInbox,
+    archivedView || Boolean(deferredSessionSearch),
+    archives.restoredAt,
+    visibleRecentLimit,
+  );
   const sessionCount =
-    workspaceSelection.inbox.needsYou.length +
-    workspaceSelection.inbox.working.length +
-    workspaceSelection.inbox.recent.length;
+    visibleInbox.needsYou.length + visibleInbox.working.length + visibleInbox.recent.length;
   const selectedConnection = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
@@ -272,6 +369,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       void queryClient.invalidateQueries({
         queryKey: openCodeQueryKeys.connection(connectionId),
       });
+      void queryClient.invalidateQueries({ queryKey: ["device-session-archives", connectionId] });
       if (!cleanupSucceeded) {
         Alert.alert(
           "Local cleanup incomplete",
@@ -291,6 +389,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setRefreshing(true);
     try {
       await Promise.all([
+        archives.refetch(),
+        ...(archivedView ? archivedSessionQueries.map((query) => query.refetch()) : []),
         workspaceSelection.refetch(),
         ...(requestedLocation ? [locationQuery.refetch()] : []),
       ]);
@@ -321,6 +421,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         { onPress: () => removeMutation.mutate(session), style: "destructive", text: "Delete" },
       ],
     );
+  }
+
+  async function toggleArchive(session: SessionInfo) {
+    try {
+      await archives.setArchived(session.id, !archivedIds.includes(session.id));
+    } catch {
+      Alert.alert("Archive preference not saved", "The list has not changed. Try again.");
+    }
   }
 
   const header = (
@@ -389,6 +497,39 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         ) : null}
       </View>
 
+      <View style={styles.archiveFilters}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: !archivedView }}
+          onPress={() => setArchivedView(false)}
+          style={styles.archiveFilter}
+        >
+          <Text style={!archivedView ? styles.archiveFilterSelected : styles.archiveFilterLabel}>
+            Inbox
+          </Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ selected: archivedView }}
+          onPress={() => setArchivedView(true)}
+          style={styles.archiveFilter}
+        >
+          <Text style={archivedView ? styles.archiveFilterSelected : styles.archiveFilterLabel}>
+            Archived
+          </Text>
+        </Pressable>
+      </View>
+      {archives.error ? (
+        <Text accessibilityRole="alert" style={styles.connectionNotice}>
+          Archive preferences could not be loaded. Pull to refresh.
+        </Text>
+      ) : null}
+      {archivedView && archivedSessionQueries.some((query) => query.isError) ? (
+        <Text accessibilityRole="alert" style={styles.connectionNotice}>
+          Some archived sessions are unavailable. Pull to refresh to retry.
+        </Text>
+      ) : null}
+
       {deferredSessionSearch ? (
         <View style={styles.listSectionHeader}>
           <Text style={styles.listSectionTitle}>Search results</Text>
@@ -409,28 +550,72 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           <SessionEmptyState
             error={workspaceSelection.sessionsError}
             hasLocation={workspaceSelection.followedProjectIds.length > 0}
-            loading={workspaceSelection.sessionsLoading}
+            loading={
+              workspaceSelection.sessionsLoading ||
+              (!archivedView &&
+                !deferredSessionSearch &&
+                workspaceSelection.sessionsFetchingNextPage) ||
+              archives.busy ||
+              (archivedView &&
+                archivedSessionQueries.some(
+                  (query) => query.isPending && query.fetchStatus === "fetching",
+                ))
+            }
             search={deferredSessionSearch}
+            archivedView={archivedView}
+            hasMore={
+              workspaceSelection.hasNextPage && Boolean(deferredSessionSearch) && !archivedView
+            }
           />
         }
         ListFooterComponent={
-          deferredSessionSearch && workspaceSelection.hasNextPage ? (
+          (archivedView || deferredSessionSearch) && workspaceSelection.hasNextPage ? (
             <View style={styles.listFooter}>
               <ActionButton
-                label="Load older"
+                label={archivedView ? "Load older sessions" : "Load older"}
                 onPress={() => void workspaceSelection.fetchNextPage()}
                 secondary
               />
             </View>
-          ) : !deferredSessionSearch &&
-            (workspaceSelection.inbox.recent.length >= recentSessionLimit ||
-              workspaceSelection.hasNextPage) ? (
+          ) : !archivedView &&
+            !deferredSessionSearch &&
+            visibleInbox.recent.length > visibleRecentLimit ? (
             <View style={styles.listFooter}>
               <ActionButton
-                label="Search older sessions"
-                onPress={() => searchInputRef.current?.focus()}
+                label="Load older sessions"
+                onPress={() => {
+                  setVisibleRecentLimit((limit) => limit + recentSessionLimit);
+                }}
                 secondary
               />
+            </View>
+          ) : !archivedView &&
+            !deferredSessionSearch &&
+            workspaceSelection.sessionsFetchingNextPage ? (
+            <View style={styles.listFooter}>
+              <ActivityIndicator
+                accessibilityLabel="Checking older session history"
+                color={palette.accent}
+              />
+            </View>
+          ) : archives.loaded &&
+            !archives.busy &&
+            !archives.error &&
+            !workspaceSelection.sessionsLoading &&
+            !workspaceSelection.sessionsError &&
+            !workspaceSelection.hasNextPage &&
+            !workspaceSelection.sessionsFetchingNextPage &&
+            !archivedSessionQueries.some((query) => query.fetchStatus === "fetching") ? (
+            <View style={styles.listFooter} testID="session-archive-footer">
+              <Text style={styles.connectionNotice}>
+                Idle sessions archive automatically after 30 days without updates.
+              </Text>
+              {archivedView ? (
+                <Text style={styles.connectionNotice}>
+                  Archived on this device only. Restore keeps a session in Inbox for another 30
+                  days. Working sessions and requests remain visible.
+                </Text>
+              ) : null}
             </View>
           ) : null
         }
@@ -459,6 +644,9 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           ) : (
             <SessionRow
               largeText={largeText}
+              archived={archivedIds.includes(item.row.session.id)}
+              archiveDisabled={archives.busy || archives.error}
+              onArchive={() => void toggleArchive(item.row.session)}
               onDelete={() => confirmDelete(item.row.session)}
               onOpenChild={(child) => {
                 if (!connectionId) return;
@@ -470,7 +658,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
               }}
               onPress={() => openSession(item.row)}
               row={item.row}
-              showLocation={ambiguousProjectIDs.has(item.row.session.projectID)}
             />
           )
         }
@@ -1184,21 +1371,43 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 }
 
 function SessionRow({
+  archived,
+  archiveDisabled,
+  onArchive,
   largeText,
   onDelete,
   onOpenChild,
   onPress,
   row,
-  showLocation,
 }: {
+  archived: boolean;
+  archiveDisabled: boolean;
+  onArchive: () => void;
   largeText: boolean;
   onDelete: () => void;
   onOpenChild: (child: SessionInfo) => void;
   onPress: () => void;
   row: FollowedInboxRow;
-  showLocation: boolean;
 }) {
   const { session } = row;
+  const runtime = useConnectionRuntime();
+  const vcsQuery = useQuery({
+    enabled: Boolean(runtime.restClient && runtime.connectionId),
+    queryFn: ({ signal }) => {
+      if (!runtime.restClient) throw new Error("CONNECTION_NOT_READY");
+      return getOpenCodeVcs(runtime.restClient, session.location, { signal });
+    },
+    queryKey: openCodeQueryKeys.vcs(runtime.connectionId ?? "unselected", session.location),
+    staleTime: 30_000,
+  });
+  const branchName = vcsQuery.data?.data.branch.current;
+  const branchLabel = branchName
+    ? branchName
+    : vcsQuery.isError || runtime.status !== "connected"
+      ? "Branch unavailable"
+      : vcsQuery.isPending
+        ? "Checking branch"
+        : "No branch";
   const { fontScale } = useWindowDimensions();
   const active = row.active;
   const blocked = row.attentionCount > 0;
@@ -1211,6 +1420,7 @@ function SessionRow({
     blocked ||
     row.activeChildCount > 0 ||
     row.attentionCount > 1 ||
+    archived ||
     Boolean(session.time.archived) ||
     showOutcome;
   return (
@@ -1223,6 +1433,26 @@ function SessionRow({
       overshootRight={false}
       renderRightActions={(_progress, _translation, swipeable) => (
         <View style={styles.swipeActions}>
+          <Pressable
+            accessibilityLabel={`${archived ? "Restore" : "Archive"} ${session.title || "Untitled session"}`}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: archiveDisabled }}
+            disabled={archiveDisabled}
+            onPress={() => {
+              swipeable.close();
+              onArchive();
+            }}
+            style={[styles.swipeArchive, archiveDisabled && styles.archiveDisabled]}
+          >
+            <Feather
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              color={palette.ink}
+              name={archived ? "corner-up-left" : "archive"}
+              size={20}
+            />
+            <Text style={styles.swipeArchiveLabel}>{archived ? "Restore" : "Archive"}</Text>
+          </Pressable>
           <Pressable
             accessibilityLabel={`Delete ${session.title || "Untitled session"}`}
             accessibilityRole="button"
@@ -1239,13 +1469,20 @@ function SessionRow({
     >
       <View style={styles.sessionGroup}>
         <Pressable
-          accessibilityActions={[{ name: "activate" }, { label: "Delete session", name: "delete" }]}
-          accessibilityHint="Opens the session. More actions include delete"
-          accessibilityLabel={sessionAccessibilityLabel(row)}
+          accessibilityActions={[
+            { name: "activate" },
+            ...(!archiveDisabled
+              ? [{ label: archived ? "Restore session" : "Archive session", name: "archive" }]
+              : []),
+            { label: "Delete session", name: "delete" },
+          ]}
+          accessibilityHint="Opens the session. Swipe left for archive or restore and delete"
+          accessibilityLabel={`${sessionAccessibilityLabel(row)}${archived ? ". Archived on this device" : ""}`}
           accessibilityRole="button"
           onAccessibilityAction={({ nativeEvent }) => {
             if (nativeEvent.actionName === "activate") onPress();
             if (nativeEvent.actionName === "delete") onDelete();
+            if (nativeEvent.actionName === "archive" && !archiveDisabled) onArchive();
           }}
           onPress={onPress}
           style={({ pressed }) => [
@@ -1291,7 +1528,9 @@ function SessionRow({
                 {row.attentionCount > 1 ? (
                   <Text style={styles.sessionMetaLabel}>{row.attentionCount} requests</Text>
                 ) : null}
-                {session.time.archived ? (
+                {archived ? (
+                  <Text style={styles.sessionMetaLabel}>Archived on this device</Text>
+                ) : session.time.archived ? (
                   <Text style={styles.sessionMetaLabel}>Archived</Text>
                 ) : null}
                 {showOutcome && session.outcome ? (
@@ -1299,11 +1538,18 @@ function SessionRow({
                 ) : null}
               </View>
             ) : null}
-            {showLocation ? (
-              <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionLocation}>
-                {session.location.directory}
+            <View style={styles.sessionBranchRow}>
+              <Feather
+                accessibilityElementsHidden
+                color={palette.dim}
+                importantForAccessibility="no-hide-descendants"
+                name="git-branch"
+                size={12 * fontScale}
+              />
+              <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionBranchName}>
+                {branchLabel}
               </Text>
-            ) : null}
+            </View>
           </View>
         </Pressable>
         {row.children.map((child) => (
@@ -1332,11 +1578,15 @@ function SessionRow({
 }
 
 function SessionEmptyState({
+  archivedView,
+  hasMore,
   error,
   hasLocation,
   loading,
   search,
 }: {
+  archivedView: boolean;
+  hasMore: boolean;
   error: boolean;
   hasLocation: boolean;
   loading: boolean;
@@ -1363,7 +1613,11 @@ function SessionEmptyState({
           ? "Follow a project to build this inbox."
           : search
             ? "No sessions match this search."
-            : "No root sessions in followed projects."}
+            : archivedView
+              ? "No archived sessions."
+              : hasMore
+                ? "No inbox sessions on this page. Load older sessions below."
+                : "Inbox clear."}
       </Text>
     </View>
   );
@@ -1482,12 +1736,18 @@ type WorkspaceInboxItem =
 function workspaceInboxItems(
   inbox: ReturnType<typeof useWorkspaceSelection>["inbox"],
   flattenSections: boolean,
+  restoredAt: Readonly<Record<string, number>> = {},
+  recentLimit = recentSessionLimit,
 ) {
   const items: WorkspaceInboxItem[] = [];
   const recentIDs = new Set(
     [...inbox.recent]
-      .sort((first, second) => second.session.time.updated - first.session.time.updated)
-      .slice(0, recentSessionLimit)
+      .sort(
+        (first, second) =>
+          Math.max(second.session.time.updated, restoredAt[second.session.id] ?? 0) -
+          Math.max(first.session.time.updated, restoredAt[first.session.id] ?? 0),
+      )
+      .slice(0, recentLimit)
       .map((row) => row.session.id),
   );
   for (const [key, label, rows] of [
@@ -1508,20 +1768,6 @@ function workspaceInboxItems(
     );
   }
   return items;
-}
-
-function ambiguousInboxProjectIDs(inbox: ReturnType<typeof useWorkspaceSelection>["inbox"]) {
-  const locationsByProject = new Map<string, Set<string>>();
-  for (const row of [...inbox.needsYou, ...inbox.working, ...inbox.recent]) {
-    const locations = locationsByProject.get(row.session.projectID) ?? new Set<string>();
-    locations.add(`${row.session.location.directory}\u0000`);
-    locationsByProject.set(row.session.projectID, locations);
-  }
-  return new Set(
-    [...locationsByProject.entries()]
-      .filter(([, locations]) => locations.size > 1)
-      .map(([projectID]) => projectID),
-  );
 }
 
 function sentenceCase(value: string) {
@@ -1728,11 +1974,18 @@ const styles = StyleSheet.create({
   selectionMark: { color: palette.signal, fontSize: 12, fontWeight: "600", marginLeft: space.sm },
   sessionMain: { flex: 1, minWidth: 0 },
   sessionGroup: { backgroundColor: palette.card },
-  sessionLocation: {
+  sessionBranchRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.xs,
+    marginTop: 4,
+  },
+  sessionBranchName: {
     color: palette.dim,
+    flexShrink: 1,
     fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
     fontSize: 11,
-    marginTop: 4,
+    minWidth: 0,
   },
   sessionMetadata: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 4 },
   sessionMetaLabel: { color: palette.dim, fontSize: 12 },
@@ -1797,6 +2050,20 @@ const styles = StyleSheet.create({
   },
   smallButtonLabel: { ...typography.control, color: palette.signal },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
+  archiveFilters: { flexDirection: "row", gap: space.sm },
+  archiveFilter: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm },
+  archiveFilterLabel: { color: palette.dim, fontSize: 14 },
+  archiveFilterSelected: { color: palette.ink, fontSize: 14, fontWeight: "600" },
+  archiveDisabled: { opacity: 0.4 },
+  swipeArchive: {
+    minWidth: 88,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: space.xs,
+    backgroundColor: palette.card,
+    paddingHorizontal: space.sm,
+  },
+  swipeArchiveLabel: { color: palette.ink, fontSize: 13, fontWeight: "600" },
   swipeActions: { flexDirection: "row" },
   swipeContainer: { backgroundColor: palette.background },
   swipeDelete: {

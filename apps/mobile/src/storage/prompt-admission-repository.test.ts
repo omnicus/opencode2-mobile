@@ -39,7 +39,7 @@ test("stores only content-free unresolved admission metadata", async () => {
   expect(String(runAsync.mock.calls[1]?.[0])).toContain("LIMIT 20");
 });
 
-test("deletes drafts and admissions for a complete server session tree", async () => {
+test("deletes drafts, archives and admissions for a complete server session tree", async () => {
   const runAsync = jest.fn(async (..._args: unknown[]) => undefined);
   const db = {
     runAsync,
@@ -48,7 +48,12 @@ test("deletes drafts and admissions for a complete server session tree", async (
 
   await deleteSessionLocalState(db, "connection-1", ["ses_parent", "ses_child"]);
 
-  expect(runAsync).toHaveBeenCalledTimes(4);
+  expect(runAsync).toHaveBeenCalledTimes(6);
+  expect(runAsync).toHaveBeenCalledWith(
+    expect.stringContaining("session_archives"),
+    "connection-1",
+    "ses_parent",
+  );
   expect(runAsync).toHaveBeenCalledWith(
     expect.stringContaining("session_drafts"),
     "connection-1",

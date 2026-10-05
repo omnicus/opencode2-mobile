@@ -56,6 +56,10 @@ test("coalesces session metadata invalidations", () => {
   );
   queryClient.setQueryData(messageKey, []);
   queryClient.setQueryData(followedKey, []);
+  const archiveKey = openCodeQueryKeys.archivedSession("connection-1", "session-1");
+  const otherArchiveKey = openCodeQueryKeys.archivedSession("connection-2", "session-1");
+  queryClient.setQueryData(archiveKey, {});
+  queryClient.setQueryData(otherArchiveKey, {});
 
   bridge.apply(sessionRenamedEvent("event-1"));
   bridge.apply(sessionRenamedEvent("event-2"));
@@ -68,6 +72,12 @@ test("coalesces session metadata invalidations", () => {
   const followedQuery = queryClient.getQueryCache().find({ queryKey: followedKey });
   expect(messageQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(messageQuery)).toBe(false);
   expect(followedQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(followedQuery)).toBe(true);
+  const archiveQuery = queryClient.getQueryCache().find({ queryKey: archiveKey });
+  const otherArchiveQuery = queryClient.getQueryCache().find({ queryKey: otherArchiveKey });
+  expect(archiveQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(archiveQuery)).toBe(true);
+  expect(otherArchiveQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(otherArchiveQuery)).toBe(
+    false,
+  );
   queryClient.clear();
 });
 

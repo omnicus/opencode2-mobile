@@ -110,6 +110,11 @@ export async function deleteSessionLocalState(
   await db.withExclusiveTransactionAsync(async (txn) => {
     for (const sessionId of sessionIds) {
       await txn.runAsync(
+        "DELETE FROM session_archives WHERE connection_id = ? AND session_id = ?",
+        connectionId,
+        sessionId,
+      );
+      await txn.runAsync(
         "DELETE FROM session_drafts WHERE connection_id = ? AND session_id = ?",
         connectionId,
         sessionId,
