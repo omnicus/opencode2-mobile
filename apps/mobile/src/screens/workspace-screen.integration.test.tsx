@@ -1,5 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
-import { expect, jest, test } from "@jest/globals";
+import { afterEach, expect, jest, test } from "@jest/globals";
 import {
   getOpenCodeLocation,
   getOpenCodeSession,
@@ -62,6 +62,18 @@ let mockAllSessionsOld = false;
 let mockSessionsFetchingNextPage = false;
 let mockSessionsError = false;
 const mockFetchNextSessionPage = jest.fn(async () => undefined);
+afterEach(() => {
+  mockWorkspaceActive = false;
+  mockWorkspacePermissions = [];
+  mockArchivedIds = [];
+  mockArchiveWriteFailure = false;
+  mockOldSession = false;
+  mockRestoredAt = {};
+  mockHasNextSessionPage = false;
+  mockAllSessionsOld = false;
+  mockSessionsFetchingNextPage = false;
+  mockSessionsError = false;
+});
 function mockWorkspaceRow(index: number) {
   const session = {
     cost: 0,
@@ -531,22 +543,32 @@ test.each([false, true])(
         />
       </QueryClientProvider>,
     );
-    const row = within(screen.getByRole("button", { name: /^Open session Session 0\./ }));
-    expect(await row.findByText("docs/mobile-workflow-screenshots")).toBeOnTheScreen();
-    expect(row.UNSAFE_getByType(Feather).props).toMatchObject({
-      accessibilityElementsHidden: true,
-      importantForAccessibility: "no-hide-descendants",
-      name: "git-branch",
-    });
-    expect(row.queryByText("/workspace")).not.toBeOnTheScreen();
-    if (active) {
-      expect(
-        screen.getByRole("button", { name: /^Open session Session 0\. Workspace\. Working/ }),
-      ).toBeOnTheScreen();
+    try {
+      await act(async () => {
+        await queryClient.refetchQueries({
+          queryKey: openCodeQueryKeys.vcs("connection-1", location),
+        });
+        // Query notifications run on a zero-delay timer. Flush them inside act
+        // before capturing a row, including on slower CI runners.
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+      const row = within(screen.getByRole("button", { name: /^Open session Session 0\./ }));
+      expect(row.getByText("docs/mobile-workflow-screenshots")).toBeOnTheScreen();
+      expect(row.UNSAFE_getByType(Feather).props).toMatchObject({
+        accessibilityElementsHidden: true,
+        importantForAccessibility: "no-hide-descendants",
+        name: "git-branch",
+      });
+      expect(row.queryByText("/workspace")).not.toBeOnTheScreen();
+      if (active) {
+        expect(
+          screen.getByRole("button", { name: /^Open session Session 0\. Workspace\. Working/ }),
+        ).toBeOnTheScreen();
+      }
+    } finally {
+      view.unmount();
+      queryClient.clear();
     }
-    view.unmount();
-    queryClient.clear();
-    mockWorkspaceActive = false;
   },
 );
 
