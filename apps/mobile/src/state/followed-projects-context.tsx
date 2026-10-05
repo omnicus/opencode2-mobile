@@ -82,6 +82,7 @@ type FollowedProjectsContextValue = {
   formLocations: ReadonlyMap<string, LocationRef>;
   forms: FormInfo[];
   hasNextPage: boolean;
+  sessionsFetchingNextPage: boolean;
   inbox: FollowedInboxSections;
   interactionsError: boolean;
   interactionsLoading: boolean;
@@ -882,6 +883,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         formLocations,
         forms,
         hasNextPage: Boolean(visibleSessionsQuery.hasNextPage),
+        sessionsFetchingNextPage: visibleSessionsQuery.isFetchingNextPage,
         inbox,
         interactionsError: failedLocationCount > 0,
         interactionsLoading: reconciling,

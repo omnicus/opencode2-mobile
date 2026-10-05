@@ -13,6 +13,10 @@ export type MessageListKeyParameters = {
 };
 
 export const openCodeQueryKeys = {
+  archivedSession(connectionId: string, sessionId: string) {
+    // Identity-only lookup, like ancestry snapshots. No saved location is required.
+    return [...connectionKey(connectionId), "archived-session", sessionId] as const;
+  },
   activeSessions(connectionId: string) {
     return [...connectionKey(connectionId), "sessions-active"] as const;
   },
