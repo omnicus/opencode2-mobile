@@ -1662,9 +1662,39 @@ it("classifies a malformed fake API event frame", async () => {
   expect(classifyOpenCodeError(error)).toBe("MALFORMED_RESPONSE");
 });
 
-it("classifies a missing required V2 endpoint as incompatible", async () => {
+it.each([404, 405])(
+  "classifies a missing required V2 endpoint HTTP %s as incompatible",
+  async (status) => {
+    // Project-list 404 is a declared API error in 2.0.23. Server info still
+    // treats missing routes as unexpected statuses, including its legacy fallback.
+    const api = createFakeOpenCodeApi({
+      failures: {
+        "/api/info": { body: {}, status },
+        "/api/status": { body: {}, status },
+      },
+    });
+    const client = createOpenCodeClient({
+      baseUrl: "https://fake.invalid",
+      fetch: api.fetch,
+    });
+
+    const error = await client.server.status().catch((caught: unknown) => caught);
+    expect(classifyOpenCodeError(error)).toBe("INCOMPATIBLE");
+  },
+);
+
+it("classifies a declared project-list 404 as not found", async () => {
   const api = createFakeOpenCodeApi({
-    failures: { "/api/project": { body: {}, status: 404 } },
+    failures: {
+      "/api/project": {
+        body: {
+          _tag: "ProjectNotFoundError",
+          projectID: "missing-project",
+          message: "Project not found",
+        },
+        status: 404,
+      },
+    },
   });
   const client = createOpenCodeClient({
     baseUrl: "https://fake.invalid",
@@ -1672,7 +1702,7 @@ it("classifies a missing required V2 endpoint as incompatible", async () => {
   });
 
   const error = await client.project.list().catch((caught: unknown) => caught);
-  expect(classifyOpenCodeError(error)).toBe("INCOMPATIBLE");
+  expect(classifyOpenCodeError(error)).toBe("NOT_FOUND");
 });
 
 it("receives events on runtimes without Promise.withResolvers", async () => {
