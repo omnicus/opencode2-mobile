@@ -732,10 +732,7 @@ export function ShellFrame({
                       accessibilityRole="tab"
                       accessibilityState={{ selected: sessionTabs.active === tab }}
                       onPress={() => sessionTabs.onSelect(tab)}
-                      style={[
-                        styles.sessionTab,
-                        sessionTabs.active === tab && styles.sessionTabSelected,
-                      ]}
+                      style={[styles.sessionTab]}
                     >
                       <Text
                         style={[
@@ -1043,17 +1040,17 @@ export function ActionButton({
 const styles = StyleSheet.create({
   locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   locationControlsLargeText: { flex: 0, width: "100%" },
-  sessionTabs: { flexDirection: "row", gap: space.sm },
+  sessionTabs: {
+    flexDirection: "row",
+    gap: space.xs,
+  },
   sessionTab: {
     minHeight: 44,
     justifyContent: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "transparent",
-    paddingHorizontal: space.xs,
+    paddingHorizontal: 4,
   },
-  sessionTabSelected: { borderBottomColor: palette.ink },
-  sessionTabText: { color: palette.dim, fontSize: 14, lineHeight: 20 },
-  sessionTabTextSelected: { color: palette.ink },
+  sessionTabText: { color: palette.dim, fontSize: 12, lineHeight: 16 },
+  sessionTabTextSelected: { color: palette.ink, textDecorationLine: "underline" },
   sessionConnectionIssue: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
   locationFailure: {
     backgroundColor: palette.card,

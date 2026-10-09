@@ -3,19 +3,21 @@ import { StyleSheet, View } from "react-native";
 
 import { space } from "../theme";
 import { FormRequestCard } from "./form-request-card";
-import { useFormInteractions } from "./use-form-interactions";
+import { formStateQueryKey, useFormInteractions } from "./use-form-interactions";
 
 export function FormRequestList({
   client,
   connectionId,
   formLocations,
   forms,
+  focusSingle = false,
   location,
 }: {
   client: OpenCodeClient | undefined;
   connectionId: string | undefined;
   formLocations?: ReadonlyMap<string, LocationRef>;
   forms: readonly FormInfo[];
+  focusSingle?: boolean;
   location: LocationRef | undefined;
 }) {
   const interactions = useFormInteractions({
@@ -34,12 +36,19 @@ export function FormRequestList({
     >
       {interactions.forms.map((form) => (
         <FormRequestCard
+          allowFocus={focusSingle && interactions.forms.length === 1}
           busy={interactions.busyFormId === form.id}
           {...(interactions.errorFormId === form.id
             ? { error: "The form response was not accepted. Current state has been reloaded." }
             : {})}
           form={form}
-          key={form.id}
+          key={JSON.stringify(
+            formStateQueryKey(
+              connectionId ?? "unselected",
+              formLocations?.get(form.id) ?? location,
+              form,
+            ),
+          )}
           onCancel={() => interactions.cancelForm(form)}
           onSubmit={(answer) => interactions.replyForm(form, answer)}
         />

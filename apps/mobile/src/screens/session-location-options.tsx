@@ -33,12 +33,14 @@ export function SessionLocationOptions({
   ready,
   branch,
   branchStale,
+  working = false,
 }: {
   connectionId: string;
   location: LocationRef;
   ready: boolean;
   branch?: string | undefined;
   branchStale?: boolean;
+  working?: boolean;
 }) {
   const runtime = useConnectionRuntime();
   const client = runtime.restClient;
@@ -127,6 +129,7 @@ export function SessionLocationOptions({
         accessibilityLabel="Location options"
         accessibilityHint="Opens branch and MCP server options"
         accessibilityRole="button"
+        accessibilityValue={{ text: working ? "Working" : "" }}
         ref={triggerRef}
         onPress={() => {
           Keyboard.dismiss();
@@ -144,6 +147,13 @@ export function SessionLocationOptions({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
+        {working ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.workingDot}
+          />
+        ) : null}
       </Pressable>
       <ModalSheet
         title="Location options"
@@ -302,6 +312,15 @@ function mcpStatusLabel(server: McpServer) {
 }
 
 const styles = StyleSheet.create({
+  workingDot: {
+    position: "absolute",
+    right: 6,
+    top: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: palette.activity,
+  },
   trigger: {
     minWidth: 44,
     minHeight: 44,

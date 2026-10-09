@@ -53,6 +53,10 @@ export function ModelPicker({
         (favoritesByID.get(modelIdentityKey(a)) ?? 0) -
         (favoritesByID.get(modelIdentityKey(b)) ?? 0),
     );
+  const nameCounts = new Map<string, number>();
+  const nameKey = (item: ModelInfo) => JSON.stringify([item.providerID, item.name]);
+  for (const item of models)
+    nameCounts.set(nameKey(item), (nameCounts.get(nameKey(item)) ?? 0) + 1);
   const providers = new Map<string, ModelInfo[]>();
   for (const item of matching) {
     if (favoritesByID.has(modelIdentityKey(item))) continue;
@@ -83,17 +87,29 @@ export function ModelPicker({
       size="full"
       returnFocusRef={returnFocusRef}
     >
-      <TextInput
-        accessibilityLabel="Search models"
-        placeholder="Search models"
-        placeholderTextColor={palette.dim}
-        keyboardAppearance="dark"
-        autoCapitalize="none"
-        autoCorrect={false}
-        value={search}
-        onChangeText={setSearch}
-        style={styles.search}
-      />
+      <View style={styles.searchField}>
+        <TextInput
+          accessibilityLabel="Search models"
+          placeholder="Search models"
+          placeholderTextColor={palette.dim}
+          keyboardAppearance="dark"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={search}
+          onChangeText={setSearch}
+          style={styles.search}
+        />
+        {search ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Clear model search"
+            onPress={() => setSearch("")}
+            style={styles.clearSearch}
+          >
+            <Feather accessible={false} name="x" size={18} color={palette.dim} />
+          </Pressable>
+        ) : null}
+      </View>
       {state?.error ? (
         <PickerNotice text="Models could not be loaded." retry={state.retry} />
       ) : null}
@@ -128,11 +144,12 @@ export function ModelPicker({
         renderItem={({ item }) => {
           const favorite = favoritesByID.has(modelIdentityKey(item));
           const selected = item.id === model?.id && item.providerID === model.providerID;
+          const ambiguous = (nameCounts.get(nameKey(item)) ?? 0) > 1;
           return (
             <View style={[styles.row, selected && styles.selectedRow]}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel={`${item.name}, ${item.providerID}`}
+                accessibilityLabel={`${item.name}, ${item.providerID}${ambiguous ? `, ${item.id}` : ""}`}
                 accessibilityState={{ selected }}
                 onPress={() => {
                   onSelect({ id: item.id, providerID: item.providerID });
@@ -141,16 +158,19 @@ export function ModelPicker({
                 style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
               >
                 <View style={styles.copy}>
-                  <Text style={styles.label}>{item.name}</Text>
-                  <Text style={styles.provider}>{item.providerID}</Text>
+                  <Text style={[styles.label, selected && styles.selectedLabel]}>{item.name}</Text>
+                  <Text style={styles.provider}>
+                    {item.providerID}
+                    {ambiguous ? ` · ${item.id}` : ""}
+                  </Text>
                 </View>
                 {selected ? (
-                  <Feather accessible={false} name="check" size={20} color={palette.signal} />
+                  <Feather accessible={false} name="check" size={20} color={palette.accent} />
                 ) : null}
               </Pressable>
               <Pressable
                 accessibilityRole="checkbox"
-                accessibilityLabel={`${favorite ? "Remove" : "Add"} ${item.name} ${favorite ? "from" : "to"} favorites`}
+                accessibilityLabel={`${favorite ? "Remove" : "Add"} ${item.name}${ambiguous ? `, ${item.providerID}, ${item.id}` : ""} ${favorite ? "from" : "to"} favorites`}
                 accessibilityState={{
                   checked: favorite,
                   disabled: !favorites || favorites.disabled,
@@ -185,11 +205,19 @@ export function PickerNotice({ text, retry }: { text: string; retry: () => void 
 }
 
 const styles = StyleSheet.create({
-  search: {
-    ...typography.body,
+  searchField: {
+    flexDirection: "row",
+    alignItems: "center",
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: radius.sm,
+  },
+  clearSearch: { minHeight: 48, minWidth: 48, alignItems: "center", justifyContent: "center" },
+  selectedLabel: { color: palette.accent, fontWeight: "600" },
+  search: {
+    ...typography.body,
+    flex: 1,
+    minWidth: 0,
     color: palette.ink,
     minHeight: 48,
     paddingHorizontal: space.md,

@@ -97,7 +97,10 @@ export function groupTranscriptMessages(
   detailed: boolean,
   _showReasoning: boolean,
 ): TranscriptItem[] {
-  if (detailed) return messages;
+  // Empty assistant snapshots arrive before their first projected part. They
+  // are not transcript content and must not split a tool group or add spacing.
+  const visibleMessages = messages.filter((message) => !isEmptyAssistantSnapshot(message));
+  if (detailed) return visibleMessages;
   const result: TranscriptItem[] = [];
   let pending: SessionMessageInfo[] = [];
   let count = 0;
@@ -132,7 +135,7 @@ export function groupTranscriptMessages(
   };
   // Split mixed assistant messages at prose boundaries so adjacent tool runs
   // share one disclosure, even when the server batches prose and tools together.
-  const segments = messages.flatMap((message): SessionMessageInfo[] => {
+  const segments = visibleMessages.flatMap((message): SessionMessageInfo[] => {
     if (message.type !== "assistant" || message.error || message.retry) return [message];
     const runs: AssistantMessage["content"][] = [];
     for (const part of message.content) {
@@ -180,6 +183,12 @@ export function groupTranscriptMessages(
 
 function isTranscriptUpdate(message: SessionMessageInfo) {
   return message.type === "synthetic" || message.type === "system" || message.type === "skill";
+}
+
+function isEmptyAssistantSnapshot(message: SessionMessageInfo) {
+  return (
+    message.type === "assistant" && message.content.length === 0 && !message.error && !message.retry
+  );
 }
 
 // The server pages are newest-first; assistant parts inside a message are not.
@@ -402,6 +411,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
         </View>
       );
     case "assistant": {
+      if (isEmptyAssistantSnapshot(message)) return null;
       const visibleContent = message.content.slice(0, maxAssistantParts);
       const responseParts = visibleContent.flatMap((part) =>
         part.type === "text" ? [part.text] : [],
@@ -508,9 +518,6 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           ) : null}
           {message.error ? (
             <ExpandableText error style={styles.errorText} text={message.error.message} />
-          ) : null}
-          {message.content.length === 0 && !message.error ? (
-            <Text style={styles.statusText}>No projected content</Text>
           ) : null}
           {!hideFooter && (responseText || (!compactActivity && hasNarrativeContent(message))) ? (
             <View style={styles.responseFooter}>
