@@ -1,7 +1,7 @@
 import { type FileDiffInfo, getOpenCodeVcsDiff } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { type RefObject, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -11,7 +11,7 @@ import {
   Text,
   View,
 } from "react-native";
-
+import { ModalSheet } from "../components/modal-sheet";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
@@ -73,105 +73,154 @@ export function SessionChanges({
     files.reduce((total, file) => total + file.patch.length, 0) <= 200_000;
   const additions = files.reduce((total, file) => total + file.additions, 0);
   const deletions = files.reduce((total, file) => total + file.deletions, 0);
+  const [focus, setFocus] = useState<{ scope: string; file: string; open: boolean }>();
+  const fileTriggerRef = useRef<View>(null);
+  const focusedFile =
+    focus?.scope === scope ? files.find((file) => file.file === focus.file) : undefined;
+  const focusedRows = useMemo(
+    () =>
+      focusedFile
+        ? buildDiffRows([focusedFile], new Set([focusedFile.file])).filter(
+            (row) => row.type === "line",
+          )
+        : [],
+    [focusedFile],
+  );
 
   return (
-    <FlatList
-      accessibilityLabel="Current working tree changes"
-      contentContainerStyle={rows.length === 0 ? styles.emptyContent : styles.content}
-      data={rows}
-      initialNumToRender={40}
-      keyExtractor={(row) => row.key}
-      ListEmptyComponent={
-        !connectedToRoute ? (
-          <DiffState
-            detail="Return to the matching connection to review these changes."
-            title="Connection unavailable"
-          />
-        ) : query.isPending ? (
-          <ActivityIndicator accessibilityLabel="Loading current changes" color={palette.signal} />
-        ) : query.isError ? (
-          <DiffState
-            action="Try again"
-            detail="The current working-tree diff could not be loaded."
-            onPress={() => void query.refetch()}
-            title="Changes unavailable"
-          />
-        ) : (
-          <DiffState detail="The working tree has no uncommitted changes." title="No changes" />
-        )
-      }
-      ListHeaderComponent={
-        rows.length > 0 ? (
-          <View style={styles.summary}>
-            <Text
-              accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.subheading}
-              style={styles.title}
-            >
-              {files.length} {files.length === 1 ? "file" : "files"}
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.totals}>
-              <Text style={styles.additions}>+{additions}</Text>
-              {"  "}
-              <Text style={styles.deletions}>-{deletions}</Text>
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.explanation}>
-              Current working tree. This may include changes made after the selected tool call.
-            </Text>
-            {query.isError ? (
-              <DiffState
-                title="Refresh failed"
-                detail="Showing the last loaded changes."
-                action="Retry"
-                onPress={() => void query.refetch()}
-              />
-            ) : null}
-            {expanded.size > 0 || canExpandAll ? (
-              <Pressable
-                accessibilityRole="button"
-                style={styles.retry}
-                onPress={() =>
-                  setExpansion({
-                    scope,
-                    files: expanded.size > 0 ? new Set() : new Set(files.map((file) => file.file)),
-                  })
-                }
+    <>
+      <FlatList
+        accessibilityLabel="Current working tree changes"
+        contentContainerStyle={rows.length === 0 ? styles.emptyContent : styles.content}
+        data={rows}
+        initialNumToRender={40}
+        keyExtractor={(row) => row.key}
+        ListEmptyComponent={
+          !connectedToRoute ? (
+            <DiffState
+              detail="Return to the matching connection to review these changes."
+              title="Connection unavailable"
+            />
+          ) : query.isPending ? (
+            <ActivityIndicator
+              accessibilityLabel="Loading current changes"
+              color={palette.signal}
+            />
+          ) : query.isError ? (
+            <DiffState
+              action="Try again"
+              detail="The current working-tree diff could not be loaded."
+              onPress={() => void query.refetch()}
+              title="Changes unavailable"
+            />
+          ) : (
+            <DiffState detail="The working tree has no uncommitted changes." title="No changes" />
+          )
+        }
+        ListHeaderComponent={
+          rows.length > 0 ? (
+            <View style={styles.summary}>
+              <Text
+                accessibilityRole="header"
+                dynamicTypeRamp={typeRamp.subheading}
+                style={styles.title}
               >
-                <Text style={styles.retryLabel}>
-                  {expanded.size > 0 ? "Collapse all" : "Expand all"}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : null
-      }
-      maxToRenderPerBatch={60}
-      refreshControl={
-        <RefreshControl
-          onRefresh={() => void query.refetch()}
-          refreshing={query.isRefetching}
-          tintColor={palette.signal}
-        />
-      }
-      renderItem={({ item }) =>
-        item.type === "file" ? (
-          <DiffFileHeader
-            row={item}
-            expanded={expanded.has(item.file)}
-            onPress={() =>
-              setExpansion({
-                scope,
-                files: expanded.has(item.file) ? new Set() : new Set([item.file]),
-              })
-            }
+                {files.length} {files.length === 1 ? "file" : "files"}
+              </Text>
+              <Text dynamicTypeRamp={typeRamp.control} style={styles.totals}>
+                <Text style={styles.additions}>+{additions}</Text>
+                {"  "}
+                <Text style={styles.deletions}>-{deletions}</Text>
+              </Text>
+              <Text dynamicTypeRamp={typeRamp.control} style={styles.explanation}>
+                Current working tree. This may include changes made after the selected tool call.
+              </Text>
+              {query.isError ? (
+                <DiffState
+                  title="Refresh failed"
+                  detail="Showing the last loaded changes."
+                  action="Retry"
+                  onPress={() => void query.refetch()}
+                />
+              ) : null}
+              {expanded.size > 0 || canExpandAll ? (
+                <Pressable
+                  accessibilityRole="button"
+                  style={styles.retry}
+                  onPress={() =>
+                    setExpansion({
+                      scope,
+                      files:
+                        expanded.size > 0 ? new Set() : new Set(files.map((file) => file.file)),
+                    })
+                  }
+                >
+                  <Text style={styles.retryLabel}>
+                    {expanded.size > 0 ? "Collapse all" : "Expand all"}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null
+        }
+        maxToRenderPerBatch={60}
+        refreshControl={
+          <RefreshControl
+            onRefresh={() => void query.refetch()}
+            refreshing={query.isRefetching}
+            tintColor={palette.signal}
           />
-        ) : (
-          <DiffLine row={item} />
-        )
-      }
-      updateCellsBatchingPeriod={40}
-      windowSize={9}
-    />
+        }
+        renderItem={({ item }) =>
+          item.type === "file" ? (
+            <DiffFileHeader
+              buttonRef={focus?.file === item.file ? fileTriggerRef : undefined}
+              row={item}
+              expanded={expanded.has(item.file)}
+              onPress={() => {
+                setExpansion({
+                  scope,
+                  files: new Set(),
+                });
+                setFocus({ scope, file: item.file, open: true });
+              }}
+            />
+          ) : (
+            <DiffLine row={item} />
+          )
+        }
+        updateCellsBatchingPeriod={40}
+        windowSize={9}
+      />
+      <ModalSheet
+        title="File changes"
+        subtitle={focusedFile ? sanitizeTranscriptText(focusedFile.file, 1024) : ""}
+        visible={Boolean(focus?.open && focusedFile)}
+        onClose={() => setFocus((current) => (current ? { ...current, open: false } : current))}
+        size="full"
+        scrollable={false}
+        returnFocusRef={fileTriggerRef}
+      >
+        {focusedFile ? (
+          <Text style={styles.totals}>
+            <Text style={styles.additions}>+{focusedFile.additions}</Text>
+            {"  "}
+            <Text style={styles.deletions}>-{focusedFile.deletions}</Text>
+            {" · "}
+            {focusedFile.status}
+          </Text>
+        ) : null}
+        <FlatList
+          accessibilityLabel="Focused file diff"
+          data={focusedRows}
+          keyExtractor={(row) => row.key}
+          initialNumToRender={40}
+          maxToRenderPerBatch={60}
+          windowSize={9}
+          renderItem={({ item }) => (item.type === "line" ? <DiffLine row={item} /> : null)}
+        />
+      </ModalSheet>
+    </>
   );
 }
 
@@ -179,15 +228,19 @@ function DiffFileHeader({
   row,
   expanded,
   onPress,
+  buttonRef,
 }: {
   row: Extract<DiffRow, { type: "file" }>;
   expanded: boolean;
   onPress: () => void;
+  buttonRef?: RefObject<View | null> | undefined;
 }) {
   const path = sanitizeTranscriptText(row.file, 1_024);
   const separator = path.lastIndexOf("/");
   return (
     <Pressable
+      ref={buttonRef}
+      accessibilityHint="Opens a focused diff for this file"
       accessibilityRole="button"
       accessibilityState={{ expanded }}
       accessibilityLabel={`${row.status} file, ${path}, ${row.additions} additions, ${row.deletions} deletions`}

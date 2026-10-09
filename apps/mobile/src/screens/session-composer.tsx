@@ -23,6 +23,7 @@ import {
 } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
+import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { palette, radius, space, typeRamp, typography } from "../theme";
 import {
   type CatalogState,
@@ -118,9 +119,11 @@ export function SessionComposer({
 }) {
   const inputRef = useRef<TextInput>(null);
   const modelSelectorRef = useRef<View>(null);
-  const optionsSelectorRef = useRef<View>(null);
+  const agentSelectorRef = useRef<View>(null);
+  const variantSelectorRef = useRef<View>(null);
+  const pickerReturnFocusRef = useRef(agentSelectorRef);
   const { fontScale } = useWindowDimensions();
-  const [optionsPage, setOptionsPage] = useState<"options" | "agent" | "variant">();
+  const [optionsPage, setOptionsPage] = useState<"agent" | "variant">();
   const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -237,7 +240,7 @@ export function SessionComposer({
             onChangeText={changeDraft}
             onFocus={() => setFocused(true)}
             onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
-            placeholder={active ? "Add a follow-up" : "Ask OpenCode"}
+            placeholder="Message"
             placeholderTextColor={palette.dim}
             ref={inputRef}
             returnKeyType="default"
@@ -355,28 +358,36 @@ export function SessionComposer({
               prefix="Model"
               buttonRef={modelSelectorRef}
             />
+            <SelectorButton
+              compact
+              label={model?.variant ?? "Default"}
+              prefix="Variant"
+              buttonRef={variantSelectorRef}
+              disabled={!selectedModel?.variants.length}
+              onPress={() => {
+                Keyboard.dismiss();
+                pickerReturnFocusRef.current = variantSelectorRef;
+                setOptionsPage("variant");
+              }}
+            />
+            <SelectorButton
+              compact
+              label={selectedAgent?.name ?? agent ?? "Choose agent"}
+              prefix="Agent"
+              buttonRef={agentSelectorRef}
+              onPress={() => {
+                Keyboard.dismiss();
+                setAgentSearch("");
+                pickerReturnFocusRef.current = agentSelectorRef;
+                setOptionsPage("agent");
+              }}
+            />
             {draft.length >= maximumDraftLength * 0.9 ? (
               <Text dynamicTypeRamp={typeRamp.caption} style={styles.count}>
                 {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
               </Text>
             ) : null}
           </ScrollView>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Composer options"
-            accessibilityHint="Choose an agent or model variant"
-            accessibilityValue={{
-              text: `${selectedAgent?.name ?? agent ?? "Default agent"}, ${model?.variant ?? "Default variant"}`,
-            }}
-            ref={optionsSelectorRef}
-            onPress={() => {
-              Keyboard.dismiss();
-              setOptionsPage("options");
-            }}
-            style={styles.optionsButton}
-          >
-            <Feather accessible={false} name="sliders" size={18} color={palette.dim} />
-          </Pressable>
         </View>
       </View>
 
@@ -396,55 +407,12 @@ export function SessionComposer({
         subtitle={
           agentPickerOpen
             ? "Primary agents available at this session location"
-            : variantPickerOpen
-              ? (selectedModel?.name ?? "Select a model first")
-              : "Agent and model variant for this session"
+            : (selectedModel?.name ?? "Select a model first")
         }
-        title={
-          agentPickerOpen
-            ? "Choose agent"
-            : variantPickerOpen
-              ? "Choose variant"
-              : "Composer options"
-        }
-        returnFocusRef={optionsSelectorRef}
+        title={agentPickerOpen ? "Choose agent" : "Choose variant"}
+        returnFocusRef={pickerReturnFocusRef.current}
         visible={optionsPage !== undefined}
       >
-        {optionsPage !== "options" ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to composer options"
-            onPress={() => setOptionsPage("options")}
-            style={styles.optionsBack}
-          >
-            <Text style={styles.selectorLabel}>‹ Composer options</Text>
-          </Pressable>
-        ) : null}
-        {optionsPage === "options" ? (
-          <View style={styles.optionsContent}>
-            <Text style={styles.optionSection}>Agent</Text>
-            <SelectorButton
-              label={selectedAgent?.name ?? agent ?? "Choose agent"}
-              prefix="Agent"
-              onPress={() => {
-                setAgentSearch("");
-                setOptionsPage("agent");
-              }}
-            />
-            <Text style={styles.optionSection}>Model variant</Text>
-            <SelectorButton
-              label={model?.variant ?? "Default"}
-              prefix="Variant"
-              disabled={!selectedModel?.variants.length}
-              onPress={() => setOptionsPage("variant")}
-            />
-            {!selectedModel?.variants.length ? (
-              <Text style={styles.completionState}>
-                Choose a model with variants to change its variant.
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
         {agentPickerOpen ? (
           <>
             <TextInput
@@ -667,6 +635,7 @@ function ComposerActionButton({
   stopping: boolean;
 }) {
   const disabled = showStop ? stopDisabled : !canSubmit;
+  const showStopUnavailable = useDelayedVisibility(showStop && disabled, "stop");
   return (
     <Pressable
       accessibilityLabel={
@@ -692,7 +661,7 @@ function ComposerActionButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.sendButton,
-        disabled && styles.sendButtonDisabled,
+        (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
         pressed && styles.pressed,
       ]}
     >
@@ -803,10 +772,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
   },
   modelChipLabel: { ...typography.caption, color: palette.ink },
-  optionSection: { ...typography.label, color: palette.dim },
   selectorDisabled: { opacity: 0.5 },
-  optionsButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
-  optionsBack: { minHeight: 44, justifyContent: "center", marginBottom: space.sm },
   optionsContent: { gap: space.sm },
   completion: {
     backgroundColor: palette.background,

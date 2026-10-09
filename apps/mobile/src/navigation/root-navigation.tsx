@@ -1,7 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { LocationRef } from "@opencode2-mobile/opencode-adapter";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   AccessibilityInfo,
   Platform,
@@ -27,8 +27,9 @@ import { FollowedProjectsScreen } from "../screens/followed-projects-screen";
 import { NewSessionScreen } from "../screens/new-session-screen";
 import { NotificationPairingScreen } from "../screens/notification-pairing-screen";
 import { SessionScreen, WorkspaceScreen } from "../screens/workspace-screen";
+import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { palette } from "../theme";
-import { WorkspaceHeaderActions } from "./workspace-header-actions";
+import { SessionAttentionMarker } from "./workspace-header-actions";
 
 export type RootStackParamList = {
   Connections: undefined;
@@ -92,25 +93,12 @@ export function RootNavigation() {
       <Stack.Screen
         component={WorkspaceScreen}
         name="Workspace"
-        options={({ navigation }) => ({
+        options={() => ({
           ...(customWorkspaceHeader
             ? {
-                header: () => (
-                  <WorkspaceHeader
-                    navigate={(destination) => navigation.navigate(destination)}
-                    onNewSession={() => navigation.navigate("NewSession")}
-                    title="Sessions"
-                  />
-                ),
+                header: () => <WorkspaceHeader title="Sessions" />,
               }
-            : {
-                headerRight: () => (
-                  <WorkspaceHeaderActions
-                    navigate={(destination) => navigation.navigate(destination)}
-                    onNewSession={() => navigation.navigate("NewSession")}
-                  />
-                ),
-              }),
+            : {}),
           title: "Sessions",
         })}
       />
@@ -122,7 +110,10 @@ export function RootNavigation() {
             ? {
                 header: ({ options }) => (
                   <WorkspaceHeader
-                    navigate={(destination) => navigation.navigate(destination)}
+                    rightActions={options.headerRight?.({
+                      canGoBack: navigation.canGoBack(),
+                      tintColor: palette.ink,
+                    })}
                     onBack={() => {
                       if (navigation.canGoBack()) navigation.goBack();
                       else navigation.popTo("Workspace");
@@ -132,25 +123,12 @@ export function RootNavigation() {
                 ),
               }
             : {
-                ...(!navigation.canGoBack()
-                  ? {
-                      headerLeft: () => (
-                        <Pressable
-                          accessibilityLabel="Back to Sessions"
-                          accessibilityRole="button"
-                          onPress={() => navigation.popTo("Workspace")}
-                          style={{ justifyContent: "center", minHeight: 44, paddingRight: 12 }}
-                        >
-                          <Text style={{ color: palette.signal, fontSize: 16, fontWeight: "700" }}>
-                            Sessions
-                          </Text>
-                        </Pressable>
-                      ),
-                    }
-                  : {}),
-                headerRight: () => (
-                  <WorkspaceHeaderActions
-                    navigate={(destination) => navigation.navigate(destination)}
+                headerLeft: () => (
+                  <SessionBackButton
+                    onPress={() => {
+                      if (navigation.canGoBack()) navigation.goBack();
+                      else navigation.popTo("Workspace");
+                    }}
                   />
                 ),
               }),
@@ -202,43 +180,53 @@ export function RootNavigation() {
 }
 
 function WorkspaceHeader({
-  navigate,
   onBack,
-  onNewSession,
   title,
+  rightActions,
 }: {
-  navigate: (destination: "Connections" | "FollowedProjects" | "Pending" | "Settings") => void;
   onBack?: () => void;
-  onNewSession?: () => void;
   title: string;
+  rightActions?: ReactNode;
 }) {
   return (
     <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
       <View style={styles.header}>
-        {onBack ? (
-          <Pressable
-            accessibilityLabel="Back to Sessions"
-            accessibilityRole="button"
-            onPress={onBack}
-            style={({ pressed }) => [styles.headerSide, pressed && styles.headerButtonPressed]}
-          >
-            <Feather
-              accessibilityElementsHidden
-              color={palette.signal}
-              importantForAccessibility="no-hide-descendants"
-              name="chevron-left"
-              size={28}
-            />
-          </Pressable>
-        ) : (
-          <View style={[styles.headerSide, onNewSession && styles.headerActionsSpacer]} />
-        )}
+        {onBack ? <SessionBackButton onPress={onBack} /> : <View style={styles.headerSide} />}
         <Text accessibilityRole="header" numberOfLines={1} style={styles.headerTitle}>
           {title}
         </Text>
-        <WorkspaceHeaderActions navigate={navigate} onNewSession={onNewSession} />
+        {rightActions ?? <View style={styles.headerSide} />}
       </View>
     </SafeAreaView>
+  );
+}
+
+function SessionBackButton({ onPress }: { onPress: () => void }) {
+  const selection = useWorkspaceSelection();
+  return (
+    <Pressable
+      accessibilityLabel="Back to Sessions"
+      accessibilityRole="button"
+      accessibilityHint={
+        selection.pendingCount > 0
+          ? "The session list has requests needing attention"
+          : "Returns to the session list"
+      }
+      accessibilityValue={{
+        text: `${selection.pendingCount} known requests, ${selection.attentionCoverage.freshness}`,
+      }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.headerSide, pressed && styles.headerButtonPressed]}
+    >
+      <Feather
+        accessibilityElementsHidden
+        color={palette.signal}
+        importantForAccessibility="no-hide-descendants"
+        name="chevron-left"
+        size={28}
+      />
+      <SessionAttentionMarker />
+    </Pressable>
   );
 }
 
@@ -266,7 +254,6 @@ function useReducedMotion() {
 }
 
 const styles = StyleSheet.create({
-  headerActionsSpacer: { width: 88 },
   header: {
     alignItems: "center",
     flexDirection: "row",

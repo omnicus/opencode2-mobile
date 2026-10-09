@@ -11,9 +11,11 @@ type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Setti
 export function WorkspaceHeaderActions({
   navigate,
   onNewSession,
+  floating = false,
 }: {
   navigate: (destination: HeaderDestination) => void;
   onNewSession?: (() => void) | undefined;
+  floating?: boolean;
 }) {
   const selection = useWorkspaceSelection();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -37,7 +39,7 @@ export function WorkspaceHeaderActions({
   }
 
   return (
-    <View style={styles.actions}>
+    <View style={[styles.actions, floating && styles.floating]}>
       {onNewSession ? <NewSessionButton onPress={onNewSession} /> : null}
       <Pressable
         accessibilityHint="Opens workspace options and pending requests"
@@ -56,7 +58,7 @@ export function WorkspaceHeaderActions({
           accessibilityElementsHidden
           color={palette.signal}
           importantForAccessibility="no-hide-descendants"
-          name="more-horizontal"
+          name="settings"
           size={20}
         />
         {count > 0 || freshness !== "current" || coverage === "incomplete" ? (
@@ -125,6 +127,21 @@ export function NewSessionButton({ onPress }: { onPress: () => void }) {
   );
 }
 
+export function SessionAttentionMarker() {
+  const selection = useWorkspaceSelection();
+  const count = selection.pendingCount;
+  const { freshness, completeness } = selection.attentionCoverage;
+  if (count === 0 && freshness === "current" && completeness === "complete") return null;
+  return (
+    <View
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      testID="session-attention-marker"
+      style={[styles.attentionDot, count === 0 && styles.attentionDotUncertain]}
+    />
+  );
+}
+
 function MenuButton({
   description,
   label,
@@ -160,10 +177,22 @@ function MenuButton({
 }
 
 const styles = StyleSheet.create({
+  floating: {
+    backgroundColor: palette.card,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 24,
+    width: 48,
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+    elevation: 3,
+    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.2)",
+  },
   attentionDot: {
     position: "absolute",
     top: 6,
-    right: 6,
+    left: 6,
     width: 7,
     height: 7,
     borderRadius: 4,

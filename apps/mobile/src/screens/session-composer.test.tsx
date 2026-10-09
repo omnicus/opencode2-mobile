@@ -7,11 +7,11 @@ import type {
   ModelRef,
   SkillInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import { fireEvent, render, screen, within } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import { useState } from "react";
 import { Keyboard, StyleSheet } from "react-native";
 
-import { typography } from "../theme";
+import { palette, typography } from "../theme";
 import type { PromptDelivery } from "./prompt-admission-model";
 import { SessionComposer } from "./session-composer";
 import type { ComposerMention, ComposerSubmitIntent } from "./session-composer-model";
@@ -102,6 +102,45 @@ test("idle composer never offers Stop", () => {
   });
 });
 
+test.each([false, true])("composer placeholder is Message while active %s", (active) => {
+  render(<ComposerHarness active={active} onSubmit={jest.fn()} />);
+  expect(screen.getByLabelText("Prompt").props.placeholder).toBe("Message");
+});
+
+test("brief Stop unavailability does not flash its color but disables the action immediately", () => {
+  jest.useFakeTimers();
+  const onSubmit = jest.fn();
+  const onInterrupt = jest.fn();
+  const view = render(<ComposerHarness active onSubmit={onSubmit} onInterrupt={onInterrupt} />);
+  try {
+    view.rerender(
+      <ComposerHarness active interruptDisabled onSubmit={onSubmit} onInterrupt={onInterrupt} />,
+    );
+    const button = screen.getByRole("button", { name: "Stop" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveStyle({ backgroundColor: palette.signal });
+    fireEvent.press(button);
+    expect(onInterrupt).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(500));
+    view.rerender(<ComposerHarness active onSubmit={onSubmit} onInterrupt={onInterrupt} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Stop" })).toHaveStyle({
+      backgroundColor: palette.signal,
+    });
+    view.rerender(
+      <ComposerHarness active interruptDisabled onSubmit={onSubmit} onInterrupt={onInterrupt} />,
+    );
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByRole("button", { name: "Stop" })).toHaveStyle({
+      backgroundColor: palette.border,
+    });
+  } finally {
+    view.unmount();
+    jest.useRealTimers();
+  }
+});
+
 test("the send icon keeps queue delivery for an active session", () => {
   const onSubmit = jest.fn();
   render(<ComposerHarness active delivery="queue" onSubmit={onSubmit} />);
@@ -174,23 +213,22 @@ test("closes before publishing an immediate active-session transition", () => {
   dismissKeyboard.mockRestore();
 });
 
-test("keeps one model chip visible and moves agent and variant into composer options", () => {
+test("keeps model, variant, and agent chips visible in the composer footer", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
 
   const input = screen.getByLabelText("Prompt");
   expect(input).toHaveStyle({ height: 42 });
   expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: "Variant: Default" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Agent: Choose agent" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Composer options" })).toBeNull();
 
   fireEvent(input, "focus");
 
   expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
   expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Composer options" }));
   expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Variant: Default" })).toBeDisabled();
-  fireEvent.press(screen.getByRole("button", { name: "Close Composer options" }));
   expect(screen.getByLabelText("Prompt").props.value).toBe("");
 });
 
@@ -288,7 +326,6 @@ test("selects a server agent and model", () => {
   );
 
   fireEvent(screen.getByLabelText("Prompt"), "focus");
-  fireEvent.press(screen.getByRole("button", { name: "Composer options" }));
   fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
   expect(screen.getByLabelText("Agent results").props.inverted).toBeFalsy();
   fireEvent.changeText(screen.getByLabelText("Search agents"), "build");
@@ -308,30 +345,22 @@ test("selects a variant separately and can return to the model default", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
   fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
   fireEvent.press(screen.getByRole("button", { name: /Model One/ }));
-  fireEvent.press(screen.getByRole("button", { name: "Composer options" }));
   fireEvent.press(screen.getByRole("button", { name: "Variant: Default" }));
   fireEvent.press(screen.getByRole("button", { name: "deep" }));
-  expect(
-    screen.getByRole("button", { name: "Composer options" }).props.accessibilityValue.text,
-  ).toContain("deep");
+  expect(screen.getByRole("button", { name: "Variant: deep" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Model: Model One" })).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Composer options" }));
   fireEvent.press(screen.getByRole("button", { name: "Variant: deep" }));
   fireEvent.press(screen.getByRole("button", { name: "Default" }));
-  expect(
-    screen.getByRole("button", { name: "Composer options" }).props.accessibilityValue.text,
-  ).toContain("Default variant");
+  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeOnTheScreen();
 });
 
-test("settings pages share one modal and keep the current draft", () => {
+test("opening and closing a footer picker keeps the current draft", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
   fireEvent.changeText(screen.getByLabelText("Prompt"), "Keep this prompt");
-  fireEvent.press(screen.getByRole("button", { name: "Composer options" }));
   fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
   expect(screen.queryByRole("button", { name: "Close Composer options" })).toBeNull();
   expect(screen.getByRole("button", { name: "Close Choose agent" })).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Back to composer options" }));
-  fireEvent.press(screen.getByRole("button", { name: "Close Composer options" }));
+  fireEvent.press(screen.getByRole("button", { name: "Close Choose agent" }));
   expect(screen.getByLabelText("Prompt").props.value).toBe("Keep this prompt");
 });
 

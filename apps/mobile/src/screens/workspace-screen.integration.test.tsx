@@ -66,6 +66,7 @@ let mockHasNextSessionPage = false;
 let mockAllSessionsOld = false;
 let mockSessionsFetchingNextPage = false;
 let mockSessionsError = false;
+let mockRuntimeStatus: "connected" | "reconnecting" = "connected";
 const mockFetchNextSessionPage = jest.fn(async () => undefined);
 afterEach(() => {
   mockWorkspaceActive = false;
@@ -82,6 +83,7 @@ afterEach(() => {
   mockAllSessionsOld = false;
   mockSessionsFetchingNextPage = false;
   mockSessionsError = false;
+  mockRuntimeStatus = "connected";
 });
 function mockWorkspaceRow(index: number) {
   const session = {
@@ -249,10 +251,10 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   promptOpenCodeSession: jest.fn(),
   queueOpenCodeSessionInboxItem: jest.fn(),
   removeOpenCodeSession: jest.fn(),
-  renameOpenCodeSession: jest.fn(),
   steerOpenCodeSessionInboxItem: jest.fn(),
   switchOpenCodeSessionAgent: jest.fn(),
   switchOpenCodeSessionModel: jest.fn(),
+  renameOpenCodeSession: jest.fn(async () => undefined),
   waitForOpenCodeSession: jest.fn(),
 }));
 jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => mockDraftDb }));
@@ -270,7 +272,7 @@ jest.mock("../state/connection-runtime-context", () => ({
     connectionId: "connection-1",
     reconnectAttempt: 0,
     restClient: {},
-    status: "connected",
+    status: mockRuntimeStatus,
   }),
 }));
 jest.mock("../state/workspace-selection-context", () => ({
@@ -630,7 +632,6 @@ test("attention section owns requests, with a shortcut only when search or archi
 });
 
 test.each([
-  ["reconciling", "incomplete", "Checking request status. More sessions may need you."],
   ["stale", "complete", "Request status is stale. Reconnect to check pending requests."],
   ["current", "incomplete", "Some request locations could not be checked. Pull to refresh."],
 ] satisfies ["current" | "reconciling" | "stale", "complete" | "incomplete", string][])(
@@ -650,13 +651,86 @@ test.each([
       </QueryClientProvider>,
     );
     try {
-      expect(await screen.findByText(copy)).toBeOnTheScreen();
+      expect(await screen.findByText(copy, {}, { timeout: 2000 })).toBeOnTheScreen();
     } finally {
       view.unmount();
       queryClient.clear();
     }
   },
 );
+
+test("brief request reconciliation and history fetches do not flash banners or footers", async () => {
+  mockAllSessionsOld = true;
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const content = () => (
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>
+  );
+  const view = render(content());
+  await screen.findByTestId("session-archive-footer");
+  jest.useFakeTimers();
+  try {
+    mockAttentionFreshness = "reconciling";
+    mockSessionsFetchingNextPage = true;
+    mockRuntimeStatus = "reconnecting";
+    view.rerender(content());
+    expect(screen.queryByText("Checking request status. More sessions may need you.")).toBeNull();
+    expect(screen.queryByLabelText("Checking older session history")).toBeNull();
+    expect(screen.queryByText("Waiting for current server data.")).toBeNull();
+    expect(screen.getByTestId("session-archive-footer")).toBeOnTheScreen();
+    act(() => jest.advanceTimersByTime(500));
+    mockAttentionFreshness = "current";
+    mockSessionsFetchingNextPage = false;
+    mockRuntimeStatus = "connected";
+    view.rerender(content());
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.queryByText("Checking request status. More sessions may need you.")).toBeNull();
+    expect(screen.queryByLabelText("Checking older session history")).toBeNull();
+    mockAttentionFreshness = "reconciling";
+    mockSessionsFetchingNextPage = true;
+    mockRuntimeStatus = "reconnecting";
+    view.rerender(content());
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.queryByText("Checking request status. More sessions may need you.")).toBeNull();
+    expect(screen.queryByLabelText("Checking older session history")).toBeNull();
+    expect(screen.getByTestId("session-archive-footer")).toBeOnTheScreen();
+    expect(screen.getByText("Waiting for current server data.")).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+    jest.useRealTimers();
+  }
+});
+
+test("long pressing a session opens grouped management actions", async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findByText("Session 0");
+    fireEvent(screen.getByRole("button", { name: /^Session 0/ }), "longPress");
+    expect(await screen.findByRole("button", { name: "Rename" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
 
 test.each([
   [false, false],
@@ -1328,6 +1402,130 @@ test("compact mode groups consecutive tool calls across assistant messages", asy
   view.unmount();
   queryClient.clear();
 });
+
+test("automatic history fill stops at the existing five-page limit", async () => {
+  const previous = mockListMessages.getMockImplementation();
+  let pages = 0;
+  mockListMessages.mockImplementation(async () => ({
+    cursor: { next: `older-${++pages}` },
+    data: [],
+  }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={
+          {
+            key: "bounded-history",
+            name: "Session",
+            params: {
+              connectionId: "connection-1",
+              location: { directory: "/workspace" },
+              sessionID: "ses_transcript",
+            },
+          } as never
+        }
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findByRole("button", { name: "Load older" });
+    fireEvent(screen.getByLabelText("Session transcript"), "layout", {
+      nativeEvent: { layout: { width: 360, height: 700, x: 0, y: 0 } },
+    });
+    fireEvent(screen.getByLabelText("Session transcript"), "contentSizeChange", 360, 100);
+    expect(
+      await screen.findByText("Older messages are not loaded on this device."),
+    ).toBeOnTheScreen();
+    expect(pages).toBe(5);
+  } finally {
+    view.unmount();
+    queryClient.clear();
+    if (previous) mockListMessages.mockImplementation(previous);
+  }
+});
+
+test.each([180, 900])(
+  "compact history respects rendered height %s rather than raw tool count",
+  async (contentHeight) => {
+    mockListMessages.mockResolvedValueOnce({
+      cursor: { next: "older-context" },
+      data: Array.from({ length: 40 }, (_, index) => ({
+        agent: "build",
+        id: `msg_compact_${index}`,
+        type: "assistant" as const,
+        model: { id: "model-1", providerID: "provider" },
+        time: { created: 100 + index },
+        content: [
+          {
+            type: "tool" as const,
+            id: `tool_${index}`,
+            name: "shell",
+            time: { created: 100 + index },
+            state: {
+              status: "completed" as const,
+              input: {},
+              content: [{ type: "text" as const, text: "Result" }],
+            },
+          },
+        ],
+      })),
+    });
+    if (contentHeight < 700)
+      mockListMessages.mockResolvedValueOnce({
+        cursor: {},
+        data: [
+          { id: "earlier_user", type: "user", text: "Earlier question", time: { created: 1 } },
+        ],
+      });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <SessionScreen
+          navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+          route={
+            {
+              key: "compact-context",
+              name: "Session",
+              params: {
+                connectionId: "connection-1",
+                location: { directory: "/workspace" },
+                sessionID: "ses_transcript",
+              },
+            } as never
+          }
+        />
+      </QueryClientProvider>,
+    );
+    try {
+      await screen.findByRole("button", { name: "40 tool calls" });
+      fireEvent(screen.getByLabelText("Session transcript"), "layout", {
+        nativeEvent: { layout: { width: 360, height: 700, x: 0, y: 0 } },
+      });
+      fireEvent(
+        screen.getByLabelText("Session transcript"),
+        "contentSizeChange",
+        360,
+        contentHeight,
+      );
+      if (contentHeight < 700) {
+        expect(await screen.findByText("Earlier question")).toBeOnTheScreen();
+        expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
+      } else {
+        expect(screen.queryByText("Earlier question")).toBeNull();
+        expect(screen.getByRole("button", { name: "Load older" })).toBeOnTheScreen();
+      }
+    } finally {
+      view.unmount();
+      queryClient.clear();
+    }
+  },
+);
 
 test("renders short thoughts inline and keeps detailed thoughts collapsed", async () => {
   const scrollToOffset = jest

@@ -3,6 +3,13 @@ import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { Keyboard } from "react-native";
 import { WorkspaceNewSessionAction } from "./workspace-new-session-action";
 
+jest.mock("../state/workspace-selection-context", () => ({
+  useWorkspaceSelection: () => ({
+    pendingCount: 0,
+    attentionCoverage: { freshness: "current", completeness: "complete" },
+  }),
+}));
+
 test("thumb action is available only when eligible and the keyboard is hidden", () => {
   let show = () => {};
   let hide = () => {};
@@ -30,4 +37,20 @@ test("thumb action is available only when eligible and the keyboard is hidden", 
     listeners.mockRestore();
     visible.mockRestore();
   }
+});
+
+test("floating workspace gear remains available without an eligible new session pill", () => {
+  const navigate = jest.fn();
+  render(
+    <WorkspaceNewSessionAction
+      eligible={false}
+      showSettings
+      onNavigate={navigate}
+      onPress={jest.fn()}
+    />,
+  );
+  expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
+  fireEvent.press(screen.getByRole("button", { name: "Settings" }));
+  expect(navigate).toHaveBeenCalledWith("Settings");
 });

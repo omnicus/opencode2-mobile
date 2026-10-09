@@ -1,6 +1,6 @@
 import { afterEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
 import { Alert, Linking, View } from "react-native";
 
@@ -17,6 +17,39 @@ import {
 } from "./session-transcript";
 
 afterEach(resetTranscriptPerformanceMetrics);
+
+test("tool progress holds Running through brief completion gaps", () => {
+  jest.useFakeTimers();
+  const item = {
+    type: "activity-group" as const,
+    id: "activity:test",
+    count: 1,
+    running: true,
+    messages: [],
+  };
+  const props = {
+    largeText: false,
+    showReasoning: true,
+    onOpenDiff: jest.fn(),
+    onOpenSubagent: jest.fn(),
+  };
+  const view = render(<TranscriptActivityGroup {...props} item={item} />);
+  try {
+    expect(screen.getByText("Running")).toBeOnTheScreen();
+    view.rerender(<TranscriptActivityGroup {...props} item={{ ...item, running: false }} />);
+    act(() => jest.advanceTimersByTime(500));
+    expect(screen.queryByText("Finished")).toBeNull();
+    view.rerender(<TranscriptActivityGroup {...props} item={item} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.queryByText("Finished")).toBeNull();
+    view.rerender(<TranscriptActivityGroup {...props} item={{ ...item, running: false }} />);
+    act(() => jest.advanceTimersByTime(1000));
+    expect(screen.getByText("Finished")).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    jest.useRealTimers();
+  }
+});
 
 test("empty assistant snapshots do not flash placeholder rows between tool updates", () => {
   const message = messages.find((item) => item.type === "assistant");
@@ -249,6 +282,7 @@ test("collapsed failures distinguish interruptions without exposing server error
     />,
   );
   expect(screen.getByText("1 failed · 1 interrupted. Expand for details.")).toBeOnTheScreen();
+  expect(screen.getByText("Failed")).toBeOnTheScreen();
   expect(screen.queryByText(/private\/path|secret failure detail/)).toBeNull();
 });
 

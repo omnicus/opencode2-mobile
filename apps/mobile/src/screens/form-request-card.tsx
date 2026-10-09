@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import type { FormAnswer, FormField, FormInfo } from "@opencode2-mobile/opencode-adapter";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -90,6 +91,30 @@ export function FormRequestCard({
   }
 
   const visibleKeys = visibleFormFieldKeys(form, draft);
+  const answerFields = form.fields.filter(
+    (field) => field.type !== "external" && visibleKeys.has(field.key),
+  );
+  const answered = answerFields.filter((field) => {
+    const value = draft[field.key];
+    return (
+      value !== undefined &&
+      (typeof value === "string"
+        ? value.trim().length > 0
+        : Array.isArray(value)
+          ? value.length > 0
+          : true)
+    );
+  }).length;
+  const progress =
+    answerFields.length > 1 ? (
+      <Text
+        accessibilityLiveRegion="polite"
+        dynamicTypeRamp={typeRamp.caption}
+        style={styles.description}
+      >
+        {answered} of {answerFields.length} answered
+      </Text>
+    ) : null;
   const fields = (
     <>
       {form.fields.map((field) =>
@@ -132,6 +157,7 @@ export function FormRequestCard({
         <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.subheading} style={styles.title}>
           {sanitizeTranscriptText(form.title, 512)}
         </Text>
+        {progress}
         {allowFocus ? (
           <Pressable
             ref={reviewRef}
@@ -172,6 +198,7 @@ export function FormRequestCard({
             <Text accessibilityRole="header" style={styles.title}>
               {sanitizeTranscriptText(form.title, 512)}
             </Text>
+            {progress}
             {fields}
           </ScrollView>
           {actions}
@@ -251,6 +278,7 @@ function FormControl({
     return (
       <View style={styles.field}>
         <FieldHeading description={description} required={field.required} title={title} />
+        <Text style={styles.description}>Choose any that apply</Text>
         <View accessibilityRole="summary" style={styles.options}>
           {field.options.map((option) => (
             <ChoiceButton
@@ -300,18 +328,21 @@ function FormControl({
     <View style={styles.field}>
       <FieldHeading description={description} required={field.required} title={title} />
       {field.type === "string" && field.options ? (
-        <View accessibilityRole="radiogroup" style={styles.options}>
-          {field.options.map((option) => (
-            <ChoiceButton
-              description={option.description}
-              key={option.value}
-              label={option.label}
-              onPress={() => onChange(option.value)}
-              radio
-              selected={value === option.value}
-            />
-          ))}
-        </View>
+        <>
+          <Text style={styles.description}>Choose one</Text>
+          <View accessibilityRole="radiogroup" style={styles.options}>
+            {field.options.map((option) => (
+              <ChoiceButton
+                description={option.description}
+                key={option.value}
+                label={option.label}
+                onPress={() => onChange(option.value)}
+                radio
+                selected={value === option.value}
+              />
+            ))}
+          </View>
+        </>
       ) : null}
       {field.type !== "string" || !field.options || field.custom ? (
         <TextInput
@@ -403,13 +434,12 @@ function ChoiceButton({
       ]}
     >
       <View style={styles.choiceHeading}>
-        <Text
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.choiceMark}
-        >
-          {selected ? "✓" : radio ? "○" : "□"}
-        </Text>
+        <Feather
+          accessible={false}
+          name={selected ? "check-circle" : radio ? "circle" : "square"}
+          size={18}
+          color={selected ? palette.signal : palette.dim}
+        />
         <Text
           dynamicTypeRamp={typeRamp.control}
           style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}
@@ -511,7 +541,6 @@ const styles = StyleSheet.create({
     borderTopColor: palette.border,
   },
   choiceHeading: { flexDirection: "row", gap: space.sm, alignItems: "center" },
-  choiceMark: { color: palette.ink, fontSize: 16, width: 20 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   booleanOptions: {
     flexDirection: "row",
@@ -535,6 +564,8 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     borderRadius: radius.lg,
     borderWidth: 1,
+    borderLeftWidth: 3,
+    borderLeftColor: palette.warm,
     gap: space.md,
     padding: space.md,
   },

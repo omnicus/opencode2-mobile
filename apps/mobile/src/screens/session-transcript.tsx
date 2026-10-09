@@ -1,5 +1,5 @@
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -14,6 +14,7 @@ import {
 import { applicationName } from "../application-name";
 import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
+import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
 import type { PendingPromptPreview } from "./prompt-admission-model";
@@ -333,6 +334,21 @@ export function TranscriptActivityGroup({
 }) {
   const [expanded, setExpanded] = useState(false);
   const failureSummary = activityFailureSummary(item.messages);
+  const hasRun = useRef(item.running);
+  if (item.running) hasRun.current = true;
+  const settled = useDelayedVisibility(hasRun.current && !item.running, item.id);
+  const running = item.running || (hasRun.current && !settled && !failureSummary);
+  const progressLabel = waitingFor
+    ? `Waiting for ${waitingFor}`
+    : item.running
+      ? "Running"
+      : failureSummary
+        ? /failed/.test(failureSummary)
+          ? "Failed"
+          : "Interrupted"
+        : running
+          ? "Running"
+          : "Finished";
   return (
     <View style={styles.activityGroup}>
       <Pressable
@@ -345,6 +361,12 @@ export function TranscriptActivityGroup({
       >
         <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
           Used <Text style={styles.activityLabel}>{activitySummary(item.messages).slice(5)}</Text>
+        </Text>
+        <Text
+          dynamicTypeRamp={typeRamp.caption}
+          style={[styles.toolProgress, failureSummary && styles.toolProgressFailed]}
+        >
+          {progressLabel}
         </Text>
         <Text accessibilityElementsHidden style={styles.disclosureAction}>
           {expanded ? "⌄" : "›"}
@@ -1826,6 +1848,8 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
+  toolProgress: { ...typography.caption, color: palette.dim, flexShrink: 0 },
+  toolProgressFailed: { color: palette.warm },
   activityFailureSummary: {
     ...typography.caption,
     color: palette.danger,

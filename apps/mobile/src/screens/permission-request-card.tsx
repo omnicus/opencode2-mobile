@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import type { PermissionReply, PermissionRequest } from "@opencode2-mobile/opencode-adapter";
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
@@ -97,26 +98,30 @@ export function PermissionRequestCard({
     ) : null;
   return (
     <View style={styles.card}>
-      <Text accessibilityRole="header" style={styles.title}>
-        Permission required
-      </Text>
+      <View style={styles.headingRow}>
+        <Feather accessible={false} name="shield" size={18} color={palette.warm} />
+        <Text accessibilityRole="header" style={[styles.title, styles.headingTitle]}>
+          Permission required
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Details"
+          accessibilityHint="Opens the full request, saved permission patterns, and explanation"
+          onPress={() => setDetails(true)}
+          style={({ pressed }) => [styles.detailsButton, pressed && styles.disabled]}
+        >
+          <Text style={styles.caption}>Details</Text>
+          <Feather accessible={false} name="chevron-right" size={14} color={palette.dim} />
+        </Pressable>
+      </View>
       <Text style={styles.action}>{action}</Text>
       {shell ? (
         <View style={styles.commandBox}>
-          <Text numberOfLines={3} style={styles.command}>
+          <Text numberOfLines={2} style={styles.command}>
             {sanitizeTranscriptText(request.resources.join("\n"), 1024)}
           </Text>
         </View>
       ) : null}
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Details"
-        accessibilityHint="Opens the full request, saved permission patterns, and explanation"
-        onPress={() => setDetails(true)}
-        style={({ pressed }) => [styles.detailsButton, pressed && styles.disabled]}
-      >
-        <Text style={styles.caption}>Details ›</Text>
-      </Pressable>
       {replying ? (
         <Text accessibilityLiveRegion="polite" style={styles.caption}>
           Sending permission reply…
@@ -153,11 +158,15 @@ export function PermissionRequestCard({
 }
 
 const styles = StyleSheet.create({
+  headingRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  headingTitle: { flex: 1 },
   card: {
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: palette.warm,
     padding: 12,
     gap: 8,
   },
@@ -176,10 +185,20 @@ const styles = StyleSheet.create({
   },
   caption: { ...typography.caption, color: palette.dim },
   copy: { ...typography.body, color: palette.dim, marginVertical: space.sm },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  actions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.border,
+  },
   actionsLarge: { flexDirection: "column" },
   button: {
     ...control,
+    minHeight: 44,
+    paddingHorizontal: space.sm,
+    paddingVertical: space.xs,
     flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
@@ -192,5 +211,12 @@ const styles = StyleSheet.create({
   reject: { color: palette.danger },
   error: { ...typography.body, color: palette.danger },
   disabled: { opacity: 0.5 },
-  detailsButton: { minHeight: 44, justifyContent: "center" },
+  detailsButton: {
+    minHeight: 44,
+    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    paddingLeft: space.xs,
+  },
 });
