@@ -45,10 +45,11 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
+import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { WorkingIndicator } from "../components/working-indicator";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
-import { NewSessionButton } from "../navigation/workspace-header-actions";
+import { WorkspaceHeaderActions } from "../navigation/workspace-header-actions";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { FollowedInboxRow } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
@@ -74,6 +75,7 @@ import {
 import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
 import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
+import { SessionActionSheet } from "./session-action-sheet";
 import {
   addArchivedSessions,
   resolveSessionArchiveIds,
@@ -84,7 +86,6 @@ import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
-import { SessionLocationOptions } from "./session-location-options";
 import { SessionShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
@@ -154,6 +155,18 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   }, []);
   const searchInputRef = useRef<TextInput>(null);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [actionSession, setActionSession] = useState<SessionInfo>();
+  const presentationScope = connectionId ?? "unselected";
+  const showAttentionNotice = useDelayedVisibility(
+    workspaceSelection.attentionCoverage.freshness === "stale" ||
+      (workspaceSelection.attentionCoverage.freshness === "current" &&
+        workspaceSelection.attentionCoverage.completeness === "incomplete"),
+    presentationScope,
+  );
+  const showConnectionNotice = useDelayedVisibility(
+    runtime.status !== "connected",
+    presentationScope,
+  );
   const [refreshing, setRefreshing] = useState(false);
   const removeAbortRef = useRef<AbortController>(null);
   const refreshGenerationRef = useRef(0);
@@ -164,6 +177,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setSelectedProjectId(undefined);
     setSelectedDirectory(undefined);
     setSessionSearch("");
+    setActionSession(undefined);
     setArchivedView(false);
     refreshGenerationRef.current += 1;
     setRefreshing(false);
@@ -448,7 +462,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
               Sessions
             </Text>
           </View>
-          <NewSessionButton onPress={() => navigation.navigate("NewSession")} />
+          <WorkspaceHeaderActions
+            navigate={(destination) => navigation.navigate(destination)}
+            onNewSession={() => navigation.navigate("NewSession")}
+          />
         </View>
       ) : null}
 
@@ -472,17 +489,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           />
         </View>
       ) : null}
-      {workspaceSelection.attentionCoverage.freshness !== "current" ||
-      workspaceSelection.attentionCoverage.completeness === "incomplete" ? (
+      {showAttentionNotice ? (
         <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
-          {workspaceSelection.attentionCoverage.freshness === "reconciling"
-            ? "Checking request status. More sessions may need you."
-            : workspaceSelection.attentionCoverage.freshness === "stale"
-              ? "Request status is stale. Reconnect to check pending requests."
-              : "Some request locations could not be checked. Pull to refresh."}
+          {workspaceSelection.attentionCoverage.freshness === "stale"
+            ? "Request status is stale. Reconnect to check pending requests."
+            : "Some request locations could not be checked. Pull to refresh."}
         </Text>
       ) : null}
-      {runtime.status !== "connected" ? (
+      {showConnectionNotice ? (
         <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
           {runtime.cacheMetadata
             ? "Showing cached shell data until the server reconnects."
@@ -609,22 +623,12 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
                 secondary
               />
             </View>
-          ) : !archivedView &&
-            !deferredSessionSearch &&
-            workspaceSelection.sessionsFetchingNextPage ? (
-            <View style={styles.listFooter}>
-              <ActivityIndicator
-                accessibilityLabel="Checking older session history"
-                color={palette.accent}
-              />
-            </View>
           ) : archives.loaded &&
             !archives.busy &&
             !archives.error &&
             !workspaceSelection.sessionsLoading &&
             !workspaceSelection.sessionsError &&
             !workspaceSelection.hasNextPage &&
-            !workspaceSelection.sessionsFetchingNextPage &&
             !archivedSessionQueries.some((query) => query.fetchStatus === "fetching") ? (
             <View style={styles.listFooter} testID="session-archive-footer">
               <Text style={styles.connectionNotice}>
@@ -663,6 +667,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             </View>
           ) : (
             <SessionRow
+              onActions={() => setActionSession(item.row.session)}
               showBranch={
                 tablet ||
                 item.row.active ||
@@ -691,19 +696,26 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         windowSize={7}
       />
       <WorkspaceNewSessionAction
-        eligible={
-          !tablet &&
-          !largeText &&
-          !searchFocused &&
-          workspaceSelection.followedProjectIds.length > 0
-        }
+        showSettings={!tablet && !searchFocused}
+        onNavigate={(destination) => navigation.navigate(destination)}
+        eligible={!tablet && !searchFocused && workspaceSelection.followedProjectIds.length > 0}
         onPress={() => navigation.navigate("NewSession")}
       />
+      {actionSession && connectionId ? (
+        <SessionActionSheet
+          key={`${connectionId}:${actionSession.id}`}
+          connectionId={connectionId}
+          session={actionSession}
+          onClose={() => setActionSession(undefined)}
+          onDeleted={() => setActionSession(undefined)}
+        />
+      ) : null}
     </ShellFrame>
   );
 }
 
 export function SessionScreen({ navigation, route }: SessionProps) {
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [screenFocused, setScreenFocused] = useState(() => navigation.isFocused?.() ?? true);
   useEffect(() => {
     const focus = navigation.addListener?.("focus", () => setScreenFocused(true));
@@ -739,6 +751,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       ? sessionQueryScope.location
       : location;
   const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
+  const [transcriptSize, setTranscriptSize] = useState({ scope: "", viewport: 0, content: 0 });
   const [latestJumpPending, setLatestJumpPending] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(66);
   const [composerDockScreenBottom, setComposerDockScreenBottom] = useState(0);
@@ -775,6 +788,29 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const sessionLocationReady = Boolean(
     sessionQuery.isSuccess && session && locationsEqual(session.location, sessionQueryLocation),
   );
+  useEffect(() => {
+    void routeSessionScope;
+    setActionsOpen(false);
+  }, [routeSessionScope]);
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Session actions"
+          accessibilityState={{ disabled: !sessionLocationReady }}
+          disabled={!sessionLocationReady}
+          onPress={() => {
+            Keyboard.dismiss();
+            setActionsOpen(true);
+          }}
+          style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+        >
+          <Feather accessible={false} name="more-horizontal" size={20} color={palette.ink} />
+        </Pressable>
+      ),
+    });
+  }, [navigation, sessionLocationReady]);
   const vcsQuery = useQuery({
     enabled: Boolean(client && connectionId === routeConnectionId && sessionLocationReady),
     queryFn: ({ signal }) => {
@@ -871,6 +907,42 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const canLoadOlder = Boolean(
     messagesQuery.hasNextPage && transcriptPageCount < maxTranscriptPages,
   );
+  const transcriptMeasureScope = JSON.stringify([
+    routeSessionScope,
+    sessionLocation.directory,
+    (sessionLocation as LocationRef).workspaceID ?? null,
+    fontScale,
+  ]);
+  const autoFillTranscript = Boolean(
+    canLoadOlder &&
+      screenFocused &&
+      selectedTab === "session" &&
+      sessionLocationReady &&
+      connectionId === routeConnectionId &&
+      runtime.status === "connected" &&
+      liveFollowEnabled &&
+      !messagesQuery.isPending &&
+      !messagesQuery.isError &&
+      transcriptSize.scope === transcriptMeasureScope &&
+      transcriptSize.viewport > 0 &&
+      transcriptSize.content > 0 &&
+      transcriptSize.content < transcriptSize.viewport - space.md,
+  );
+  const showOlderContextLoading = useDelayedVisibility(autoFillTranscript, transcriptMeasureScope);
+  useEffect(() => {
+    void transcriptPageCount;
+    if (!autoFillTranscript || messagesQuery.isFetching) return;
+    // Let native layout reflect the latest compact rows before requesting another page.
+    const frame = requestAnimationFrame(() => {
+      void messagesQuery.fetchNextPage().catch(() => undefined);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    autoFillTranscript,
+    messagesQuery.fetchNextPage,
+    messagesQuery.isFetching,
+    transcriptPageCount,
+  ]);
   const openSubagent = useCallback(
     (childSessionID: string) => {
       navigation.push("Session", {
@@ -1208,17 +1280,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     <ShellFrame
       active="Workspace"
       branch={branch}
-      sessionOptions={
-        <SessionLocationOptions
-          working={execution.active}
-          key={`${routeSessionScope}\u0000${sessionLocation.directory}`}
-          connectionId={routeConnectionId}
-          location={sessionLocation}
-          ready={sessionLocationReady}
-          branch={currentBranch}
-          branchStale={branch.state === "known" && branch.stale}
-        />
-      }
       sessionTabs={{
         active: selectedTab,
         onSelect: (tab) => {
@@ -1269,7 +1330,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             inverted
             keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
             keyboardShouldPersistTaps="handled"
-            key={`session-transcript:${fontScale}`}
+            key={`session-transcript:${transcriptMeasureScope}`}
             keyExtractor={(message) => message.id}
             ListEmptyComponent={
               messagesQuery.isPending ? (
@@ -1298,13 +1359,19 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                 {sessionQuery.isError ? (
                   <InlineError message="The session could not be loaded." />
                 ) : null}
-                {canLoadOlder ? (
+                {canLoadOlder && !autoFillTranscript ? (
                   <SmallButton
                     label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
                     onPress={() => {
                       if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
                     }}
                   />
+                ) : null}
+                {showOlderContextLoading ? (
+                  <Text style={styles.transcriptLimit}>Loading earlier context</Text>
+                ) : null}
+                {messagesQuery.isFetchNextPageError ? (
+                  <InlineError message="Earlier context could not be loaded. Tap Load older to retry." />
                 ) : null}
                 {!canLoadOlder && messagesQuery.hasNextPage ? (
                   <Text style={styles.transcriptLimit}>
@@ -1315,8 +1382,31 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             }
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             maxToRenderPerBatch={12}
-            onContentSizeChange={scheduleLiveEdgeScroll}
-            onLayout={scheduleLiveEdgeScroll}
+            onContentSizeChange={(_width, height) => {
+              setTranscriptSize((current) =>
+                current.scope === transcriptMeasureScope && current.content === height
+                  ? current
+                  : {
+                      scope: transcriptMeasureScope,
+                      viewport: current.scope === transcriptMeasureScope ? current.viewport : 0,
+                      content: height,
+                    },
+              );
+              scheduleLiveEdgeScroll();
+            }}
+            onLayout={(event) => {
+              const height = event.nativeEvent.layout.height;
+              setTranscriptSize((current) =>
+                current.scope === transcriptMeasureScope && current.viewport === height
+                  ? current
+                  : {
+                      scope: transcriptMeasureScope,
+                      viewport: height,
+                      content: current.scope === transcriptMeasureScope ? current.content : 0,
+                    },
+              );
+              scheduleLiveEdgeScroll();
+            }}
             onMomentumScrollBegin={handleMomentumScrollBegin}
             onMomentumScrollEnd={handleMomentumScrollEnd}
             onScroll={handleTranscriptScroll}
@@ -1418,6 +1508,20 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           </View>
         )}
       </View>
+      {actionsOpen && sessionQuery.data && sessionLocationReady ? (
+        <SessionActionSheet
+          key={JSON.stringify([routeSessionScope, sessionLocation])}
+          connectionId={routeConnectionId}
+          session={sessionQuery.data}
+          branch={currentBranch}
+          branchStale={branch.state === "known" && branch.stale}
+          onClose={() => setActionsOpen(false)}
+          onDeleted={() => {
+            setActionsOpen(false);
+            navigation.popTo("Workspace");
+          }}
+        />
+      ) : null}
     </ShellFrame>
   );
 }
@@ -1429,6 +1533,7 @@ function SessionRow({
   onArchive,
   largeText,
   onDelete,
+  onActions,
   onOpenChild,
   onPress,
   row,
@@ -1439,6 +1544,7 @@ function SessionRow({
   onArchive: () => void;
   largeText: boolean;
   onDelete: () => void;
+  onActions: () => void;
   onOpenChild: (child: SessionInfo) => void;
   onPress: () => void;
   row: FollowedInboxRow;
@@ -1524,16 +1630,19 @@ function SessionRow({
               ? [{ label: archived ? "Restore session" : "Archive session", name: "archive" }]
               : []),
             { label: "Delete session", name: "delete" },
+            { label: "Session actions", name: "options" },
           ]}
-          accessibilityHint="Opens the session. Swipe left for archive or restore and delete"
+          accessibilityHint="Opens the session. Long press for rename, archive, or delete"
           accessibilityLabel={`${sessionAccessibilityLabel(row)}${archived ? ". Archived on this device" : ""}`}
           accessibilityRole="button"
           onAccessibilityAction={({ nativeEvent }) => {
             if (nativeEvent.actionName === "activate") onPress();
             if (nativeEvent.actionName === "delete") onDelete();
             if (nativeEvent.actionName === "archive" && !archiveDisabled) onArchive();
+            if (nativeEvent.actionName === "options") onActions();
           }}
           onPress={onPress}
+          onLongPress={onActions}
           style={({ pressed }) => [
             styles.sessionRow,
             largeText && styles.sessionRowLargeText,

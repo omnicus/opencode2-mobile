@@ -75,3 +75,20 @@ test("pending replies disable every choice and errors give a retry path", () => 
   );
   expect(screen.getByRole("button", { name: "Allow once" })).toBeEnabled();
 });
+
+test("compact approval actions retain all three reply values", () => {
+  const reply = jest.fn();
+  render(
+    <PermissionRequestCard request={request} replying={false} error={false} onReply={reply} />,
+  );
+  for (const [name, value] of [
+    ["Allow once", "once"],
+    ["Always allow", "always"],
+    ["Reject", "reject"],
+  ] as const) {
+    const button = screen.getByRole("button", { name });
+    expect(button).toHaveStyle({ minHeight: 44 });
+    fireEvent.press(button);
+    expect(reply).toHaveBeenLastCalledWith(request.id, request.sessionID, value);
+  }
+});

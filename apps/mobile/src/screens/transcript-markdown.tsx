@@ -13,6 +13,7 @@ import {
 import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
+import { parseTranscriptLink, TranscriptLinkCard } from "./transcript-link-card";
 
 // Parse Markdown only. HTML stays literal and images never make network requests.
 const parserOptions = { html: false, linkify: true, maxNesting: 32 };
@@ -38,13 +39,7 @@ function nodes(tokens: Token[]): Node[] {
 }
 
 function safeLink(href: string | null) {
-  if (!href) return undefined;
-  try {
-    const url = new URL(href);
-    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseTranscriptLink(href)?.toString();
 }
 
 function InlineContent({
@@ -101,7 +96,13 @@ function InlineContent({
     return (
       <Text
         key={key}
-        {...(link ? { accessibilityRole: "link" as const, onPress: () => onOpenLink(link) } : {})}
+        {...(link
+          ? {
+              accessibilityRole: "link" as const,
+              accessibilityHint: `Opens ${new URL(link).host} in your browser`,
+              onPress: () => onOpenLink(link),
+            }
+          : {})}
         style={[
           bold > 0 && styles.bold,
           italic > 0 && styles.italic,
@@ -138,14 +139,37 @@ export function InlineTranscriptMarkdown({
 
 export function TranscriptMarkdown({ text, ...props }: Props) {
   const blocks = useMemo(() => nodes(parser.parse(text, {})), [text]);
+  const previews = useMemo(() => {
+    const seen = new Set<string>();
+    const cards = new Map<string, string[]>();
+    for (const block of blocks) {
+      if (block.token.type !== "paragraph_open") continue;
+      const urls: string[] = [];
+      for (const child of block.children) {
+        for (const token of child.token.children ?? []) {
+          if (token.type !== "link_open") continue;
+          const href = safeLink(token.attrGet("href"));
+          if (!href || seen.has(href) || seen.size >= 3) continue;
+          seen.add(href);
+          urls.push(href);
+        }
+      }
+      if (urls.length) cards.set(block.key, urls);
+    }
+    return cards;
+  }, [blocks]);
   return (
     <View style={styles.blocks}>
-      <Blocks blocks={blocks} {...props} />
+      <Blocks blocks={blocks} {...props} previews={previews} />
     </View>
   );
 }
 
-function Blocks({ blocks, ...props }: Omit<Props, "text"> & { blocks: Node[] }) {
+function Blocks({
+  blocks,
+  previews,
+  ...props
+}: Omit<Props, "text"> & { blocks: Node[]; previews?: Map<string, string[]> }) {
   return blocks.map(({ token, children, key }) => {
     switch (token.type) {
       case "inline":
@@ -157,21 +181,26 @@ function Blocks({ blocks, ...props }: Omit<Props, "text"> & { blocks: Node[] }) 
       case "paragraph_open":
       case "heading_open":
         return (
-          <SelectableTranscriptText
-            key={key}
-            accessibilityRole={token.type === "heading_open" ? "header" : undefined}
-            dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheading : typeRamp.body}
-            selectable
-            style={[
-              props.style,
-              token.type === "heading_open" && styles.heading,
-              token.tag === "h1" && styles.heading1,
-              token.tag === "h2" && styles.heading2,
-              /h[4-6]/.test(token.tag) && styles.headingSmall,
-            ]}
-          >
-            {Blocks({ blocks: children, ...props })}
-          </SelectableTranscriptText>
+          <View key={key} style={styles.paragraph}>
+            <SelectableTranscriptText
+              key={key}
+              accessibilityRole={token.type === "heading_open" ? "header" : undefined}
+              dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheading : typeRamp.body}
+              selectable
+              style={[
+                props.style,
+                token.type === "heading_open" && styles.heading,
+                token.tag === "h1" && styles.heading1,
+                token.tag === "h2" && styles.heading2,
+                /h[4-6]/.test(token.tag) && styles.headingSmall,
+              ]}
+            >
+              {Blocks({ blocks: children, ...props })}
+            </SelectableTranscriptText>
+            {previews?.get(key)?.map((href) => (
+              <TranscriptLinkCard key={href} href={href} onOpenLink={props.onOpenLink} />
+            ))}
+          </View>
         );
       case "fence":
       case "code_block": {
@@ -280,6 +309,7 @@ function MarkdownTable({ sections, ...props }: Omit<Props, "text"> & { sections:
 
 const styles = StyleSheet.create({
   blocks: { gap: space.md },
+  paragraph: { gap: space.sm },
   bold: { color: markdownPalette.strong, fontWeight: "700" },
   italic: { fontStyle: "italic" },
   strike: { textDecorationLine: "line-through" },
@@ -290,8 +320,8 @@ const styles = StyleSheet.create({
   },
   link: { color: markdownPalette.linkText, textDecorationLine: "underline" },
   heading: { fontWeight: "600", fontSize: 18, lineHeight: 26, marginTop: space.sm },
-  heading1: { fontSize: 22, lineHeight: 30 },
-  heading2: { fontSize: 20, lineHeight: 28 },
+  heading1: { fontSize: 20, lineHeight: 28 },
+  heading2: { fontSize: 18, lineHeight: 26 },
   headingSmall: { fontSize: 16, lineHeight: 24 },
   codeBlock: {
     backgroundColor: palette.card,

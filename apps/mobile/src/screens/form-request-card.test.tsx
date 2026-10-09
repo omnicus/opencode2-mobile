@@ -136,3 +136,14 @@ test("focused form keeps its draft across dismissal and falls back inline withou
   expect(screen.getByLabelText("name").props.value).toBe("Partial answer");
   expect(screen.getByRole("button", { name: "Submit" })).toBeOnTheScreen();
 });
+
+test("question progress counts visible answers and explains multiple selection", () => {
+  render(<FormRequestCard form={form} onCancel={jest.fn()} onSubmit={jest.fn()} />);
+  expect(screen.getByText("Choose any that apply")).toBeOnTheScreen();
+  expect(screen.getByText("1 of 3 answered")).toBeOnTheScreen();
+  fireEvent.changeText(screen.getByLabelText("name"), "Ada");
+  expect(screen.getByText("2 of 3 answered")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("checkbox", { name: "Production" }));
+  expect(screen.getByRole("checkbox", { name: "Production" })).toBeChecked();
+  expect(screen.getByText("3 of 3 answered")).toBeOnTheScreen();
+});

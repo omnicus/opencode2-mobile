@@ -72,7 +72,8 @@ test("renders an authoritative working-tree diff", async () => {
     "working",
     expect.objectContaining({ context: 5 }),
   );
-  fireEvent.press(screen.getByRole("button", { name: "Collapse all" }));
+  expect(screen.getByLabelText("Focused file diff")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Close File changes" }));
   expect(screen.queryByText("+new value")).toBeNull();
 });
 

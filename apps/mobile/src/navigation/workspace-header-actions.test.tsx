@@ -2,7 +2,8 @@ import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { WorkspaceHeaderActions } from "./workspace-header-actions";
+import { palette } from "../theme";
+import { SessionAttentionMarker, WorkspaceHeaderActions } from "./workspace-header-actions";
 
 jest.mock("@expo/vector-icons/Feather", () => () => null);
 jest.mock("../state/workspace-selection-context", () => ({ useWorkspaceSelection: jest.fn() }));
@@ -63,4 +64,25 @@ test("moves Needs you into the menu when there are no known requests", () => {
   fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
   fireEvent.press(screen.getByRole("button", { name: "Needs you, syncing" }));
   expect(navigate).toHaveBeenCalledWith("Pending");
+});
+
+test("session attention is a small circle rather than an approval-list action", () => {
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    attentionCoverage: { completeness: "complete", freshness: "current" },
+    pendingCount: 1,
+  } as never);
+  const view = render(<SessionAttentionMarker />);
+  expect(
+    screen.getByTestId("session-attention-marker", { includeHiddenElements: true }),
+  ).toHaveStyle({ width: 7, height: 7, borderRadius: 4, backgroundColor: palette.warm, left: 6 });
+  expect(screen.queryByRole("button", { name: "Needs you" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Workspace options" })).toBeNull();
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    attentionCoverage: { completeness: "complete", freshness: "current" },
+    pendingCount: 0,
+  } as never);
+  view.rerender(<SessionAttentionMarker />);
+  expect(
+    screen.queryByTestId("session-attention-marker", { includeHiddenElements: true }),
+  ).toBeNull();
 });

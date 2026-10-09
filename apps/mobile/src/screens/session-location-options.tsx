@@ -1,4 +1,3 @@
-import Feather from "@expo/vector-icons/Feather";
 import {
   classifyOpenCodeError,
   connectOpenCodeMcpServer,
@@ -10,44 +9,32 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
-import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  Keyboard,
-  Pressable,
-  StyleSheet,
-  Switch,
-  Text,
-  View,
-} from "react-native";
+import { AccessibilityInfo, ActivityIndicator, StyleSheet, Switch, Text, View } from "react-native";
 
-import { ModalSheet } from "../components/modal-sheet";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { palette, space, switchColors, typography } from "../theme";
 import { ActionButton } from "./app-shell";
 
-export function SessionLocationOptions({
+export function SessionDevTools({
   connectionId,
   location,
   ready,
   branch,
   branchStale,
-  working = false,
+  visible,
 }: {
   connectionId: string;
   location: LocationRef;
   ready: boolean;
   branch?: string | undefined;
   branchStale?: boolean;
-  working?: boolean;
+  visible: boolean;
 }) {
   const runtime = useConnectionRuntime();
   const client = runtime.restClient;
   const queryClient = useQueryClient();
-  const [visible, setVisible] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
-  const triggerRef = useRef<View>(null);
   const requestRef = useRef<AbortController | null>(null);
   const available = Boolean(
     ready && client && runtime.connectionId === connectionId && runtime.status === "connected",
@@ -123,176 +110,140 @@ export function SessionLocationOptions({
     mutation.mutate({ server, connect });
   }
 
+  if (!visible) return null;
   return (
-    <>
-      <Pressable
-        accessibilityLabel="Location options"
-        accessibilityHint="Opens branch and MCP server options"
-        accessibilityRole="button"
-        accessibilityValue={{ text: working ? "Working" : "" }}
-        ref={triggerRef}
-        onPress={() => {
-          Keyboard.dismiss();
-          if (!requestRef.current) mutation.reset();
-          setCopyState("idle");
-          setVisible(true);
-          if (available) void query.refetch();
-        }}
-        style={({ pressed }) => [styles.trigger, pressed && { opacity: 0.55 }]}
-      >
-        <Feather
-          name="more-horizontal"
-          size={20}
-          color={palette.dim}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
+    <View style={styles.content}>
+      <Text style={styles.note}>
+        MCP changes affect all sessions at this location. They do not change saved configuration and
+        may reset when the server restarts.
+      </Text>
+      <Text selectable style={styles.path}>
+        {location.directory}
+      </Text>
+      <Text accessibilityRole="header" style={styles.heading}>
+        Current branch
+      </Text>
+      <Text selectable style={styles.name}>
+        {branch ?? "Branch unavailable"}
+      </Text>
+      {branchStale ? (
+        <Text style={styles.note}>This branch may be outdated while the server reconnects.</Text>
+      ) : null}
+      {branch ? (
+        <ActionButton
+          secondary
+          label={
+            copyState === "copied"
+              ? "Copied"
+              : copyState === "error"
+                ? "Try copying again"
+                : "Copy branch name"
+          }
+          onPress={() => void copyBranch()}
         />
-        {working ? (
-          <View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.workingDot}
-          />
-        ) : null}
-      </Pressable>
-      <ModalSheet
-        title="Location options"
-        visible={visible}
-        onClose={() => setVisible(false)}
-        returnFocusRef={triggerRef}
-      >
-        <Text style={styles.note}>
-          MCP changes affect all sessions at this location. They do not change saved configuration
-          and may reset when the server restarts.
+      ) : null}
+      <Text accessibilityRole="header" style={styles.heading}>
+        MCP servers for this location
+      </Text>
+      {!available ? (
+        <Text accessibilityRole="alert" style={styles.note}>
+          Reconnect to this session's server and wait for its location to load before changing MCP
+          servers.
         </Text>
-        <Text selectable style={styles.path}>
-          {location.directory}
+      ) : null}
+      {unsupported ? (
+        <Text accessibilityRole="alert" style={styles.note}>
+          This server does not expose MCP management.
         </Text>
-        <Text accessibilityRole="header" style={styles.heading}>
-          Current branch
-        </Text>
-        <Text selectable style={styles.name}>
-          {branch ?? "Branch unavailable"}
-        </Text>
-        {branchStale ? (
-          <Text style={styles.note}>This branch may be outdated while the server reconnects.</Text>
-        ) : null}
-        {branch ? (
+      ) : query.isError ? (
+        <View>
+          <Text accessibilityRole="alert" style={styles.note}>
+            MCP servers could not be refreshed. Their status may be outdated.
+          </Text>
           <ActionButton
             secondary
-            label={
-              copyState === "copied"
-                ? "Copied"
-                : copyState === "error"
-                  ? "Try copying again"
-                  : "Copy branch name"
-            }
-            onPress={() => void copyBranch()}
-          />
-        ) : null}
-        <Text accessibilityRole="header" style={styles.heading}>
-          MCP servers for this location
-        </Text>
-        {!available ? (
-          <Text accessibilityRole="alert" style={styles.note}>
-            Reconnect to this session's server and wait for its location to load before changing MCP
-            servers.
-          </Text>
-        ) : null}
-        {unsupported ? (
-          <Text accessibilityRole="alert" style={styles.note}>
-            This server does not expose MCP management.
-          </Text>
-        ) : query.isError ? (
-          <View>
-            <Text accessibilityRole="alert" style={styles.note}>
-              MCP servers could not be refreshed. Their status may be outdated.
-            </Text>
-            <ActionButton
-              secondary
-              disabled={!available || mutation.isPending}
-              label="Try again"
-              onPress={() => void query.refetch()}
-            />
-          </View>
-        ) : available && query.isPending ? (
-          <ActivityIndicator accessibilityLabel="Loading MCP servers" color={palette.signal} />
-        ) : null}
-        {mutation.isError && !unsupported ? (
-          <Text accessibilityRole="alert" style={styles.note}>
-            The MCP change could not be confirmed. Check the refreshed status before trying again.
-          </Text>
-        ) : null}
-        {servers?.length === 0 && query.isSuccess ? (
-          <Text style={styles.note}>No MCP servers configured for this location.</Text>
-        ) : null}
-        {servers?.map((server) => {
-          const pending = mutation.isPending && mutation.variables?.server === server.name;
-          // Enabled is distinct from connected. An enabled server can still be
-          // connecting, require authentication, or have a connection failure.
-          const enabled = server.status.status !== "disabled";
-          const checked = pending ? Boolean(mutation.variables?.connect) : enabled;
-          const needsAuth = server.status.status === "needs_auth";
-          const status = pending
-            ? mutation.variables?.connect
-              ? "Connecting"
-              : "Disconnecting"
-            : mcpStatusLabel(server);
-          return (
-            <View key={server.name} style={styles.server}>
-              <View style={styles.serverHeader}>
-                <View style={styles.serverInfo}>
-                  <Text selectable style={styles.name}>
-                    {server.name}
-                  </Text>
-                  <Text accessibilityLiveRegion="polite" style={styles.note}>
-                    {status}
-                  </Text>
-                </View>
-                <View style={styles.switchTarget}>
-                  <Switch
-                    accessibilityLabel={`MCP server ${server.name} for this location`}
-                    accessibilityHint="Turns this server on or off for all sessions at this location"
-                    accessibilityState={{
-                      checked,
-                      disabled: !canChange || server.status.status === "pending",
-                      busy: pending || server.status.status === "pending",
-                    }}
-                    disabled={!canChange || server.status.status === "pending"}
-                    value={checked}
-                    {...switchColors}
-                    onValueChange={(next) => {
-                      if (next !== enabled) changeServer(server.name, next);
-                    }}
-                  />
-                </View>
-              </View>
-              {needsAuth ? (
-                <Text style={styles.note}>
-                  Finish authentication in OpenCode on the server, then refresh this list.
-                </Text>
-              ) : server.status.status === "failed" ? (
-                <ActionButton
-                  secondary
-                  disabled={!canChange}
-                  label="Retry connection"
-                  accessibilityLabel={`Retry connection to MCP server ${server.name}`}
-                  onPress={() => changeServer(server.name, true)}
-                />
-              ) : null}
-            </View>
-          );
-        })}
-        {query.isSuccess && !unsupported ? (
-          <ActionButton
-            secondary
-            disabled={!available || mutation.isPending || query.isFetching}
-            label={query.isFetching ? "Refreshing MCP servers" : "Refresh MCP servers"}
+            disabled={!available || mutation.isPending}
+            label="Try again"
             onPress={() => void query.refetch()}
           />
-        ) : null}
-      </ModalSheet>
-    </>
+        </View>
+      ) : available && query.isPending ? (
+        <ActivityIndicator accessibilityLabel="Loading MCP servers" color={palette.signal} />
+      ) : null}
+      {mutation.isError && !unsupported ? (
+        <Text accessibilityRole="alert" style={styles.note}>
+          The MCP change could not be confirmed. Check the refreshed status before trying again.
+        </Text>
+      ) : null}
+      {servers?.length === 0 && query.isSuccess ? (
+        <Text style={styles.note}>No MCP servers configured for this location.</Text>
+      ) : null}
+      {servers?.map((server) => {
+        const pending = mutation.isPending && mutation.variables?.server === server.name;
+        // Enabled is distinct from connected. An enabled server can still be
+        // connecting, require authentication, or have a connection failure.
+        const enabled = server.status.status !== "disabled";
+        const checked = pending ? Boolean(mutation.variables?.connect) : enabled;
+        const needsAuth = server.status.status === "needs_auth";
+        const status = pending
+          ? mutation.variables?.connect
+            ? "Connecting"
+            : "Disconnecting"
+          : mcpStatusLabel(server);
+        return (
+          <View key={server.name} style={styles.server}>
+            <View style={styles.serverHeader}>
+              <View style={styles.serverInfo}>
+                <Text selectable style={styles.name}>
+                  {server.name}
+                </Text>
+                <Text accessibilityLiveRegion="polite" style={styles.note}>
+                  {status}
+                </Text>
+              </View>
+              <View style={styles.switchTarget}>
+                <Switch
+                  accessibilityLabel={`MCP server ${server.name} for this location`}
+                  accessibilityHint="Turns this server on or off for all sessions at this location"
+                  accessibilityState={{
+                    checked,
+                    disabled: !canChange || server.status.status === "pending",
+                    busy: pending || server.status.status === "pending",
+                  }}
+                  disabled={!canChange || server.status.status === "pending"}
+                  value={checked}
+                  {...switchColors}
+                  onValueChange={(next) => {
+                    if (next !== enabled) changeServer(server.name, next);
+                  }}
+                />
+              </View>
+            </View>
+            {needsAuth ? (
+              <Text style={styles.note}>
+                Finish authentication in OpenCode on the server, then refresh this list.
+              </Text>
+            ) : server.status.status === "failed" ? (
+              <ActionButton
+                secondary
+                disabled={!canChange}
+                label="Retry connection"
+                accessibilityLabel={`Retry connection to MCP server ${server.name}`}
+                onPress={() => changeServer(server.name, true)}
+              />
+            ) : null}
+          </View>
+        );
+      })}
+      {query.isSuccess && !unsupported ? (
+        <ActionButton
+          secondary
+          disabled={!available || mutation.isPending || query.isFetching}
+          label={query.isFetching ? "Refreshing MCP servers" : "Refresh MCP servers"}
+          onPress={() => void query.refetch()}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -312,22 +263,7 @@ function mcpStatusLabel(server: McpServer) {
 }
 
 const styles = StyleSheet.create({
-  workingDot: {
-    position: "absolute",
-    right: 6,
-    top: 6,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: palette.activity,
-  },
-  trigger: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
+  content: { gap: space.md },
   heading: { ...typography.control, color: palette.ink },
   name: { ...typography.body, color: palette.ink },
   note: { ...typography.caption, color: palette.dim },
