@@ -7,6 +7,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput } from "react-native";
+import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
@@ -141,7 +142,8 @@ export function SessionActionSheet({
       onClose={() => {
         if (!controllerRef.current) onClose();
       }}
-      size="page"
+      size={page === "menu" || page === "delete" ? "compact" : "page"}
+      closeLabel={page === "delete" ? "Cancel" : "Close"}
     >
       {page !== "menu" ? (
         <Action
@@ -155,32 +157,51 @@ export function SessionActionSheet({
       ) : null}
       {page === "menu" ? (
         <>
-          <Action label="Rename" disabled={busy || !connected} onPress={() => setPage("rename")} />
-          <Action
-            label="Dev tools"
-            disabled={busy || runtime.connectionId !== connectionId}
-            onPress={() => setPage("devtools")}
-          />
-          <Action
-            label={archived ? "Restore" : "Archive"}
-            disabled={
-              busy ||
-              runtime.connectionId !== connectionId ||
-              !archives.loaded ||
-              archives.busy ||
-              archives.error
-            }
-            onPress={() => void perform("archive")}
-          />
+          <MenuGroup>
+            <MenuRow
+              icon="edit-2"
+              label="Rename"
+              disabled={busy || !connected}
+              onPress={() => setPage("rename")}
+            />
+            <MenuRow
+              icon="archive"
+              last
+              disclosure={false}
+              label={archived ? "Restore" : "Archive"}
+              disabled={
+                busy ||
+                runtime.connectionId !== connectionId ||
+                !archives.loaded ||
+                archives.busy ||
+                archives.error
+              }
+              onPress={() => void perform("archive")}
+            />
+          </MenuGroup>
           <Text style={styles.caption}>
             Archive is a preference on this device. Working sessions and requests remain visible.
           </Text>
-          <Action
-            label="Delete"
-            danger
-            disabled={busy || !connected}
-            onPress={() => setPage("delete")}
-          />
+          <MenuGroup>
+            <MenuRow
+              icon="tool"
+              last
+              label="Dev tools"
+              description="Branch and MCP servers for this location"
+              disabled={busy || runtime.connectionId !== connectionId}
+              onPress={() => setPage("devtools")}
+            />
+          </MenuGroup>
+          <MenuGroup>
+            <MenuRow
+              icon="trash-2"
+              last
+              label="Delete"
+              danger
+              disabled={busy || !connected}
+              onPress={() => setPage("delete")}
+            />
+          </MenuGroup>
         </>
       ) : null}
       {page === "rename" ? (

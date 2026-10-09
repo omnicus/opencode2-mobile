@@ -25,6 +25,7 @@ export function ModalSheet({
   visible,
   size = "page",
   returnFocusRef,
+  closeLabel = "Done",
 }: {
   children: ReactNode;
   onClose: () => void;
@@ -34,6 +35,7 @@ export function ModalSheet({
   visible: boolean;
   size?: "page" | "full" | "compact";
   returnFocusRef?: RefObject<View | null> | undefined;
+  closeLabel?: string;
 }) {
   const [reducedMotion, setReducedMotion] = useState(false);
   const { fontScale, width } = useWindowDimensions();
@@ -123,7 +125,7 @@ export function ModalSheet({
                 style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
               >
                 <Text dynamicTypeRamp={typeRamp.control} style={styles.closeLabel}>
-                  Done
+                  {closeLabel}
                 </Text>
               </Pressable>
             </View>

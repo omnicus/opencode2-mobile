@@ -100,6 +100,22 @@ test("idle composer never offers Stop", () => {
     height: 44,
     borderRadius: 22,
   });
+  expect(screen.getByTestId("composer-submit-visual")).toHaveStyle({
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  });
+});
+
+test("composer chips use compact type without shrinking chat or touch targets", () => {
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+  for (const label of ["Choose model", "Default", "Choose agent"])
+    expect(screen.getByText(label)).toHaveStyle({ fontSize: 12, lineHeight: 18 });
+  for (const prefix of ["Model", "Variant", "Agent"])
+    expect(screen.getByRole("button", { name: new RegExp(`^${prefix}:`) })).toHaveStyle({
+      minHeight: 44,
+    });
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ fontSize: 16 });
 });
 
 test.each([false, true])("composer placeholder is Message while active %s", (active) => {
@@ -118,21 +134,25 @@ test("brief Stop unavailability does not flash its color but disables the action
     );
     const button = screen.getByRole("button", { name: "Stop" });
     expect(button).toBeDisabled();
-    expect(button).toHaveStyle({ backgroundColor: palette.signal });
+    expect(within(button).getByTestId("composer-submit-visual")).toHaveStyle({
+      backgroundColor: palette.signal,
+      width: 36,
+      height: 36,
+    });
     fireEvent.press(button);
     expect(onInterrupt).not.toHaveBeenCalled();
     act(() => jest.advanceTimersByTime(500));
     view.rerender(<ComposerHarness active onSubmit={onSubmit} onInterrupt={onInterrupt} />);
     act(() => jest.advanceTimersByTime(1000));
     expect(screen.getByRole("button", { name: "Stop" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Stop" })).toHaveStyle({
+    expect(screen.getByTestId("composer-submit-visual")).toHaveStyle({
       backgroundColor: palette.signal,
     });
     view.rerender(
       <ComposerHarness active interruptDisabled onSubmit={onSubmit} onInterrupt={onInterrupt} />,
     );
     act(() => jest.advanceTimersByTime(1000));
-    expect(screen.getByRole("button", { name: "Stop" })).toHaveStyle({
+    expect(screen.getByTestId("composer-submit-visual")).toHaveStyle({
       backgroundColor: palette.border,
     });
   } finally {

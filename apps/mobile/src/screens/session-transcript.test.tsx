@@ -282,6 +282,7 @@ test("collapsed failures distinguish interruptions without exposing server error
     />,
   );
   expect(screen.getByText("1 failed · 1 interrupted. Expand for details.")).toBeOnTheScreen();
+  expect(screen.getByText("2 Shell · 2 failed")).toHaveStyle({ fontSize: 12, lineHeight: 18 });
   expect(screen.getByText("Failed")).toBeOnTheScreen();
   expect(screen.queryByText(/private\/path|secret failure detail/)).toBeNull();
 });

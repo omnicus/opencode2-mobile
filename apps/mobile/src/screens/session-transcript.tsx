@@ -26,6 +26,7 @@ import {
   type SubagentProtocolText,
   sanitizeTranscriptText,
 } from "./session-transcript-model";
+import { parseTranscriptLink } from "./transcript-link-card";
 import { InlineTranscriptMarkdown, TranscriptMarkdown } from "./transcript-markdown";
 
 const textStep = 4_000;
@@ -357,9 +358,12 @@ export function TranscriptActivityGroup({
         accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. ${failureSummary ? `${failureSummary}. ` : ""}Expand or collapse execution details.`}
         accessibilityState={{ expanded }}
         onPress={() => setExpanded((value) => !value)}
-        style={styles.activityGroupHeader}
+        style={[styles.activityGroupHeader, largeText && styles.activityGroupHeaderLargeText]}
       >
-        <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
+        <Text
+          dynamicTypeRamp={typeRamp.control}
+          style={[styles.activitySummary, largeText && styles.activitySummaryLargeText]}
+        >
           Used <Text style={styles.activityLabel}>{activitySummary(item.messages).slice(5)}</Text>
         </Text>
         <Text
@@ -1526,13 +1530,7 @@ function splitWebUrls(text: string) {
     }
 
     const { suffix, url } = trimUrlPunctuation(candidate);
-    let href: string | undefined;
-    try {
-      const parsed = new URL(url);
-      if (parsed.protocol === "http:" || parsed.protocol === "https:") href = parsed.toString();
-    } catch {
-      // Keep malformed URL-like text selectable without making it actionable.
-    }
+    const href = parseTranscriptLink(url)?.toString();
     tokens.push({ ...(href ? { href } : {}), key: `url:${ordinal}`, text: url });
     ordinal += 1;
     if (suffix) {
@@ -1565,14 +1563,21 @@ function trimUrlPunctuation(candidate: string) {
 }
 
 function openTranscriptUrl(url: string) {
-  const parsed = new URL(url);
+  const parsed = parseTranscriptLink(url);
+  if (!parsed) return;
   Alert.alert(
     "Open external link?",
     `This leaves ${applicationName} and opens ${parsed.host}. The site will receive your device's network address.`,
     [
       { style: "cancel", text: "Cancel" },
       {
-        onPress: () => void Linking.openURL(parsed.toString()).catch(() => undefined),
+        onPress: () =>
+          void Linking.openURL(parsed.toString()).catch(() => {
+            Alert.alert(
+              "Link could not be opened",
+              "Try copying the link and opening it in your browser.",
+            );
+          }),
         text: "Open",
       },
     ],
@@ -1903,11 +1908,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: space.sm,
   },
+  activityGroupHeaderLargeText: { flexWrap: "wrap" },
+  activitySummaryLargeText: { flexBasis: "100%" },
   activity: {
     paddingHorizontal: 0,
   },
   loadedSkill: { minHeight: 44, justifyContent: "center", paddingVertical: 4 },
-  activityAction: { ...typography.control, color: palette.dim },
+  activityAction: { ...typography.compactControl, color: palette.dim },
   activityError: {
     borderBottomWidth: 0,
     marginHorizontal: -space.sm,
@@ -1943,7 +1950,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   activityHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
-  activityLabel: { ...typography.control, color: palette.ink },
+  activityLabel: { ...typography.compactControl, color: palette.ink },
   activitySummary: { ...typography.caption, color: palette.dim, flexShrink: 1 },
   activityNested: { marginLeft: 0 },
   compactActivity: { paddingLeft: space.sm, gap: 2 },
@@ -1971,7 +1978,7 @@ const styles = StyleSheet.create({
   disclosure: {
     backgroundColor: "transparent",
   },
-  disclosureAction: { ...typography.control, color: palette.dim },
+  disclosureAction: { ...typography.compactControl, color: palette.dim },
   disclosureActionLargeText: { alignSelf: "flex-start" },
   disclosureHeader: {
     alignItems: "center",

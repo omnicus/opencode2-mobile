@@ -104,7 +104,23 @@ test("only HTTP links are actionable and remote images remain text", () => {
   );
   fireEvent.press(screen.getByRole("link", { name: "Docs" }));
   expect(open).toHaveBeenCalledWith("https://example.test/docs");
-  expect(screen.getAllByRole("link")).toHaveLength(1);
+  expect(screen.getAllByRole("link")).toHaveLength(2);
   expect(screen.getByText("Remote image")).toBeOnTheScreen();
   expect(screen.queryByRole("image")).toBeNull();
+});
+
+test("shows compact PR destinations once and bounds extra link cards", () => {
+  render(
+    <TranscriptMarkdown
+      style={body}
+      onOpenLink={jest.fn()}
+      text={
+        "Created [PR #57](https://github.com/team/repo/pull/57).\n\nSame https://github.com/team/repo/pull/57\n\nhttps://docs.test/a\n\nhttps://docs.test/b\n\nhttps://docs.test/c\n\n```sh\nhttps://private.test/code\n```"
+      }
+    />,
+  );
+  expect(screen.getAllByRole("link", { name: "Pull request: team/repo #57" })).toHaveLength(1);
+  expect(screen.getAllByRole("link", { name: /^External link:/ })).toHaveLength(2);
+  expect(screen.queryByRole("link", { name: /private.test/ })).toBeNull();
+  expect(screen.getByRole("link", { name: "https://docs.test/c" })).toBeOnTheScreen();
 });

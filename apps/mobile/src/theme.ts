@@ -73,6 +73,7 @@ export const typography = {
   body: { fontSize: 15, lineHeight: 22 },
   chatBody: { fontSize: 16, lineHeight: 24 },
   control: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
+  compactControl: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
   caption: { fontSize: 12, lineHeight: 18 },
   label: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
   code: {

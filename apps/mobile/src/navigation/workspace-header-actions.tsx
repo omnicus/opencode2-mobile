@@ -1,10 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useState } from "react";
-import { Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
-
+import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, radius, space, typography } from "../theme";
+import { palette } from "../theme";
 
 type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Settings";
 
@@ -75,30 +75,36 @@ export function WorkspaceHeaderActions({
         subtitle="Project, connection, and device settings"
         title="Workspace options"
         visible={menuOpen}
+        size="compact"
+        closeLabel="Close"
       >
-        <View style={styles.menuGroup}>
-          <MenuButton
+        <MenuGroup>
+          <MenuRow
+            icon="inbox"
             description="Permission and form requests"
             label={needsYouMenuLabel}
             onPress={() => open("Pending")}
           />
-          <MenuButton
+          <MenuRow
+            icon="folder"
             description="Choose projects shown in Sessions"
             label="Followed projects"
             onPress={() => open("FollowedProjects")}
           />
-          <MenuButton
+          <MenuRow
+            icon="server"
             description="Switch or edit OpenCode servers"
             label="Connections"
             onPress={() => open("Connections")}
           />
-          <MenuButton
+          <MenuRow
+            icon="settings"
             description="Device security and diagnostics"
             label="Settings"
             last
             onPress={() => open("Settings")}
           />
-        </View>
+        </MenuGroup>
       </ModalSheet>
     </View>
   );
@@ -142,40 +148,6 @@ export function SessionAttentionMarker() {
   );
 }
 
-function MenuButton({
-  description,
-  label,
-  last,
-  onPress,
-}: {
-  description: string;
-  label: string;
-  last?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityHint={description}
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.menuButton,
-        last && styles.menuButtonLast,
-        pressed && styles.pressed,
-      ]}
-    >
-      <View style={styles.menuCopy}>
-        <Text style={styles.menuLabel}>{label}</Text>
-        <Text style={styles.menuDescription}>{description}</Text>
-      </View>
-      <Text accessibilityElementsHidden importantForAccessibility="no" style={styles.disclosure}>
-        &gt;
-      </Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   floating: {
     backgroundColor: palette.card,
@@ -203,27 +175,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
   },
-  disclosure: { color: palette.dim, fontSize: 18, marginLeft: space.sm },
-  menuButton: {
-    alignItems: "center",
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    minHeight: 64,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
-  menuButtonLast: { borderBottomWidth: 0 },
-  menuCopy: { flex: 1, minWidth: 0 },
-  menuDescription: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  menuGroup: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    overflow: "hidden",
-  },
-  menuLabel: { ...typography.heading, color: palette.ink },
   optionsButton: {
     alignItems: "center",
     borderRadius: 22,
@@ -232,5 +183,4 @@ const styles = StyleSheet.create({
     width: 44,
   },
   optionsButtonPressed: { backgroundColor: palette.card },
-  pressed: { opacity: 0.58 },
 });

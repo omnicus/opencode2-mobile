@@ -659,21 +659,26 @@ function ComposerActionButton({
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.sendButton,
-        (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
-        pressed && styles.pressed,
-      ]}
+      style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
     >
-      {showStop ? (
-        <View
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          style={styles.stopIcon}
-        />
-      ) : (
-        <Feather accessible={false} color={palette.background} name="arrow-up" size={22} />
-      )}
+      <View
+        testID="composer-submit-visual"
+        pointerEvents="none"
+        style={[
+          styles.sendVisual,
+          (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
+        ]}
+      >
+        {showStop ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.stopIcon}
+          />
+        ) : (
+          <Feather accessible={false} color={palette.background} name="arrow-up" size={19} />
+        )}
+      </View>
     </Pressable>
   );
 }
@@ -771,7 +776,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: space.sm,
   },
-  modelChipLabel: { ...typography.caption, color: palette.ink },
+  modelChipLabel: { ...typography.compactControl, color: palette.ink },
   selectorDisabled: { opacity: 0.5 },
   optionsContent: { gap: space.sm },
   completion: {
@@ -845,21 +850,28 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 4,
   },
-  selectorLabel: { ...typography.body, color: palette.dim, flexShrink: 1 },
+  selectorLabel: { ...typography.compactControl, color: palette.dim, flexShrink: 1 },
   selectorRow: { alignItems: "center", gap: space.xs, paddingRight: space.xs },
   selectorScroller: { flex: 1 },
   sendButton: {
     alignSelf: "flex-end",
     marginLeft: space.sm,
     alignItems: "center",
-    backgroundColor: palette.signal,
     borderRadius: 22,
     justifyContent: "center",
     height: 44,
     width: 44,
   },
+  sendVisual: {
+    height: 36,
+    width: 36,
+    borderRadius: 18,
+    backgroundColor: palette.signal,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   sendButtonDisabled: { backgroundColor: palette.border, opacity: 0.68 },
-  stopIcon: { width: 14, height: 14, borderRadius: 2, backgroundColor: palette.background },
+  stopIcon: { width: 12, height: 12, borderRadius: 2, backgroundColor: palette.background },
   shell: {
     backgroundColor: palette.background,
     gap: space.xs,
