@@ -77,6 +77,9 @@ export function SessionComposer({
   onModelChange,
   onMentionSearchChange,
   onSubmit,
+  onInterrupt,
+  interruptDisabled = false,
+  stopping = false,
   skills,
 }: {
   active: boolean;
@@ -108,6 +111,9 @@ export function SessionComposer({
   onModelChange: (model: ModelRef) => void;
   onMentionSearchChange: (query: string | undefined) => void;
   onSubmit: (intent: ComposerSubmitIntent) => void;
+  onInterrupt?: (() => void) | undefined;
+  interruptDisabled?: boolean;
+  stopping?: boolean;
   skills: SkillInfo[];
 }) {
   const inputRef = useRef<TextInput>(null);
@@ -134,7 +140,7 @@ export function SessionComposer({
       )
     : agents;
   const expanded = largeText || focused || agentPickerOpen || modelPickerOpen || variantPickerOpen;
-  const minimumInputHeight = Math.max(40, 23 * fontScale + 8);
+  const minimumInputHeight = Math.max(40, typography.chatBody.lineHeight * fontScale + 8);
   const maximumInputHeight = Math.max(120, minimumInputHeight * 2);
   const completions = listSlashCompletions(draft, commands);
   const mentionTrigger = findMentionTrigger(draft, selection);
@@ -151,10 +157,12 @@ export function SessionComposer({
       : undefined;
   const canSubmit =
     !disabled &&
+    !stopping &&
     !slashCatalogPending &&
     !slashCatalogUnavailable &&
     draft.trim().length > 0 &&
     (!active || delivery === "queue" || delivery === "steer");
+  const showStop = active && draft.trim().length === 0 && Boolean(onInterrupt);
 
   useEffect(() => {
     if (!focusOnMount || !editable) return;
@@ -248,12 +256,27 @@ export function SessionComposer({
                   ]
                 : [
                     styles.inputCollapsed,
-                    { paddingVertical: Math.max(0, (42 - 23 * fontScale) / 2) },
+                    {
+                      paddingVertical: Math.max(
+                        0,
+                        (42 - typography.chatBody.lineHeight * fontScale) / 2,
+                      ),
+                    },
                   ],
             ]}
             submitBehavior="newline"
             textAlignVertical={expanded ? "top" : "center"}
             value={draft}
+          />
+          <ComposerActionButton
+            active={active}
+            canSubmit={canSubmit}
+            delivery={delivery}
+            disabledHint={submitHint}
+            showStop={showStop}
+            stopDisabled={interruptDisabled || stopping}
+            stopping={stopping}
+            onPress={showStop ? () => onInterrupt?.() : submit}
           />
         </View>
 
@@ -357,13 +380,6 @@ export function SessionComposer({
               </Text>
             ) : null}
           </ScrollView>
-          <SendButton
-            active={active}
-            canSubmit={canSubmit}
-            delivery={delivery}
-            disabledHint={submitHint}
-            onPress={submit}
-          />
         </View>
       </View>
 
@@ -587,38 +603,64 @@ function EmptyResults({ label }: { label: string }) {
   );
 }
 
-function SendButton({
+function ComposerActionButton({
   active,
   canSubmit,
   delivery,
   disabledHint,
   onPress,
+  showStop,
+  stopDisabled,
+  stopping,
 }: {
   active: boolean;
   canSubmit: boolean;
   delivery?: PromptDelivery | undefined;
   disabledHint?: string | undefined;
   onPress: () => void;
+  showStop: boolean;
+  stopDisabled: boolean;
+  stopping: boolean;
 }) {
+  const disabled = showStop ? stopDisabled : !canSubmit;
   return (
     <Pressable
       accessibilityLabel={
-        active && delivery === "queue" ? "Queue" : active && delivery === "steer" ? "Steer" : "Send"
+        showStop
+          ? stopping
+            ? "Stopping"
+            : "Stop"
+          : active && delivery === "queue"
+            ? "Queue"
+            : active && delivery === "steer"
+              ? "Steer"
+              : "Send"
       }
       accessibilityHint={
-        disabledHint ?? (active && !delivery ? "Choose steer or queue before sending." : undefined)
+        showStop
+          ? "Interrupts the current session"
+          : (disabledHint ??
+            (active && !delivery ? "Choose steer or queue before sending." : undefined))
       }
       accessibilityRole="button"
-      accessibilityState={{ disabled: !canSubmit }}
-      disabled={!canSubmit}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.sendButton,
-        !canSubmit && styles.sendButtonDisabled,
+        disabled && styles.sendButtonDisabled,
         pressed && styles.pressed,
       ]}
     >
-      <Feather accessible={false} color={palette.background} name="arrow-up" size={22} />
+      {showStop ? (
+        <View
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.stopIcon}
+        />
+      ) : (
+        <Feather accessible={false} color={palette.background} name="arrow-up" size={22} />
+      )}
     </Pressable>
   );
 }
@@ -727,7 +769,7 @@ const styles = StyleSheet.create({
   emptyResults: { color: palette.dim, paddingVertical: space.lg, textAlign: "center" },
   error: { ...typography.body, color: palette.danger },
   input: {
-    ...typography.body,
+    ...typography.chatBody,
     color: palette.ink,
     flex: 1,
   },
@@ -774,6 +816,8 @@ const styles = StyleSheet.create({
   selectorRow: { alignItems: "center", gap: space.xs, paddingRight: space.xs },
   selectorScroller: { flex: 1 },
   sendButton: {
+    alignSelf: "flex-end",
+    marginLeft: space.sm,
     alignItems: "center",
     backgroundColor: palette.signal,
     borderRadius: radius.sm,
@@ -782,6 +826,7 @@ const styles = StyleSheet.create({
     width: 44,
   },
   sendButtonDisabled: { backgroundColor: palette.border, opacity: 0.68 },
+  stopIcon: { width: 14, height: 14, borderRadius: 2, backgroundColor: palette.background },
   shell: {
     backgroundColor: palette.background,
     gap: space.xs,

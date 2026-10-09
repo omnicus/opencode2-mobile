@@ -71,6 +71,7 @@ export const typography = {
   sheetTitle: { fontSize: 20, lineHeight: 26, fontWeight: "600" },
   heading: { fontSize: 16, lineHeight: 22, fontWeight: "600" },
   body: { fontSize: 15, lineHeight: 22 },
+  chatBody: { fontSize: 16, lineHeight: 24 },
   control: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
   caption: { fontSize: 12, lineHeight: 18 },
   label: { fontSize: 12, lineHeight: 18, fontWeight: "600" },

@@ -30,6 +30,7 @@ export type FollowedInboxSection = "needs-you" | "recent" | "working";
 export type FollowedInboxChild = {
   active: boolean;
   attentionCount: number;
+  attentionLabel?: string;
   session: SessionInfo;
 };
 
@@ -37,6 +38,7 @@ export type FollowedInboxRow = {
   active: boolean;
   activeChildCount: number;
   attentionCount: number;
+  attentionLabel?: string;
   attentionOwnerSessionID?: string;
   children: FollowedInboxChild[];
   projectLabel: string;
@@ -164,7 +166,10 @@ export function buildFollowedInboxSections(input: {
     [...sessions.values()].filter((session) => !session.parentID).map((session) => session.id),
   );
   const activeByRoot = new Map<string, Set<string>>();
-  const attentionByRoot = new Map<string, Array<{ id: string; sessionID: string }>>();
+  const attentionByRoot = new Map<
+    string,
+    Array<{ id: string; sessionID: string; kind: "form" | "permission" }>
+  >();
   const unmatchedSessionIDs = new Set<string>();
 
   for (const sessionID of new Set(input.activeSessionIDs)) {
@@ -181,8 +186,13 @@ export function buildFollowedInboxSections(input: {
     ...input.permissions.map((request) => ({
       id: `permission:${request.id}`,
       sessionID: request.sessionID,
+      kind: "permission" as const,
     })),
-    ...input.forms.map((form) => ({ id: `form:${form.id}`, sessionID: form.sessionID })),
+    ...input.forms.map((form) => ({
+      id: `form:${form.id}`,
+      sessionID: form.sessionID,
+      kind: "form" as const,
+    })),
   ]) {
     if (interaction.sessionID === "global") continue;
     const rootID = resolveRootSessionID(interaction.sessionID, sessions, rootIDs);
@@ -228,6 +238,9 @@ export function buildFollowedInboxSections(input: {
                 attentionCount: attention.filter(
                   (interaction) => interaction.sessionID === sessionID,
                 ).length,
+                attentionLabel: requestReason(
+                  attention.filter((interaction) => interaction.sessionID === sessionID),
+                ),
                 session: child,
               },
             ]
@@ -241,6 +254,7 @@ export function buildFollowedInboxSections(input: {
       active: active.size > 0,
       activeChildCount: [...active].filter((sessionID) => sessionID !== session.id).length,
       attentionCount: attention.length,
+      attentionLabel: requestReason(attention),
       ...(ownerSessionID ? { attentionOwnerSessionID: ownerSessionID } : {}),
       children,
       projectLabel: labelProject(projects.get(session.projectID), session.projectID),
@@ -254,6 +268,13 @@ export function buildFollowedInboxSections(input: {
     else sections.recent.push(row);
   }
   return sections;
+}
+
+function requestReason(requests: readonly { kind: "form" | "permission" }[]) {
+  if (requests.length > 1) return `${requests.length} requests`;
+  if (requests[0]?.kind === "permission") return "Permission required";
+  if (requests[0]?.kind === "form") return "Form required";
+  return "";
 }
 
 export function stabilizeFollowedInboxSections(

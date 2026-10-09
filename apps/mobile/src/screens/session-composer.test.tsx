@@ -64,6 +64,65 @@ test("keeps the native prompt multiline and submits through an explicit control"
   expect(onSubmit).toHaveBeenCalledTimes(1);
 });
 
+test("active composer switches Stop to send on text and back when cleared", () => {
+  const onInterrupt = jest.fn();
+  const onSubmit = jest.fn();
+  render(<ComposerHarness active onInterrupt={onInterrupt} onSubmit={onSubmit} />);
+  const editor = within(screen.getByLabelText("Prompt editor"));
+  fireEvent.press(editor.getByRole("button", { name: "Stop" }));
+  expect(onInterrupt).toHaveBeenCalledTimes(1);
+  expect(onSubmit).not.toHaveBeenCalled();
+  fireEvent.changeText(screen.getByLabelText("Prompt"), "Follow up");
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  fireEvent.press(editor.getByRole("button", { name: "Steer" }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(onInterrupt).toHaveBeenCalledTimes(1);
+  fireEvent.changeText(screen.getByLabelText("Prompt"), " \n ");
+  expect(editor.getByRole("button", { name: "Stop" })).toBeEnabled();
+});
+
+test("idle composer never offers Stop", () => {
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+});
+
+test("the send icon keeps queue delivery for an active session", () => {
+  const onSubmit = jest.fn();
+  render(<ComposerHarness active delivery="queue" onSubmit={onSubmit} />);
+  fireEvent.changeText(screen.getByLabelText("Prompt"), "Next prompt");
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Queue" }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+});
+
+test.each([false, true])("busy or unavailable Stop is disabled, stopping %s", (stopping) => {
+  const onInterrupt = jest.fn();
+  render(
+    <ComposerHarness
+      active
+      interruptDisabled
+      stopping={stopping}
+      onInterrupt={onInterrupt}
+      onSubmit={jest.fn()}
+    />,
+  );
+  const button = screen.getByRole("button", { name: stopping ? "Stopping" : "Stop" });
+  expect(button).toBeDisabled();
+  fireEvent.press(button);
+  expect(onInterrupt).not.toHaveBeenCalled();
+});
+
+test("typing while an interrupt is pending cannot submit a follow-up", () => {
+  const onSubmit = jest.fn();
+  render(<ComposerHarness active stopping onSubmit={onSubmit} />);
+  fireEvent.changeText(screen.getByLabelText("Prompt"), "Keep this draft");
+  expect(screen.getByRole("button", { name: "Steer" })).toBeDisabled();
+  fireEvent.press(screen.getByRole("button", { name: "Steer" }));
+  expect(onSubmit).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("Prompt").props.value).toBe("Keep this draft");
+});
+
 test("dismisses the keyboard and collapses the composer after sending", () => {
   const dismissKeyboard = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
   render(<ComposerHarness onSubmit={jest.fn()} />);
@@ -111,7 +170,7 @@ test("keeps model and variant controls visible before the editor is focused", ()
 
   fireEvent(input, "focus");
 
-  expect(input).toHaveStyle({ minHeight: 54, maxHeight: 120 });
+  expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
   expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
 });
@@ -121,7 +180,7 @@ test("lets native multiline layout grow without waiting for a size-change event"
   const input = screen.getByLabelText("Prompt");
   fireEvent(input, "focus");
   // The native test environment uses 200% font scaling.
-  expect(input).toHaveStyle({ minHeight: 54, maxHeight: 120 });
+  expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
   expect(StyleSheet.flatten(input.props.style).height).toBeUndefined();
   fireEvent.changeText(input, "First line\nSecond line\nThird line");
   expect(input.props.value).toBe("First line\nSecond line\nThird line");
@@ -130,7 +189,7 @@ test("lets native multiline layout grow without waiting for a size-change event"
   // even if iOS does not emit another content-size event at that fixed limit.
   expect(input.props.scrollEnabled).toBe(true);
   fireEvent.changeText(input, "");
-  expect(input).toHaveStyle({ minHeight: 54, maxHeight: 120 });
+  expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
 });
 
 test("keeps send in the focused composer toolbar", () => {
@@ -149,7 +208,7 @@ test("uses the selected default without showing queue or steer choices", () => {
   render(<ComposerHarness active onSubmit={onSubmit} />);
 
   const input = screen.getByLabelText("Prompt");
-  expect(input).toHaveStyle(typography.body);
+  expect(input).toHaveStyle(typography.chatBody);
   fireEvent.changeText(input, "Follow-up");
   fireEvent(input, "focus");
   expect(screen.queryByRole("radio", { name: "Queue next" })).toBeNull();
@@ -322,19 +381,29 @@ function ComposerHarness({
   completionLoading = false,
   completionUnavailable = false,
   onSubmit,
+  onInterrupt = jest.fn(),
+  interruptDisabled = false,
+  stopping = false,
+  delivery = "steer",
 }: {
   active?: boolean;
   completionLoading?: boolean;
   completionUnavailable?: boolean;
   onSubmit: (intent: ComposerSubmitIntent) => void;
+  onInterrupt?: () => void;
+  interruptDisabled?: boolean;
+  stopping?: boolean;
+  delivery?: PromptDelivery;
 }) {
   const [draft, setDraft] = useState("");
-  const delivery: PromptDelivery = "steer";
   const [agent, setAgent] = useState<string>();
   const [model, setModel] = useState<ModelRef>();
   const [mentions, setMentions] = useState<ComposerMention[]>([]);
   return (
     <SessionComposer
+      onInterrupt={onInterrupt}
+      interruptDisabled={interruptDisabled}
+      stopping={stopping}
       active={active}
       agent={agent}
       agents={agents}

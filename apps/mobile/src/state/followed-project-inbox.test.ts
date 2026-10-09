@@ -129,6 +129,7 @@ test("builds non-overlapping sections and bubbles child work and attention once"
     active: true,
     activeChildCount: 1,
     attentionCount: 2,
+    attentionLabel: "2 requests",
     projectLabel: "Alpha",
     targetLocation: child.location,
     targetSessionID: "ses_child",
@@ -142,6 +143,38 @@ test("builds non-overlapping sections and bubbles child work and attention once"
     [...sections.needsYou, ...sections.working, ...sections.recent].map((row) => row.session.id),
   ).toEqual(["ses_root", "ses_recent"]);
 });
+
+test.each(["permission", "form"] as const)(
+  "labels a single %s request without server content",
+  (kind) => {
+    const root = session("ses_reason", 3, "project-a");
+    const permission: PermissionRequest = {
+      action: "shell",
+      id: "per_reason",
+      resources: ["/private"],
+      sessionID: root.id,
+    };
+    const form: FormInfo = {
+      id: "form_reason",
+      title: "Private content",
+      fields: [{ key: "answer", type: "string" }],
+      sessionID: root.id,
+    };
+    const sections = buildFollowedInboxSections({
+      activeSessionIDs: [root.id],
+      ancestrySessions: {},
+      projects: [],
+      rootSessions: [root],
+      permissions: kind === "permission" ? [permission, permission] : [],
+      forms: kind === "form" ? [form, form] : [],
+    });
+    expect(sections.needsYou[0]).toMatchObject({
+      attentionCount: 1,
+      attentionLabel: kind === "permission" ? "Permission required" : "Form required",
+    });
+    expect(sections.working).toEqual([]);
+  },
+);
 
 test("shows actionable ancestry roots and orphan fallbacks outside loaded feed pages", () => {
   const olderRoot = session("ses_older_root", 2, "project-a");

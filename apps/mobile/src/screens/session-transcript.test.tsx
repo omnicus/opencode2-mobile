@@ -7,6 +7,7 @@ import { Alert, Linking, View } from "react-native";
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
 import { markdownPalette, palette, typography } from "../theme";
 import {
+  activityFailureSummary,
   activitySummary,
   buildTranscriptPresentation,
   groupTranscriptMessages,
@@ -28,7 +29,7 @@ test("assistant prose uses the shared body typography and text color", async () 
   let text = screen.getByText("Themed response");
   while (!text.props.selectable && text.parent) text = text.parent;
   expect(text).toHaveStyle({
-    ...typography.body,
+    ...typography.chatBody,
     color: palette.ink,
   });
   await waitFor(() =>
@@ -178,6 +179,46 @@ test("activity summaries count operations rather than inventing file counts", ()
       },
     ]),
   ).toBe("Used 4 Glob, Grep, Shell, Patch");
+});
+
+test("collapsed failures distinguish interruptions without exposing server error text", () => {
+  const original = messages.find((item) => item.type === "assistant");
+  if (!original) throw new Error("fixture");
+  const message: SessionMessageInfo = {
+    ...original,
+    content: ["Request aborted at /private/path", "secret failure detail"].map(
+      (message, index) => ({
+        type: "tool" as const,
+        name: "shell",
+        id: `tool_error_${index}`,
+        time: { created: 1 },
+        state: {
+          status: "error" as const,
+          input: {},
+          metadata: {},
+          error: { type: "ToolError", message },
+        },
+      }),
+    ),
+  };
+  expect(activityFailureSummary([message])).toBe("1 failed · 1 interrupted");
+  render(
+    <TranscriptActivityGroup
+      item={{
+        type: "activity-group",
+        id: "activity_errors",
+        messages: [message],
+        count: 2,
+        running: false,
+      }}
+      largeText={false}
+      showReasoning
+      onOpenDiff={jest.fn()}
+      onOpenSubagent={jest.fn()}
+    />,
+  );
+  expect(screen.getByText("1 failed · 1 interrupted. Expand for details.")).toBeOnTheScreen();
+  expect(screen.queryByText(/private\/path|secret failure detail/)).toBeNull();
 });
 
 test.each([

@@ -40,8 +40,11 @@ export function WorkspaceHeaderActions({
     <View style={styles.actions}>
       {onNewSession ? <NewSessionButton onPress={onNewSession} /> : null}
       <Pressable
-        accessibilityHint="Opens workspace options"
+        accessibilityHint="Opens workspace options and pending requests"
         accessibilityLabel="Workspace options"
+        accessibilityValue={{
+          text: `${count} known ${count === 1 ? "request" : "requests"}, ${freshness}${coverage === "incomplete" ? ", coverage incomplete" : ""}`,
+        }}
         accessibilityRole="button"
         onPress={() => {
           Keyboard.dismiss();
@@ -56,6 +59,14 @@ export function WorkspaceHeaderActions({
           name="more-horizontal"
           size={20}
         />
+        {count > 0 || freshness !== "current" || coverage === "incomplete" ? (
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            testID="workspace-attention-indicator"
+            style={[styles.attentionDot, count === 0 && styles.attentionDotUncertain]}
+          />
+        ) : null}
       </Pressable>
       <ModalSheet
         onClose={() => setMenuOpen(false)}
@@ -149,6 +160,16 @@ function MenuButton({
 }
 
 const styles = StyleSheet.create({
+  attentionDot: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: palette.warm,
+  },
+  attentionDotUncertain: { backgroundColor: palette.dim },
   actions: {
     alignItems: "center",
     flexDirection: "row",
