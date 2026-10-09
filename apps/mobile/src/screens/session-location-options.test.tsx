@@ -3,10 +3,12 @@ import type { McpServer } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
+import { useState } from "react";
+import { Pressable, Text } from "react-native";
 
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { switchColors } from "../theme";
-import { SessionLocationOptions } from "./session-location-options";
+import { SessionDevTools } from "./session-location-options";
 
 const mockList = jest.fn<(...args: unknown[]) => Promise<{ data: McpServer[] }>>();
 const mockConnect = jest.fn<(...args: unknown[]) => Promise<void>>();
@@ -57,15 +59,31 @@ beforeEach(() => {
   mockDisconnect.mockReset().mockResolvedValue(undefined);
 });
 const location = { directory: "/workspace/child" };
-function element(queryClient: QueryClient, ready = true) {
+function DevToolsHarness({ ready }: { ready: boolean }) {
+  const [visible, setVisible] = useState(false);
   return (
-    <QueryClientProvider client={queryClient}>
-      <SessionLocationOptions
+    <>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={visible ? "Close dev tools" : "Dev tools"}
+        onPress={() => setVisible(!visible)}
+      >
+        <Text>Toggle dev tools</Text>
+      </Pressable>
+      <SessionDevTools
         connectionId="connection-1"
         location={location}
         ready={ready}
         branch="feature/mobile"
+        visible={visible}
       />
+    </>
+  );
+}
+function element(queryClient: QueryClient, ready = true) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <DevToolsHarness ready={ready} />
     </QueryClientProvider>
   );
 }
@@ -77,7 +95,7 @@ function setup() {
     },
   });
   const view = render(element(client));
-  fireEvent.press(screen.getByRole("button", { name: "Location options" }));
+  fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
   return { client, view };
 }
 
@@ -87,7 +105,7 @@ test("loads on open, states the location-wide scope, and copies the branch", asy
   });
   render(element(client));
   expect(mockList).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: "Location options" }));
+  fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
   expect(await screen.findByText("No MCP servers configured for this location.")).toBeOnTheScreen();
   expect(screen.getByText(/MCP changes affect all sessions/)).toBeOnTheScreen();
   expect(mockList).toHaveBeenCalledWith(
@@ -240,8 +258,8 @@ test("blocks duplicate actions across sheet reopening and aborts when leaving", 
   fireEvent(connect, "valueChange", true);
   fireEvent(connect, "valueChange", true);
   await waitFor(() => expect(mockConnect).toHaveBeenCalledTimes(1));
-  fireEvent.press(screen.getByRole("button", { name: "Close Location options" }));
-  fireEvent.press(screen.getByRole("button", { name: "Location options" }));
+  fireEvent.press(screen.getByRole("button", { name: "Close dev tools" }));
+  fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
   expect(screen.getByRole("switch", { name: "MCP server docs for this location" })).toBeDisabled();
   expect(screen.getByRole("switch", { name: "MCP server docs for this location" })).toBeChecked();
   const options = mockConnect.mock.calls[0]?.[3] as { signal: AbortSignal };

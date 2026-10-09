@@ -86,7 +86,6 @@ import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
-import { SessionLocationOptions } from "./session-location-options";
 import { SessionShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
@@ -1281,16 +1280,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     <ShellFrame
       active="Workspace"
       branch={branch}
-      sessionOptions={
-        <SessionLocationOptions
-          key={`${routeSessionScope}\u0000${sessionLocation.directory}`}
-          connectionId={routeConnectionId}
-          location={sessionLocation}
-          ready={sessionLocationReady}
-          branch={currentBranch}
-          branchStale={branch.state === "known" && branch.stale}
-        />
-      }
       sessionTabs={{
         active: selectedTab,
         onSelect: (tab) => {
@@ -1521,9 +1510,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       </View>
       {actionsOpen && sessionQuery.data && sessionLocationReady ? (
         <SessionActionSheet
-          key={routeSessionScope}
+          key={JSON.stringify([routeSessionScope, sessionLocation])}
           connectionId={routeConnectionId}
           session={sessionQuery.data}
+          branch={currentBranch}
+          branchStale={branch.state === "known" && branch.stale}
           onClose={() => setActionsOpen(false)}
           onDeleted={() => {
             setActionsOpen(false);

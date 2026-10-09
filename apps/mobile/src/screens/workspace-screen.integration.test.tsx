@@ -13,7 +13,7 @@ import {
 } from "@opencode2-mobile/opencode-adapter";
 import { type InfiniteData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Alert, Dimensions, FlatList, Platform, RefreshControl } from "react-native";
 import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
@@ -149,6 +149,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   backgroundOpenCodeSession: jest.fn(),
   cancelOpenCodeSessionInboxItem: jest.fn(),
   classifyOpenCodeError: jest.fn(() => "UNREACHABLE"),
+  listOpenCodeMcpServers: jest.fn(async () => ({ data: [] })),
   createOpenCodeSession: jest.fn(),
   getDefaultOpenCodeModel: jest.fn(async () => ({ data: null, location })),
   getDefaultOpenCodeLocation: jest.fn(async () => location),
@@ -410,6 +411,47 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
     deliveredText = deliveredText.parent;
   expect(deliveredText).toHaveStyle({ ...typography.chatBody, color: palette.ink });
   view.unmount();
+});
+
+test("the top session menu owns dev tools and the second row has no overflow control", async () => {
+  const setOptions =
+    jest.fn<(options: { title?: string; headerRight?: () => ReactNode }) => void>();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions } as never}
+        route={{
+          key: "top-menu",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await waitFor(() => expect(setOptions).toHaveBeenCalledWith({ title: "Transcript session" }));
+    expect(screen.queryByRole("button", { name: "Location options" })).toBeNull();
+    const renderHeader = setOptions.mock.calls
+      .map(([options]) => options.headerRight)
+      .filter(Boolean)
+      .at(-1);
+    const headerButton = renderHeader?.() as ReactElement<{ onPress: () => void }>;
+    act(() => headerButton.props.onPress());
+    fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+    expect(
+      await screen.findByText("No MCP servers configured for this location."),
+    ).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
 });
 
 test("updates the navigation title when the server session name changes", async () => {

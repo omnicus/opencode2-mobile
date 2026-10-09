@@ -8,8 +8,34 @@ const mockRename = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockRemove = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockArchive = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockCleanup = jest.fn<(...args: unknown[]) => Promise<void>>();
+const mockMcpList = jest.fn(async () => ({ data: [] }));
+jest.mock("./app-shell", () => {
+  const { Pressable, Text } = jest.requireActual<typeof import("react-native")>("react-native");
+  return {
+    ActionButton: ({
+      label,
+      onPress,
+      disabled,
+    }: {
+      label: string;
+      onPress: () => void;
+      disabled?: boolean;
+    }) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityState={{ disabled: Boolean(disabled) }}
+        disabled={disabled}
+        onPress={onPress}
+      >
+        <Text>{label}</Text>
+      </Pressable>
+    ),
+  };
+});
 let mockRuntime = { connectionId: "first", status: "connected", restClient: {} };
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
+  listOpenCodeMcpServers: () => mockMcpList(),
   renameOpenCodeSession: (...args: unknown[]) => mockRename(...args),
   removeOpenCodeSession: (...args: unknown[]) => mockRemove(...args),
 }));
@@ -44,6 +70,7 @@ beforeEach(() => {
   mockRemove.mockReset().mockResolvedValue(undefined);
   mockArchive.mockReset().mockResolvedValue(undefined);
   mockCleanup.mockReset().mockResolvedValue(undefined);
+  mockMcpList.mockClear();
 });
 
 function mount() {
@@ -88,6 +115,23 @@ test("renames through the adapter and closes only after confirmation", async () 
       "New title",
       expect.objectContaining({ signal: expect.anything() }),
     );
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("dev tools open within the session menu without another overflow button", async () => {
+  const view = mount();
+  try {
+    expect(mockMcpList).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+    expect(
+      await screen.findByText("No MCP servers configured for this location."),
+    ).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Location options" })).toBeNull();
+    expect(screen.getByText(/MCP changes affect all sessions/)).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
+    expect(screen.getByRole("button", { name: "Rename" })).toBeOnTheScreen();
   } finally {
     view.cleanup();
   }
@@ -138,7 +182,7 @@ test("a switched connection disables remote and local actions", () => {
   mockRuntime.connectionId = "other";
   const view = mount();
   try {
-    for (const name of ["Rename", "Archive", "Delete"])
+    for (const name of ["Rename", "Archive", "Delete", "Dev tools"])
       expect(screen.getByRole("button", { name })).toBeDisabled();
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(mockRemove).not.toHaveBeenCalled();

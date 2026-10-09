@@ -14,24 +14,29 @@ import { useSessionArchives } from "../state/use-session-archives";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import { palette, radius, space, typography } from "../theme";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
+import { SessionDevTools } from "./session-location-options";
 
 export function SessionActionSheet({
   connectionId,
   session,
   onClose,
   onDeleted,
+  branch,
+  branchStale = false,
 }: {
   connectionId: string;
   session: SessionInfo;
   onClose: () => void;
   onDeleted: () => void;
+  branch?: string | undefined;
+  branchStale?: boolean;
 }) {
   const runtime = useConnectionRuntime();
   const queryClient = useQueryClient();
   const db = useSQLiteContext();
   const archives = useSessionArchives(connectionId, runtime.connectionUpdatedAtMs);
   const archived = archives.ids.includes(session.id);
-  const [page, setPage] = useState<"menu" | "rename" | "delete">("menu");
+  const [page, setPage] = useState<"menu" | "rename" | "delete" | "devtools">("menu");
   const [title, setTitle] = useState(session.title ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -125,9 +130,11 @@ export function SessionActionSheet({
       title={
         page === "rename"
           ? "Rename session"
-          : page === "delete"
-            ? "Delete session?"
-            : "Session actions"
+          : page === "devtools"
+            ? "Dev tools"
+            : page === "delete"
+              ? "Delete session?"
+              : "Session actions"
       }
       subtitle={session.title || "Untitled session"}
       visible
@@ -149,6 +156,11 @@ export function SessionActionSheet({
       {page === "menu" ? (
         <>
           <Action label="Rename" disabled={busy || !connected} onPress={() => setPage("rename")} />
+          <Action
+            label="Dev tools"
+            disabled={busy || runtime.connectionId !== connectionId}
+            onPress={() => setPage("devtools")}
+          />
           <Action
             label={archived ? "Restore" : "Archive"}
             disabled={
@@ -202,6 +214,14 @@ export function SessionActionSheet({
           />
         </>
       ) : null}
+      <SessionDevTools
+        connectionId={connectionId}
+        location={session.location}
+        ready={runtime.connectionId === connectionId}
+        visible={page === "devtools"}
+        branch={branch}
+        branchStale={branchStale}
+      />
       {error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {error}
