@@ -121,6 +121,15 @@ test("session tabs replace healthy connection and server labels but retain conne
   expect(screen.queryByText("LIVE")).toBeNull();
   expect(screen.queryByText("Test server")).toBeNull();
   expect(screen.getByRole("tab", { name: "Session", selected: true })).toBeOnTheScreen();
+  expect(screen.getByText("Session")).toHaveStyle({
+    fontSize: 12,
+    lineHeight: 16,
+    textDecorationLine: "underline",
+  });
+  expect(screen.getByRole("tab", { name: "Session" })).toHaveStyle({
+    minHeight: 44,
+    paddingHorizontal: 4,
+  });
   expect(screen.getByRole("button", { name: "Current branch, main" })).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("tab", { name: "Changes" }));
   expect(onSelect).toHaveBeenCalledWith("changes");

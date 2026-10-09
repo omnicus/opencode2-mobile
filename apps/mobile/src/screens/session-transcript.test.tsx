@@ -18,6 +18,37 @@ import {
 
 afterEach(resetTranscriptPerformanceMetrics);
 
+test("empty assistant snapshots do not flash placeholder rows between tool updates", () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("Missing assistant fixture");
+  const snapshot = { ...message };
+  delete snapshot.retry;
+  const view = render(<SessionTranscriptRow message={{ ...snapshot, content: [] }} />);
+  expect(screen.queryByText("No projected content")).toBeNull();
+  view.rerender(
+    <SessionTranscriptRow
+      message={{ ...snapshot, content: [{ type: "text", text: "New streamed text" }] }}
+    />,
+  );
+  expect(screen.getByText("New streamed text")).toBeOnTheScreen();
+});
+
+test("empty assistant snapshots do not split an existing tool summary", () => {
+  const message = messages.find((item) => item.type === "assistant");
+  if (!message) throw new Error("Missing assistant fixture");
+  const tool = message.content.find((part) => part.type === "tool");
+  if (!tool) throw new Error("Missing tool fixture");
+  const snapshot = { ...message };
+  delete snapshot.retry;
+  const first = { ...snapshot, id: "first", content: [tool] };
+  const last = { ...snapshot, id: "last", content: [tool] };
+  const expected = groupTranscriptMessages([first, last], false, true);
+  expect(
+    groupTranscriptMessages([first, { ...snapshot, id: "empty", content: [] }, last], false, true),
+  ).toEqual(expected);
+  expect(groupTranscriptMessages([{ ...snapshot, content: [] }], true, true)).toEqual([]);
+});
+
 test("assistant prose uses the shared body typography and text color", async () => {
   const message = messages.find((item) => item.type === "assistant");
   if (!message) throw new Error("fixture");
