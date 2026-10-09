@@ -16,6 +16,12 @@ test("keeps attention and workspace options available in the native header", () 
   render(<WorkspaceHeaderActions navigate={navigate} />);
   expect(screen.queryByText("3+")).toBeNull();
   expect(screen.queryByText("More")).toBeNull();
+  expect(
+    screen.getByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
+  ).toBeOnTheScreen();
+  expect(
+    screen.getByRole("button", { name: "Workspace options" }).props.accessibilityValue.text,
+  ).toContain("3 known requests");
 
   fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
   fireEvent.press(screen.getByRole("button", { name: "Needs you, 3" }));
@@ -24,6 +30,17 @@ test("keeps attention and workspace options available in the native header", () 
   fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
   fireEvent.press(screen.getByRole("button", { name: "Followed projects" }));
   expect(navigate).toHaveBeenCalledWith("FollowedProjects");
+});
+
+test("current complete coverage without requests has no attention indicator", () => {
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    attentionCoverage: { completeness: "complete", freshness: "current" },
+    pendingCount: 0,
+  } as never);
+  render(<WorkspaceHeaderActions navigate={jest.fn()} />);
+  expect(
+    screen.queryByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
+  ).toBeNull();
 });
 
 test("moves Needs you into the menu when there are no known requests", () => {
@@ -35,6 +52,9 @@ test("moves Needs you into the menu when there are no known requests", () => {
   render(<WorkspaceHeaderActions navigate={navigate} />);
 
   expect(screen.queryByText("0+")).toBeNull();
+  expect(
+    screen.getByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
+  ).toBeOnTheScreen();
   expect(
     screen.queryByRole("button", {
       name: "0 known requests. Attention coverage incomplete, reconciling.",

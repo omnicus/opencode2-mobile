@@ -3,6 +3,7 @@ import { afterEach, expect, jest, test } from "@jest/globals";
 import {
   getOpenCodeLocation,
   getOpenCodeSession,
+  interruptOpenCodeSession,
   listOpenCodeAgents,
   listOpenCodeMessages,
   type PermissionRequest,
@@ -52,6 +53,10 @@ const mockSetLocation = jest.fn();
 const mockWorkspaceRefetch = jest.fn<() => Promise<void>>(async () => undefined);
 let mockWorkspacePermissions: PermissionRequest[] = [];
 let mockWorkspaceActive = false;
+let mockWorkspaceNeedsAttention = false;
+let mockWorkspaceDirectory = "/workspace";
+let mockAttentionFreshness: "current" | "reconciling" | "stale" = "current";
+let mockAttentionCompleteness: "complete" | "incomplete" = "complete";
 let mockArchivedIds: string[] = [];
 let mockArchiveWriteFailure = false;
 const mockSessionNow = Date.now();
@@ -64,6 +69,10 @@ let mockSessionsError = false;
 const mockFetchNextSessionPage = jest.fn(async () => undefined);
 afterEach(() => {
   mockWorkspaceActive = false;
+  mockWorkspaceNeedsAttention = false;
+  mockWorkspaceDirectory = "/workspace";
+  mockAttentionFreshness = "current";
+  mockAttentionCompleteness = "complete";
   mockWorkspacePermissions = [];
   mockArchivedIds = [];
   mockArchiveWriteFailure = false;
@@ -78,7 +87,7 @@ function mockWorkspaceRow(index: number) {
   const session = {
     cost: 0,
     id: `ses_${index}`,
-    location: { directory: "/workspace" },
+    location: { directory: mockWorkspaceDirectory },
     projectID: "project-1",
     time: {
       created: mockSessionNow - index,
@@ -93,7 +102,8 @@ function mockWorkspaceRow(index: number) {
   return {
     active: mockWorkspaceActive,
     activeChildCount: 0,
-    attentionCount: 0,
+    attentionCount: mockWorkspaceNeedsAttention && index === 0 ? 1 : 0,
+    attentionLabel: mockWorkspaceNeedsAttention && index === 0 ? "Permission required" : "",
     children: [],
     projectLabel: "Workspace",
     section: mockWorkspaceActive ? "working" : "recent",
@@ -267,8 +277,8 @@ jest.mock("../state/workspace-selection-context", () => ({
   WorkspaceSelectionProvider: ({ children }: { children: ReactNode }) => children,
   useWorkspaceSelection: () => ({
     attentionCoverage: {
-      completeness: "complete",
-      freshness: "current",
+      completeness: mockAttentionCompleteness,
+      freshness: mockAttentionFreshness,
       failedLocationCount: 0,
       knownLocationCount: 1,
       reasons: [],
@@ -283,10 +293,12 @@ jest.mock("../state/workspace-selection-context", () => ({
     hasNextPage: mockHasNextSessionPage,
     sessionsFetchingNextPage: mockSessionsFetchingNextPage,
     inbox: {
-      needsYou: [],
+      needsYou: mockWorkspaceNeedsAttention ? [mockWorkspaceRow(0)] : [],
       recent: mockWorkspaceActive
         ? []
-        : Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index)),
+        : Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index)).filter(
+            (row) => row.attentionCount === 0,
+          ),
       unmatchedSessionIDs: [],
       working: mockWorkspaceActive
         ? Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index))
@@ -294,7 +306,7 @@ jest.mock("../state/workspace-selection-context", () => ({
     },
     interactionsError: false,
     interactionsLoading: false,
-    pendingCount: mockWorkspacePermissions.length,
+    pendingCount: mockWorkspaceNeedsAttention ? 1 : mockWorkspacePermissions.length,
     permissionReplyError: false,
     permissions: mockWorkspacePermissions,
     preferencesLoading: false,
@@ -370,7 +382,7 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
   await screen.findByText("Pending follow-up");
   let pendingText = screen.getByText("Pending follow-up");
   while (!pendingText.props.selectable && pendingText.parent) pendingText = pendingText.parent;
-  expect(pendingText).toHaveStyle({ ...typography.body, color: palette.dim });
+  expect(pendingText).toHaveStyle({ ...typography.chatBody, color: palette.dim });
   expect(screen.getByText("Sent · waiting for transcript")).toBeOnTheScreen();
   // Exercise a later authoritative REST snapshot, and await its notifications.
   await screen.findByText("Newest answer");
@@ -394,7 +406,7 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
   let deliveredText = screen.getByText("Pending follow-up");
   while (!deliveredText.props.selectable && deliveredText.parent)
     deliveredText = deliveredText.parent;
-  expect(deliveredText).toHaveStyle({ ...typography.body, color: palette.ink });
+  expect(deliveredText).toHaveStyle({ ...typography.chatBody, color: palette.ink });
   view.unmount();
 });
 
@@ -483,6 +495,63 @@ test("moves only the Android composer dock with the keyboard", async () => {
   }
 });
 
+test("the single composer Stop interrupts the owning session", async () => {
+  jest.mocked(interruptOpenCodeSession).mockClear();
+  const queryClient = new QueryClient({
+    // Mutation observers can schedule cache collection after unmount. Tests own cleanup.
+    defaultOptions: {
+      mutations: { gcTime: Infinity },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "session-stop",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findByText("Newest answer");
+    act(() =>
+      queryClient.setQueryData(openCodeQueryKeys.activeSessions("connection-1"), {
+        ses_transcript: { type: "running" },
+      }),
+    );
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    expect(screen.getAllByRole("button", { name: "Stop" })).toHaveLength(1);
+    expect(
+      within(screen.getByLabelText("Session composer")).getByRole("button", { name: "Stop" }),
+    ).toBeOnTheScreen();
+    fireEvent.press(stop);
+    await waitFor(() =>
+      expect(interruptOpenCodeSession).toHaveBeenCalledWith(
+        expect.anything(),
+        "ses_transcript",
+        false,
+        { signal: expect.anything() },
+      ),
+    );
+    await waitFor(() => {
+      expect(queryClient.isMutating()).toBe(0);
+      expect(queryClient.isFetching()).toBe(0);
+      expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    });
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
 test("shows a permission blocking the open session and can reply", async () => {
   mockWorkspacePermissions = [
     {
@@ -528,10 +597,76 @@ test("shows a permission blocking the open session and can reply", async () => {
   }
 });
 
-test.each([false, true])(
-  "shows the branch instead of the directory when working is %s",
-  async (active) => {
+test("attention section owns requests, with a shortcut only when search or archives hide it", async () => {
+  mockWorkspaceNeedsAttention = true;
+  const navigate = jest.fn();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    expect(await screen.findByText("Permission required")).toBeOnTheScreen();
+    expect(screen.getAllByText("Needs you")).toHaveLength(1);
+    expect(screen.queryByText("Needs you 1")).toBeNull();
+    fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+    expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "1 known request" }));
+    expect(navigate).toHaveBeenCalledWith("Pending");
+    fireEvent.press(screen.getByRole("button", { name: "Clear session search" }));
+    await waitFor(() => expect(screen.queryByText("Needs you 1")).toBeNull());
+    fireEvent.press(screen.getByRole("button", { name: "Archived" }));
+    expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test.each([
+  ["reconciling", "incomplete", "Checking request status. More sessions may need you."],
+  ["stale", "complete", "Request status is stale. Reconnect to check pending requests."],
+  ["current", "incomplete", "Some request locations could not be checked. Pull to refresh."],
+] satisfies ["current" | "reconciling" | "stale", "complete" | "incomplete", string][])(
+  "keeps %s attention coverage explicit",
+  async (freshness, completeness, copy) => {
+    mockAttentionFreshness = freshness;
+    mockAttentionCompleteness = completeness;
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+    });
+    const view = render(
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceScreen
+          navigation={{ navigate: jest.fn() } as never}
+          route={{ key: "workspace", name: "Workspace" } as never}
+        />
+      </QueryClientProvider>,
+    );
+    try {
+      expect(await screen.findByText(copy)).toBeOnTheScreen();
+    } finally {
+      view.unmount();
+      queryClient.clear();
+    }
+  },
+);
+
+test.each([
+  [false, false],
+  [true, false],
+  [false, true],
+])(
+  "shows branch context only when working %s or outside canonical location %s",
+  async (active, worktree) => {
     mockWorkspaceActive = active;
+    if (worktree) mockWorkspaceDirectory = "/workspace-tree";
     const queryClient = new QueryClient({
       defaultOptions: { queries: { gcTime: Infinity, retry: false } },
     });
@@ -553,12 +688,16 @@ test.each([false, true])(
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       });
       const row = within(screen.getByRole("button", { name: /^Open session Session 0\./ }));
-      expect(row.getByText("docs/mobile-workflow-screenshots")).toBeOnTheScreen();
-      expect(row.UNSAFE_getByType(Feather).props).toMatchObject({
-        accessibilityElementsHidden: true,
-        importantForAccessibility: "no-hide-descendants",
-        name: "git-branch",
-      });
+      if (active || worktree) {
+        expect(row.getByText("docs/mobile-workflow-screenshots")).toBeOnTheScreen();
+        expect(row.UNSAFE_getByType(Feather).props).toMatchObject({
+          accessibilityElementsHidden: true,
+          importantForAccessibility: "no-hide-descendants",
+          name: "git-branch",
+        });
+      } else {
+        expect(row.queryByText("docs/mobile-workflow-screenshots")).toBeNull();
+      }
       expect(row.queryByText("/workspace")).not.toBeOnTheScreen();
       if (active) {
         expect(

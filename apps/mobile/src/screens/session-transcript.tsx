@@ -287,6 +287,26 @@ export function activitySummary(messages: SessionMessageInfo[]) {
   return `Used ${total} ${[...counts.keys()].join(", ")}${failures ? ` · ${failures} failed` : ""}`;
 }
 
+export function activityFailureSummary(messages: SessionMessageInfo[]) {
+  let failed = 0;
+  let interrupted = 0;
+  for (const message of messages) {
+    if (message.type !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool" || part.state.status !== "error") continue;
+      // Classify only. Never promote raw server error text into the summary.
+      if (/\b(abort(?:ed)?|interrupt(?:ed)?|cancel(?:led|ed)?)\b/i.test(part.state.error.message)) {
+        interrupted += 1;
+      } else {
+        failed += 1;
+      }
+    }
+  }
+  return [failed ? `${failed} failed` : "", interrupted ? `${interrupted} interrupted` : ""]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export function TranscriptActivityGroup({
   waitingFor,
   item,
@@ -303,12 +323,13 @@ export function TranscriptActivityGroup({
   onOpenSubagent: (sessionID: string) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const failureSummary = activityFailureSummary(item.messages);
   return (
     <View style={styles.activityGroup}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${item.count} tool calls`}
-        accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. Expand or collapse execution details.`}
+        accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. ${failureSummary ? `${failureSummary}. ` : ""}Expand or collapse execution details.`}
         accessibilityState={{ expanded }}
         onPress={() => setExpanded((value) => !value)}
         style={styles.activityGroupHeader}
@@ -320,6 +341,11 @@ export function TranscriptActivityGroup({
           {expanded ? "⌄" : "›"}
         </Text>
       </Pressable>
+      {failureSummary && !expanded ? (
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.activityFailureSummary}>
+          {failureSummary}. Expand for details.
+        </Text>
+      ) : null}
       {expanded
         ? item.messages.map((message) => (
             <SessionTranscriptRow
@@ -1793,6 +1819,12 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
+  activityFailureSummary: {
+    ...typography.caption,
+    color: palette.danger,
+    paddingHorizontal: space.sm,
+    paddingBottom: space.sm,
+  },
   shellOutputBox: {
     backgroundColor: palette.raised,
     borderWidth: StyleSheet.hairlineWidth,
@@ -1904,7 +1936,7 @@ const styles = StyleSheet.create({
   },
   attachmentLabel: { ...typography.label, color: palette.dim },
   attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
-  bodyText: { ...typography.body, color: palette.ink },
+  bodyText: { ...typography.chatBody, color: palette.ink },
   disclosure: {
     backgroundColor: "transparent",
   },
@@ -1955,7 +1987,7 @@ const styles = StyleSheet.create({
     ...typography.label,
     color: markdownPalette.reasoning,
   },
-  reasoningText: { ...typography.body, color: markdownPalette.reasoning },
+  reasoningText: { ...typography.chatBody, color: markdownPalette.reasoning },
   statusText: { ...typography.caption, color: palette.dim },
   subagent: {
     backgroundColor: palette.card,
@@ -1989,7 +2021,7 @@ const styles = StyleSheet.create({
   subagentHeadingLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
   subagentLabel: { ...typography.label, color: palette.activity },
   subagentResult: {
-    ...typography.body,
+    ...typography.chatBody,
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
     color: palette.ink,
@@ -2015,10 +2047,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: space.xs,
   },
-  pendingText: { ...typography.body, color: palette.dim },
+  pendingText: { ...typography.chatBody, color: palette.dim },
   pendingLabel: { ...typography.caption, color: palette.dim },
   // Supply intrinsic text width to Yoga; the native selection view supplies height.
   textWidthMeasurement: { height: 0, overflow: "hidden", opacity: 0 },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.md, paddingVertical: space.md },
-  userText: { ...typography.body, color: palette.ink },
+  userText: { ...typography.chatBody, color: palette.ink },
 });

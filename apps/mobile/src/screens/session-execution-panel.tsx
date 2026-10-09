@@ -21,6 +21,7 @@ export function SessionExecutionPanel({
   busyAction,
   canBackground = false,
   formRequests,
+  hideInterrupt = false,
   inbox,
   onAllowRetry,
   onCancelInbox,
@@ -39,6 +40,7 @@ export function SessionExecutionPanel({
   busyAction?: "background" | "interrupt" | "wait" | undefined;
   canBackground?: boolean;
   formRequests?: ReactNode;
+  hideInterrupt?: boolean;
   inbox: SessionInboxInfo[];
   onAllowRetry: (admissionID: string) => void;
   onCancelInbox: (inboxID: string) => void;
@@ -172,22 +174,24 @@ export function SessionExecutionPanel({
               </Text>
             </Pressable>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityHint="Interrupts the current session"
-            accessibilityState={{ disabled: Boolean(busyAction) }}
-            disabled={Boolean(busyAction)}
-            onPress={onInterrupt}
-            style={({ pressed }) => [
-              styles.stopButton,
-              busyAction && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
-              {busyAction === "interrupt" ? "Stopping" : "Stop"}
-            </Text>
-          </Pressable>
+          {!hideInterrupt ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="Interrupts the current session"
+              accessibilityState={{ disabled: Boolean(busyAction) }}
+              disabled={Boolean(busyAction)}
+              onPress={onInterrupt}
+              style={({ pressed }) => [
+                styles.stopButton,
+                busyAction && styles.disabled,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
+                {busyAction === "interrupt" ? "Stopping" : "Stop"}
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 

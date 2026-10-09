@@ -8,6 +8,7 @@ import {
   countRunningBackgroundSubagents,
   flattenTranscriptPages,
   parseSubagentProtocolText,
+  runningBackgroundSubagents,
   sanitizeTranscriptText,
 } from "./session-transcript-model";
 
@@ -106,5 +107,9 @@ test("counts only background subagents whose latest protocol state is running", 
   };
 
   expect(countRunningBackgroundSubagents([toolMessage])).toBe(1);
+  expect(runningBackgroundSubagents([toolMessage, toolMessage])).toEqual([
+    { key: "ses_child", childSessionID: "ses_child" },
+  ]);
   expect(countRunningBackgroundSubagents([completionMessage, toolMessage])).toBe(0);
+  expect(runningBackgroundSubagents([completionMessage, toolMessage])).toEqual([]);
 });

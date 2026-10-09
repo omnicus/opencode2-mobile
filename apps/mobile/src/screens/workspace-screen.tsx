@@ -80,6 +80,7 @@ import {
   selectSessionArchiveView,
   sessionAutoArchiveAgeMs,
 } from "./session-archive-model";
+import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionExecutionPanel } from "./session-execution-panel";
@@ -449,7 +450,12 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         </View>
       ) : null}
 
-      {!tablet && workspaceSelection.pendingCount > 0 ? (
+      {!tablet &&
+      workspaceSelection.pendingCount > 0 &&
+      (archivedView ||
+        Boolean(sessionSearch) ||
+        workspaceSelection.pendingCount >
+          visibleInbox.needsYou.reduce((sum, row) => sum + row.attentionCount, 0)) ? (
         <View style={styles.workspaceActions}>
           <HeaderAction
             accessibilityHint="Opens permission and form requests"
@@ -463,6 +469,16 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             onPress={() => navigation.navigate("Pending")}
           />
         </View>
+      ) : null}
+      {workspaceSelection.attentionCoverage.freshness !== "current" ||
+      workspaceSelection.attentionCoverage.completeness === "incomplete" ? (
+        <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
+          {workspaceSelection.attentionCoverage.freshness === "reconciling"
+            ? "Checking request status. More sessions may need you."
+            : workspaceSelection.attentionCoverage.freshness === "stale"
+              ? "Request status is stale. Reconnect to check pending requests."
+              : "Some request locations could not be checked. Pull to refresh."}
+        </Text>
       ) : null}
       {runtime.status !== "connected" ? (
         <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
@@ -643,6 +659,12 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             </View>
           ) : (
             <SessionRow
+              showBranch={
+                tablet ||
+                item.row.active ||
+                projects.find((project) => project.id === item.row.session.projectID)?.canonical !==
+                  item.row.session.location.directory
+              }
               largeText={largeText}
               archived={archivedIds.includes(item.row.session.id)}
               archiveDisabled={archives.busy || archives.error}
@@ -1083,7 +1105,17 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 
   const composerDockContent = (
     <View onLayout={measureComposerContent}>
+      <SessionBackgroundTasks
+        key={routeSessionScope}
+        messages={
+          sessionLocationReady && runtime.status === "connected" && !messagesQuery.isError
+            ? messages
+            : []
+        }
+        onOpenChild={openSubagent}
+      />
       <SessionExecutionPanel
+        hideInterrupt
         active={execution.active}
         admissions={execution.admissions}
         busyAction={execution.busyAction}
@@ -1113,6 +1145,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         replyingPermissionId={workspaceSelection.replyingPermissionId}
       />
       <SessionComposer
+        onInterrupt={execution.interrupt}
+        interruptDisabled={
+          Boolean(execution.busyAction) || !sessionLocationReady || runtime.status !== "connected"
+        }
+        stopping={execution.busyAction === "interrupt"}
         active={execution.active}
         agent={execution.selectedAgent}
         agents={execution.agents}
@@ -1371,6 +1408,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 }
 
 function SessionRow({
+  showBranch,
   archived,
   archiveDisabled,
   onArchive,
@@ -1380,6 +1418,7 @@ function SessionRow({
   onPress,
   row,
 }: {
+  showBranch: boolean;
   archived: boolean;
   archiveDisabled: boolean;
   onArchive: () => void;
@@ -1392,7 +1431,7 @@ function SessionRow({
   const { session } = row;
   const runtime = useConnectionRuntime();
   const vcsQuery = useQuery({
-    enabled: Boolean(runtime.restClient && runtime.connectionId),
+    enabled: Boolean(showBranch && runtime.restClient && runtime.connectionId),
     queryFn: ({ signal }) => {
       if (!runtime.restClient) throw new Error("CONNECTION_NOT_READY");
       return getOpenCodeVcs(runtime.restClient, session.location, { signal });
@@ -1417,12 +1456,7 @@ function SessionRow({
     Boolean(session.outcome) &&
     session.outcome?.toLocaleLowerCase() !== "succeeded";
   const showMetadata =
-    blocked ||
-    row.activeChildCount > 0 ||
-    row.attentionCount > 1 ||
-    archived ||
-    Boolean(session.time.archived) ||
-    showOutcome;
+    row.activeChildCount > 0 || archived || Boolean(session.time.archived) || showOutcome;
   return (
     <ReanimatedSwipeable
       containerStyle={styles.swipeContainer}
@@ -1492,12 +1526,6 @@ function SessionRow({
           ]}
         >
           <View style={styles.sessionMain}>
-            <View style={styles.sessionTopRow}>
-              <Text numberOfLines={1} style={styles.sessionProject}>
-                {row.projectLabel}
-              </Text>
-              <Text style={styles.sessionTime}>{formatSessionTime(session.time.updated)}</Text>
-            </View>
             <View style={styles.sessionTitleRow}>
               {active && !blocked ? (
                 <View style={[styles.sessionIndicator, { height: 21 * fontScale }]}>
@@ -1511,22 +1539,25 @@ function SessionRow({
               >
                 {session.title || "Untitled session"}
               </Text>
+              <Text style={styles.sessionTime}>{formatSessionTime(session.time.updated)}</Text>
+            </View>
+            <View style={styles.sessionMetadata}>
+              <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionProject}>
+                {row.projectLabel}
+              </Text>
+              {blocked ? (
+                <Text style={[styles.sessionStatus, styles.sessionStatusBlocked]}>
+                  {row.attentionLabel || "Needs input"}
+                </Text>
+              ) : null}
             </View>
             {showMetadata ? (
               <View style={styles.sessionMetadata}>
-                {blocked ? (
-                  <Text style={[styles.sessionStatus, styles.sessionStatusBlocked]}>
-                    Needs input
-                  </Text>
-                ) : null}
                 {row.activeChildCount > 0 ? (
                   <Text style={styles.sessionMetaLabel}>
                     {row.activeChildCount} background{" "}
                     {row.activeChildCount === 1 ? "task" : "tasks"}
                   </Text>
-                ) : null}
-                {row.attentionCount > 1 ? (
-                  <Text style={styles.sessionMetaLabel}>{row.attentionCount} requests</Text>
                 ) : null}
                 {archived ? (
                   <Text style={styles.sessionMetaLabel}>Archived on this device</Text>
@@ -1538,23 +1569,25 @@ function SessionRow({
                 ) : null}
               </View>
             ) : null}
-            <View style={styles.sessionBranchRow}>
-              <Feather
-                accessibilityElementsHidden
-                color={palette.dim}
-                importantForAccessibility="no-hide-descendants"
-                name="git-branch"
-                size={12 * fontScale}
-              />
-              <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionBranchName}>
-                {branchLabel}
-              </Text>
-            </View>
+            {showBranch ? (
+              <View style={styles.sessionBranchRow}>
+                <Feather
+                  accessibilityElementsHidden
+                  color={palette.dim}
+                  importantForAccessibility="no-hide-descendants"
+                  name="git-branch"
+                  size={12 * fontScale}
+                />
+                <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionBranchName}>
+                  {branchLabel}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </Pressable>
         {row.children.map((child) => (
           <Pressable
-            accessibilityLabel={`${child.attentionCount > 0 ? "Needs input: " : child.active ? "Working: " : "Child: "}${child.session.title || "Untitled child session"}`}
+            accessibilityLabel={`${child.attentionCount > 0 ? `${child.attentionLabel || "Needs input"}: ` : child.active ? "Working: " : "Child: "}${child.session.title || "Untitled child session"}`}
             accessibilityRole="button"
             key={child.session.id}
             onPress={() => onOpenChild(child.session)}
@@ -1567,7 +1600,7 @@ function SessionRow({
             </Text>
             {child.attentionCount > 0 || !child.active ? (
               <Text style={child.attentionCount > 0 ? styles.childAttention : styles.childState}>
-                {child.attentionCount > 0 ? "Needs input" : "Child"}
+                {child.attentionCount > 0 ? child.attentionLabel || "Needs input" : "Child"}
               </Text>
             ) : null}
           </Pressable>
@@ -1714,7 +1747,7 @@ function sessionAccessibilityLabel(row: FollowedInboxRow) {
   const states = [
     row.projectLabel,
     row.active ? "Working" : undefined,
-    row.attentionCount > 0 ? "Needs input" : undefined,
+    row.attentionCount > 0 ? row.attentionLabel || "Needs input" : undefined,
     row.activeChildCount > 0 ? `${row.activeChildCount} background tasks` : undefined,
     session.time.archived ? "Archived" : undefined,
     session.outcome ? sentenceCase(session.outcome) : undefined,
@@ -1819,7 +1852,7 @@ const styles = StyleSheet.create({
   contextRowLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
   contextRowCopy: { flex: 1, minWidth: 0 },
   contextValue: { ...typography.body, color: palette.ink, marginTop: 4 },
-  countLabel: { ...typography.control, color: palette.dim },
+  countLabel: { ...typography.caption, color: palette.dim },
   deleteButton: {
     alignItems: "center",
     borderColor: palette.danger,
@@ -1989,7 +2022,7 @@ const styles = StyleSheet.create({
   },
   sessionMetadata: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 4 },
   sessionMetaLabel: { color: palette.dim, fontSize: 12 },
-  sessionProject: { color: palette.dim, fontSize: 12, fontWeight: "500" },
+  sessionProject: { color: palette.dim, fontSize: 12, fontWeight: "500", flexShrink: 1 },
   sessionRow: {
     alignItems: "center",
     backgroundColor: palette.background,

@@ -90,10 +90,10 @@ export function getSubagentPresentation(tool: AssistantTool): SubagentPresentati
   };
 }
 
-export function countRunningBackgroundSubagents(messages: SessionMessageInfo[]) {
+export function runningBackgroundSubagents(messages: SessionMessageInfo[]) {
   const subagents = new Map<
     string,
-    { background: boolean; state?: SubagentPresentation["state"] }
+    { background: boolean; state?: SubagentPresentation["state"]; childSessionID?: string }
   >();
 
   for (const message of messages) {
@@ -106,6 +106,7 @@ export function countRunningBackgroundSubagents(messages: SessionMessageInfo[]) 
         subagents.set(protocol.childSessionID, {
           background: true,
           state: current?.state ?? protocol.state,
+          childSessionID: protocol.childSessionID,
         });
         continue;
       }
@@ -117,15 +118,18 @@ export function countRunningBackgroundSubagents(messages: SessionMessageInfo[]) 
       subagents.set(key, {
         background: Boolean(current?.background || presentation.background),
         state: current?.state ?? presentation.state,
+        ...(presentation.childSessionID ? { childSessionID: presentation.childSessionID } : {}),
       });
     }
   }
 
-  let count = 0;
-  for (const subagent of subagents.values()) {
-    if (subagent.background && subagent.state === "running") count += 1;
-  }
-  return count;
+  return [...subagents.entries()]
+    .filter(([, subagent]) => subagent.background && subagent.state === "running")
+    .map(([key, subagent]) => ({ key, childSessionID: subagent.childSessionID }));
+}
+
+export function countRunningBackgroundSubagents(messages: SessionMessageInfo[]) {
+  return runningBackgroundSubagents(messages).length;
 }
 
 export function parseSubagentProtocolText(text: string): SubagentProtocolText {

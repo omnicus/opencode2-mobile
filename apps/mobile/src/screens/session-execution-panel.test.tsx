@@ -17,6 +17,23 @@ const callbacks = {
   onWait: jest.fn(),
 };
 
+test("composer-owned Stop removes the duplicate panel control", () => {
+  render(
+    <SessionExecutionPanel
+      active
+      hideInterrupt
+      admissions={[]}
+      inbox={[]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set()}
+      {...callbacks}
+    />,
+  );
+  expect(screen.getByText("Working")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
 test.each(["admitted", "queued", "steered", "promoted", "executing"] as const)(
   "the %s handoff keeps Working without a non-actionable admission card",
   (status) => {
