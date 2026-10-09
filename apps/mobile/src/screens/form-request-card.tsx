@@ -1,8 +1,18 @@
 import type { FormAnswer, FormField, FormInfo } from "@opencode2-mobile/opencode-adapter";
-import { useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import {
+  Alert,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 
 import { applicationName } from "../application-name";
+import { ModalSheet } from "../components/modal-sheet";
 import { control, palette, radius, space, typeRamp, typography } from "../theme";
 import {
   createFormDraft,
@@ -13,6 +23,7 @@ import {
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 export function FormRequestCard({
+  allowFocus = false,
   busy,
   error,
   form,
@@ -20,6 +31,7 @@ export function FormRequestCard({
   onOpenExternal = openExternalFormUrl,
   onSubmit,
 }: {
+  allowFocus?: boolean;
   busy?: boolean;
   error?: string;
   form: FormInfo;
@@ -29,6 +41,11 @@ export function FormRequestCard({
 }) {
   const [draft, setDraft] = useState<FormDraft>(() => createFormDraft(form));
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [focused, setFocused] = useState(false);
+  const reviewRef = useRef<View>(null);
+  useEffect(() => {
+    if (!allowFocus) setFocused(false);
+  }, [allowFocus]);
 
   function change(key: string, value: FormDraft[string]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -73,15 +90,8 @@ export function FormRequestCard({
   }
 
   const visibleKeys = visibleFormFieldKeys(form, draft);
-
-  return (
-    <View accessibilityLabel={`Form: ${form.title}`} style={styles.card}>
-      <Text dynamicTypeRamp={typeRamp.caption} style={styles.eyebrow}>
-        Input required
-      </Text>
-      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.subheading} style={styles.title}>
-        {sanitizeTranscriptText(form.title, 512)}
-      </Text>
+  const fields = (
+    <>
       {form.fields.map((field) =>
         visibleKeys.has(field.key) ? (
           <FormControl
@@ -100,16 +110,74 @@ export function FormRequestCard({
           {error}
         </Text>
       ) : null}
-      <View style={styles.actions}>
-        <FormButton
-          primary
-          disabled={busy}
-          label={busy ? "Submitting" : "Submit"}
-          onPress={submit}
-        />
-        <FormButton danger disabled={busy} label="Cancel form" onPress={confirmCancel} />
-      </View>
+    </>
+  );
+  const actions = (
+    <View style={[styles.actions, allowFocus && styles.focusedActions]}>
+      <FormButton
+        primary
+        disabled={busy}
+        label={busy ? "Submitting" : allowFocus ? "Send answers" : "Submit"}
+        onPress={submit}
+      />
+      <FormButton danger disabled={busy} label="Cancel form" onPress={confirmCancel} />
     </View>
+  );
+  return (
+    <>
+      <View accessibilityLabel={`Form: ${form.title}`} style={styles.card}>
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.eyebrow}>
+          Input required
+        </Text>
+        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.subheading} style={styles.title}>
+          {sanitizeTranscriptText(form.title, 512)}
+        </Text>
+        {allowFocus ? (
+          <Pressable
+            ref={reviewRef}
+            accessibilityRole="button"
+            accessibilityLabel="Review input request"
+            accessibilityHint="Opens the form with answer actions below the fields"
+            onPress={() => setFocused(true)}
+            style={styles.button}
+          >
+            <Text style={styles.buttonLabel}>Review and answer</Text>
+          </Pressable>
+        ) : (
+          <>
+            {fields}
+            {actions}
+          </>
+        )}
+      </View>
+      {allowFocus && !focused && error ? (
+        <Text accessibilityRole="alert" style={styles.error}>
+          {error}
+        </Text>
+      ) : null}
+      {allowFocus ? (
+        <ModalSheet
+          title="Answer request"
+          visible={focused}
+          onClose={() => setFocused(false)}
+          size="full"
+          scrollable={false}
+          returnFocusRef={reviewRef}
+        >
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            style={styles.focusedFields}
+            contentContainerStyle={styles.focusedContent}
+          >
+            <Text accessibilityRole="header" style={styles.title}>
+              {sanitizeTranscriptText(form.title, 512)}
+            </Text>
+            {fields}
+          </ScrollView>
+          {actions}
+        </ModalSheet>
+      ) : null}
+    </>
   );
 }
 
@@ -334,12 +402,21 @@ function ChoiceButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}
-      >
-        {label}
-      </Text>
+      <View style={styles.choiceHeading}>
+        <Text
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+          style={styles.choiceMark}
+        >
+          {selected ? "✓" : radio ? "○" : "□"}
+        </Text>
+        <Text
+          dynamicTypeRamp={typeRamp.control}
+          style={[styles.choiceLabel, selected && styles.choiceLabelSelected]}
+        >
+          {label}
+        </Text>
+      </View>
       {description ? (
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.description}>
           {description}
@@ -426,6 +503,15 @@ export function openExternalFormUrl(url: string) {
 }
 
 const styles = StyleSheet.create({
+  focusedFields: { flex: 1 },
+  focusedContent: { gap: space.md, paddingBottom: space.md },
+  focusedActions: {
+    paddingTop: space.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.border,
+  },
+  choiceHeading: { flexDirection: "row", gap: space.sm, alignItems: "center" },
+  choiceMark: { color: palette.ink, fontSize: 16, width: 20 },
   actions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   booleanOptions: {
     flexDirection: "row",
@@ -460,7 +546,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     padding: space.sm,
   },
-  choiceLabel: { ...typography.control, color: palette.ink },
+  choiceLabel: { ...typography.control, color: palette.ink, flexShrink: 1 },
   choiceLabelSelected: { color: palette.signal },
   choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   constraint: { ...typography.caption, color: palette.dim },

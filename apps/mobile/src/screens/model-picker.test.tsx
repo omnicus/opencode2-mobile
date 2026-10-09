@@ -1,6 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import type { ModelInfo } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen } from "@testing-library/react-native";
+import { palette } from "../theme";
 import { ModelPicker } from "./model-picker";
 
 const models = [
@@ -39,6 +40,10 @@ test("stars do not select or dismiss and matching favorites stay first", () => {
   expect(onClose).not.toHaveBeenCalled();
   fireEvent.changeText(screen.getByLabelText("Search models"), "two");
   expect(screen.getAllByRole("button", { name: /^Model/ })).toHaveLength(1);
+  fireEvent.press(screen.getByRole("button", { name: "Clear model search" }));
+  expect(screen.getAllByRole("button", { name: /^Model/ })).toHaveLength(2);
+  expect(screen.getByText("Model One")).toHaveStyle({ color: palette.accent });
+  fireEvent.changeText(screen.getByLabelText("Search models"), "two");
   fireEvent.press(screen.getByRole("button", { name: "Model Two, p" }));
   expect(onSelect).toHaveBeenCalledWith({ id: "two", providerID: "p" });
   expect(onClose).toHaveBeenCalledTimes(1);
@@ -61,4 +66,32 @@ test("loading and failure are distinct from an empty model catalog", () => {
   expect(screen.getByText("Models could not be loaded.")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Retry" }));
   expect(retry).toHaveBeenCalled();
+});
+
+test("duplicate display names remain distinguishable by provider and model ID", () => {
+  const base = models[0];
+  if (!base) throw new Error("Missing model fixture");
+  const duplicateModels = [
+    { ...base, id: "alpha", providerID: "first", name: "Shared name" },
+    { ...base, id: "beta", providerID: "first", name: "Shared name" },
+    { ...base, id: "gamma", providerID: "second", name: "Shared name" },
+  ];
+  const onSelect = jest.fn();
+  render(
+    <ModelPicker
+      models={duplicateModels}
+      model={undefined}
+      favorites={undefined}
+      state={undefined}
+      visible
+      onSelect={onSelect}
+      onClose={jest.fn()}
+    />,
+  );
+  fireEvent.changeText(screen.getByLabelText("Search models"), "shared");
+  expect(screen.getByText("first · alpha")).toBeOnTheScreen();
+  expect(screen.getByText("first · beta")).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Shared name, second" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Shared name, first, beta" }));
+  expect(onSelect).toHaveBeenCalledWith({ id: "beta", providerID: "first" });
 });

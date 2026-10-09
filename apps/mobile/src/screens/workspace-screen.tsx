@@ -101,6 +101,7 @@ import {
 import { flattenTranscriptPages } from "./session-transcript-model";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
+import { WorkspaceNewSessionAction } from "./workspace-new-session-action";
 import {
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
@@ -152,6 +153,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     };
   }, []);
   const searchInputRef = useRef<TextInput>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const removeAbortRef = useRef<AbortController>(null);
   const refreshGenerationRef = useRef(0);
@@ -496,6 +498,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           editable={workspaceSelection.followedProjectIds.length > 0}
           keyboardAppearance="dark"
           onChangeText={setSessionSearch}
+          onFocus={() => setSearchFocused(true)}
+          onBlur={() => setSearchFocused(false)}
           placeholder="Search all sessions"
           placeholderTextColor={palette.dim}
           style={styles.searchInput}
@@ -686,6 +690,15 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         updateCellsBatchingPeriod={40}
         windowSize={7}
       />
+      <WorkspaceNewSessionAction
+        eligible={
+          !tablet &&
+          !largeText &&
+          !searchFocused &&
+          workspaceSelection.followedProjectIds.length > 0
+        }
+        onPress={() => navigation.navigate("NewSession")}
+      />
     </ShellFrame>
   );
 }
@@ -705,7 +718,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const modelFavorites = useModelFavorites(runtime.connectionId, runtime.connectionUpdatedAtMs);
   const workspaceSelection = useWorkspaceSelection();
   const queryClient = useQueryClient();
-  const { fontScale } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const screenHeight = Dimensions.get("screen").height;
   const largeText = usesLargeTextLayout(fontScale);
   const { connectionId: routeConnectionId, focusComposer, location, sessionID } = route.params;
@@ -1123,6 +1136,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         formRequests={
           sessionForms.length > 0 ? (
             <FormRequestList
+              focusSingle={!isTabletShell(width) && sessionPermissions.length === 0}
               client={client}
               connectionId={connectionId}
               formLocations={workspaceSelection.formLocations}
@@ -1196,6 +1210,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       branch={branch}
       sessionOptions={
         <SessionLocationOptions
+          working={execution.active}
           key={`${routeSessionScope}\u0000${sessionLocation.directory}`}
           connectionId={routeConnectionId}
           location={sessionLocation}

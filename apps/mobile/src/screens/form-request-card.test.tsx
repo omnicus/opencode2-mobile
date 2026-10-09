@@ -119,3 +119,20 @@ test("keeps partial answers when a REST refetch replaces the form object", () =>
 
   expect(screen.getByLabelText("name").props.value).toBe("Partial answer");
 });
+
+test("focused form keeps its draft across dismissal and falls back inline without cancelling", () => {
+  const props = { form, onCancel: jest.fn(), onSubmit: jest.fn() };
+  const view = render(<FormRequestCard {...props} allowFocus />);
+  expect(screen.queryByLabelText("name")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Review input request" }));
+  fireEvent.changeText(screen.getByLabelText("name"), "Partial answer");
+  expect(screen.getByRole("button", { name: "Send answers" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Close Answer request" }));
+  expect(props.onCancel).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole("button", { name: "Review input request" }));
+  expect(screen.getByLabelText("name").props.value).toBe("Partial answer");
+  view.rerender(<FormRequestCard {...props} allowFocus={false} />);
+  expect(screen.queryByRole("button", { name: "Close Answer request" })).toBeNull();
+  expect(screen.getByLabelText("name").props.value).toBe("Partial answer");
+  expect(screen.getByRole("button", { name: "Submit" })).toBeOnTheScreen();
+});
