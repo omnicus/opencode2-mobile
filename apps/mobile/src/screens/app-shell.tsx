@@ -19,7 +19,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
+import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
 import { ModalSheet } from "../components/modal-sheet";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
@@ -367,175 +367,187 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
 
   return (
     <ShellFrame active="Settings" navigate={navigate}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        <Text style={styles.eyebrow}>SETTINGS</Text>
-        <Text accessibilityRole="header" style={styles.title}>
-          Device and connection controls.
-        </Text>
+      <ScrollView contentContainerStyle={managementStyles.content}>
+        <Text style={managementStyles.description}>Device and connection controls.</Text>
 
         <AppUpdateCard />
 
-        <View style={styles.settingCard}>
-          <View style={styles.settingText}>
-            <Text style={styles.cardTitle}>Default follow-up delivery</Text>
-            <Text style={styles.cardCopy}>
-              Steer updates the current work. Queue waits until it finishes.
-            </Text>
-            <View accessibilityLabel="Default follow-up delivery" accessibilityRole="radiogroup">
-              {(["steer", "queue"] as const).map((delivery) => (
-                <Pressable
-                  key={delivery}
-                  accessibilityRole="radio"
-                  accessibilityState={{
-                    checked: transcript.defaultDelivery === delivery,
-                    disabled: transcript.busy,
-                  }}
-                  disabled={transcript.busy}
-                  onPress={() => void transcript.update({ defaultDelivery: delivery })}
-                  style={{ minHeight: 48, justifyContent: "center" }}
-                >
-                  <Text style={styles.cardTitle}>
-                    {transcript.defaultDelivery === delivery ? "✓ " : ""}
-                    {delivery === "steer" ? "Steer" : "Queue"}
-                  </Text>
-                </Pressable>
-              ))}
+        <SettingsGroup title="Transcript">
+          <SettingsRow>
+            <View style={styles.settingText}>
+              <Text style={styles.cardTitle}>Default follow-up delivery</Text>
+              <Text style={styles.cardCopy}>
+                Steer updates the current work. Queue waits until it finishes.
+              </Text>
+              <View
+                accessibilityLabel="Default follow-up delivery"
+                accessibilityRole="radiogroup"
+                style={styles.deliveryOptions}
+              >
+                {(["steer", "queue"] as const).map((delivery) => (
+                  <Pressable
+                    key={delivery}
+                    accessibilityRole="radio"
+                    accessibilityState={{
+                      checked: transcript.defaultDelivery === delivery,
+                      disabled: transcript.busy,
+                    }}
+                    disabled={transcript.busy}
+                    onPress={() => void transcript.update({ defaultDelivery: delivery })}
+                    style={[
+                      styles.deliveryOption,
+                      transcript.defaultDelivery === delivery && styles.deliveryOptionSelected,
+                    ]}
+                  >
+                    <Text style={styles.cardTitle}>
+                      {transcript.defaultDelivery === delivery ? "✓ " : ""}
+                      {delivery === "steer" ? "Steer" : "Queue"}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </View>
-          </View>
-        </View>
+          </SettingsRow>
 
-        <View style={styles.settingCard}>
-          <View style={styles.settingText}>
-            <Text style={styles.cardTitle}>Detailed transcript</Text>
-            <Text style={styles.cardCopy}>
-              {transcript.detailed
-                ? "Detailed: individual tool executions and system notices."
-                : "Compact: group activity and collapse routine details."}
-            </Text>
-          </View>
-          <Switch
-            {...switchColors}
-            accessibilityLabel="Detailed transcript"
-            disabled={transcript.busy}
-            value={transcript.detailed}
-            onValueChange={(detailed) => void transcript.update({ detailed })}
-          />
-        </View>
-        <View style={styles.settingCard}>
-          <View style={styles.settingText}>
-            <Text style={styles.cardTitle}>Show reasoning</Text>
-            <Text style={styles.cardCopy}>
-              Display model reasoning when provided by the server.
-            </Text>
-          </View>
-          <Switch
-            {...switchColors}
-            accessibilityLabel="Show reasoning"
-            disabled={transcript.busy}
-            value={transcript.reasoning}
-            onValueChange={(reasoning) => void transcript.update({ reasoning })}
-          />
-        </View>
+          <SettingsRow>
+            <View style={styles.settingText}>
+              <Text style={styles.cardTitle}>Detailed transcript</Text>
+              <Text style={styles.cardCopy}>
+                {transcript.detailed
+                  ? "Detailed: individual tool executions and system notices."
+                  : "Compact: group activity and collapse routine details."}
+              </Text>
+            </View>
+            <Switch
+              {...switchColors}
+              accessibilityLabel="Detailed transcript"
+              disabled={transcript.busy}
+              value={transcript.detailed}
+              onValueChange={(detailed) => void transcript.update({ detailed })}
+            />
+          </SettingsRow>
+          <SettingsRow>
+            <View style={styles.settingText}>
+              <Text style={styles.cardTitle}>Show reasoning</Text>
+              <Text style={styles.cardCopy}>
+                Display model reasoning when provided by the server.
+              </Text>
+            </View>
+            <Switch
+              {...switchColors}
+              accessibilityLabel="Show reasoning"
+              disabled={transcript.busy}
+              value={transcript.reasoning}
+              onValueChange={(reasoning) => void transcript.update({ reasoning })}
+            />
+          </SettingsRow>
+        </SettingsGroup>
         {transcript.error ? (
           <Text accessibilityRole="alert" style={styles.errorText}>
             Message preferences could not be loaded or saved. Try changing the setting again.
           </Text>
         ) : null}
 
-        <View style={styles.settingCard}>
-          <View style={styles.settingText}>
-            <Text style={styles.cardTitle}>App lock</Text>
-            <Text style={styles.cardCopy}>
-              Require device authentication after the app leaves the foreground.
-            </Text>
-          </View>
-          <Switch
-            {...switchColors}
-            accessibilityLabel="Require device authentication"
-            disabled={appLock.busy}
-            onValueChange={(enabled) => void appLock.setEnabled(enabled)}
-            value={appLock.enabled}
-          />
-        </View>
-        {appLock.error ? (
-          <Text accessibilityRole="alert" style={styles.errorText}>
-            {appLock.error}
-          </Text>
-        ) : null}
-
-        <View style={styles.settingCard}>
-          <View style={styles.settingText}>
-            <Text style={styles.cardTitle}>Mobile notifications</Text>
-            <Text style={styles.cardCopy}>
-              {notificationLoading
-                ? "Reading the shared broker setting."
-                : !notificationPairing
-                  ? "Pair this connection for notifications before enabling delivery."
-                  : notificationState?.enabled
-                    ? "Enabled for every phone paired with this notification broker."
-                    : notificationState
-                      ? "Paused. New requests will not create mobile notifications."
-                      : "The shared broker setting is unavailable."}
-            </Text>
-          </View>
-          {notificationLoading ? (
-            <ActivityIndicator
-              accessibilityLabel="Loading mobile notification setting"
-              color={palette.signal}
-            />
-          ) : (
+        <SettingsGroup title="Security and notifications">
+          <SettingsRow>
+            <View style={styles.settingText}>
+              <Text style={styles.cardTitle}>App lock</Text>
+              <Text style={styles.cardCopy}>
+                Require device authentication after the app leaves the foreground.
+              </Text>
+            </View>
             <Switch
               {...switchColors}
-              accessibilityLabel="Send mobile notifications"
-              disabled={!notificationPairing || !notificationState || notificationBusy}
-              onValueChange={(enabled) => void setNotificationsEnabled(enabled)}
-              value={notificationState?.enabled ?? false}
+              accessibilityLabel="Require device authentication"
+              disabled={appLock.busy}
+              onValueChange={(enabled) => void appLock.setEnabled(enabled)}
+              value={appLock.enabled}
             />
-          )}
-        </View>
+          </SettingsRow>
+          {appLock.error ? (
+            <SettingsRow>
+              <Text accessibilityRole="alert" style={styles.errorText}>
+                {appLock.error}
+              </Text>
+            </SettingsRow>
+          ) : null}
+
+          <SettingsRow>
+            <View style={styles.settingText}>
+              <Text style={styles.cardTitle}>Mobile notifications</Text>
+              <Text style={styles.cardCopy}>
+                {notificationLoading
+                  ? "Reading the shared broker setting."
+                  : !notificationPairing
+                    ? "Pair this connection for notifications before enabling delivery."
+                    : notificationState?.enabled
+                      ? "Enabled for every phone paired with this notification broker."
+                      : notificationState
+                        ? "Paused. New requests will not create mobile notifications."
+                        : "The shared broker setting is unavailable."}
+              </Text>
+            </View>
+            {notificationLoading ? (
+              <ActivityIndicator
+                accessibilityLabel="Loading mobile notification setting"
+                color={palette.signal}
+              />
+            ) : (
+              <Switch
+                {...switchColors}
+                accessibilityLabel="Send mobile notifications"
+                disabled={!notificationPairing || !notificationState || notificationBusy}
+                onValueChange={(enabled) => void setNotificationsEnabled(enabled)}
+                value={notificationState?.enabled ?? false}
+              />
+            )}
+          </SettingsRow>
+        </SettingsGroup>
         {notificationError ? (
           <Text accessibilityRole="alert" style={styles.errorText}>
             The notification broker setting could not be read or updated.
           </Text>
         ) : null}
 
-        <View style={styles.actionCard}>
-          <Text style={styles.cardLabel}>SESSION INBOX</Text>
-          <Text style={styles.cardTitle}>Followed projects</Text>
-          <Text style={styles.cardCopy}>
-            Choose which server projects are merged into Sessions and attention reconciliation.
-          </Text>
-          <ActionButton
-            label="MANAGE FOLLOWED PROJECTS"
-            onPress={() => navigation.navigate("FollowedProjects")}
-          />
-        </View>
+        <SettingsGroup title="Workspace">
+          <View style={styles.managementAction}>
+            <Text style={styles.cardTitle}>Followed projects</Text>
+            <Text style={styles.cardCopy}>
+              Choose which server projects are merged into Sessions and attention reconciliation.
+            </Text>
+            <ActionButton
+              label="Manage followed projects"
+              onPress={() => navigation.navigate("FollowedProjects")}
+            />
+          </View>
 
-        <View style={styles.actionCard}>
-          <Text style={styles.cardLabel}>SELECTED CONNECTION</Text>
-          <Text style={styles.cardTitle}>{selected?.name ?? "No connection selected"}</Text>
-          <Text style={styles.cardCopy}>
-            {selected?.baseUrl ?? "Choose a saved server profile."}
-          </Text>
-          <ActionButton
-            label="MANAGE CONNECTIONS"
-            onPress={() => navigation.navigate("Connections")}
-          />
-        </View>
+          <View style={styles.managementAction}>
+            <Text style={styles.cardLabel}>Selected connection</Text>
+            <Text style={styles.cardTitle}>{selected?.name ?? "No connection selected"}</Text>
+            <Text style={styles.cardCopy}>
+              {selected?.baseUrl ?? "Choose a saved server profile."}
+            </Text>
+            <ActionButton
+              label="Manage connections"
+              onPress={() => navigation.navigate("Connections")}
+            />
+          </View>
+        </SettingsGroup>
 
-        <View style={styles.actionCard}>
-          <Text style={styles.cardLabel}>SUPPORT</Text>
-          <Text style={styles.cardTitle}>Redacted transport and transcript report</Text>
-          <Text style={styles.cardCopy}>
-            Includes status transitions, event types, and numeric transcript performance counters.
-            It excludes credentials, server addresses, paths, titles, prompts, and content.
-          </Text>
-          <ActionButton
-            label="SHARE DIAGNOSTICS"
-            onPress={() => void shareDiagnostics()}
-            secondary
-          />
-        </View>
+        <SettingsGroup title="Support">
+          <View style={styles.managementAction}>
+            <Text style={styles.cardTitle}>Redacted transport and transcript report</Text>
+            <Text style={styles.cardCopy}>
+              Includes status transitions, event types, and numeric transcript performance counters.
+              It excludes credentials, server addresses, paths, titles, prompts, and content.
+            </Text>
+            <ActionButton
+              label="Share diagnostics"
+              onPress={() => void shareDiagnostics()}
+              secondary
+            />
+          </View>
+        </SettingsGroup>
       </ScrollView>
     </ShellFrame>
   );
@@ -1038,6 +1050,21 @@ export function ActionButton({
 }
 
 const styles = StyleSheet.create({
+  deliveryOptions: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
+  deliveryOption: {
+    minHeight: 44,
+    minWidth: 88,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: space.sm,
+    borderRadius: radius.sm,
+  },
+  deliveryOptionSelected: { backgroundColor: palette.background },
+  managementAction: {
+    padding: space.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.border,
+  },
   locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   locationControlsLargeText: { flex: 0, width: "100%" },
   sessionTabs: {
@@ -1255,18 +1282,7 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  settingCard: {
-    alignItems: "center",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: space.md,
-    marginTop: space.lg,
-    padding: space.md,
-  },
-  settingText: { flex: 1 },
+  settingText: { flexGrow: 1, flexShrink: 1 },
   shell: { flex: 1 },
   stateCard: {
     alignItems: "center",

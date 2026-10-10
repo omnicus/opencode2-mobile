@@ -14,7 +14,8 @@ import {
 
 import { applicationName } from "../application-name";
 import { ModalSheet } from "../components/modal-sheet";
-import { control, palette, radius, space, typeRamp, typography } from "../theme";
+import { requestCardStyles } from "../components/request-card-styles";
+import { palette, radius, space, typeRamp, typography } from "../theme";
 import {
   createFormDraft,
   type FormDraft,
@@ -541,34 +542,19 @@ const styles = StyleSheet.create({
     borderTopColor: palette.border,
   },
   choiceHeading: { flexDirection: "row", gap: space.sm, alignItems: "center" },
-  actions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  actions: requestCardStyles.actions,
   booleanOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.sm,
   },
-  button: {
-    ...control,
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
-    justifyContent: "center",
-  },
+  button: requestCardStyles.button,
   buttonPrimary: { backgroundColor: palette.signal },
   buttonPrimaryLabel: { color: palette.background },
   buttonDanger: { borderColor: palette.border },
   buttonDangerLabel: { color: palette.danger },
-  buttonLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
-  card: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderLeftWidth: 3,
-    borderLeftColor: palette.warm,
-    gap: space.md,
-    padding: space.md,
-  },
+  buttonLabel: requestCardStyles.buttonLabel,
+  card: requestCardStyles.card,
   choice: {
     borderColor: palette.border,
     borderRadius: radius.sm,

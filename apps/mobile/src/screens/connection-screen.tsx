@@ -481,20 +481,16 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <View style={styles.headerIdentity}>
-              <View style={styles.statusMark} />
-              <Text style={styles.product}>OPENCODE MOBILE</Text>
-            </View>
+            <Text accessibilityRole="header" style={styles.title}>
+              Connections
+            </Text>
             {onDone ? (
               <Pressable accessibilityRole="button" onPress={onDone} style={styles.closeButton}>
-                <Text style={styles.closeButtonLabel}>DONE</Text>
+                <Text style={styles.closeButtonLabel}>Done</Text>
               </Pressable>
             ) : null}
           </View>
 
-          <Text accessibilityRole="header" style={styles.title}>
-            Connections
-          </Text>
           <Text style={styles.intro}>Switch servers or add a direct OpenCode V2 connection.</Text>
           {onPair ? (
             <Pressable
@@ -505,13 +501,13 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                 pressed && styles.secondaryButtonPressed,
               ]}
             >
-              <Text style={styles.secondaryLabel}>PAIR SERVER</Text>
+              <Text style={styles.secondaryLabel}>Pair server</Text>
             </Pressable>
           ) : null}
 
           <View style={styles.profileSection}>
             <View style={styles.profileHeading}>
-              <Text style={styles.sectionTitle}>SAVED SERVERS</Text>
+              <Text style={styles.sectionTitle}>Saved servers</Text>
               <Pressable
                 accessibilityRole="button"
                 onPress={newConnection}
@@ -520,7 +516,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                   pressed && styles.secondaryButtonPressed,
                 ]}
               >
-                <Text style={styles.smallButtonLabel}>ADD</Text>
+                <Text style={styles.smallButtonLabel}>Add</Text>
               </Pressable>
             </View>
             {!connections.ready ? <ActivityIndicator color={palette.signal} /> : null}
@@ -549,7 +545,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                       {profile.name}
                     </Text>
                     {connections.selectedProfileId === profile.id ? (
-                      <Text style={styles.selectedLabel}>SELECTED</Text>
+                      <Text style={styles.selectedLabel}>✓ Selected</Text>
                     ) : null}
                   </View>
                   <Text numberOfLines={largeText ? undefined : 1} style={styles.profileOrigin}>
@@ -569,7 +565,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                       pressed && styles.secondaryButtonPressed,
                     ]}
                   >
-                    <Text style={styles.editLabel}>EDIT</Text>
+                    <Text style={styles.editLabel}>Edit</Text>
                   </Pressable>
                   <Pressable
                     accessibilityLabel={
@@ -585,7 +581,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                     ]}
                   >
                     <Text style={styles.removeLabel}>
-                      {pendingRemovalId === profile.id ? "CONFIRM" : "REMOVE"}
+                      {pendingRemovalId === profile.id ? "Confirm" : "Remove"}
                     </Text>
                   </Pressable>
                 </View>
@@ -1173,8 +1169,8 @@ const styles = StyleSheet.create({
   content: {
     alignSelf: "center",
     paddingBottom: space.xl,
-    paddingHorizontal: space.lg,
-    paddingTop: space.lg,
+    paddingHorizontal: space.md,
+    paddingTop: space.sm,
     width: "100%",
     maxWidth: 680,
   },
@@ -1248,9 +1244,6 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   closeButton: {
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
     marginLeft: space.sm,
     minHeight: 44,
     paddingHorizontal: space.md,
@@ -1272,9 +1265,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   intro: {
-    ...typography.body,
+    ...typography.caption,
     color: palette.dim,
-    marginTop: space.md,
+    marginTop: space.xs,
     maxWidth: 560,
   },
   label: {
@@ -1346,13 +1339,19 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     borderRadius: radius.md,
     borderWidth: 1,
-    flexDirection: "row",
+    flexDirection: "column",
     overflow: "hidden",
   },
   profileCardLargeText: {
     flexDirection: "column",
   },
-  profileActions: { borderLeftColor: palette.border, borderLeftWidth: 1 },
+  profileActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    borderTopColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   profileActionsLargeText: {
     borderLeftWidth: 0,
     borderTopColor: palette.border,
@@ -1367,9 +1366,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   profileMain: {
-    flex: 1,
+    minHeight: 44,
     gap: 4,
-    padding: space.md,
+    padding: space.sm,
   },
   profileName: {
     ...typography.heading,
@@ -1382,7 +1381,8 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   profileOrigin: {
-    ...typography.code,
+    fontFamily: typography.code.fontFamily,
+    ...typography.caption,
     color: palette.dim,
   },
   profileSection: {
@@ -1494,8 +1494,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   sectionTitle: {
-    ...typography.heading,
-    color: palette.ink,
+    ...typography.label,
+    color: palette.dim,
   },
   selectedLabel: {
     ...typography.label,
@@ -1503,9 +1503,6 @@ const styles = StyleSheet.create({
   },
   smallButton: {
     alignItems: "center",
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
     justifyContent: "center",
     minHeight: 44,
     paddingHorizontal: space.sm,
@@ -1568,9 +1565,9 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   title: {
-    ...typography.title,
+    ...typography.sheetTitle,
     color: palette.ink,
-    marginTop: space.lg,
+    flexShrink: 1,
     maxWidth: 600,
   },
   httpLabel: {

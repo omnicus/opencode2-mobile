@@ -153,12 +153,20 @@ export function RootNavigation() {
       <Stack.Screen
         component={SettingsScreen}
         name="Settings"
-        options={{ presentation: "modal", title: "Settings" }}
+        options={({ navigation }) => ({
+          presentation: "modal",
+          title: "Settings",
+          headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
+        })}
       />
       <Stack.Screen
         component={FollowedProjectsScreen}
         name="FollowedProjects"
-        options={{ presentation: "modal", title: "Followed projects" }}
+        options={({ navigation }) => ({
+          presentation: "modal",
+          title: "Followed projects",
+          headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
+        })}
       />
       <Stack.Screen
         name="Connections"
@@ -176,6 +184,18 @@ export function RootNavigation() {
         )}
       </Stack.Screen>
     </Stack.Navigator>
+  );
+}
+
+function ManagementDoneButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}
+    >
+      <Text style={{ color: palette.ink, fontSize: 14, fontWeight: "600" }}>Done</Text>
+    </Pressable>
   );
 }
 

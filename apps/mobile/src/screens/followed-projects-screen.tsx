@@ -1,10 +1,10 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-
+import { managementStyles } from "../components/management-layout";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { control, palette, radius, space, typeRamp, typography } from "../theme";
+import { palette, radius, space, typeRamp, typography } from "../theme";
 import { ShellFrame } from "./app-shell";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
@@ -68,15 +68,10 @@ export function FollowedProjectsScreen({ navigation }: Props) {
         section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section)
       }
     >
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.eyebrow}>
-          FOLLOWED PROJECTS
-        </Text>
-        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.heading} style={styles.title}>
-          Choose the projects in your session inbox.
-        </Text>
+      <ScrollView contentContainerStyle={managementStyles.content}>
         <Text dynamicTypeRamp={typeRamp.body} style={styles.copy}>
-          Following is stored on this device. It does not create, modify, or remove server projects.
+          Choose the projects in your session inbox. Following is saved on this device only and does
+          not change server projects.
         </Text>
         {selection.preferencesLoading || selection.projectsLoading ? (
           <View style={styles.state}>
@@ -131,7 +126,7 @@ export function FollowedProjectsScreen({ navigation }: Props) {
                       {path}
                     </Text>
                     <Text style={[styles.followState, selected && styles.followStateSelected]}>
-                      {selected ? "FOLLOWING" : "NOT FOLLOWED"}
+                      {selected ? "✓ Following" : "Not followed"}
                     </Text>
                   </Pressable>
                   {selected ? (
@@ -221,19 +216,22 @@ function projectLabel(project: { canonical: string; id: string; name?: string })
 }
 
 const styles = StyleSheet.create({
-  content: { gap: space.md, padding: space.lg, paddingBottom: space.xl },
-  copy: { ...typography.body, color: palette.dim },
+  copy: { ...typography.caption, color: palette.dim },
   disabled: { opacity: 0.5 },
   error: { ...typography.body, color: palette.danger },
-  eyebrow: { ...typography.label, color: palette.dim },
   followState: { ...typography.label, color: palette.dim },
   followStateSelected: { color: palette.signal },
   list: { gap: space.sm },
-  orderActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, padding: space.sm },
+  orderActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.xs,
+    paddingHorizontal: space.sm,
+    paddingBottom: space.xs,
+  },
   orderButton: {
-    ...control,
-    borderColor: palette.border,
-    borderWidth: 1,
+    minHeight: 44,
+    paddingHorizontal: space.sm,
     justifyContent: "center",
   },
   orderLabel: { ...typography.control, color: palette.ink },
@@ -244,12 +242,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
   },
-  projectMain: { gap: space.xs, minHeight: 72, padding: space.md },
+  projectMain: { gap: 4, minHeight: 72, padding: space.sm },
   projectPath: { ...typography.caption, color: palette.dim },
-  projectSelected: { borderColor: palette.signal },
+  projectSelected: { borderColor: palette.border },
   projectTitle: { ...typography.heading, color: palette.ink },
   state: { alignItems: "center", gap: space.sm, paddingVertical: space.xl },
-  title: { ...typography.title, color: palette.ink },
   unavailableProject: {
     backgroundColor: palette.card,
     borderColor: palette.warm,
