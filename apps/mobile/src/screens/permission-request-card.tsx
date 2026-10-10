@@ -3,15 +3,8 @@ import type { PermissionReply, PermissionRequest } from "@opencode2-mobile/openc
 import { useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { ModalSheet } from "../components/modal-sheet";
-import {
-  control,
-  markdownPalette,
-  palette,
-  radius,
-  space,
-  typography,
-  usesLargeTextLayout,
-} from "../theme";
+import { requestCardStyles } from "../components/request-card-styles";
+import { markdownPalette, palette, radius, space, typography, usesLargeTextLayout } from "../theme";
 import { permissionActionExplanation } from "./permission-presentation";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
@@ -161,14 +154,7 @@ const styles = StyleSheet.create({
   headingRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
   headingTitle: { flex: 1 },
   card: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    borderLeftWidth: 3,
-    borderLeftColor: palette.warm,
-    padding: 12,
-    gap: 8,
+    ...requestCardStyles.card,
   },
   title: { ...typography.heading, color: palette.ink },
   action: { ...typography.body, color: palette.ink },
@@ -186,28 +172,18 @@ const styles = StyleSheet.create({
   caption: { ...typography.caption, color: palette.dim },
   copy: { ...typography.body, color: palette.dim, marginVertical: space.sm },
   actions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
+    ...requestCardStyles.actions,
     paddingTop: space.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.border,
   },
-  actionsLarge: { flexDirection: "column" },
+  actionsLarge: { flexDirection: "column", alignItems: "flex-start" },
   button: {
-    ...control,
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-    paddingVertical: space.xs,
-    flexGrow: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
+    ...requestCardStyles.button,
   },
   primary: { backgroundColor: palette.signal },
   primaryLabel: { color: palette.background },
-  buttonLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
+  buttonLabel: requestCardStyles.buttonLabel,
   reject: { color: palette.danger },
   error: { ...typography.body, color: palette.danger },
   disabled: { opacity: 0.5 },

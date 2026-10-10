@@ -1,6 +1,6 @@
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { palette, typography } from "../theme";
+import { palette, radius, space, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
 
 const command = `python3 - <<'PY'\n${"print('review me')\n".repeat(100)}PY`;
@@ -87,7 +87,12 @@ test("compact approval actions retain all three reply values", () => {
     ["Reject", "reject"],
   ] as const) {
     const button = screen.getByRole("button", { name });
-    expect(button).toHaveStyle({ minHeight: 44 });
+    expect(button).toHaveStyle({
+      minHeight: 44,
+      borderRadius: radius.sm,
+      paddingHorizontal: space.sm,
+    });
+    expect(button).not.toHaveStyle({ flexGrow: 1 });
     fireEvent.press(button);
     expect(reply).toHaveBeenLastCalledWith(request.id, request.sessionID, value);
   }
