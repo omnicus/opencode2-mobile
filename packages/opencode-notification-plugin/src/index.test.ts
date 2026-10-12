@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import notificationPlugin, { normalizeOpenCodeNotificationEvent } from "./index.js";
 
 describe("notification plugin projection", () => {
-  it("loads the matching TUI controls", () => {
-    expect(notificationPlugin.tui).toBe(true);
+  it("defines the server notification plugin", () => {
+    expect(notificationPlugin.id).toBe("opencode-mobile-notifications");
+    expect(notificationPlugin.setup).toBeTypeOf("function");
   });
 
   it("projects permission events without request content", () => {

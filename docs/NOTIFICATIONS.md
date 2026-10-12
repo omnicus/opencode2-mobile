@@ -95,7 +95,9 @@ OpenCode.
 }
 ```
 
-The package is pinned to `@opencode-ai/plugin@0.0.0-beta-18387`. It subscribes to
+The package is pinned to `@opencode/plugin@2.0.27`, matching OpenCode `2.0.27`.
+The old beta SDK is incompatible with this server's bundled Effect runtime and
+fails during import, before plugin setup. It subscribes to
 `permission.asked`, `permission.replied`, `form.created`, `form.replied`,
 `form.cancelled`, and `session.execution.succeeded`. It converts permission
 actions to a finite category before storing a sanitized retry queue in plugin
@@ -127,6 +129,12 @@ The local source package directory has no root `index.js` and is not a valid
 plugin entry. Configure the compiled `dist` directory, which contains both
 `index.js` and `tui.js`. Rebuild after changes, restart the OpenCode service for
 server-plugin changes, and reopen the TUI for TUI-plugin changes.
+
+After rebuilding and reloading the server plugin, run `pnpm notifications:smoke`
+from this checkout to verify that the configured plugin is active in the live
+OpenCode server. This opt-in check requires the plugin configuration and broker
+token file above. A plain Node import does not exercise the server's shared
+runtime dependency resolution and cannot detect SDK mismatches.
 
 ## Start and pair
 
