@@ -1,4 +1,4 @@
-import { Plugin } from "@opencode-ai/plugin";
+import { Plugin } from "@opencode/plugin";
 import {
   type NotificationCategory,
   type NotificationPluginEvent,
@@ -13,7 +13,6 @@ const maximumQueueSize = 1_000;
 
 export default Plugin.define({
   id: "opencode-mobile-notifications",
-  tui: true,
   async setup(ctx) {
     const access = await readBrokerAccess(ctx.options);
     let queue = parseStoredQueue(await ctx.storage.get(queueStorageKey));

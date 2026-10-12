@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const { readBrokerAccess } = vi.hoisted(() => ({ readBrokerAccess: vi.fn() }));
 
-vi.mock("@opencode-ai/plugin/tui", () => ({
+vi.mock("@opencode/plugin/tui", () => ({
   Plugin: { define: <T>(plugin: T) => plugin },
 }));
 vi.mock("./broker.js", () => ({
