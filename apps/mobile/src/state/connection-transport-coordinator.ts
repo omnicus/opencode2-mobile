@@ -146,7 +146,7 @@ export class ConnectionTransportCoordinator {
     const requestOptions = { signal: controller.signal };
     void Promise.all([
       this.options.restClient.server.status(requestOptions),
-      this.options.restClient.project.list(requestOptions),
+      this.options.restClient.project.list(undefined, requestOptions),
       this.options.restClient.session.active(requestOptions),
     ])
       .then(([health, projects, activeSessions]) => {
