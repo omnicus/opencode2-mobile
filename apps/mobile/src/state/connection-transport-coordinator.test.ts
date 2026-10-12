@@ -14,6 +14,28 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
     typeof error === "object" && error !== null && "_tag" in error ? "UNAUTHORIZED" : "UNREACHABLE",
 }));
 
+test("passes project snapshot cancellation in the request-options argument", async () => {
+  const stream = createEventStream();
+  const snapshots = createSnapshotClient(true);
+  const coordinator = createCoordinator({
+    eventClient: { event: { subscribe: stream.subscribe } } as never,
+    restClient: snapshots.client,
+  });
+
+  coordinator.start();
+  await flush();
+
+  expect(snapshots.client.project.list).toHaveBeenCalledWith(undefined, {
+    signal: expect.any(AbortSignal),
+  });
+  expect(snapshots.client.project.list).toHaveBeenCalledWith(
+    undefined,
+    stream.subscribe.mock.calls[0]?.[0],
+  );
+  coordinator.stop();
+  expect(stream.subscribe.mock.calls[0]?.[0]?.signal?.aborted).toBe(true);
+});
+
 test("buffers events until authoritative snapshots are installed", async () => {
   const stream = createEventStream();
   const snapshots = createSnapshotClient();

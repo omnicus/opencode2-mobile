@@ -37,6 +37,7 @@ import {
   listOpenCodeModels,
   listOpenCodePermissionRequests,
   listOpenCodeProjectSessions,
+  listOpenCodeProjects,
   listOpenCodeSessionInbox,
   listOpenCodeSessions,
   listOpenCodeSkills,
@@ -60,6 +61,20 @@ import {
   switchOpenCodeSessionModel,
   waitForOpenCodeSession,
 } from "./index";
+
+describe("project listing", () => {
+  it("forwards cancellation as request options without adding project filters", async () => {
+    const fixture = createFakeOpenCodeApi();
+    const fetch = vi.fn<typeof globalThis.fetch>(fixture.fetch);
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch });
+    const signal = new AbortController().signal;
+
+    await expect(listOpenCodeProjects(client, { signal })).resolves.toEqual([]);
+
+    expect(fetch.mock.calls[0]?.[1]?.signal).toBe(signal);
+    expect(fixture.requests).toEqual([{ method: "GET", path: "/api/project", query: {} }]);
+  });
+});
 
 describe("location MCP controls", () => {
   it("lists and connects/disconnects at the exact location without changing other locations", async () => {

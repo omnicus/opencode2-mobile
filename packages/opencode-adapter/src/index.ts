@@ -354,7 +354,7 @@ export async function listOpenCodeProjects(
   client: OpenCodeClient,
   options?: OpenCodeRequestOptions,
 ) {
-  const projects = await client.project.list(options);
+  const projects = await client.project.list(undefined, options);
   if (!Array.isArray(projects) || !projects.every(isValidProject)) {
     throw new Error("MALFORMED_PROJECT_LIST");
   }
