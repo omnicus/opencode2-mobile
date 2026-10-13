@@ -203,8 +203,8 @@ importers:
   packages/opencode-adapter:
     dependencies:
       '@opencode/client':
-        specifier: 2.0.27
-        version: 2.0.27(effect@4.0.1)
+        specifier: 2.0.28
+        version: 2.0.28(effect@4.0.1)
     devDependencies:
       '@opencode2-mobile/test-fixtures':
         specifier: workspace:*
@@ -1517,6 +1517,17 @@ packages:
       solid-js:
         optional: true
 
+  '@opencode/client@2.0.28':
+    resolution: {integrity: sha512-YV0Yxk93/K2h4Xy/sEW/4ZYGMwn7ltxG2Y/Vdy2VCIZ2z0/r9MI6x5/XawSNfCvImBxuHkQNbYtu9Rgp3ArJ4g==}
+    peerDependencies:
+      effect: 4.0.1
+      solid-js: '>=1.9.0'
+    peerDependenciesMeta:
+      effect:
+        optional: true
+      solid-js:
+        optional: true
+
   '@opencode/plugin@2.0.27':
     resolution: {integrity: sha512-TlK5PhHDCIieQEt/zjPlb/5BYbsyQnMSjXWhqL3rYjobKIauUNxdG+UCSCaLyQPhS9ab5zThg9v9tF6xiSyFyw==}
     peerDependencies:
@@ -1537,8 +1548,14 @@ packages:
   '@opencode/protocol@2.0.27':
     resolution: {integrity: sha512-t1j+m5T3TBusHaL58t6gSSQQEFoi+qjVyQ0Eta/4mLeZLJDqSV8BNN6N93GFpV2MJ1iBpGmrH0C02n2Q+nDHfw==}
 
+  '@opencode/protocol@2.0.28':
+    resolution: {integrity: sha512-yfc0SDa7FxqSDZRC0olACnhB7Gvsx8X0ji0gEmO2xunCswNiJTCPUngcIKphxN5NFeMl/A5E0iNG4q39KW5fyA==}
+
   '@opencode/schema@2.0.27':
     resolution: {integrity: sha512-BxGuiIFo503tW6UYxoBrrgjyczEvPiU3fDn45FxUHtmZgBC8kFE+ldI56ab8kV0Lu5C94ZKOniRb2bWqDu4tAg==}
+
+  '@opencode/schema@2.0.28':
+    resolution: {integrity: sha512-NHl42ngFN6uLCjtmtooYlEGEayng9ZFc+30DAqQuPcvKpMWsO23OqximHlukxtErp209C4f9LW+OJH/6k60+yw==}
 
   '@opencode/util@2.0.27':
     resolution: {integrity: sha512-2TIEAJsX4UsyV9CHSk+/6jHWrEllgomgD0WQ8Ne+SN4xlmN9cGUvZo/Jgk0XrZZXSmADDOIER2HLcaI0tAr22A==}
@@ -7390,6 +7407,13 @@ snapshots:
     optionalDependencies:
       effect: 4.0.1
 
+  '@opencode/client@2.0.28(effect@4.0.1)':
+    dependencies:
+      '@opencode/protocol': 2.0.28
+      '@opencode/schema': 2.0.28
+    optionalDependencies:
+      effect: 4.0.1
+
   '@opencode/plugin@2.0.27(@opentelemetry/semantic-conventions@1.43.0)(redis@6.3.0(@opentelemetry/api@1.9.0))(supports-color@8.1.1)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
@@ -7412,7 +7436,17 @@ snapshots:
       '@opencode/schema': 2.0.27
       effect: 4.0.1
 
+  '@opencode/protocol@2.0.28':
+    dependencies:
+      '@opencode/schema': 2.0.28
+      effect: 4.0.1
+
   '@opencode/schema@2.0.27':
+    dependencies:
+      '@standard-schema/spec': 1.1.0
+      effect: 4.0.1
+
+  '@opencode/schema@2.0.28':
     dependencies:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.1
