@@ -698,7 +698,6 @@ const messages: SessionMessageInfo[] = [
   {
     id: "msg_compaction",
     reason: "auto",
-    recent: "Recent context",
     status: "completed",
     summary: "Compaction summary",
     time: { created: 10 },

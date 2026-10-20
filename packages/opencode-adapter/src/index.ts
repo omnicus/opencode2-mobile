@@ -1002,8 +1002,7 @@ function isValidMessage(value: unknown): value is SessionMessageInfo {
       if (value.status === "failed") return isStructuredError(value.error);
       return (
         (value.status === "running" || value.status === "completed") &&
-        typeof value.summary === "string" &&
-        typeof value.recent === "string"
+        typeof value.summary === "string"
       );
     default:
       return false;

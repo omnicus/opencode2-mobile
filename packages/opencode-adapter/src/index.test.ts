@@ -1487,7 +1487,6 @@ it("loads every current message variant and follows descending cursors toward ol
     {
       id: "msg_compaction_running",
       reason: "auto",
-      recent: "Recent",
       status: "running",
       summary: "Summary",
       time: { created: 10 },
@@ -1496,7 +1495,6 @@ it("loads every current message variant and follows descending cursors toward ol
     {
       id: "msg_compaction_completed",
       reason: "manual",
-      recent: "Recent",
       status: "completed",
       summary: "Summary",
       time: { created: 11 },
