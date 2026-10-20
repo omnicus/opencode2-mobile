@@ -124,15 +124,13 @@ test("projects a complete assistant step and repairs volatile deltas with termin
     cost: 0.25,
     finish: "stop",
     id: "msg_assistant",
-    native: { settled: true },
     rawFinish: "done",
     snapshot: { end: "end-snapshot", files: ["changed.ts"], start: "start-snapshot" },
     type: "assistant",
   });
   expect(assistant?.type === "assistant" && assistant.content).toEqual([
-    { native: { response: true }, text: "authoritative text", type: "text" },
+    { text: "authoritative text", type: "text" },
     {
-      native: { phase: "done" },
       text: "authoritative reasoning",
       time: { completed: 1, created: 1 },
       type: "reasoning",
@@ -141,7 +139,6 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       executed: true,
       id: "tool-1",
       name: "read",
-      native: { complete: true },
       state: {
         content: [{ mime: "text/plain", type: "file", uri: "file:///redacted" }],
         input: { path: "file.ts" },
