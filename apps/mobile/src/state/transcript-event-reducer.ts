@@ -64,7 +64,6 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
         isFiniteNumber(data.cost) &&
         isTokenUsage(data.tokens) &&
         (data.rawFinish === undefined || isBoundedString(data.rawFinish)) &&
-        (data.providerState === undefined || isJsonRecord(data.providerState)) &&
         (data.snapshot === undefined || isBoundedString(data.snapshot, 4096)) &&
         isOptionalStringArray(data.files)
       );
@@ -75,7 +74,6 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
         isStructuredError(data.error) &&
         (data.finish === undefined || data.finish === "content-filter") &&
         (data.rawFinish === undefined || isBoundedString(data.rawFinish)) &&
-        (data.providerState === undefined || isJsonRecord(data.providerState)) &&
         (data.cost === undefined || isFiniteNumber(data.cost)) &&
         (data.tokens === undefined || isTokenUsage(data.tokens)) &&
         (data.snapshot === undefined || isBoundedString(data.snapshot, 4096)) &&
@@ -86,8 +84,7 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
       return (
         isEventTime(event.created) &&
         isMessageID(data.assistantMessageID) &&
-        isOrdinal(data.ordinal) &&
-        (data.state === undefined || isJsonRecord(data.state))
+        isOrdinal(data.ordinal)
       );
     case "session.text.delta":
     case "session.reasoning.delta":
@@ -102,8 +99,7 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
         isEventTime(event.created) &&
         isMessageID(data.assistantMessageID) &&
         isOrdinal(data.ordinal) &&
-        isBoundedString(data.text) &&
-        (data.state === undefined || isJsonRecord(data.state))
+        isBoundedString(data.text)
       );
     case "session.tool.input.started":
       return (
@@ -126,8 +122,7 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
         isMessageID(data.assistantMessageID) &&
         isToolID(data.id) &&
         isJsonRecord(data.input) &&
-        typeof data.executed === "boolean" &&
-        (data.state === undefined || isJsonRecord(data.state))
+        typeof data.executed === "boolean"
       );
     case "session.tool.progress":
       return (
@@ -143,8 +138,7 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
         data.content.length > 0 &&
         data.content.length <= 256 &&
         data.content.every(isToolContent) &&
-        (data.metadata === undefined || isJsonRecord(data.metadata)) &&
-        (data.resultState === undefined || isJsonRecord(data.resultState))
+        (data.metadata === undefined || isJsonRecord(data.metadata))
       );
     case "session.tool.failed":
       return (
@@ -158,8 +152,7 @@ export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
             data.content.length > 0 &&
             data.content.length <= 256 &&
             data.content.every(isToolContent))) &&
-        (data.metadata === undefined || isJsonRecord(data.metadata)) &&
-        (data.resultState === undefined || isJsonRecord(data.resultState))
+        (data.metadata === undefined || isJsonRecord(data.metadata))
       );
     case "session.retry.scheduled":
       return (
@@ -230,18 +223,11 @@ function reduceTranscriptEvent(
       );
     case "session.text.ended":
       return updateAssistantMessage(current, event.data.assistantMessageID, (message) =>
-        finishTextPart(
-          message,
-          event.data.ordinal,
-          "text",
-          event.created,
-          event.data.text,
-          event.data.state,
-        ),
+        finishTextPart(message, event.data.ordinal, "text", event.created, event.data.text),
       );
     case "session.reasoning.started":
       return updateAssistantMessage(current, event.data.assistantMessageID, (message) =>
-        startTextPart(message, event.data.ordinal, "reasoning", event.created, event.data.state),
+        startTextPart(message, event.data.ordinal, "reasoning", event.created),
       );
     case "session.reasoning.delta":
       return updateAssistantMessage(current, event.data.assistantMessageID, (message) =>
@@ -249,14 +235,7 @@ function reduceTranscriptEvent(
       );
     case "session.reasoning.ended":
       return updateAssistantMessage(current, event.data.assistantMessageID, (message) =>
-        finishTextPart(
-          message,
-          event.data.ordinal,
-          "reasoning",
-          event.created,
-          event.data.text,
-          event.data.state,
-        ),
+        finishTextPart(message, event.data.ordinal, "reasoning", event.created, event.data.text),
       );
     case "session.tool.input.started":
       return updateAssistantMessage(current, event.data.assistantMessageID, (message) =>
@@ -278,7 +257,6 @@ function reduceTranscriptEvent(
           event.data.input,
           event.data.executed,
           event.created,
-          event.data.state,
         ),
       );
     case "session.tool.progress":
@@ -294,7 +272,6 @@ function reduceTranscriptEvent(
           event.data.metadata,
           event.data.executed,
           event.created,
-          event.data.resultState,
         ),
       );
     case "session.tool.failed":
@@ -307,7 +284,6 @@ function reduceTranscriptEvent(
           event.data.metadata,
           event.data.executed,
           event.created,
-          event.data.resultState,
         ),
       );
     case "session.retry.scheduled":
@@ -370,7 +346,6 @@ function endAssistantStep(
     ...message,
     cost: event.data.cost,
     finish: event.data.finish,
-    ...(event.data.providerState === undefined ? {} : { providerState: event.data.providerState }),
     ...(event.data.rawFinish === undefined ? {} : { rawFinish: event.data.rawFinish }),
     ...(snapshot === undefined ? {} : { snapshot }),
     time: { ...message.time, completed: event.created },
@@ -389,7 +364,6 @@ function failAssistantStep(
     error: event.data.error,
     finish: event.data.finish ?? "error",
     ...(event.data.cost === undefined ? {} : { cost: event.data.cost }),
-    ...(event.data.providerState === undefined ? {} : { providerState: event.data.providerState }),
     ...(event.data.rawFinish === undefined ? {} : { rawFinish: event.data.rawFinish }),
     ...(snapshot === undefined ? {} : { snapshot }),
     time: { ...message.time, completed: event.created },
@@ -522,7 +496,6 @@ function startTextPart(
   ordinal: number,
   type: "reasoning" | "text",
   at: number,
-  state?: ToolInput,
 ) {
   const existing = findTextPart(message, ordinal, type);
   if (existing) return message;
@@ -531,7 +504,6 @@ function startTextPart(
     part = { text: "", type: "text" };
   } else {
     part = {
-      ...(state === undefined ? {} : { state }),
       text: "",
       time: { created: at },
       type: "reasoning",
@@ -546,19 +518,16 @@ function finishTextPart(
   type: "reasoning" | "text",
   at: number,
   text: string,
-  state?: ToolInput,
 ) {
   return updateTextPart(message, ordinal, type, (part) => {
     if (part.type === "text") {
       return {
         ...part,
-        ...(state === undefined ? {} : { state }),
         text,
       };
     }
     return {
       ...part,
-      ...(state === undefined ? {} : { state }),
       text,
       time: { created: part.time?.created ?? at, completed: at },
     };
@@ -615,12 +584,10 @@ function setToolRunning(
   input: ToolInput,
   executed: boolean,
   at: number,
-  providerState: ToolInput | undefined,
 ) {
   return updateTool(message, id, (tool) => ({
     ...tool,
     executed,
-    ...(providerState === undefined ? {} : { providerState }),
     state: { input, metadata: {}, status: "running" },
     time: { ...tool.time, ran: at },
   }));
@@ -639,12 +606,10 @@ function setToolCompleted(
   metadata: ToolInput | undefined,
   executed: boolean,
   at: number,
-  providerResultState: ToolInput | undefined,
 ) {
   return updateTool(message, id, (tool) => ({
     ...tool,
     executed: executed || tool.executed === true,
-    ...(providerResultState === undefined ? {} : { providerResultState }),
     state: {
       content: content as [ToolContent, ...ToolContent[]],
       input: toolInput(tool),
@@ -663,14 +628,12 @@ function setToolFailed(
   metadata: ToolInput | undefined,
   executed: boolean,
   at: number,
-  providerResultState: ToolInput | undefined,
 ) {
   return updateTool(message, id, (tool) => {
     const previousMetadata = tool.state.status === "running" ? tool.state.metadata : undefined;
     return {
       ...tool,
       executed: executed || tool.executed === true,
-      ...(providerResultState === undefined ? {} : { providerResultState }),
       state: {
         ...(content ? { content: content as [ToolContent, ...ToolContent[]] } : {}),
         error,

@@ -23,7 +23,7 @@ import {
 
 import { ensurePromiseWithResolvers } from "./promise-with-resolvers";
 
-export const openCodeClientContractVersion = "2.0.32";
+export const openCodeClientContractVersion = "2.1.0";
 
 export type OpenCodeClientOptions = {
   authorization?: string;
@@ -1002,8 +1002,7 @@ function isValidMessage(value: unknown): value is SessionMessageInfo {
       if (value.status === "failed") return isStructuredError(value.error);
       return (
         (value.status === "running" || value.status === "completed") &&
-        typeof value.summary === "string" &&
-        typeof value.recent === "string"
+        typeof value.summary === "string"
       );
     default:
       return false;

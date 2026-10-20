@@ -39,7 +39,7 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       assistantMessageID: "msg_assistant",
       ordinal: 0,
       sessionID: "session-1",
-      state: { phase: "thinking" },
+      native: { phase: "thinking" },
     }),
     transcriptEvent("session.reasoning.delta", {
       assistantMessageID: "msg_assistant",
@@ -51,14 +51,14 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       assistantMessageID: "msg_assistant",
       ordinal: 0,
       sessionID: "session-1",
-      state: { response: true },
+      native: { response: true },
       text: "authoritative text",
     }),
     transcriptEvent("session.reasoning.ended", {
       assistantMessageID: "msg_assistant",
       ordinal: 0,
       sessionID: "session-1",
-      state: { phase: "done" },
+      native: { phase: "done" },
       text: "authoritative reasoning",
     }),
     transcriptEvent("session.tool.input.started", {
@@ -85,7 +85,7 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       id: "tool-1",
       input: { path: "file.ts" },
       sessionID: "session-1",
-      state: { request: "accepted" },
+      native: { request: "accepted" },
     }),
     transcriptEvent("session.tool.progress", {
       assistantMessageID: "msg_assistant",
@@ -99,7 +99,7 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       executed: true,
       id: "tool-1",
       metadata: { progress: 1 },
-      resultState: { complete: true },
+      native: { complete: true },
       sessionID: "session-1",
     }),
     transcriptEvent("session.step.ended", {
@@ -107,7 +107,7 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       cost: 0.25,
       files: ["changed.ts"],
       finish: "stop",
-      providerState: { settled: true },
+      native: { settled: true },
       rawFinish: "done",
       sessionID: "session-1",
       snapshot: "end-snapshot",
@@ -129,9 +129,8 @@ test("projects a complete assistant step and repairs volatile deltas with termin
     type: "assistant",
   });
   expect(assistant?.type === "assistant" && assistant.content).toEqual([
-    { state: { response: true }, text: "authoritative text", type: "text" },
+    { text: "authoritative text", type: "text" },
     {
-      state: { phase: "done" },
       text: "authoritative reasoning",
       time: { completed: 1, created: 1 },
       type: "reasoning",
@@ -140,8 +139,6 @@ test("projects a complete assistant step and repairs volatile deltas with termin
       executed: true,
       id: "tool-1",
       name: "read",
-      providerResultState: { complete: true },
-      providerState: { request: "accepted" },
       state: {
         content: [{ mime: "text/plain", type: "file", uri: "file:///redacted" }],
         input: { path: "file.ts" },

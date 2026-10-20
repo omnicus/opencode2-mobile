@@ -633,7 +633,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
         <Disclosure
           label={`Compaction / ${sentenceCase(message.status)}`}
           largeText={largeText}
-          text={[message.summary, message.recent]}
+          text={message.summary}
         />
       );
     default:
