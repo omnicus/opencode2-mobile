@@ -1,4 +1,5 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 
 export function stableV2(version) {
@@ -17,11 +18,34 @@ export function newerVersion(candidate, current) {
 }
 
 async function registry(packageName, version) {
-  const response = await fetch(`https://registry.npmjs.org/${packageName}/${version}`, {
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!response.ok) throw new Error(`Registry lookup failed for ${packageName}.`);
-  return response.json();
+  const maxAttempts = 3;
+  let lastError;
+  let attempts = 0;
+  while (attempts < maxAttempts) {
+    attempts += 1;
+    try {
+      const response = await fetch(`https://registry.npmjs.org/${packageName}/${version}`, {
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (response.ok) return await response.json();
+      await response.body?.cancel();
+      lastError = new Error(`Registry returned HTTP ${response.status}.`);
+      if (response.status !== 408 && response.status !== 429 && response.status < 500) break;
+    } catch (error) {
+      lastError = error;
+      if (
+        error?.name !== "TimeoutError" &&
+        error?.name !== "AbortError" &&
+        !(error instanceof TypeError)
+      )
+        break;
+    }
+    if (attempts < maxAttempts) await delay(500 * 2 ** (attempts - 1));
+  }
+  throw new Error(
+    `Registry lookup failed for ${packageName}@${version} after ${attempts} ${attempts === 1 ? "attempt" : "attempts"}.`,
+    { cause: lastError },
+  );
 }
 
 async function main() {
