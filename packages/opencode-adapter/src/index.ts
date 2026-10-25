@@ -451,10 +451,33 @@ export async function openCodeDirectoryExists(
 ) {
   const base = root.directory.replace(/\\/g, "/").replace(/\/$/, "");
   const target = directory.replace(/\\/g, "/");
-  if (!target.startsWith(`${base}/`) || root.workspaceID)
+  // Worktrees can live outside the repository. Keep the live root as the
+  // request location, but list the target's parent via a relative path.
+  const absoluteParts = (path: string) => {
+    if (!path.startsWith("/") && !/^[A-Za-z]:(\/|$)/.test(path)) {
+      throw new Error("INVALID_DIRECTORY_PATH");
+    }
+    const parts = (path.startsWith("/") ? path.slice(1) : path).split("/");
+    if (parts.some((part) => !part || part === "." || part === "..")) {
+      throw new Error("INVALID_DIRECTORY_PATH");
+    }
+    return parts;
+  };
+  if (root.workspaceID) throw new Error("DIRECTORY_OUTSIDE_PROJECT");
+  const baseParts = base === "" ? [] : absoluteParts(base);
+  const targetParts = absoluteParts(target);
+  if (
+    (/^[A-Za-z]:$/.test(baseParts[0] ?? "") || /^[A-Za-z]:$/.test(targetParts[0] ?? "")) &&
+    baseParts[0] !== targetParts[0]
+  ) {
     throw new Error("DIRECTORY_OUTSIDE_PROJECT");
-  const relative = target.slice(base.length + 1);
-  if (relative.split("/").some((part) => !part || part === "." || part === "..")) {
+  }
+  let shared = 0;
+  while (shared < baseParts.length && baseParts[shared] === targetParts[shared]) shared++;
+  const relative = [...baseParts.slice(shared).map(() => ".."), ...targetParts.slice(shared)].join(
+    "/",
+  );
+  if (!relative || targetParts.length <= shared) {
     throw new Error("INVALID_DIRECTORY_PATH");
   }
   const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
@@ -463,10 +486,11 @@ export async function openCodeDirectoryExists(
   if (
     output.location.directory !== root.directory ||
     !Array.isArray(output.data) ||
-    !output.data.every((entry) =>
-      isRecord(entry) && typeof entry.path === "string"
-        ? isValidFileSystemEntry({ ...entry, path: entry.path.replace(/\/$/, "") })
-        : false,
+    !output.data.every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.path === "string" &&
+        (entry.type === "file" || entry.type === "directory"),
     )
   ) {
     throw new Error("MALFORMED_DIRECTORY_LIST");
@@ -481,6 +505,7 @@ export async function openCodeDirectoryExists(
         !path.startsWith(prefix) ||
         !path.slice(prefix.length) ||
         path.slice(prefix.length).includes("/") ||
+        !isSafeRelativeFilePath(path.slice(prefix.length)) ||
         path.includes("\\"),
     )
   ) {
