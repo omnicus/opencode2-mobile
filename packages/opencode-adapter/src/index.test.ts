@@ -240,7 +240,47 @@ describe("historical directory presence", () => {
     },
   );
 
-  it.each(["/elsewhere/retired", "/workspace/../retired", "/workspace/.worktree//retired"])(
+  it("checks external worktrees through their live project root", async () => {
+    const fixture = createFakeOpenCodeApi({
+      directoryEntries: [{ path: "../external/worktree/live/", type: "directory" }],
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/external/worktree/retired"),
+    ).resolves.toBe(false);
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/external/worktree/live"),
+    ).resolves.toBe(true);
+    expect(
+      fixture.requests.every((request) => request.query.path?.[0] === "../external/worktree"),
+    ).toBe(true);
+  });
+
+  it("preserves same-drive Windows directory checks", async () => {
+    const fixture = createFakeOpenCodeApi({
+      directoryEntries: [{ path: "../worktree/live/", type: "directory" }],
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "C:\\workspace" }, "C:\\worktree\\live"),
+    ).resolves.toBe(true);
+  });
+
+  it.each([
+    "live",
+    "/external/worktree/live",
+    "../other/live",
+    "../external/worktree/nested/live",
+    "../external/worktree/..",
+  ])("rejects ambiguous external directory entry %s", async (path) => {
+    const fixture = createFakeOpenCodeApi({ directoryEntries: [{ path, type: "directory" }] });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/workspace" }, "/external/worktree/retired"),
+    ).rejects.toThrow("MALFORMED_DIRECTORY_LIST");
+  });
+
+  it.each(["/workspace/../retired", "/workspace/.worktree//retired", "relative/retired"])(
     "rejects unscoped candidate %s",
     async (directory) => {
       const fixture = createFakeOpenCodeApi();

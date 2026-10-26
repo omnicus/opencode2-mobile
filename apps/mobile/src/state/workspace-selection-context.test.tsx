@@ -571,10 +571,14 @@ test.each([
   queryClient.clear();
 });
 
-test.each([false, true])(
-  "retires missing directories and checks restoration, registered worktree: %s",
-  async (registered) => {
-    const directory = "/b/.worktree/retired";
+test.each([
+  [false, "/b/.worktree/retired"],
+  [true, "/b/.worktree/retired"],
+  [false, "/external/worktree/project-b/retired"],
+  [true, "/external/worktree/project-b/retired"],
+] satisfies [boolean, string][])(
+  "retires missing directories and checks restoration, registered: %s, directory: %s",
+  async (registered, directory) => {
     if (registered) mockSandboxes = [directory];
     const listPermissions = mockListPermissions.getMockImplementation();
     mockListPermissions.mockImplementation(async (client, location, options) => {
@@ -812,6 +816,51 @@ test.each(["notification", "permission-event", "form-event", "cached-form"])(
     queryClient.clear();
   },
 );
+
+test("cached attention prevents retirement of an external historical location", async () => {
+  const location = { directory: "/external/worktree/project-b/retired" };
+  mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
+    cursor: {},
+    data: [
+      projectID === "project-b"
+        ? mockSession("ses_beta", projectID, location.directory, 2)
+        : mockSession("ses_alpha", projectID, "/a", 3),
+    ],
+  }));
+  mockDirectoryExists.mockResolvedValue(false);
+  const original = mockListPermissions.getMockImplementation();
+  mockListPermissions.mockImplementation(async (client, candidate, options) => {
+    if (candidate.directory === location.directory) throw new Error("HTTP 500");
+    if (!original) throw new Error("Missing permission fixture");
+    return original(client, candidate, options);
+  });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  queryClient.setQueryData(openCodeQueryKeys.permissions("connection-1", location), {
+    data: [{ action: "shell", id: "per_beta", resources: [], sessionID: "ses_beta" }],
+    location: mockResolvedLocation(location.directory, "project-b"),
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+  try {
+    await waitFor(() => expect(screen.getByText("freshness:current")).toBeOnTheScreen());
+    await waitFor(() => expect(screen.getByText("incomplete:2:2:0")).toBeOnTheScreen());
+    expect(mockDirectoryExists.mock.calls.some((call) => call[2] === location.directory)).toBe(
+      false,
+    );
+    expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
+    expect(screen.getByText(/^unavailable:Beta:/)).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
 
 test("an unavailable directory probe does not silently retire a valid session location", async () => {
   mockDirectoryExists.mockRejectedValue(new Error("HTTP 500"));

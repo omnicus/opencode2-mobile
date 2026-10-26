@@ -371,8 +371,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     );
     const projectID = session?.projectID ?? inferLocationProjectID(candidate, projects);
     const project = projectID ? projectByID.get(projectID) : undefined;
-    if (!project || !candidate.directory.startsWith(`${project.canonical.replace(/\/$/, "")}/`))
-      return undefined;
+    if (!project) return undefined;
     // Actual attention takes precedence over retirement; generic event locations
     // are discovery hints, not evidence of outstanding work.
     const permissionSnapshot = queryClient.getQueryData<{ data: PermissionRequest[] }>(

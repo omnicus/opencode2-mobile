@@ -12,6 +12,33 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-10-25: removed external worktrees, pending device verification
+
+An iPhone screenshot showed failed permission and form checks for historical
+worktrees outside their project roots. Read-only local filesystem checks found
+the three referenced directories absent. A local server API probe confirmed
+that listing an external parent through a live location succeeds, retains the
+request location, and returns project-relative entry paths. This agrees with the
+published V2 filesystem contract. No missing location was initialized.
+
+The existing retirement check only considered descendants of the project root.
+It now also probes external historical worktrees through the live project root.
+Only a successful, validated listing can establish absence. Active locations,
+selected locations, notification attention, and cached pending requests retain
+their existing protections. Session history remains visible, and refresh checks
+for restoration. Failed probes do not establish deletion.
+
+Regression tests reproduce the incomplete-coverage warning for external
+worktrees before the fix and verify retirement and restoration after it.
+The full lint, typecheck, test, and build sequence passed, including 536 mobile
+tests, 101 adapter tests, and both iOS and Android Hermes exports. Expo Doctor
+passed all 18 checks. Physical-device verification of the fix remains pending.
+
+On 2026-10-26, both native fingerprints and runtime matched the installed signed
+build baseline under the preview EAS environment before local OTA publication.
+Local EAS Update publication then succeeded for iOS and Android on preview,
+runtime 0.1.5. Publication does not establish installation or device behavior.
+
 ## 2026-10-01: location-wide MCP runtime controls, pending device verification
 
 ### Switch contrast follow-up
