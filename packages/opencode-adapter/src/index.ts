@@ -23,7 +23,7 @@ import {
 
 import { ensurePromiseWithResolvers } from "./promise-with-resolvers";
 
-export const openCodeClientContractVersion = "2.1.4";
+export const openCodeClientContractVersion = "2.2.0";
 
 export type OpenCodeClientOptions = {
   authorization?: string;
@@ -1743,10 +1743,15 @@ export async function probePtyTransport(
   return result as NonNullable<typeof result>;
 }
 
-export async function probeEventStream(
-  client: Pick<OpenCodeClient, "event">,
-  options: EventProbeOptions = {},
-) {
+// Probes consume all events and only need subscriber-local cancellation, not
+// the generated client's generic event-filter signature.
+type EventProbeClient = {
+  event: {
+    subscribe(options: { signal: AbortSignal }): AsyncIterable<OpenCodeEvent>;
+  };
+};
+
+export async function probeEventStream(client: EventProbeClient, options: EventProbeOptions = {}) {
   const probe = startEventStreamProbe(client, options);
   const first = await probe.firstEvent;
   await probe.stop();
@@ -1754,7 +1759,7 @@ export async function probeEventStream(
 }
 
 export async function openEventStreamGeneration(
-  client: Pick<OpenCodeClient, "event">,
+  client: EventProbeClient,
   options: EventProbeOptions = {},
 ) {
   const probe = startEventStreamProbe(client, options);
@@ -1767,10 +1772,7 @@ export async function openEventStreamGeneration(
   }
 }
 
-export function startEventStreamProbe(
-  client: Pick<OpenCodeClient, "event">,
-  options: EventProbeOptions = {},
-) {
+export function startEventStreamProbe(client: EventProbeClient, options: EventProbeOptions = {}) {
   const controller = new AbortController();
   const iterator = client.event.subscribe({ signal: controller.signal })[Symbol.asyncIterator]();
   const firstRead = withDeadline(

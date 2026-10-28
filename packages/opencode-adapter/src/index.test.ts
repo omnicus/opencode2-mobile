@@ -1718,8 +1718,8 @@ it("classifies a malformed fake API event frame", async () => {
 it.each([404, 405])(
   "classifies a missing required V2 endpoint HTTP %s as incompatible",
   async (status) => {
-    // Project-list 404 is a declared API error in 2.0.23. Server info still
-    // treats missing routes as unexpected statuses, including its legacy fallback.
+    // Server info treats missing routes as unexpected statuses, including its
+    // legacy fallback.
     const api = createFakeOpenCodeApi({
       failures: {
         "/api/info": { body: {}, status },
@@ -1736,10 +1736,26 @@ it.each([404, 405])(
   },
 );
 
-it("classifies a declared project-list 404 as not found", async () => {
+it.each([404, 405])(
+  "classifies a missing project-list route HTTP %s as incompatible",
+  async (status) => {
+    const api = createFakeOpenCodeApi({
+      failures: { "/api/project": { body: {}, status } },
+    });
+    const client = createOpenCodeClient({
+      baseUrl: "https://fake.invalid",
+      fetch: api.fetch,
+    });
+
+    const error = await client.project.list().catch((caught: unknown) => caught);
+    expect(classifyOpenCodeError(error)).toBe("INCOMPATIBLE");
+  },
+);
+
+it("classifies a declared project-update 404 as not found", async () => {
   const api = createFakeOpenCodeApi({
     failures: {
-      "/api/project": {
+      "/api/project/missing-project": {
         body: {
           _tag: "ProjectNotFoundError",
           projectID: "missing-project",
@@ -1754,7 +1770,9 @@ it("classifies a declared project-list 404 as not found", async () => {
     fetch: api.fetch,
   });
 
-  const error = await client.project.list().catch((caught: unknown) => caught);
+  const error = await client.project
+    .update({ projectID: "missing-project", name: "Fixture" })
+    .catch((caught: unknown) => caught);
   expect(classifyOpenCodeError(error)).toBe("NOT_FOUND");
 });
 
@@ -1837,7 +1855,7 @@ it("reports an event stream that ignores cancellation", async () => {
         },
       }),
     },
-  };
+  } satisfies Parameters<typeof probeEventStream>[0];
 
   await expect(
     probeEventStream(client, { cancellationTimeoutMs: 10, firstEventTimeoutMs: 10 }),
@@ -1849,7 +1867,7 @@ it("keeps an event generation open until lifecycle cancellation", async () => {
   const event: OpenCodeEvent = { data: {}, id: "evt_test", type: "server.connected" };
   const client = {
     event: {
-      subscribe: ({ signal }: { signal: AbortSignal }) => ({
+      subscribe: ({ signal }) => ({
         async *[Symbol.asyncIterator]() {
           yield event;
           if (signal.aborted) {
@@ -1865,7 +1883,7 @@ it("keeps an event generation open until lifecycle cancellation", async () => {
         },
       }),
     },
-  } as unknown as Parameters<typeof openEventStreamGeneration>[0];
+  } satisfies Parameters<typeof openEventStreamGeneration>[0];
 
   const generation = await openEventStreamGeneration(client);
   expect(generation.eventType).toBe("server.connected");
@@ -1886,7 +1904,7 @@ it("reports a pending event read that ignores lifecycle cancellation", async () 
         },
       }),
     },
-  } as unknown as Parameters<typeof openEventStreamGeneration>[0];
+  } satisfies Parameters<typeof openEventStreamGeneration>[0];
 
   const generation = await openEventStreamGeneration(client, { cancellationTimeoutMs: 10 });
   await expect(generation.cancel()).rejects.toMatchObject({ reason: "CANCELLATION_IGNORED" });
@@ -1896,7 +1914,7 @@ it("can stop an event probe before its first event", async () => {
   let aborted = false;
   const client = {
     event: {
-      subscribe: ({ signal }: { signal: AbortSignal }) => ({
+      subscribe: ({ signal }) => ({
         [Symbol.asyncIterator]() {
           return {
             next: () =>
@@ -1910,7 +1928,7 @@ it("can stop an event probe before its first event", async () => {
         },
       }),
     },
-  } as unknown as Parameters<typeof startEventStreamProbe>[0];
+  } satisfies Parameters<typeof startEventStreamProbe>[0];
   const probe = startEventStreamProbe(client);
 
   await expect(Promise.all([probe.stop(), probe.stop()])).resolves.toEqual([undefined, undefined]);
