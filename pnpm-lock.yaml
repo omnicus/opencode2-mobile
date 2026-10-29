@@ -203,8 +203,8 @@ importers:
   packages/opencode-adapter:
     dependencies:
       '@opencode/client':
-        specifier: 2.2.1
-        version: 2.2.1(effect@4.0.1)
+        specifier: 2.2.2
+        version: 2.2.2(effect@4.0.6)
     devDependencies:
       '@opencode2-mobile/test-fixtures':
         specifier: workspace:*
@@ -1517,10 +1517,10 @@ packages:
       solid-js:
         optional: true
 
-  '@opencode/client@2.2.1':
-    resolution: {integrity: sha512-7QWtocDRR9eUsCJpyaj6k+aAEVDWO2CIzn9lwDNBJhiyt2hMf+yOyV/BKeK/9R7qKcXEOZ0tlGDvQC8HEtyjQg==}
+  '@opencode/client@2.2.2':
+    resolution: {integrity: sha512-g98UZXcnLWg74t6eH284DmIqgIYX4JE4oWq2diepZK63/HV0GrnIXSxXKITw0CLvGlN5m7S+LIawuY1kOK8M8g==}
     peerDependencies:
-      effect: 4.0.1
+      effect: 4.0.6
       solid-js: '>=1.9.0'
     peerDependenciesMeta:
       effect:
@@ -1548,14 +1548,14 @@ packages:
   '@opencode/protocol@2.0.27':
     resolution: {integrity: sha512-t1j+m5T3TBusHaL58t6gSSQQEFoi+qjVyQ0Eta/4mLeZLJDqSV8BNN6N93GFpV2MJ1iBpGmrH0C02n2Q+nDHfw==}
 
-  '@opencode/protocol@2.2.1':
-    resolution: {integrity: sha512-lqkkRhrckEKmiSJi249rvfX/fXX8JeiMS7adtXonO1Ol3IqnEqY4uSZgvQiQ11SBR5RyDQaRW9KGoOjaTY4PAQ==}
+  '@opencode/protocol@2.2.2':
+    resolution: {integrity: sha512-wph91QN2LygnzxdI9IRyVh/vVBinibXW/jhcwjtbTYBv+PA52jPCloyMSPdusb/R7wjscATDVKviYaPornR37A==}
 
   '@opencode/schema@2.0.27':
     resolution: {integrity: sha512-BxGuiIFo503tW6UYxoBrrgjyczEvPiU3fDn45FxUHtmZgBC8kFE+ldI56ab8kV0Lu5C94ZKOniRb2bWqDu4tAg==}
 
-  '@opencode/schema@2.2.1':
-    resolution: {integrity: sha512-TicxPQC1UKqq954X1yUKmBlXfJYl5CRr52FKwLZbYOfTxJd406Hoqt2arM4YI3c+abs17b9sumoq5uqFLhiGFA==}
+  '@opencode/schema@2.2.2':
+    resolution: {integrity: sha512-HgUtQ7sY3E1ns00sIYjdEdGQNw7aGDm7BOJwLiKnoYChDItrglby1XvjE7U/fzOliq6HYgxliXH+lmxQquSf1A==}
 
   '@opencode/util@2.0.27':
     resolution: {integrity: sha512-2TIEAJsX4UsyV9CHSk+/6jHWrEllgomgD0WQ8Ne+SN4xlmN9cGUvZo/Jgk0XrZZXSmADDOIER2HLcaI0tAr22A==}
@@ -2906,6 +2906,9 @@ packages:
 
   effect@4.0.1:
     resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==}
+
+  effect@4.0.6:
+    resolution: {integrity: sha512-Tc3mkzuLR6t6P9dhLt0D2GrxYtmU5td4XEJEiXCmILz53IRIfJyHsKZWjTA3xEjiwpNTtXBgI4iqYPxMztBDrw==}
 
   electron-to-chromium@1.5.412:
     resolution: {integrity: sha512-z4rMe3esBzlzovKHj4gxJnsCGZRK5l4baUvm+gCGJBPE+gsyUMKsuU9tnEUtI1dOebXz1ytAPGjvXhmQ7rIPwA==}
@@ -7409,12 +7412,12 @@ snapshots:
     optionalDependencies:
       effect: 4.0.1
 
-  '@opencode/client@2.2.1(effect@4.0.1)':
+  '@opencode/client@2.2.2(effect@4.0.6)':
     dependencies:
-      '@opencode/protocol': 2.2.1
-      '@opencode/schema': 2.2.1
+      '@opencode/protocol': 2.2.2
+      '@opencode/schema': 2.2.2
     optionalDependencies:
-      effect: 4.0.1
+      effect: 4.0.6
 
   '@opencode/plugin@2.0.27(@opentelemetry/semantic-conventions@1.43.0)(redis@6.3.0(@opentelemetry/api@1.9.0))(supports-color@8.1.1)':
     dependencies:
@@ -7438,20 +7441,20 @@ snapshots:
       '@opencode/schema': 2.0.27
       effect: 4.0.1
 
-  '@opencode/protocol@2.2.1':
+  '@opencode/protocol@2.2.2':
     dependencies:
-      '@opencode/schema': 2.2.1
-      effect: 4.0.1
+      '@opencode/schema': 2.2.2
+      effect: 4.0.6
 
   '@opencode/schema@2.0.27':
     dependencies:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.1
 
-  '@opencode/schema@2.2.1':
+  '@opencode/schema@2.2.2':
     dependencies:
       '@standard-schema/spec': 1.1.0
-      effect: 4.0.1
+      effect: 4.0.6
 
   '@opencode/util@2.0.27(@opentelemetry/semantic-conventions@1.43.0)(redis@6.3.0(@opentelemetry/api@1.9.0))(supports-color@8.1.1)':
     dependencies:
@@ -8917,6 +8920,8 @@ snapshots:
   ee-first@1.1.1: {}
 
   effect@4.0.1: {}
+
+  effect@4.0.6: {}
 
   electron-to-chromium@1.5.412: {}
 
