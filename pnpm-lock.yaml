@@ -203,8 +203,8 @@ importers:
   packages/opencode-adapter:
     dependencies:
       '@opencode/client':
-        specifier: 2.2.4
-        version: 2.2.4(effect@4.0.6)
+        specifier: 2.2.5
+        version: 2.2.5(effect@4.0.6)
     devDependencies:
       '@opencode2-mobile/test-fixtures':
         specifier: workspace:*
@@ -1517,8 +1517,8 @@ packages:
       solid-js:
         optional: true
 
-  '@opencode/client@2.2.4':
-    resolution: {integrity: sha512-JZvQPHnW9oIT3fzgSFP0R32WLiA05yTXVC1FsQR5bWP0YCRy2R5e4kbMsr/kNYdu69cu49/96XEm2NzzDnZFtA==}
+  '@opencode/client@2.2.5':
+    resolution: {integrity: sha512-EjYrFGWHURsIbjtmQdIsGSPmYZGaulxqwEfYxQH5t9838508BCIvDX9f7/ZsgNGHYXM0punA3W8hTt6GjxIEaw==}
     peerDependencies:
       effect: 4.0.6
       solid-js: '>=1.9.0'
@@ -1548,14 +1548,14 @@ packages:
   '@opencode/protocol@2.0.27':
     resolution: {integrity: sha512-t1j+m5T3TBusHaL58t6gSSQQEFoi+qjVyQ0Eta/4mLeZLJDqSV8BNN6N93GFpV2MJ1iBpGmrH0C02n2Q+nDHfw==}
 
-  '@opencode/protocol@2.2.4':
-    resolution: {integrity: sha512-/orZsdiYU8/fOabEZJhmKXJWNvdYd1zj9YrVIK+4uVgJD6lipKBBsl9DakfME/OnL5QSx64BYywSs3OYxDqblQ==}
+  '@opencode/protocol@2.2.5':
+    resolution: {integrity: sha512-T3ET0kS1kj8sv7/d+c1T2he7TXoZ4Rki7zTqHuv8b0kWhg3Vk6o0t+T9KsEQdEat7PFksgH5haC2iSSdJOB7/w==}
 
   '@opencode/schema@2.0.27':
     resolution: {integrity: sha512-BxGuiIFo503tW6UYxoBrrgjyczEvPiU3fDn45FxUHtmZgBC8kFE+ldI56ab8kV0Lu5C94ZKOniRb2bWqDu4tAg==}
 
-  '@opencode/schema@2.2.4':
-    resolution: {integrity: sha512-9mqHtUdA6/rMe7qRqEcY4FZTT0xz96hXG1Adcxx2O1riwOJlTyU4tYstUYaU67jtLnjQFxSlG+rk+bUWlsspyg==}
+  '@opencode/schema@2.2.5':
+    resolution: {integrity: sha512-hlKk6cX28BwvOMOVG3Mtt4tEHxwY68Z6Gz5/cL32N8qfZexykCKsZai49Jms4/2gD8BzvVuBERnnlLDbdLstUA==}
 
   '@opencode/util@2.0.27':
     resolution: {integrity: sha512-2TIEAJsX4UsyV9CHSk+/6jHWrEllgomgD0WQ8Ne+SN4xlmN9cGUvZo/Jgk0XrZZXSmADDOIER2HLcaI0tAr22A==}
@@ -1936,10 +1936,12 @@ packages:
   '@smithy/core@3.33.3':
     resolution: {integrity: sha512-CsOeKq/9kA3y6VJHt+/+VTCtBaxJ4OTFpgrjIUhPpDIKxBci1k2bJaQASF2h/ELWrulGp+t97DZ0mevfAD8idg==}
     engines: {node: '>=18.0.0'}
+    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/core@3.35.2':
     resolution: {integrity: sha512-ejTukBuP/Pg3t9N8Ux+0zKsXeHWm7p6W3HbXFOyltKasSxZwCFmvTut7kBdZSCF3m9y1bXXyVu6p2xuMFcsTyQ==}
     engines: {node: '>=18.0.0'}
+    deprecated: Deprecated due to a bug in custom logger data redaction. See https://github.com/aws/aws-sdk-js-v3/issues/8393.
 
   '@smithy/credential-provider-imds@4.5.2':
     resolution: {integrity: sha512-A9uSdn72ozbRUSit0eib0TW7nXuNPlaeM0zcGkJ+nE6tFcSDbnmtwoxbTCFBukVQcszDAyvsd7+rTduPTXpygg==}
@@ -7412,10 +7414,10 @@ snapshots:
     optionalDependencies:
       effect: 4.0.1
 
-  '@opencode/client@2.2.4(effect@4.0.6)':
+  '@opencode/client@2.2.5(effect@4.0.6)':
     dependencies:
-      '@opencode/protocol': 2.2.4
-      '@opencode/schema': 2.2.4
+      '@opencode/protocol': 2.2.5
+      '@opencode/schema': 2.2.5
     optionalDependencies:
       effect: 4.0.6
 
@@ -7441,9 +7443,9 @@ snapshots:
       '@opencode/schema': 2.0.27
       effect: 4.0.1
 
-  '@opencode/protocol@2.2.4':
+  '@opencode/protocol@2.2.5':
     dependencies:
-      '@opencode/schema': 2.2.4
+      '@opencode/schema': 2.2.5
       effect: 4.0.6
 
   '@opencode/schema@2.0.27':
@@ -7451,7 +7453,7 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.1
 
-  '@opencode/schema@2.2.4':
+  '@opencode/schema@2.2.5':
     dependencies:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.6
