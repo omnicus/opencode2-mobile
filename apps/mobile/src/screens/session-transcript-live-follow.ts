@@ -25,3 +25,13 @@ export function resolveTranscriptLiveFollow(current: boolean, event: TranscriptL
       return current;
   }
 }
+
+// Time constant of the live-edge glide. Each frame closes the same share of the remaining
+// distance, so a line arriving mid-glide lengthens it without restarting from rest.
+export const liveEdgeGlideMs = 90;
+
+export function liveEdgeGlideOffset(offset: number, elapsedMs: number) {
+  "worklet";
+  const next = offset * Math.exp(-Math.max(0, elapsedMs) / liveEdgeGlideMs);
+  return next < 0.5 ? 0 : next;
+}

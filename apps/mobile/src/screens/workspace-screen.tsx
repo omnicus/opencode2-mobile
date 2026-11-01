@@ -45,6 +45,13 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
+import Animated, {
+  scrollTo,
+  useAnimatedRef,
+  useFrameCallback,
+  useScrollViewOffset,
+  useSharedValue,
+} from "react-native-reanimated";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
@@ -97,6 +104,7 @@ import {
   TranscriptUpdatesGroup,
 } from "./session-transcript";
 import {
+  liveEdgeGlideOffset,
   resolveTranscriptLiveFollow,
   type TranscriptLiveFollowEvent,
 } from "./session-transcript-live-follow";
@@ -117,8 +125,6 @@ const recentSessionLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
-// While following, any compensated offset returns to the live edge. Android reads an int.
-const liveEdgeAutoscrollThreshold = 100_000;
 const userScrollSettleMs = 160;
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
@@ -769,7 +775,25 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const deferredMentionSearch = useDeferredValue(mentionSearch);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
-  const transcriptListRef = useRef<FlatList<TranscriptListItem>>(null);
+  const transcriptListRef = useAnimatedRef<FlatList<TranscriptListItem>>();
+  const transcriptOffset = useScrollViewOffset(
+    transcriptListRef as unknown as Parameters<typeof useScrollViewOffset>[0],
+  );
+  const liveEdgeGlide = useSharedValue(false);
+  useEffect(() => {
+    liveEdgeGlide.value = smoothLiveEdge;
+  }, [liveEdgeGlide, smoothLiveEdge]);
+  useFrameCallback(({ timeSincePreviousFrame }) => {
+    if (!liveEdgeGlide.value) return;
+    const offset = transcriptOffset.value;
+    if (offset <= 0.5) return;
+    scrollTo(
+      transcriptListRef,
+      0,
+      liveEdgeGlideOffset(offset, timeSincePreviousFrame ?? 16),
+      false,
+    );
+  });
   const liveFollowEnabledRef = useRef(true);
   const latestJumpPendingRef = useRef(false);
   const userScrollSessionRef = useRef(false);
@@ -1090,11 +1114,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     followFrameRef.current = requestAnimationFrame(() => {
       followFrameRef.current = null;
       if (!liveFollowEnabledRef.current) return;
+      // The UI-thread glide returns compensated growth to the live edge.
+      if (smoothLiveEdgeRef.current) return;
       recordTranscriptFollowCorrection();
-      transcriptListRef.current?.scrollToOffset({
-        animated: smoothLiveEdgeRef.current,
-        offset: 0,
-      });
+      transcriptListRef.current?.scrollToOffset({ animated: false, offset: 0 });
     });
   }
 
@@ -1109,6 +1132,8 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   }
 
   function handleScrollBeginDrag() {
+    // Stop the glide before the follow state re-renders so it never fights the drag.
+    liveEdgeGlide.value = false;
     clearUserScrollSettle();
     if (latestJumpPendingRef.current) {
       latestJumpPendingRef.current = false;
@@ -1331,7 +1356,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             ),
           }}
         >
-          <FlatList
+          <Animated.FlatList
             accessibilityLabel="Session transcript"
             contentContainerStyle={[
               styles.detailContent,
@@ -1415,11 +1440,8 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               ) : null
             }
             // Anchor the row above the newest one: growth of the newest row then
-            // keeps older text still, and the autoscroll brings the new lines up.
-            maintainVisibleContentPosition={{
-              minIndexForVisible: 1,
-              ...(smoothLiveEdge ? { autoscrollToTopThreshold: liveEdgeAutoscrollThreshold } : {}),
-            }}
+            // keeps older text still, and the live-edge glide brings the new lines up.
+            maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
             maxToRenderPerBatch={12}
             onContentSizeChange={(_width, height) => {
               setTranscriptSize((current) =>

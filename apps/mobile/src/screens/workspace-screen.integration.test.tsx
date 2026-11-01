@@ -1660,19 +1660,18 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   const transcriptPosition = () =>
     screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
       .maintainVisibleContentPosition;
-  // Following: growth lands below the anchored row and the list slides it into view.
-  expect(transcriptPosition()).toEqual({
-    minIndexForVisible: 1,
-    autoscrollToTopThreshold: expect.any(Number),
-  });
+  // Following: growth lands below the anchored row, and the UI-thread glide, not a
+  // JavaScript scroll that would restart from rest, brings it into view.
+  expect(transcriptPosition()).toEqual({ minIndexForVisible: 1 });
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_100);
-  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 }));
-  scrollToOffset.mockClear();
   fireEvent(transcript, "layout", {
     nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 220 } },
   });
-  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 }));
+  await act(async () => {
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  expect(scrollToOffset).not.toHaveBeenCalled();
 
   fireEvent(transcript, "scrollBeginDrag", liveEdgeEvent);
   fireEvent.scroll(transcript, justAwayFromLiveEdge);
@@ -1683,9 +1682,9 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
     nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 500 } },
   });
   expect(scrollToOffset).not.toHaveBeenCalled();
-  // Reading older text keeps its position without pulling back to the live edge.
   expect(transcriptPosition()).toEqual({ minIndexForVisible: 1 });
   fireEvent.press(screen.getByRole("button", { name: "Scroll to latest" }));
+  expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 });
   fireEvent.scroll(transcript, scrollEvent(120));
   expect(screen.getByRole("button", { name: "Scroll to latest" })).toBeOnTheScreen();
   fireEvent(transcript, "momentumScrollEnd", liveEdgeEvent);
