@@ -12,6 +12,19 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: native smooth live-edge scrolling, pending device verification
+
+The transcript now anchors `maintainVisibleContentPosition` on the row above the
+newest one. Growth of the newest row and newly inserted rows therefore land just
+below the visible edge. While live follow is on and Reduce Motion is off, the
+native `autoscrollToTopThreshold` scrolls them into view, and the JavaScript
+live-edge correction also animates. List layout is unchanged, unlike the removed
+row-height animation, so streamed text cannot remain hidden. Scrolling away
+removes the autoscroll and keeps the reading position, and Reduce Motion keeps
+corrections instant. Rendered tests cover all three states. Motion quality, and
+the newest row being taller than the viewport, still need checking on iOS and
+Android devices.
+
 ## 2026-11-01: transcript images, streaming motion, and compact composer, pending device verification
 
 Tool image results and image attachments render inline from bounded `data:`

@@ -46,6 +46,7 @@ import {
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
+import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
@@ -116,6 +117,8 @@ const recentSessionLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
+// While following, any compensated offset returns to the live edge. Android reads an int.
+const liveEdgeAutoscrollThreshold = 100_000;
 const userScrollSettleMs = 160;
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
@@ -751,6 +754,12 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       ? sessionQueryScope.location
       : location;
   const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
+  const reducedMotion = useReducedMotion();
+  // New rows and lines land below the anchored row, then the native list scrolls
+  // them into view, so streamed text slides up instead of popping in.
+  const smoothLiveEdge = liveFollowEnabled && !reducedMotion;
+  const smoothLiveEdgeRef = useRef(smoothLiveEdge);
+  smoothLiveEdgeRef.current = smoothLiveEdge;
   const [transcriptSize, setTranscriptSize] = useState({ scope: "", viewport: 0, content: 0 });
   const [latestJumpPending, setLatestJumpPending] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(66);
@@ -1082,7 +1091,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       followFrameRef.current = null;
       if (!liveFollowEnabledRef.current) return;
       recordTranscriptFollowCorrection();
-      transcriptListRef.current?.scrollToOffset({ animated: false, offset: 0 });
+      transcriptListRef.current?.scrollToOffset({
+        animated: smoothLiveEdgeRef.current,
+        offset: 0,
+      });
     });
   }
 
@@ -1402,7 +1414,12 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                 </View>
               ) : null
             }
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+            // Anchor the row above the newest one: growth of the newest row then
+            // keeps older text still, and the autoscroll brings the new lines up.
+            maintainVisibleContentPosition={{
+              minIndexForVisible: 1,
+              ...(smoothLiveEdge ? { autoscrollToTopThreshold: liveEdgeAutoscrollThreshold } : {}),
+            }}
             maxToRenderPerBatch={12}
             onContentSizeChange={(_width, height) => {
               setTranscriptSize((current) =>
