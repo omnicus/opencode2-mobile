@@ -74,6 +74,8 @@ let mockAllSessionsOld = false;
 let mockSessionsFetchingNextPage = false;
 let mockSessionsError = false;
 let mockRuntimeStatus: "connected" | "reconnecting" = "connected";
+let mockFollowedProjectIds = ["project-1"];
+let mockEmptyInbox = false;
 const mockFetchNextSessionPage = jest.fn(async () => undefined);
 afterEach(() => {
   mockWorkspaceActive = false;
@@ -91,6 +93,8 @@ afterEach(() => {
   mockSessionsFetchingNextPage = false;
   mockSessionsError = false;
   mockRuntimeStatus = "connected";
+  mockFollowedProjectIds = ["project-1"];
+  mockEmptyInbox = false;
 });
 function mockWorkspaceRow(index: number) {
   const session = {
@@ -297,18 +301,19 @@ jest.mock("../state/workspace-selection-context", () => ({
     },
     blockedSessionIds: new Set(mockWorkspacePermissions.map((request) => request.sessionID)),
     fetchNextPage: mockFetchNextSessionPage,
-    followedProjectIds: ["project-1"],
+    followedProjectIds: mockFollowedProjectIds,
     formLocations: new Map(),
     forms: [],
     hasNextPage: mockHasNextSessionPage,
     sessionsFetchingNextPage: mockSessionsFetchingNextPage,
     inbox: {
       needsYou: mockWorkspaceNeedsAttention ? [mockWorkspaceRow(0)] : [],
-      recent: mockWorkspaceActive
-        ? []
-        : Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index)).filter(
-            (row) => row.attentionCount === 0,
-          ),
+      recent:
+        mockWorkspaceActive || mockEmptyInbox
+          ? []
+          : Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index)).filter(
+              (row) => row.attentionCount === 0,
+            ),
       unmatchedSessionIDs: [],
       working: mockWorkspaceActive
         ? Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index))
@@ -682,7 +687,7 @@ test("attention section owns requests, with a shortcut only when search or archi
 
 test.each([
   ["stale", "complete", "Request status is stale. Reconnect to check pending requests."],
-  ["current", "incomplete", "Some request locations could not be checked. Pull to refresh."],
+  ["current", "incomplete", "Some request locations could not be checked."],
 ] satisfies ["current" | "reconciling" | "stale", "complete" | "incomplete", string][])(
   "keeps %s attention coverage explicit",
   async (freshness, completeness, copy) => {
@@ -707,6 +712,99 @@ test.each([
     }
   },
 );
+
+function renderWorkspace(navigate = jest.fn()) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>,
+  );
+  return {
+    cleanup() {
+      view.unmount();
+      queryClient.clear();
+    },
+  };
+}
+
+test("with no followed projects, offers Choose projects and New session", async () => {
+  mockFollowedProjectIds = [];
+  mockEmptyInbox = true;
+  const navigate = jest.fn();
+  const view = renderWorkspace(navigate);
+  try {
+    expect(
+      await screen.findByRole("header", { name: "No projects followed yet" }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(/Sessions from the projects you follow show up here/),
+    ).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Choose projects" }));
+    expect(navigate).toHaveBeenCalledWith("FollowedProjects");
+    fireEvent.press(screen.getByRole("button", { name: "New session" }));
+    expect(navigate).toHaveBeenCalledWith("NewSession");
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("a session load failure offers Retry and announces the error on iOS", async () => {
+  mockSessionsError = true;
+  mockEmptyInbox = true;
+  mockWorkspaceRefetch.mockClear();
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  const view = renderWorkspace();
+  try {
+    expect(await screen.findByText("Sessions could not be loaded.")).toBeOnTheScreen();
+    expect(announce).toHaveBeenCalledWith("Sessions could not be loaded.");
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(mockWorkspaceRefetch).toHaveBeenCalledTimes(1));
+  } finally {
+    announce.mockRestore();
+    view.cleanup();
+  }
+});
+
+test("incomplete request coverage offers Retry", async () => {
+  mockAttentionCompleteness = "incomplete";
+  mockWorkspaceRefetch.mockClear();
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Some request locations could not be checked.", {}, { timeout: 2000 });
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(mockWorkspaceRefetch).toHaveBeenCalledTimes(1));
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("section headers, row labels, and the delete prompt use readable names", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(screen.getByRole("header", { name: "Recent, 20" })).toBeOnTheScreen();
+    const row = screen.getByRole("button", {
+      name: "Open session Session 0. Workspace. Updated just now",
+    });
+    fireEvent(row, "accessibilityAction", { nativeEvent: { actionName: "delete" } });
+    expect(alert).toHaveBeenCalledWith(
+      "Delete session?",
+      expect.stringContaining("Project: Workspace\n"),
+      expect.anything(),
+    );
+    expect(alert.mock.calls[0]?.[1]).not.toContain("project-1");
+  } finally {
+    alert.mockRestore();
+    view.cleanup();
+  }
+});
 
 test("brief request reconciliation and history fetches do not flash banners or footers", async () => {
   mockAllSessionsOld = true;
