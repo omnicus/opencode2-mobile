@@ -1287,13 +1287,18 @@ test("search expands over the header, and Close search clears and collapses it",
     fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
     const field = screen.getByPlaceholderText("Search all sessions");
     expect(field).toHaveProp("autoFocus", true);
+    fireEvent(field, "focus");
     expect(screen.queryByRole("button", { name: /^Connection / })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
     fireEvent.changeText(field, "Session 4");
     await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
     fireEvent.press(screen.getByRole("button", { name: "Close search" }));
     expect(dismiss).toHaveBeenCalled();
     expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
     expect(screen.getByRole("button", { name: "Connection Test server, connected" })).toBeTruthy();
+    // The field unmounts without a blur event; the floating controls must still return.
+    expect(screen.getByRole("button", { name: "New session" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Settings/ })).toBeOnTheScreen();
     await waitFor(() => expect(screen.queryByText("Search results")).toBeNull());
     fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
     expect(screen.getByPlaceholderText("Search all sessions")).toHaveProp("value", "");

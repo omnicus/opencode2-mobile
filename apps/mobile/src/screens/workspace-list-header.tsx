@@ -27,8 +27,6 @@ export function WorkspaceListHeader({
   onCloseSearch,
   onOpenConnections,
   onOpenSearch,
-  onSearchBlur,
-  onSearchFocus,
   search,
   searchEditable,
   searchOpen,
@@ -41,8 +39,6 @@ export function WorkspaceListHeader({
   onCloseSearch: () => void;
   onOpenConnections: () => void;
   onOpenSearch: () => void;
-  onSearchBlur: () => void;
-  onSearchFocus: () => void;
   search: string;
   searchEditable: boolean;
   searchOpen: boolean;
@@ -59,9 +55,7 @@ export function WorkspaceListHeader({
             autoFocus
             clearAccessibilityLabel="Clear session search"
             editable={searchEditable}
-            onBlur={onSearchBlur}
             onChangeText={onChangeSearch}
-            onFocus={onSearchFocus}
             placeholder="Search all sessions"
             returnKeyType="search"
             style={styles.searchField}

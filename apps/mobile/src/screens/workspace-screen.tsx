@@ -151,7 +151,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [selectedDirectory, setSelectedDirectory] = useState<string>();
   const [sessionSearch, setSessionSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [searchFocused, setSearchFocused] = useState(false);
   const [screenFocused, setScreenFocused] = useState(() => navigation.isFocused?.() ?? true);
   const [actionSession, setActionSession] = useState<SessionInfo>();
   const presentationScope = connectionId ?? "unselected";
@@ -500,8 +499,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           navigation.navigate("Connections");
         }}
         onOpenSearch={() => setSearchOpen(true)}
-        onSearchBlur={() => setSearchFocused(false)}
-        onSearchFocus={() => setSearchFocused(true)}
         search={sessionSearch}
         searchEditable={workspaceSelection.followedProjectIds.length > 0}
         searchOpen={searchOpen}
@@ -572,9 +569,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         windowSize={7}
       />
       <WorkspaceNewSessionAction
-        showSettings={!tablet && !searchFocused}
+        // The search field unmounts on close without a reliable blur, so key off searchOpen.
+        showSettings={!tablet && !searchOpen}
         onNavigate={(destination) => navigation.navigate(destination)}
-        eligible={!tablet && !searchFocused}
+        eligible={!tablet && !searchOpen}
         onPress={() => navigation.navigate("NewSession")}
       />
       {actionSession && connectionId ? (
