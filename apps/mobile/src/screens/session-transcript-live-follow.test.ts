@@ -1,10 +1,6 @@
 import { expect, test } from "@jest/globals";
 
-import {
-  liveEdgeGlideMs,
-  liveEdgeGlideOffset,
-  resolveTranscriptLiveFollow,
-} from "./session-transcript-live-follow";
+import { liveEdgeGlideStep, resolveTranscriptLiveFollow } from "./session-transcript-live-follow";
 
 test("pauses as soon as a user scroll starts", () => {
   expect(resolveTranscriptLiveFollow(true, { type: "user-scroll-begin" })).toBe(false);
@@ -65,29 +61,46 @@ test("re-arms after an explicit jump to latest", () => {
   expect(resolveTranscriptLiveFollow(false, { type: "reset" })).toBe(true);
 });
 
-test("the live-edge glide eases to the edge and settles exactly on it", () => {
-  let offset = 25;
-  const steps: number[] = [];
-  for (let frame = 0; frame < 60 && offset > 0; frame += 1) {
-    const next = liveEdgeGlideOffset(offset, 16);
-    steps.push(offset - next);
-    offset = next;
+function glide(offset: number, velocity = 0, frames = 120) {
+  const positions: number[] = [];
+  let state = { offset, velocity };
+  for (let frame = 0; frame < frames && (frame === 0 || state.offset > 0); frame += 1) {
+    state = liveEdgeGlideStep(state.offset, state.velocity, 1000 / 60);
+    positions.push(state.offset);
   }
-  expect(offset).toBe(0);
-  // Each frame moves less than the one before: no restart, no overshoot.
-  for (let index = 1; index < steps.length - 1; index += 1) {
-    expect(steps[index]).toBeLessThan(steps[index - 1] as number);
-  }
-  expect(liveEdgeGlideOffset(25, liveEdgeGlideMs)).toBeCloseTo(25 / Math.E);
-  expect(liveEdgeGlideOffset(0.4, 16)).toBe(0);
-  expect(liveEdgeGlideOffset(10, -5)).toBe(10);
+  return { positions, state };
+}
+
+test("one line glides like the OpenCode app: eased start, about 160 pt/s, 0.3 s settle", () => {
+  const { positions } = glide(22);
+  const speeds = positions.map(
+    (position, index) => (index === 0 ? 22 : positions[index - 1]!) - position,
+  );
+  // Settles exactly on the edge without overshooting.
+  expect(positions.at(-1)).toBe(0);
+  expect(positions.every((position) => position >= 0)).toBe(true);
+  expect(positions.length * (1000 / 60)).toBeGreaterThan(220);
+  expect(positions.length * (1000 / 60)).toBeLessThan(360);
+  // Starts slower than it peaks, then eases out.
+  const peak = Math.max(...speeds);
+  expect(speeds[0]).toBeLessThan(peak);
+  expect(peak * 60).toBeGreaterThan(130);
+  expect(peak * 60).toBeLessThan(190);
 });
 
-test("a line arriving mid-glide speeds the glide up instead of restarting it", () => {
-  const before = 12;
-  const stepBefore = before - liveEdgeGlideOffset(before, 16);
-  // Native position compensation adds the new line's height to the remaining distance.
-  const after = before + 25;
-  const stepAfter = after - liveEdgeGlideOffset(after, 16);
-  expect(stepAfter).toBeGreaterThan(stepBefore);
+test("a line arriving mid-glide keeps the motion going instead of restarting from rest", () => {
+  const { state } = glide(22, 0, 6);
+  expect(state.velocity).toBeLessThan(0);
+  // The list compensates for the new line by adding its height to the remaining distance.
+  const resumed = liveEdgeGlideStep(state.offset + 22, state.velocity, 1000 / 60);
+  const fromRest = liveEdgeGlideStep(state.offset + 22, 0, 1000 / 60);
+  expect(state.offset + 22 - resumed.offset).toBeGreaterThan(state.offset + 22 - fromRest.offset);
+  expect(resumed.velocity).toBeLessThan(0);
+});
+
+test("long frame gaps stay stable", () => {
+  const step = liveEdgeGlideStep(300, 0, 64);
+  expect(step.offset).toBeGreaterThan(0);
+  expect(step.offset).toBeLessThan(300);
+  expect(liveEdgeGlideStep(0.4, 0, 16)).toEqual({ offset: 0, velocity: 0 });
 });

@@ -26,12 +26,19 @@ export function resolveTranscriptLiveFollow(current: boolean, event: TranscriptL
   }
 }
 
-// Time constant of the live-edge glide. Each frame closes the same share of the remaining
-// distance, so a line arriving mid-glide lengthens it without restarting from rest.
-export const liveEdgeGlideMs = 90;
+// The live-edge glide is a critically damped spring toward offset zero. Its rate matches
+// the OpenCode iOS app on an iPhone recording: one 22-point line peaks near 160 points per
+// second and settles in about 0.3 seconds. A line that arrives mid-glide adds distance
+// but keeps the current velocity, so motion continues instead of restarting from rest.
+export const liveEdgeGlideRate = 20;
 
-export function liveEdgeGlideOffset(offset: number, elapsedMs: number) {
-  "worklet";
-  const next = offset * Math.exp(-Math.max(0, elapsedMs) / liveEdgeGlideMs);
-  return next < 0.5 ? 0 : next;
+export function liveEdgeGlideStep(offset: number, velocity: number, elapsedMs: number) {
+  const t = Math.max(0, elapsedMs) / 1000;
+  const decay = Math.exp(-liveEdgeGlideRate * t);
+  const drive = velocity + liveEdgeGlideRate * offset;
+  const next = (offset + drive * t) * decay;
+  const nextVelocity = (velocity - liveEdgeGlideRate * drive * t) * decay;
+  // Settle exactly on the edge; a critically damped spring never needs to cross it.
+  if (next < 0.5) return { offset: 0, velocity: 0 };
+  return { offset: next, velocity: nextVelocity };
 }

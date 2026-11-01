@@ -45,13 +45,6 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
-import Animated, {
-  scrollTo,
-  useAnimatedRef,
-  useFrameCallback,
-  useScrollViewOffset,
-  useSharedValue,
-} from "react-native-reanimated";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
@@ -104,7 +97,7 @@ import {
   TranscriptUpdatesGroup,
 } from "./session-transcript";
 import {
-  liveEdgeGlideOffset,
+  liveEdgeGlideStep,
   resolveTranscriptLiveFollow,
   type TranscriptLiveFollowEvent,
 } from "./session-transcript-live-follow";
@@ -775,24 +768,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const deferredMentionSearch = useDeferredValue(mentionSearch);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
-  const transcriptListRef = useAnimatedRef<FlatList<TranscriptListItem>>();
-  const transcriptOffset = useScrollViewOffset(
-    transcriptListRef as unknown as Parameters<typeof useScrollViewOffset>[0],
-  );
-  const liveEdgeGlide = useSharedValue(false);
-  useEffect(() => {
-    liveEdgeGlide.value = smoothLiveEdge;
-  }, [liveEdgeGlide, smoothLiveEdge]);
-  useFrameCallback(({ timeSincePreviousFrame }) => {
-    if (!liveEdgeGlide.value) return;
-    const offset = transcriptOffset.value;
-    if (offset <= 0.5) return;
-    scrollTo(
-      transcriptListRef,
-      0,
-      liveEdgeGlideOffset(offset, timeSincePreviousFrame ?? 16),
-      false,
-    );
+  const transcriptListRef = useRef<FlatList<TranscriptListItem>>(null);
+  // Velocity and the last offset the glide wrote, so stale scroll events cannot pull it back.
+  const liveEdgeGlideRef = useRef<{ time?: number; velocity: number; written?: number }>({
+    velocity: 0,
   });
   const liveFollowEnabledRef = useRef(true);
   const latestJumpPendingRef = useRef(false);
@@ -1050,6 +1029,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     }
     userScrollSessionRef.current = false;
     lastScrollOffsetRef.current = 0;
+    liveEdgeGlideRef.current = { velocity: 0 };
     liveFollowEnabledRef.current = true;
     latestJumpPendingRef.current = false;
     setLiveFollowEnabled(true);
@@ -1094,7 +1074,13 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   }
 
   function recordTranscriptOffset(rawOffset: number) {
-    const offset = Math.max(0, rawOffset);
+    let offset = Math.max(0, rawOffset);
+    const written = liveEdgeGlideRef.current.written;
+    // While gliding, an event below the last written offset (plus a small margin) reports one
+    // of the glide's own earlier frames. Larger offsets are new rows the list compensated for.
+    if (written !== undefined && !userScrollSessionRef.current && offset < written + 4) {
+      offset = written;
+    }
     lastScrollOffsetRef.current = offset;
     if (latestJumpPendingRef.current && isAtLiveEdge(offset)) {
       latestJumpPendingRef.current = false;
@@ -1111,14 +1097,52 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     ) {
       return;
     }
+    if (smoothLiveEdgeRef.current) {
+      startLiveEdgeGlide();
+      return;
+    }
     followFrameRef.current = requestAnimationFrame(() => {
       followFrameRef.current = null;
       if (!liveFollowEnabledRef.current) return;
-      // The UI-thread glide returns compensated growth to the live edge.
-      if (smoothLiveEdgeRef.current) return;
       recordTranscriptFollowCorrection();
       transcriptListRef.current?.scrollToOffset({ animated: false, offset: 0 });
     });
+  }
+
+  function stopLiveEdgeGlide() {
+    cancelFollowFrame();
+    liveEdgeGlideRef.current = { velocity: 0 };
+  }
+
+  // New lines land just below the anchored rows. Glide back to the live edge one frame at a
+  // time; the list's own scroll animation would restart from rest for every new line.
+  function startLiveEdgeGlide() {
+    if (followFrameRef.current !== null || lastScrollOffsetRef.current <= 0.5) return;
+    recordTranscriptFollowCorrection();
+    const step = (time: number) => {
+      followFrameRef.current = null;
+      const glide = liveEdgeGlideRef.current;
+      if (
+        !liveFollowEnabledRef.current ||
+        !smoothLiveEdgeRef.current ||
+        userScrollSessionRef.current ||
+        latestJumpPendingRef.current
+      ) {
+        liveEdgeGlideRef.current = { velocity: 0 };
+        return;
+      }
+      const elapsed = glide.time === undefined ? 16 : Math.min(64, time - glide.time);
+      const next = liveEdgeGlideStep(lastScrollOffsetRef.current, glide.velocity, elapsed);
+      lastScrollOffsetRef.current = next.offset;
+      transcriptListRef.current?.scrollToOffset({ animated: false, offset: next.offset });
+      if (next.offset === 0) {
+        liveEdgeGlideRef.current = { velocity: 0 };
+        return;
+      }
+      liveEdgeGlideRef.current = { time, velocity: next.velocity, written: next.offset };
+      followFrameRef.current = requestAnimationFrame(step);
+    };
+    followFrameRef.current = requestAnimationFrame(step);
   }
 
   function handleTranscriptScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
@@ -1129,11 +1153,21 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       type: "scroll",
       userScrollSessionActive: userScrollSessionRef.current,
     });
+    // The list reports growth it compensated for as a scroll away from the edge.
+    if (
+      !atLiveEdge &&
+      liveFollowEnabledRef.current &&
+      smoothLiveEdgeRef.current &&
+      !userScrollSessionRef.current &&
+      !latestJumpPendingRef.current
+    ) {
+      startLiveEdgeGlide();
+    }
   }
 
   function handleScrollBeginDrag() {
     // Stop the glide before the follow state re-renders so it never fights the drag.
-    liveEdgeGlide.value = false;
+    stopLiveEdgeGlide();
     clearUserScrollSettle();
     if (latestJumpPendingRef.current) {
       latestJumpPendingRef.current = false;
@@ -1175,7 +1209,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 
   function scrollToLatest() {
     clearUserScrollSettle();
-    cancelFollowFrame();
+    stopLiveEdgeGlide();
     userScrollSessionRef.current = false;
     latestJumpPendingRef.current = true;
     setLatestJumpPending(true);
@@ -1356,7 +1390,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             ),
           }}
         >
-          <Animated.FlatList
+          <FlatList
             accessibilityLabel="Session transcript"
             contentContainerStyle={[
               styles.detailContent,

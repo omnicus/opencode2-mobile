@@ -21,13 +21,21 @@ the visible edge. A first version returned to the edge with the native
 starting a fresh ease-in-out scroll from rest, with a scroll moving at about 24
 points per frame stopping within one frame when the next line arrived.
 
-A Reanimated frame callback now closes a fixed share of the remaining distance
-each frame (90 ms time constant). It reads the native offset and scrolls on the
-UI thread. New lines lengthen the glide instead of restarting it. The JavaScript
-live-edge correction runs only when the glide is off. Dragging stops the glide
-immediately, and Reduce Motion keeps corrections instant. Unit tests cover the
-glide curve and the rendered follow states. Motion quality, Android, and the
-newest row being taller than the viewport still need checking on devices.
+A Reanimated frame callback replaced it, but a later recording could not
+confirm that it ran. The glide now runs as a critically damped spring stepped
+once per display frame in JavaScript. It uses the same scroll events and
+`scrollToOffset` calls that live follow and Scroll to latest already depend on.
+Its rate matches the OpenCode iOS app in a side-by-side iPhone recording: one
+22-point line peaks near 160 points per second and settles in about 0.3 seconds.
+A line arriving mid-glide keeps the current velocity. Late scroll events from
+earlier glide frames are ignored unless they show newly compensated growth.
+Dragging and Scroll to latest stop the glide, and Reduce Motion keeps
+corrections instant. Unit tests cover the spring and the rendered glide. Motion
+quality under heavy JavaScript load, and Android, still need checking on devices.
+
+That recording also showed the app returning to the foreground mid-stream
+without catching up on the missed reply until the session was reopened. That is
+not yet investigated.
 
 The same recording showed a fenced code block rendering as an empty box during
 and after streaming. Code blocks were the only use of the native selection

@@ -1660,18 +1660,23 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   const transcriptPosition = () =>
     screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
       .maintainVisibleContentPosition;
-  // Following: growth lands below the anchored row, and the UI-thread glide, not a
-  // JavaScript scroll that would restart from rest, brings it into view.
+  // Following: growth lands below the anchored row. The list reports that compensation as a
+  // scroll away from the edge, and the glide steps back one frame at a time.
   expect(transcriptPosition()).toEqual({ minIndexForVisible: 1 });
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_100);
-  fireEvent(transcript, "layout", {
-    nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 220 } },
-  });
-  await act(async () => {
-    await new Promise((resolve) => requestAnimationFrame(resolve));
-  });
-  expect(scrollToOffset).not.toHaveBeenCalled();
+  fireEvent.scroll(transcript, scrollEvent(25));
+  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
+  const glideOffsets = scrollToOffset.mock.calls.map(
+    ([options]) => (options as { offset: number }).offset,
+  );
+  expect(glideOffsets.length).toBeGreaterThan(5);
+  expect(
+    glideOffsets.every((offset, index) => index === 0 || offset <= glideOffsets[index - 1]!),
+  ).toBe(true);
+  expect(scrollToOffset).not.toHaveBeenCalledWith(expect.objectContaining({ animated: true }));
+  // Programmatic glide frames never turn live follow off.
+  expect(screen.queryByRole("button", { name: "Scroll to latest" })).toBeNull();
 
   fireEvent(transcript, "scrollBeginDrag", liveEdgeEvent);
   fireEvent.scroll(transcript, justAwayFromLiveEdge);
