@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -11,7 +11,16 @@ import {
 import qrcode from "qrcode-terminal";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 
-import { devices, initialize, pair, revoke, setEnabled, status, test } from "./cli-commands.js";
+import {
+  devices,
+  initialize,
+  pair,
+  revoke,
+  serve,
+  setEnabled,
+  status,
+  test,
+} from "./cli-commands.js";
 import { ask, askSecret } from "./cli-input.js";
 import { brokerPaths, readBrokerConfig, readMasterKey, readPluginToken } from "./config.js";
 import { BrokerDatabase } from "./database.js";
@@ -146,6 +155,7 @@ describe("pair", () => {
     });
     expect(ask).not.toHaveBeenCalled();
     expect(askSecret).not.toHaveBeenCalled();
+    expect(databaseIsOpen()).toBe(false);
   });
 
   it("asks for basic credentials without printing the password", async () => {
@@ -213,6 +223,17 @@ describe("pair", () => {
     await expect(pair(arguments_)).rejects.toThrow(message);
     expect(qrcode.generate).not.toHaveBeenCalled();
     expect(output()).toBe("");
+    expect(databaseIsOpen()).toBe(false);
+  });
+
+  it("does not open the database when the secret prompt fails", async () => {
+    vi.mocked(askSecret).mockRejectedValue(new Error("SECRET_REQUIRES_TTY"));
+
+    await expect(
+      pair(["--name", "Laptop", "--opencode-origin", "https://opencode.test", "--auth", "bearer"]),
+    ).rejects.toThrow("SECRET_REQUIRES_TTY");
+    expect(qrcode.generate).not.toHaveBeenCalled();
+    expect(databaseIsOpen()).toBe(false);
   });
 
   it("requires an initialized broker", async () => {
@@ -221,6 +242,19 @@ describe("pair", () => {
     await expect(
       pair(["--name", "Laptop", "--opencode-origin", "https://opencode.test"]),
     ).rejects.toThrow("BROKER_NOT_INITIALIZED");
+  });
+});
+
+describe("serve", () => {
+  it("rejects a missing plugin token without opening the database", async () => {
+    vi.stubEnv("OPENCODE_MOBILE_PUSH_MODE", "fake");
+    initialize(["--public-origin", "https://broker.test"]);
+    stdout.mockClear();
+    unlinkSync(brokerPaths().pluginToken);
+
+    await expect(serve()).rejects.toThrow("BROKER_NOT_INITIALIZED");
+    expect(output()).toBe("");
+    expect(databaseIsOpen()).toBe(false);
   });
 });
 
@@ -312,6 +346,10 @@ describe("device commands", () => {
 
 function output() {
   return stdout.mock.calls.map(([chunk]) => String(chunk)).join("");
+}
+
+function databaseIsOpen() {
+  return existsSync(`${brokerPaths().database}-wal`);
 }
 
 function withDatabase<T>(run: (database: BrokerDatabase) => T) {

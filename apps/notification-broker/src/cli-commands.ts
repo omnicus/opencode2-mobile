@@ -55,10 +55,12 @@ export function initialize(arguments_: string[]) {
 export async function serve() {
   const paths = brokerPaths();
   const config = readBrokerConfig(paths);
-  const database = new BrokerDatabase(paths.database, readMasterKey(paths));
+  const masterKey = readMasterKey(paths);
+  const pluginToken = readPluginToken(paths);
+  const database = new BrokerDatabase(paths.database, masterKey);
   const worker = new ExpoPushWorker(database);
   worker.start();
-  const servers = startBrokerServers(config, database, worker, readPluginToken(paths));
+  const servers = startBrokerServers(config, database, worker, pluginToken);
   process.stdout.write(
     `Notification broker listening on ${config.listenHost}:${config.publicPort}; plugin ingress 127.0.0.1:${config.pluginPort}\n`,
   );
@@ -83,7 +85,7 @@ export async function serve() {
 export async function pair(arguments_: string[]) {
   const paths = brokerPaths();
   const config = readBrokerConfig(paths);
-  const database = new BrokerDatabase(paths.database, readMasterKey(paths));
+  const masterKey = readMasterKey(paths);
   const name = requiredOption(arguments_, "--name");
   const baseUrl = requiredOption(arguments_, "--opencode-origin");
   const openCodeOrigin = parseOriginRoot(baseUrl);
@@ -92,33 +94,40 @@ export async function pair(arguments_: string[]) {
   if (openCodeOrigin.protocol === "http:" && !allowDevelopmentHttp) {
     throw new Error("HTTP_REQUIRES_ALLOW_HTTP");
   }
-  let auth: NotificationConnectionBootstrap["auth"];
+  const auth = await askAuth(authMode);
+  withDatabase(
+    (database) => {
+      const code = database.createPairing(
+        {
+          allowDevelopmentHttp,
+          authMode: auth.mode,
+          brokerOrigin: config.publicOrigin,
+          name,
+          openCodeOrigin: openCodeOrigin.origin,
+        },
+        { allowDevelopmentHttp, auth, baseUrl: openCodeOrigin.origin, name, v: 1 },
+      );
+      const encoded = encodeNotificationPairingCode(code);
+      process.stdout.write("Scan this code in OpenCode2 Mobile. It expires in two minutes.\n\n");
+      qrcode.generate(encoded, { small: true });
+      process.stdout.write(`\nManual pairing code:\n${encoded}\n`);
+    },
+    paths,
+    masterKey,
+  );
+}
+
+async function askAuth(authMode: string): Promise<NotificationConnectionBootstrap["auth"]> {
   if (authMode === "basic") {
     const username = await ask("OpenCode username: ");
     const password = await askSecret("OpenCode password: ");
-    auth = { mode: "basic", password, username };
-  } else if (authMode === "bearer") {
-    auth = { mode: "bearer", token: await askSecret("OpenCode bearer token: ") };
-  } else if (authMode === "none") auth = { mode: "none" };
-  else throw new Error("INVALID_AUTH_MODE");
-  try {
-    const code = database.createPairing(
-      {
-        allowDevelopmentHttp,
-        authMode,
-        brokerOrigin: config.publicOrigin,
-        name,
-        openCodeOrigin: openCodeOrigin.origin,
-      },
-      { allowDevelopmentHttp, auth, baseUrl: openCodeOrigin.origin, name, v: 1 },
-    );
-    const encoded = encodeNotificationPairingCode(code);
-    process.stdout.write("Scan this code in OpenCode2 Mobile. It expires in two minutes.\n\n");
-    qrcode.generate(encoded, { small: true });
-    process.stdout.write(`\nManual pairing code:\n${encoded}\n`);
-  } finally {
-    database.close();
+    return { mode: "basic", password, username };
   }
+  if (authMode === "bearer") {
+    return { mode: "bearer", token: await askSecret("OpenCode bearer token: ") };
+  }
+  if (authMode === "none") return { mode: "none" };
+  throw new Error("INVALID_AUTH_MODE");
 }
 
 export function devices() {
@@ -167,9 +176,12 @@ function resolveBinding(database: BrokerDatabase, input: string) {
   return matches[0] as string;
 }
 
-function withDatabase(run: (database: BrokerDatabase) => void) {
-  const paths = brokerPaths();
-  const database = new BrokerDatabase(paths.database, readMasterKey(paths));
+function withDatabase(
+  run: (database: BrokerDatabase) => void,
+  paths = brokerPaths(),
+  masterKey = readMasterKey(paths),
+) {
+  const database = new BrokerDatabase(paths.database, masterKey);
   try {
     run(database);
   } finally {
