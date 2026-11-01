@@ -560,8 +560,8 @@ overlays that do not replace the active workspace. A hamburger icon is reserved
 for a real drawer; otherwise use the platform-appropriate menu or settings
 control. Keep a visible attention-count action available from session detail.
 
-The phone Sessions screen has a floating bottom menu. A round New session button
-sits on the left, apart from a pill with three tabs: Chat, PRs, and Approvals.
+The phone Sessions screen has a floating bottom menu: a pill with three tabs,
+Chat, PRs, and Approvals, and a round New session button apart on the right.
 Chat is the session list. PRs lists open GitHub pull requests for followed
 projects. Approvals shows the same permission and form requests as Needs you.
 The Approvals tab shows the request count, or a dim dot while attention coverage
