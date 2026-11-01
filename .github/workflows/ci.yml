@@ -25,6 +25,54 @@ jobs:
       - run: pnpm check
       - run: pnpm native:doctor
 
+  crap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm crap --threshold 30
+
+  native-fingerprint:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    env:
+      CI: "1"
+      OPENCODE2_MOBILE_DISABLE_LOCAL_DEPLOYMENT: "1"
+      # A placeholder so the app config loads the same way for both commits.
+      OPENCODE2_MOBILE_EXPO_PROJECT_ID: 00000000-0000-4000-8000-000000000000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: pnpm/action-setup@ff378ebe6b225b0680b81c1ad4498ae0d1d3a5e3 # v6.0.10
+        with:
+          run_install: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Compare native fingerprints with the base branch
+        run: |
+          cp scripts/mobile-runtime.mjs "$RUNNER_TEMP/mobile-runtime.mjs"
+          node "$RUNNER_TEMP/mobile-runtime.mjs" --sources > "$RUNNER_TEMP/merged.txt"
+          git checkout --quiet HEAD^1
+          pnpm install --frozen-lockfile
+          node "$RUNNER_TEMP/mobile-runtime.mjs" --sources > "$RUNNER_TEMP/base.txt"
+          if ! diff "$RUNNER_TEMP/base.txt" "$RUNNER_TEMP/merged.txt"; then
+            echo "::error::This PR changes the native fingerprint, so installed builds can't load it as an OTA update. It needs a new native build and baseline (docs/UPDATES.md)."
+            exit 1
+          fi
+
   secrets:
     runs-on: ubuntu-latest
     steps:
