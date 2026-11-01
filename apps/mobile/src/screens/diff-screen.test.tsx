@@ -1,7 +1,7 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import type { FileDiffInfo } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen } from "@testing-library/react-native";
 
 import { diffPalette, palette } from "../theme";
 import { buildDiffRows, DiffScreen } from "./diff-screen";
@@ -15,7 +15,7 @@ const mockGetDiff =
       options: unknown,
     ) => Promise<{ data: FileDiffInfo[] }>
   >();
-let mockRuntime = {
+let mockRuntime: { connectionId: string; restClient?: object } = {
   connectionId: "connection-1",
   restClient: {},
 };
@@ -171,6 +171,89 @@ test("classifies unified diff lines without retaining unbounded line content", (
     { type: "line" }
   >;
   expect(deletion.text).toHaveLength(4_000);
+});
+
+test("waits for the matching client before loading changes", () => {
+  mockRuntime = { connectionId: "connection-1" };
+  renderDiffScreen();
+  expect(screen.getByLabelText("Loading current changes")).toBeOnTheScreen();
+  expect(mockGetDiff).not.toHaveBeenCalled();
+});
+
+test("offers a retry when the first load fails", async () => {
+  mockGetDiff.mockRejectedValueOnce(new Error("offline"));
+  renderDiffScreen();
+  expect(await screen.findByText("Changes unavailable")).toBeOnTheScreen();
+  expect(screen.getByText("The current working-tree diff could not be loaded.")).toBeOnTheScreen();
+
+  mockGetDiff.mockResolvedValue({
+    data: [{ file: "a.ts", status: "added", additions: 1, deletions: 0, patch: "+a" }],
+  });
+  fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("1 file")).toBeOnTheScreen();
+  expect(mockGetDiff).toHaveBeenCalledTimes(2);
+});
+
+test("keeps loaded changes on screen when a refresh fails", async () => {
+  mockGetDiff.mockResolvedValueOnce({
+    data: [
+      { file: "a.ts", status: "modified", additions: 2, deletions: 1, patch: "+a\n+b\n-c" },
+      { file: "b.ts", status: "modified", additions: 1, deletions: 3, patch: "-a\n-b\n-c\n+d" },
+    ],
+  });
+  renderDiffScreen();
+  expect(await screen.findByText("2 files")).toBeOnTheScreen();
+  expect(screen.getByText("+3")).toBeOnTheScreen();
+  expect(screen.getByText("-4")).toBeOnTheScreen();
+
+  mockGetDiff.mockRejectedValueOnce(new Error("offline"));
+  await act(async () => {
+    screen.getByLabelText("Current working tree changes").props.refreshControl.props.onRefresh();
+  });
+  expect(await screen.findByText("Refresh failed")).toBeOnTheScreen();
+  expect(screen.getByText("Showing the last loaded changes.")).toBeOnTheScreen();
+  expect(screen.getByText("a.ts")).toBeOnTheScreen();
+
+  mockGetDiff.mockResolvedValueOnce({
+    data: [{ file: "a.ts", status: "added", additions: 2, deletions: 0, patch: "+a\n+b" }],
+  });
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+  expect(await screen.findByText("1 file")).toBeOnTheScreen();
+  expect(screen.queryByText("Refresh failed")).toBeNull();
+});
+
+test("collapses expanded files and focuses one file with its own totals", async () => {
+  mockGetDiff.mockResolvedValue({
+    data: [
+      {
+        file: "src/app.ts",
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+        patch: "diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n context\n-old\n+new",
+      },
+      { file: "docs/readme.md", status: "added", additions: 4, deletions: 0, patch: "+doc" },
+    ],
+  });
+  renderDiffScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "Expand all" }));
+  expect(screen.getByLabelText("Context line:  context")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Diff hunk: @@ -1 +1 @@")).toBeOnTheScreen();
+  expect(
+    screen.getByLabelText("Diff information: diff --git a/src/app.ts b/src/app.ts"),
+  ).toBeOnTheScreen();
+  expect(screen.getByLabelText("Added line: +doc")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Collapse all" }));
+  expect(screen.queryByText("+doc")).toBeNull();
+  expect(screen.getByRole("button", { name: "Expand all" })).toBeOnTheScreen();
+
+  fireEvent.press(
+    screen.getByRole("button", { name: "added file, docs/readme.md, 4 additions, 0 deletions" }),
+  );
+  expect(screen.getAllByText("docs/readme.md")).toHaveLength(2);
+  expect(screen.getByText(/· added/)).toBeOnTheScreen();
+  expect(screen.getByLabelText("Added line: +doc")).toBeOnTheScreen();
+  expect(screen.queryByLabelText("Removed line: -old")).toBeNull();
 });
 
 function renderDiffScreen() {

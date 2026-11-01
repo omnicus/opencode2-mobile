@@ -1,6 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { LocationRef } from "@opencode2-mobile/opencode-adapter";
-import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import {
+  createNativeStackNavigator,
+  type NativeStackNavigationOptions,
+  type NativeStackNavigationProp,
+} from "@react-navigation/native-stack";
 import type { ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -113,35 +117,7 @@ export function RootNavigation() {
       <Stack.Screen
         component={SessionScreen}
         name="Session"
-        options={({ navigation }) => ({
-          ...(customWorkspaceHeader
-            ? {
-                header: ({ options }) => (
-                  <WorkspaceHeader
-                    rightActions={options.headerRight?.({
-                      canGoBack: navigation.canGoBack(),
-                      tintColor: palette.ink,
-                    })}
-                    onBack={() => {
-                      if (navigation.canGoBack()) navigation.goBack();
-                      else navigation.popTo("Workspace");
-                    }}
-                    title={options.title ?? "Session"}
-                  />
-                ),
-              }
-            : {
-                headerLeft: () => (
-                  <SessionBackButton
-                    onPress={() => {
-                      if (navigation.canGoBack()) navigation.goBack();
-                      else navigation.popTo("Workspace");
-                    }}
-                  />
-                ),
-              }),
-          title: "Session",
-        })}
+        options={({ navigation }) => sessionScreenOptions(navigation, customWorkspaceHeader)}
       />
       <Stack.Screen
         component={DiffScreen}
@@ -156,32 +132,17 @@ export function RootNavigation() {
       <Stack.Screen
         component={PendingInteractionsScreen}
         name="Pending"
-        options={({ navigation }) => ({
-          headerShown: true,
-          presentation: "modal",
-          title: "Needs you",
-          headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
-        })}
+        options={({ navigation }) => managementScreenOptions(navigation, "Needs you")}
       />
       <Stack.Screen
         component={SettingsScreen}
         name="Settings"
-        options={({ navigation }) => ({
-          headerShown: true,
-          presentation: "modal",
-          title: "Settings",
-          headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
-        })}
+        options={({ navigation }) => managementScreenOptions(navigation, "Settings")}
       />
       <Stack.Screen
         component={FollowedProjectsScreen}
         name="FollowedProjects"
-        options={({ navigation }) => ({
-          headerShown: true,
-          presentation: "modal",
-          title: "Followed projects",
-          headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
-        })}
+        options={({ navigation }) => managementScreenOptions(navigation, "Followed projects")}
       />
       <Stack.Screen
         name="Connections"
@@ -203,6 +164,53 @@ export function RootNavigation() {
       </Stack.Screen>
     </Stack.Navigator>
   );
+}
+
+type ScreenNavigation = Pick<
+  NativeStackNavigationProp<RootStackParamList>,
+  "canGoBack" | "goBack" | "popTo"
+>;
+
+function backToWorkspace(navigation: ScreenNavigation) {
+  if (navigation.canGoBack()) navigation.goBack();
+  else navigation.popTo("Workspace");
+}
+
+function sessionScreenOptions(
+  navigation: ScreenNavigation,
+  customHeader: boolean,
+): NativeStackNavigationOptions {
+  return {
+    ...(customHeader
+      ? {
+          header: ({ options }) => (
+            <WorkspaceHeader
+              rightActions={options.headerRight?.({
+                canGoBack: navigation.canGoBack(),
+                tintColor: palette.ink,
+              })}
+              onBack={() => backToWorkspace(navigation)}
+              title={options.title ?? "Session"}
+            />
+          ),
+        }
+      : {
+          headerLeft: () => <SessionBackButton onPress={() => backToWorkspace(navigation)} />,
+        }),
+    title: "Session",
+  };
+}
+
+function managementScreenOptions(
+  navigation: ScreenNavigation,
+  title: string,
+): NativeStackNavigationOptions {
+  return {
+    headerShown: true,
+    presentation: "modal",
+    title,
+    headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
+  };
 }
 
 function usesGlassHeader() {

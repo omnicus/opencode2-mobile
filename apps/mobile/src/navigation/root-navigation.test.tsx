@@ -1,4 +1,4 @@
-import { beforeEach, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import { createNavigationContainerRef, NavigationContainer } from "@react-navigation/native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { Platform } from "react-native";
@@ -12,6 +12,7 @@ let mockConnections: {
 };
 let mockPendingCount = 0;
 let mockTablet = false;
+let mockSessionHeaderRight = false;
 
 type HostNode = { props: Record<string, unknown>; type: unknown };
 
@@ -49,8 +50,27 @@ jest.mock("../state/workspace-selection-context", () => ({
 }));
 jest.mock("../screens/workspace-screen", () => {
   const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
+  const { useLayoutEffect } = jest.requireActual<typeof import("react")>("react");
   return {
-    SessionScreen: () => <Text>Session screen</Text>,
+    SessionScreen: ({
+      navigation,
+    }: {
+      navigation: {
+        setOptions: (options: {
+          headerRight: (props: { canGoBack: boolean }) => import("react").ReactNode;
+        }) => void;
+      };
+    }) => {
+      useLayoutEffect(() => {
+        if (!mockSessionHeaderRight) return;
+        navigation.setOptions({
+          headerRight: ({ canGoBack }) => (
+            <Text>{canGoBack ? "Session actions after history" : "Session actions"}</Text>
+          ),
+        });
+      }, [navigation]);
+      return <Text>Session screen</Text>;
+    },
     WorkspaceScreen: () => <Text>Workspace shell</Text>,
   };
 });
@@ -86,7 +106,18 @@ beforeEach(() => {
   mockConnections = { profiles: [], ready: true };
   mockPendingCount = 0;
   mockTablet = false;
+  mockSessionHeaderRight = false;
 });
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+const session = {
+  connectionId: "connection-1",
+  location: { directory: "/workspace" },
+  sessionID: "ses_test",
+};
 
 test("shows loading, failure, and first-run onboarding gates", () => {
   mockConnections = { profiles: [], ready: false };
@@ -324,4 +355,72 @@ test.each([
   } finally {
     restore.mockRestore();
   }
+});
+
+test("opens notification pairing from the connection manager", async () => {
+  mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+  const navigation = createNavigationContainerRef<RootStackParamList>();
+  render(
+    <NavigationContainer ref={navigation}>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  await screen.findByText("Workspace shell");
+  act(() => navigation.navigate("Connections"));
+  fireEvent.press(await screen.findByRole("button", { name: "Scan pairing code" }));
+  expect(await screen.findByText("Notification pairing")).toBeOnTheScreen();
+  expect(navigation.getCurrentRoute()?.name).toBe("Pairing");
+  fireEvent.press(screen.getByRole("button", { name: "Notification pairing" }));
+  expect(await screen.findByText("Connection manager")).toBeOnTheScreen();
+  expect(navigation.getCurrentRoute()?.name).toBe("Connections");
+});
+
+test.each(["18.0", "26.0"])(
+  "returns a session opened without history to sessions on iOS %s",
+  async (version) => {
+    jest.spyOn(Platform, "Version", "get").mockReturnValue(version);
+    mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+    const navigation = createNavigationContainerRef<RootStackParamList>();
+    render(
+      <NavigationContainer ref={navigation}>
+        <RootNavigation />
+      </NavigationContainer>,
+    );
+    await screen.findByText("Workspace shell");
+    act(() => navigation.resetRoot({ index: 0, routes: [{ name: "Session", params: session }] }));
+    expect(await screen.findByText("Session screen")).toBeOnTheScreen();
+    expect(navigation.canGoBack()).toBe(false);
+    expect(screen.getByRole("button", { name: "Back to Sessions" })).toHaveProp(
+      "accessibilityHint",
+      "Returns to the session list",
+    );
+
+    fireEvent.press(screen.getByRole("button", { name: "Back to Sessions" }));
+    expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
+    expect(navigation.getRootState()?.routes.map((route) => route.name)).toEqual(["Workspace"]);
+  },
+);
+
+test("draws the iOS 26 session header with the session's own actions", async () => {
+  jest.spyOn(Platform, "Version", "get").mockReturnValue("26.0");
+  mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+  mockSessionHeaderRight = true;
+  const navigation = createNavigationContainerRef<RootStackParamList>();
+  render(
+    <NavigationContainer ref={navigation}>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  await screen.findByText("Workspace shell");
+  expect(screen.queryByRole("button", { name: "Back to Sessions" })).toBeNull();
+
+  act(() => navigation.navigate("Session", session));
+  expect(await screen.findByText("Session screen")).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Session" })).toBeOnTheScreen();
+  // One copy in the drawn header and one in the native header config.
+  expect(screen.getAllByText("Session actions after history")).toHaveLength(2);
+
+  fireEvent.press(screen.getByRole("button", { name: "Back to Sessions" }));
+  expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
+  expect(navigation.getRootState()?.routes.map((route) => route.name)).toEqual(["Workspace"]);
 });
