@@ -33,6 +33,7 @@ export type RootStackParamList = {
   };
   FollowedProjects: undefined;
   NewSession: undefined;
+  Pairing: undefined;
   Pending: undefined;
   Session: {
     connectionId: string;
@@ -179,9 +180,19 @@ export function RootNavigation() {
         {({ navigation }) => (
           <ConnectionScreen
             onDone={() => navigation.goBack()}
-            onPair={() => setShowPairing(true)}
+            onPair={() => navigation.navigate("Pairing")}
           />
         )}
+      </Stack.Screen>
+      <Stack.Screen
+        name="Pairing"
+        options={{
+          animation: reducedMotion ? "none" : "slide_from_bottom",
+          headerShown: false,
+          presentation: "modal",
+        }}
+      >
+        {({ navigation }) => <NotificationPairingScreen onDone={() => navigation.goBack()} />}
       </Stack.Screen>
     </Stack.Navigator>
   );
