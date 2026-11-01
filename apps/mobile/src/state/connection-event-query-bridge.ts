@@ -13,6 +13,7 @@ import {
   isTranscriptReductionEventType,
   reduceTranscriptEvents,
   transcriptEventSessionID,
+  trimSnapshotTextDeltas,
 } from "./transcript-event-reducer";
 import type { TranscriptProjectionFrameSample } from "./transcript-performance";
 
@@ -27,6 +28,13 @@ type InvalidationRoot =
   | "shell"
   | "vcs";
 type InvalidationTarget = { location?: LocationRef; root: InvalidationRoot; sessionId?: string };
+type HeldTranscript = {
+  events: OpenCodeEvent[];
+  location?: LocationRef;
+  overflowed: boolean;
+  query: Query;
+  sessionId: string;
+};
 type PendingTranscript = {
   eventIds: Set<string>;
   events: OpenCodeEvent[];
@@ -40,6 +48,9 @@ const maxEventsPerTranscriptFrame = 4096;
 export class ConnectionEventQueryBridge {
   private readonly pending = new Map<string, InvalidationTarget>();
   private readonly pendingTranscripts = new Map<string, PendingTranscript>();
+  // Transcript events that arrived while their query was refetching, keyed by query hash.
+  private readonly heldTranscripts = new Map<string, HeldTranscript>();
+  private stopWatchingRefetches: (() => void) | undefined;
   private scheduled = false;
 
   constructor(
@@ -115,6 +126,13 @@ export class ConnectionEventQueryBridge {
     let transcriptCacheWrites = 0;
     let transcriptEventCount = 0;
     let transcriptReconciliations = 0;
+    for (const released of this.releaseHeldTranscripts()) {
+      transcriptCacheWrites += released.cacheWrites;
+      if (released.needsReconciliation) {
+        transcriptReconciliations += 1;
+        setInvalidationTarget(targets, "messages", released.location, released.sessionId);
+      }
+    }
     for (const transcript of transcripts) {
       transcriptEventCount += transcript.events.length;
       const result = this.reduceTranscript(transcript);
@@ -193,6 +211,12 @@ export class ConnectionEventQueryBridge {
         ),
     });
     for (const query of queries) {
+      // A refetch in flight will replace this data. Appending deltas now would lose any
+      // that the refetch does not include, so hold them until it settles.
+      if (query.state.fetchStatus === "fetching") {
+        this.holdTranscript(query, transcript);
+        continue;
+      }
       const current = query.state.data as
         | InfiniteData<SessionMessagesResponse, string | undefined>
         | undefined;
@@ -209,6 +233,79 @@ export class ConnectionEventQueryBridge {
       }
     }
     return { cacheWrites, needsReconciliation };
+  }
+
+  private holdTranscript(query: Query, transcript: PendingTranscript) {
+    const held = this.heldTranscripts.get(query.queryHash) ?? {
+      events: [],
+      ...(transcript.location ? { location: transcript.location } : {}),
+      overflowed: false,
+      query,
+      sessionId: transcript.sessionId,
+    };
+    held.overflowed ||= transcript.overflowed;
+    for (const event of transcript.events) {
+      if (held.events.length >= maxEventsPerTranscriptFrame) {
+        held.overflowed = true;
+        break;
+      }
+      held.events.push(event);
+    }
+    this.heldTranscripts.set(query.queryHash, held);
+    this.stopWatchingRefetches ??= this.queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        this.heldTranscripts.has(event.query.queryHash) &&
+        event.query.state.fetchStatus !== "fetching"
+      ) {
+        this.ensureScheduled();
+      }
+    });
+  }
+
+  private releaseHeldTranscripts() {
+    const released: Array<{
+      cacheWrites: number;
+      location?: LocationRef;
+      needsReconciliation: boolean;
+      sessionId: string;
+    }> = [];
+    for (const [hash, held] of this.heldTranscripts) {
+      if (held.query.state.fetchStatus === "fetching") continue;
+      this.heldTranscripts.delete(hash);
+      const current = held.query.state.data as
+        | InfiniteData<SessionMessagesResponse, string | undefined>
+        | undefined;
+      let cacheWrites = 0;
+      let needsReconciliation = held.overflowed;
+      if (current !== undefined) {
+        const events =
+          held.query.state.status === "success"
+            ? trimSnapshotTextDeltas(current, held.events)
+            : held.events;
+        const result = reduceTranscriptEvents(
+          current,
+          events,
+          isDescendingMessageQuery(held.query.queryKey),
+        );
+        needsReconciliation ||= result.needsReconciliation;
+        if (result.data !== current) {
+          cacheWrites = 1;
+          this.queryClient.setQueryData(held.query.queryKey, result.data);
+        }
+      }
+      released.push({
+        cacheWrites,
+        ...(held.location ? { location: held.location } : {}),
+        needsReconciliation,
+        sessionId: held.sessionId,
+      });
+    }
+    if (this.heldTranscripts.size === 0) {
+      this.stopWatchingRefetches?.();
+      this.stopWatchingRefetches = undefined;
+    }
+    return released;
   }
 
   private ensureScheduled() {

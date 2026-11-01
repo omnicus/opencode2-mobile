@@ -12,6 +12,26 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: streamed text lost across transcript refetches, pending device verification
+
+Two iPhone recordings showed a table and the following paragraphs rendered inside
+a code block while a reply streamed after the app returned to the foreground.
+They were correct once the reply finished. Text deltas carry no offset, so the
+bridge appended them to whatever text was cached. A transcript refetch in flight
+then replaced that text with the server's copy from when the request was served,
+which dropped any deltas applied in between. A gap that swallowed a closing code
+fence pushed the rest of the reply into the code block until `text.ended`
+restored the authoritative text. The same race applies to the refetches after
+`session.step.streamed` during normal streaming.
+
+While a transcript query is fetching, the bridge now holds its transcript
+events, including during the first fetch, which previously dropped them. When the
+fetch settles, held text and reasoning deltas that the refetched text already
+ends with are dropped, matching only on whole-delta boundaries, and the rest are
+applied. A failed fetch applies the held events as before. Reducer and bridge
+tests cover full, partial, and no overlap, whole-delta matching, and a missed
+closing fence.
+
 ## 2026-11-01: live-edge glide for streamed text, pending device verification
 
 The transcript anchors `maintainVisibleContentPosition` on the row above the

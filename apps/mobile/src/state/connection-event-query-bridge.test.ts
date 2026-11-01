@@ -504,6 +504,79 @@ test("coalesces transcript events into one cache write per frame", () => {
   queryClient.clear();
 });
 
+test.each([
+  { snapshot: "Hello world", label: "includes some held deltas" },
+  { snapshot: "Hello", label: "includes none of the held deltas" },
+])(
+  "holds deltas during a transcript refetch and keeps the ones it $label",
+  async ({ snapshot }) => {
+    const queryClient = new QueryClient();
+    const scheduled: Array<() => void> = [];
+    const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) => {
+      scheduled.push(callback);
+    });
+    const key = openCodeQueryKeys.messages(
+      "connection-1",
+      { directory: "/workspace" },
+      "session-1",
+      {
+        limit: 40,
+        order: "desc",
+      },
+    );
+    const transcript = (text: string) => ({
+      pageParams: [undefined],
+      pages: [
+        {
+          cursor: {},
+          data: [
+            {
+              agent: "build",
+              content: [{ text, type: "text" }],
+              id: "msg_assistant",
+              model: { id: "model-1", providerID: "provider-1" },
+              time: { created: 1 },
+              type: "assistant",
+            },
+          ],
+        },
+      ],
+    });
+    queryClient.setQueryData(key, transcript("Hello"));
+    let resolve: (value: unknown) => void = () => {};
+    const refetch = queryClient.fetchQuery({
+      queryFn: () => new Promise((done) => (resolve = done)),
+      queryKey: key,
+    });
+    const text = () =>
+      (
+        queryClient.getQueryData(key) as {
+          pages: Array<{ data: Array<{ content: Array<{ text: string }> }> }>;
+        }
+      ).pages[0]?.data[0]?.content[0]?.text;
+
+    for (const [index, delta] of [" wor", "ld", "!"].entries()) {
+      bridge.apply(
+        transcriptEvent(`event-${index}`, "session.text.delta", {
+          assistantMessageID: "msg_assistant",
+          delta,
+          ordinal: 0,
+          sessionID: "session-1",
+        }),
+      );
+    }
+    scheduled.shift()?.();
+    // Appending now would be lost when the refetch replaces this text.
+    expect(text()).toBe("Hello");
+
+    resolve(transcript(snapshot));
+    await refetch;
+    while (scheduled.length > 0) scheduled.shift()?.();
+    expect(text()).toBe("Hello world!");
+    queryClient.clear();
+  },
+);
+
 test("invalidates only the affected transcript when reduction finds a gap", () => {
   const queryClient = new QueryClient();
   const invalidate = jest.spyOn(queryClient, "invalidateQueries");

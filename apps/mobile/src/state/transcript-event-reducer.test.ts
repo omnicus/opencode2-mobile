@@ -6,7 +6,7 @@ import type {
 } from "@opencode2-mobile/opencode-adapter";
 import type { InfiniteData } from "@tanstack/react-query";
 
-import { reduceTranscriptEvents } from "./transcript-event-reducer";
+import { reduceTranscriptEvents, trimSnapshotTextDeltas } from "./transcript-event-reducer";
 
 test("projects a complete assistant step and repairs volatile deltas with terminal values", () => {
   const current = transcriptData([]);
@@ -213,6 +213,41 @@ test("does not create an assistant in a cache whose order is not known to be des
 
   expect(result.data).toBe(current);
   expect(result.needsReconciliation).toBe(true);
+});
+
+function textDeltas(...deltas: string[]) {
+  return deltas.map((delta) =>
+    transcriptEvent("session.text.delta", {
+      assistantMessageID: "msg_assistant",
+      delta,
+      ordinal: 0,
+      sessionID: "session-1",
+    }),
+  );
+}
+
+function appliedText(snapshot: string, deltas: string[]) {
+  const data = transcriptData([assistantMessage(snapshot)]);
+  const result = reduceTranscriptEvents(data, trimSnapshotTextDeltas(data, textDeltas(...deltas)));
+  const message = result.data?.pages[0]?.data[0];
+  return message?.type === "assistant" && message.content[0]?.type === "text"
+    ? message.content[0].text
+    : undefined;
+}
+
+test("refetched text keeps only the held deltas it does not already include", () => {
+  expect(appliedText("Hello", [" wor", "ld", "!"])).toBe("Hello world!");
+  expect(appliedText("Hello wor", [" wor", "ld", "!"])).toBe("Hello world!");
+  expect(appliedText("Hello world!", [" wor", "ld", "!"])).toBe("Hello world!");
+});
+
+test("only whole held deltas count as already included", () => {
+  // The snapshot ends with a space, but the held delta " there" was not part of it.
+  expect(appliedText("Hello ", [" there"])).toBe("Hello  there");
+  // A closing code fence missed by the snapshot is kept, so the block still closes.
+  expect(appliedText("```ts\nconst a = 1;\n", ["``", "`\n\nAfter"])).toBe(
+    "```ts\nconst a = 1;\n```\n\nAfter",
+  );
 });
 
 function transcriptData(
