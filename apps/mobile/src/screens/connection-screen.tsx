@@ -14,7 +14,7 @@ import { StatusBar } from "expo-status-bar";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -31,6 +31,7 @@ import { Button } from "../components/button";
 import { managementStyles, SettingsGroup } from "../components/management-layout";
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { SegmentedControl, type SegmentedOption } from "../components/segmented-control";
+import { useAnnouncement } from "../components/use-announcement";
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import type {
   ConnectionAuthMode,
@@ -38,6 +39,7 @@ import type {
   ConnectionProfile,
 } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
+import { addressHostname, withInferredScheme } from "../connections/server-address";
 import { boundedOpenCodeFetch, expoOpenCodeFetch } from "../expo-open-code-fetch";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import {
@@ -57,11 +59,11 @@ import {
   type LifecycleTransportResult,
   useLifecycleTransportProbe,
 } from "../use-lifecycle-transport-probe";
+import { FormKeyboardAvoidingView } from "./form-keyboard-avoiding-view";
 
 type Diagnostic = {
   advertisedUrls: number;
   checkedAtMs: number;
-  configurationKey: string;
   pid: number;
   sessions: number;
   version: string;
@@ -78,19 +80,31 @@ type PtyDiagnostic = {
   ticketExpiresIn: number;
 };
 
+type ConnectionTarget = {
+  credential: ConnectionCredential | undefined;
+  origin: string;
+};
+
+const httpNotAllowedMessage = "This address uses HTTP. Turn on Allow HTTP below or use https://.";
+
 export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPair?: () => void }) {
   const connections = useConnections();
   const runtime = useConnectionRuntime();
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
   const profileLoadGeneration = useRef(0);
+  const nameInput = useRef<TextInput>(null);
+  const usernameInput = useRef<TextInput>(null);
+  const secretInput = useRef<TextInput>(null);
   const [editingProfileId, setEditingProfileId] = useState<string>();
   const [loadedProfileId, setLoadedProfileId] = useState<string>();
   const [name, setName] = useState("");
   const [origin, setOrigin] = useState("");
   const [authMode, setAuthMode] = useState<ConnectionAuthMode>("basic");
   const [username, setUsername] = useState("");
-  const [secret, setSecret] = useState("");
+  const [password, setPassword] = useState("");
+  const [token, setToken] = useState("");
+  const [showSecret, setShowSecret] = useState(false);
   const [allowHttp, setAllowHttp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -98,8 +112,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   const [ptyBusy, setPtyBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
-  const [pendingRemovalId, setPendingRemovalId] = useState<string>();
-  const [showDetails, setShowDetails] = useState(connections.profiles.length === 0);
+  const [showDetails, setShowDetails] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
   const [runtimeDiagnosticsText, setRuntimeDiagnosticsText] = useState("");
@@ -108,6 +121,9 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   const [ptyDiagnostic, setPtyDiagnostic] = useState<PtyDiagnostic>();
   const lifecycleProbe = useLifecycleTransportProbe();
   const lifecycleBusy = lifecycleProbe.running;
+  const secret = authMode === "basic" ? password : authMode === "bearer" ? token : "";
+  useAnnouncement(error);
+  useAnnouncement(notice);
 
   useEffect(() => {
     const selected = connections.profiles.find(
@@ -127,13 +143,8 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
         setAuthMode(selected.authMode);
         setAllowHttp(selected.allowDevelopmentHttp);
         setUsername(credential?.mode === "basic" ? credential.username : "");
-        setSecret(
-          credential?.mode === "basic"
-            ? credential.password
-            : credential?.mode === "bearer"
-              ? credential.token
-              : "",
-        );
+        setPassword(credential?.mode === "basic" ? credential.password : "");
+        setToken(credential?.mode === "bearer" ? credential.token : "");
         setError(undefined);
         setNotice(undefined);
         setDiagnostic(undefined);
@@ -162,13 +173,9 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
     setAuthMode(profile.authMode);
     setAllowHttp(profile.allowDevelopmentHttp);
     setUsername(credential?.mode === "basic" ? credential.username : "");
-    setSecret(
-      credential?.mode === "basic"
-        ? credential.password
-        : credential?.mode === "bearer"
-          ? credential.token
-          : "",
-    );
+    setPassword(credential?.mode === "basic" ? credential.password : "");
+    setToken(credential?.mode === "bearer" ? credential.token : "");
+    setShowSecret(false);
     resetResults();
   }
 
@@ -180,9 +187,10 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
     setOrigin("");
     setAuthMode("basic");
     setUsername("");
-    setSecret("");
+    setPassword("");
+    setToken("");
+    setShowSecret(false);
     setAllowHttp(false);
-    setPendingRemovalId(undefined);
     setShowDetails(true);
     resetResults();
   }
@@ -225,124 +233,116 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
     lifecycleProbe.reset();
   }
 
-  async function testConnection() {
-    setError(undefined);
-    setNotice(undefined);
-    setDiagnostic(undefined);
-    setStreamDiagnostic(undefined);
-    setPtyDiagnostic(undefined);
-    lifecycleProbe.reset();
+  // Any edit makes earlier results describe a different connection.
+  function edited<T>(setter: (value: T) => void) {
+    return (value: T) => {
+      setter(value);
+      resetResults();
+    };
+  }
 
+  function resolveTarget(): ConnectionTarget | undefined {
     let normalizedOrigin: string;
     try {
-      normalizedOrigin = normalizeOpenCodeBaseUrl(origin);
+      normalizedOrigin = normalizeOpenCodeBaseUrl(withInferredScheme(origin));
     } catch (caught) {
       setError(urlErrorMessage(caught));
-      return;
+      return undefined;
     }
-
     if (normalizedOrigin.startsWith("http:") && !allowHttp) {
-      setError("Approve private-network HTTP before connecting without TLS.");
-      return;
+      setError(httpNotAllowedMessage);
+      return undefined;
     }
     if (Device.isDevice && isLoopbackHost(normalizedOrigin)) {
       setError(
-        "localhost points to this phone. Use your computer's LAN address, Tailscale address, or remote hostname.",
+        "localhost points to this phone. Use your computer's network address, Tailscale address, or hostname.",
       );
-      return;
+      return undefined;
     }
-
     const credential = credentialFromInput(authMode, username, secret);
     if (credential === "MISSING") {
       setError(authMode === "basic" ? "Enter a username and password." : "Enter a bearer token.");
-      return;
+      return undefined;
     }
+    return { credential, origin: normalizedOrigin };
+  }
 
-    setBusy(true);
+  async function checkServer(target: ConnectionTarget): Promise<Diagnostic | undefined> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
-
     try {
       const client = createOpenCodeClient({
-        baseUrl: normalizedOrigin,
+        baseUrl: target.origin,
         fetch: boundedOpenCodeFetch,
-        ...(credential ? { authorization: connectionAuthorizationHeader(credential) } : {}),
+        ...(target.credential
+          ? { authorization: connectionAuthorizationHeader(target.credential) }
+          : {}),
       });
       const requestOptions = { signal: controller.signal };
       const [health, sessions] = await Promise.all([
         client.server.status(requestOptions),
         client.session.list({ limit: 1, order: "desc" }, requestOptions),
       ]);
-
-      setOrigin(normalizedOrigin);
-      setDiagnostic({
+      setOrigin(target.origin);
+      return {
         advertisedUrls: health.urls.length,
         checkedAtMs: Date.now(),
-        configurationKey: connectionConfigurationKey(
-          normalizedOrigin,
-          authMode,
-          username,
-          secret,
-          allowHttp,
-        ),
         pid: health.pid,
         sessions: sessions.data.length,
         version: health.version,
-      });
+      };
     } catch (caught) {
       setError(connectionErrorMessage(classifyOpenCodeError(caught)));
+      return undefined;
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  async function testConnection() {
+    resetResults();
+    const target = resolveTarget();
+    if (!target) return;
+    setBusy(true);
+    try {
+      setDiagnostic(await checkServer(target));
+    } finally {
       setBusy(false);
     }
   }
 
-  async function saveConnection() {
-    setError(undefined);
-    setNotice(undefined);
-    const credential = credentialFromInput(authMode, username, secret);
-    if (credential === "MISSING") {
-      setError(authMode === "basic" ? "Enter a username and password." : "Enter a bearer token.");
-      return;
-    }
+  async function connect() {
+    if (actionsDisabled) return;
+    resetResults();
+    const target = resolveTarget();
+    if (!target) return;
 
-    let normalizedOrigin: string;
-    try {
-      normalizedOrigin = normalizeOpenCodeBaseUrl(origin);
-    } catch (caught) {
-      setError(urlErrorMessage(caught));
-      return;
-    }
-    if (
-      !diagnostic ||
-      diagnostic.configurationKey !==
-        connectionConfigurationKey(normalizedOrigin, authMode, username, secret, allowHttp)
-    ) {
-      setError("Test this exact connection before saving it.");
-      return;
-    }
+    setBusy(true);
+    const checked = await checkServer(target);
+    setBusy(false);
+    if (!checked) return;
 
     setSaving(true);
     let saved = false;
     try {
       const id = await connections.save({
-        ...(credential ? { credential } : {}),
+        ...(target.credential ? { credential: target.credential } : {}),
         draft: {
           allowDevelopmentHttp: allowHttp,
           authMode,
-          baseUrl: normalizedOrigin,
+          baseUrl: target.origin,
           ...(editingProfileId ? { id: editingProfileId } : {}),
-          name,
+          name: name.trim() || new URL(target.origin).hostname.slice(0, 80),
         },
         health: {
-          checkedAtMs: diagnostic.checkedAtMs,
-          pid: diagnostic.pid,
-          version: diagnostic.version,
+          checkedAtMs: checked.checkedAtMs,
+          pid: checked.pid,
+          version: checked.version,
         },
       });
       setEditingProfileId(id);
       setLoadedProfileId(id);
-      setNotice("Connection saved and selected.");
+      setNotice("Connected and saved.");
       saved = true;
     } catch (caught) {
       setError(profileErrorMessage(caught));
@@ -352,17 +352,23 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
     if (saved) onDone?.();
   }
 
+  function confirmRemoval(profile: ConnectionProfile) {
+    Alert.alert(
+      `Remove ${profile.name}?`,
+      `This removes ${new URL(profile.baseUrl).host} and its saved credentials from this device.`,
+      [
+        { style: "cancel", text: "Cancel" },
+        { onPress: () => void removeProfile(profile), style: "destructive", text: "Remove" },
+      ],
+    );
+  }
+
   async function removeProfile(profile: ConnectionProfile) {
-    if (pendingRemovalId !== profile.id) {
-      setPendingRemovalId(profile.id);
-      return;
-    }
     setError(undefined);
     setNotice(undefined);
     try {
       await connections.remove(profile.id);
       if (editingProfileId === profile.id) newConnection();
-      else setPendingRemovalId(undefined);
       setNotice("Connection and credentials removed from this device.");
     } catch {
       setError("The connection could not be removed. Try again.");
@@ -372,32 +378,17 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   async function testEventStream() {
     setError(undefined);
     setStreamDiagnostic(undefined);
-
-    let normalizedOrigin: string;
-    try {
-      normalizedOrigin = normalizeOpenCodeBaseUrl(origin);
-    } catch (caught) {
-      setError(urlErrorMessage(caught));
-      return;
-    }
-
-    if (normalizedOrigin.startsWith("http:") && !allowHttp) {
-      setError("Approve private-network HTTP before connecting without TLS.");
-      return;
-    }
-
-    const credential = credentialFromInput(authMode, username, secret);
-    if (credential === "MISSING") {
-      setError(authMode === "basic" ? "Enter a username and password." : "Enter a bearer token.");
-      return;
-    }
+    const target = resolveTarget();
+    if (!target) return;
 
     setStreamBusy(true);
     try {
       const client = createOpenCodeClient({
-        baseUrl: normalizedOrigin,
+        baseUrl: target.origin,
         fetch: expoOpenCodeFetch,
-        ...(credential ? { authorization: connectionAuthorizationHeader(credential) } : {}),
+        ...(target.credential
+          ? { authorization: connectionAuthorizationHeader(target.credential) }
+          : {}),
       });
       const result = await probeEventStream(client);
       setStreamDiagnostic(result);
@@ -411,34 +402,19 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   async function testPtyTransport() {
     setError(undefined);
     setPtyDiagnostic(undefined);
-
-    let normalizedOrigin: string;
-    try {
-      normalizedOrigin = normalizeOpenCodeBaseUrl(origin);
-    } catch (caught) {
-      setError(urlErrorMessage(caught));
-      return;
-    }
-
-    if (normalizedOrigin.startsWith("http:") && !allowHttp) {
-      setError("Approve private-network HTTP before connecting without TLS.");
-      return;
-    }
-
-    const credential = credentialFromInput(authMode, username, secret);
-    if (credential === "MISSING") {
-      setError(authMode === "basic" ? "Enter a username and password." : "Enter a bearer token.");
-      return;
-    }
+    const target = resolveTarget();
+    if (!target) return;
 
     setPtyBusy(true);
     try {
       const client = createOpenCodeClient({
-        baseUrl: normalizedOrigin,
+        baseUrl: target.origin,
         fetch: boundedOpenCodeFetch,
-        ...(credential ? { authorization: connectionAuthorizationHeader(credential) } : {}),
+        ...(target.credential
+          ? { authorization: connectionAuthorizationHeader(target.credential) }
+          : {}),
       });
-      setPtyDiagnostic(await probePtyTransport(client, normalizedOrigin));
+      setPtyDiagnostic(await probePtyTransport(client, target.origin));
     } catch (caught) {
       setError(ptyProbeErrorMessage(caught));
     } finally {
@@ -449,34 +425,19 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   async function testLifecycleRecovery() {
     setError(undefined);
     lifecycleProbe.reset();
+    const target = resolveTarget();
+    if (!target) return;
 
-    let normalizedOrigin: string;
-    try {
-      normalizedOrigin = normalizeOpenCodeBaseUrl(origin);
-    } catch (caught) {
-      setError(urlErrorMessage(caught));
-      return;
-    }
-
-    if (normalizedOrigin.startsWith("http:") && !allowHttp) {
-      setError("Approve private-network HTTP before connecting without TLS.");
-      return;
-    }
-
-    const credential = credentialFromInput(authMode, username, secret);
-    if (credential === "MISSING") {
-      setError(authMode === "basic" ? "Enter a username and password." : "Enter a bearer token.");
-      return;
-    }
-
-    const authorization = credential ? connectionAuthorizationHeader(credential) : undefined;
+    const authorization = target.credential
+      ? connectionAuthorizationHeader(target.credential)
+      : undefined;
     const streamClient = createOpenCodeClient({
-      baseUrl: normalizedOrigin,
+      baseUrl: target.origin,
       fetch: expoOpenCodeFetch,
       ...(authorization ? { authorization } : {}),
     });
     const restClient = createOpenCodeClient({
-      baseUrl: normalizedOrigin,
+      baseUrl: target.origin,
       fetch: boundedOpenCodeFetch,
       ...(authorization ? { authorization } : {}),
     });
@@ -487,22 +448,36 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
     }
   }
 
+  function focusAfterName() {
+    if (authMode === "basic") usernameInput.current?.focus();
+    else if (authMode === "bearer") secretInput.current?.focus();
+    else void connect();
+  }
+
   const editingProfile = connections.profiles.find((profile) => profile.id === editingProfileId);
   const actionsDisabled = saving || busy || streamBusy || ptyBusy || lifecycleBusy;
   const centeredTitle = Platform.OS === "ios";
+  const firstRun = connections.ready && connections.profiles.length === 0;
+  const showHero = firstRun && !showDetails;
+  const usesHttp = withInferredScheme(origin).toLowerCase().startsWith("http:");
+  const secretLabel = authMode === "basic" ? "Password" : "Token";
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
       <StatusBar style="light" />
       <View style={styles.header}>
         {centeredTitle ? <View style={styles.headerSide} /> : null}
-        <Text
-          accessibilityRole="header"
-          dynamicTypeRamp={typeRamp.navTitle}
-          style={[styles.title, centeredTitle ? styles.titleCentered : styles.titleLeading]}
-        >
-          Connections
-        </Text>
+        {showHero ? (
+          <View style={styles.flex} />
+        ) : (
+          <Text
+            accessibilityRole="header"
+            dynamicTypeRamp={typeRamp.navTitle}
+            style={[styles.title, centeredTitle ? styles.titleCentered : styles.titleLeading]}
+          >
+            Connections
+          </Text>
+        )}
         <View style={[styles.headerTrailing, centeredTitle && styles.headerSide]}>
           {onDone ? (
             <Pressable
@@ -521,16 +496,8 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
           ) : null}
         </View>
       </View>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.flex}
-      >
+      <FormKeyboardAvoidingView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          {connections.profiles.length === 0 ? (
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.intro}>
-              Switch servers or add a direct OpenCode V2 connection.
-            </Text>
-          ) : null}
           {connections.error ? (
             <Text
               accessibilityRole="alert"
@@ -541,89 +508,122 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
             </Text>
           ) : null}
 
-          <SettingsGroup title="Saved servers">
-            {!connections.ready ? (
-              <View style={[styles.messageRow, styles.separator]}>
-                <ActivityIndicator color={palette.signal} />
-              </View>
-            ) : null}
-            {connections.ready && connections.profiles.length === 0 ? (
-              <View style={[styles.messageRow, styles.separator]}>
-                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
-                  No connections saved on this device.
+          {showHero ? (
+            <View style={styles.firstRun}>
+              <View style={styles.hero}>
+                <View style={styles.heroIcon}>
+                  <Feather accessible={false} color={palette.ink} name="camera" size={40} />
+                </View>
+                <Text
+                  accessibilityRole="header"
+                  dynamicTypeRamp={typeRamp.largeTitle}
+                  style={styles.heroTitle}
+                >
+                  Connect to OpenCode
+                </Text>
+                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.heroCopy}>
+                  Run{" "}
+                  <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.inlineCode}>
+                    /pair
+                  </Text>{" "}
+                  in OpenCode on your computer, then scan the code it shows to connect. Credentials
+                  are stored in the device keychain.
                 </Text>
               </View>
-            ) : null}
-            {connections.profiles.map((profile) => {
-              const selected = connections.selectedProfileId === profile.id;
-              return (
-                <View
-                  key={profile.id}
-                  style={[
-                    styles.profileRow,
-                    styles.separator,
-                    largeText && styles.profileRowLargeText,
-                  ]}
-                >
-                  <Pressable
-                    accessibilityLabel={`Select ${profile.name}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    android_ripple={Platform.OS === "android" ? ripple : undefined}
-                    onPress={() => void selectProfile(profile)}
-                    style={({ pressed }) => [
-                      styles.profileMain,
-                      pressed && Platform.OS === "ios" && styles.pressed,
+              {onPair ? (
+                <Button
+                  fullWidth
+                  icon="camera"
+                  label="Scan pairing code"
+                  onPress={onPair}
+                  variant="primary"
+                />
+              ) : null}
+              <Button fullWidth label="Enter address manually" onPress={newConnection} />
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footer}>
+                You can add more servers later in Settings.
+              </Text>
+            </View>
+          ) : null}
+
+          {firstRun ? null : (
+            <SettingsGroup title="Saved servers">
+              {!connections.ready ? (
+                <View style={[styles.messageRow, styles.separator]}>
+                  <ActivityIndicator color={palette.signal} />
+                </View>
+              ) : null}
+              {connections.profiles.map((profile) => {
+                const selected = connections.selectedProfileId === profile.id;
+                return (
+                  <View
+                    key={profile.id}
+                    style={[
+                      styles.profileRow,
+                      styles.separator,
+                      largeText && styles.profileRowLargeText,
                     ]}
                   >
-                    <View style={styles.profileCopy}>
-                      <Text
-                        dynamicTypeRamp={typeRamp.body}
-                        numberOfLines={largeText ? undefined : 1}
-                        style={styles.profileName}
-                      >
-                        {profile.name}
-                      </Text>
-                      <Text
-                        dynamicTypeRamp={typeRamp.footnote}
-                        numberOfLines={largeText ? undefined : 1}
-                        style={styles.profileOrigin}
-                      >
-                        {profile.baseUrl}
-                      </Text>
-                      {profile.allowDevelopmentHttp ? (
-                        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.httpLabel}>
-                          Cleartext HTTP approved
+                    <Pressable
+                      accessibilityLabel={`Select ${profile.name}`}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      android_ripple={Platform.OS === "android" ? ripple : undefined}
+                      onPress={() => void selectProfile(profile)}
+                      style={({ pressed }) => [
+                        styles.profileMain,
+                        pressed && Platform.OS === "ios" && styles.pressed,
+                      ]}
+                    >
+                      <View style={styles.profileCopy}>
+                        <Text
+                          dynamicTypeRamp={typeRamp.body}
+                          numberOfLines={largeText ? undefined : 1}
+                          style={styles.profileName}
+                        >
+                          {profile.name}
                         </Text>
+                        <Text
+                          dynamicTypeRamp={typeRamp.footnote}
+                          numberOfLines={largeText ? undefined : 1}
+                          style={styles.profileOrigin}
+                        >
+                          {profile.baseUrl}
+                        </Text>
+                        {profile.allowDevelopmentHttp ? (
+                          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.httpLabel}>
+                            HTTP allowed, not encrypted
+                          </Text>
+                        ) : null}
+                      </View>
+                      {selected ? (
+                        <Feather accessible={false} color={palette.signal} name="check" size={18} />
                       ) : null}
-                    </View>
-                    {selected ? (
-                      <Feather accessible={false} color={palette.signal} name="check" size={18} />
-                    ) : null}
-                  </Pressable>
-                  <Button
-                    accessibilityLabel={`Edit ${profile.name}`}
-                    align={largeText ? "start" : "center"}
-                    label="Edit"
-                    onPress={() => void editProfile(profile)}
-                    size="compact"
-                    style={largeText ? styles.profileActionLargeText : styles.profileAction}
-                    variant="text"
-                  />
-                </View>
-              );
-            })}
-            <MenuRow
-              disclosure={false}
-              icon="plus"
-              label="Add server"
-              last={!onPair}
-              onPress={newConnection}
-            />
-            {onPair ? (
-              <MenuRow icon="camera" label="Pair with QR code" last onPress={onPair} />
-            ) : null}
-          </SettingsGroup>
+                    </Pressable>
+                    <Button
+                      accessibilityLabel={`Edit ${profile.name}`}
+                      align={largeText ? "start" : "center"}
+                      label="Edit"
+                      onPress={() => void editProfile(profile)}
+                      size="compact"
+                      style={largeText ? styles.profileActionLargeText : styles.profileAction}
+                      variant="text"
+                    />
+                  </View>
+                );
+              })}
+              <MenuRow
+                disclosure={false}
+                icon="plus"
+                label="Add server"
+                last={!onPair}
+                onPress={newConnection}
+              />
+              {onPair ? (
+                <MenuRow icon="camera" label="Scan pairing code" last onPress={onPair} />
+              ) : null}
+            </SettingsGroup>
+          )}
 
           {notice && !showDetails ? (
             <Text
@@ -655,42 +655,75 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                   >
                     {editingProfileId ? "Server details" : "New server"}
                   </Text>
-                  {connections.profiles.length > 0 ? (
-                    <Button
-                      accessibilityLabel="Hide connection details"
-                      label="Hide"
-                      onPress={() => setShowDetails(false)}
-                      size="compact"
-                      variant="text"
-                    />
-                  ) : null}
+                  <Button
+                    accessibilityLabel="Hide connection details"
+                    label="Hide"
+                    onPress={() => setShowDetails(false)}
+                    size="compact"
+                    variant="text"
+                  />
                 </View>
                 <View style={managementStyles.group}>
+                  <Field label="Server address">
+                    <TextInput
+                      accessibilityLabel="Server address"
+                      autoCapitalize="none"
+                      autoComplete="url"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      keyboardAppearance="dark"
+                      onChangeText={edited(setOrigin)}
+                      onSubmitEditing={() => nameInput.current?.focus()}
+                      placeholder="192.168.1.20:4096"
+                      placeholderTextColor={palette.dim}
+                      returnKeyType="next"
+                      style={styles.input}
+                      submitBehavior="submit"
+                      textContentType="URL"
+                      value={origin}
+                    />
+                  </Field>
+
+                  {usesHttp || allowHttp ? (
+                    <View
+                      style={[
+                        styles.switchRow,
+                        styles.separator,
+                        largeText && styles.switchRowLargeText,
+                      ]}
+                    >
+                      <View style={styles.switchCopy}>
+                        <Text dynamicTypeRamp={typeRamp.body} style={styles.rowTitle}>
+                          Allow HTTP
+                        </Text>
+                        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.rowDescription}>
+                          HTTP is not encrypted. Anyone on the network path can read your password
+                          and sessions. Use it only on your own network or Tailscale.
+                        </Text>
+                      </View>
+                      <Switch
+                        {...switchColors}
+                        accessibilityLabel="Allow HTTP"
+                        onValueChange={edited(setAllowHttp)}
+                        value={allowHttp}
+                      />
+                    </View>
+                  ) : null}
+
                   <Field label="Name">
                     <TextInput
                       accessibilityLabel="Connection name"
                       keyboardAppearance="dark"
                       maxLength={80}
-                      onChangeText={setName}
-                      placeholder="My OpenCode server"
+                      onChangeText={edited(setName)}
+                      onSubmitEditing={focusAfterName}
+                      placeholder={addressHostname(origin) || "My OpenCode server"}
                       placeholderTextColor={palette.dim}
+                      ref={nameInput}
+                      returnKeyType={authMode === "none" ? "go" : "next"}
                       style={styles.input}
+                      submitBehavior={authMode === "none" ? "blurAndSubmit" : "submit"}
                       value={name}
-                    />
-                  </Field>
-
-                  <Field label="Server address">
-                    <TextInput
-                      accessibilityLabel="Server origin"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardType="url"
-                      keyboardAppearance="dark"
-                      onChangeText={setOrigin}
-                      placeholder="http://100.64.0.10:4096"
-                      placeholderTextColor={palette.dim}
-                      style={styles.input}
-                      value={origin}
                     />
                   </Field>
 
@@ -705,10 +738,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                     </Text>
                     <SegmentedControl
                       accessibilityLabel="Authentication"
-                      onChange={(mode) => {
-                        setAuthMode(mode);
-                        setSecret("");
-                      }}
+                      onChange={edited(setAuthMode)}
                       options={authModeOptions}
                       surface="card"
                       value={authMode}
@@ -720,54 +750,60 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                       <TextInput
                         accessibilityLabel="Username"
                         autoCapitalize="none"
+                        autoComplete="username"
                         autoCorrect={false}
                         keyboardAppearance="dark"
-                        onChangeText={setUsername}
+                        onChangeText={edited(setUsername)}
+                        onSubmitEditing={() => secretInput.current?.focus()}
+                        ref={usernameInput}
+                        returnKeyType="next"
                         style={styles.input}
+                        submitBehavior="submit"
+                        textContentType="username"
                         value={username}
                       />
                     </Field>
                   ) : null}
 
                   {authMode !== "none" ? (
-                    <Field label={authMode === "basic" ? "Password" : "Token"} last>
-                      <TextInput
-                        accessibilityLabel={authMode === "basic" ? "Password" : "Token"}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardAppearance="dark"
-                        onChangeText={setSecret}
-                        secureTextEntry
-                        style={styles.input}
-                        value={secret}
-                      />
+                    <Field label={secretLabel} last>
+                      <View style={styles.secretRow}>
+                        <TextInput
+                          accessibilityLabel={secretLabel}
+                          autoCapitalize="none"
+                          autoComplete={authMode === "basic" ? "current-password" : "off"}
+                          autoCorrect={false}
+                          keyboardAppearance="dark"
+                          onChangeText={edited(authMode === "basic" ? setPassword : setToken)}
+                          onSubmitEditing={() => void connect()}
+                          ref={secretInput}
+                          returnKeyType="go"
+                          secureTextEntry={!showSecret}
+                          style={[styles.input, styles.secretInput]}
+                          textContentType={authMode === "basic" ? "password" : "none"}
+                          value={secret}
+                        />
+                        <Pressable
+                          accessibilityLabel={`${showSecret ? "Hide" : "Show"} ${secretLabel.toLowerCase()}`}
+                          accessibilityRole="button"
+                          android_ripple={Platform.OS === "android" ? borderlessRipple : undefined}
+                          hitSlop={secretToggleHitSlop}
+                          onPress={() => setShowSecret((visible) => !visible)}
+                          style={({ pressed }) => [
+                            styles.secretToggle,
+                            pressed && Platform.OS === "ios" && styles.pressed,
+                          ]}
+                        >
+                          <Feather
+                            accessible={false}
+                            color={palette.dim}
+                            name={showSecret ? "eye-off" : "eye"}
+                            size={20}
+                          />
+                        </Pressable>
+                      </View>
                     </Field>
                   ) : null}
-                </View>
-                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.helper}>
-                  Physical devices need a LAN, Tailscale, tunnel, or remote address. iOS Simulator
-                  can usually use the Mac's localhost. Android Emulator commonly uses 10.0.2.2 for
-                  its host.
-                </Text>
-              </View>
-
-              <View style={managementStyles.group}>
-                <View style={[styles.switchRow, largeText && styles.switchRowLargeText]}>
-                  <View style={styles.switchCopy}>
-                    <Text dynamicTypeRamp={typeRamp.body} style={styles.rowTitle}>
-                      Allow private-network HTTP
-                    </Text>
-                    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.rowDescription}>
-                      HTTP exposes credentials and session data to anyone who can observe the route.
-                      Use it only on an approved Tailscale or private network.
-                    </Text>
-                  </View>
-                  <Switch
-                    {...switchColors}
-                    accessibilityLabel="Allow private-network HTTP"
-                    onValueChange={setAllowHttp}
-                    value={allowHttp}
-                  />
                 </View>
               </View>
 
@@ -790,38 +826,22 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                 </Text>
               ) : null}
 
-              {diagnostic ? <DiagnosticCard diagnostic={diagnostic} /> : null}
-
-              {diagnostic ? (
-                <View style={styles.actions}>
-                  <Button
-                    busy={saving}
-                    disabled={actionsDisabled}
-                    fullWidth
-                    label={
-                      saving ? "Saving…" : editingProfileId ? "Save changes" : "Save connection"
-                    }
-                    onPress={() => void saveConnection()}
-                    variant="primary"
-                  />
-                  <Button
-                    busy={busy}
-                    disabled={actionsDisabled}
-                    fullWidth
-                    label={busy ? "Testing…" : "Test again"}
-                    onPress={() => void testConnection()}
-                  />
-                </View>
-              ) : (
-                <Button
-                  busy={busy}
-                  disabled={actionsDisabled}
-                  fullWidth
-                  label={busy ? "Testing…" : "Test connection"}
-                  onPress={() => void testConnection()}
-                  variant="primary"
-                />
-              )}
+              <Button
+                busy={busy || saving}
+                disabled={actionsDisabled}
+                fullWidth
+                label={
+                  busy
+                    ? "Connecting…"
+                    : saving
+                      ? "Saving…"
+                      : editingProfileId
+                        ? "Save changes"
+                        : "Connect"
+                }
+                onPress={() => void connect()}
+                variant="primary"
+              />
 
               <MenuGroup>
                 <MenuRow
@@ -836,6 +856,11 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
 
               {showAdvanced ? (
                 <View style={styles.advanced}>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.helper}>
+                    Physical devices need a LAN, Tailscale, tunnel, or remote address. iOS Simulator
+                    can usually use the Mac's localhost. Android Emulator commonly uses 10.0.2.2 for
+                    its host.
+                  </Text>
                   {runtime.status !== "idle" ? (
                     <View accessibilityLiveRegion="polite" style={styles.runtimeStatus}>
                       <View style={styles.resultHeading}>
@@ -856,7 +881,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                       ) : null}
                       {runtime.cacheMetadata ? (
                         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.runtimeCopy}>
-                          Cached shell: {runtime.cacheMetadata.projectCount} projects /{" "}
+                          Cached list: {runtime.cacheMetadata.projectCount} projects,{" "}
                           {runtime.cacheMetadata.activeSessionCount} active
                         </Text>
                       ) : null}
@@ -900,6 +925,16 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                     </View>
                   ) : null}
 
+                  <Button
+                    busy={busy}
+                    disabled={actionsDisabled}
+                    fullWidth
+                    label={busy ? "Testing…" : "Test without saving"}
+                    onPress={() => void testConnection()}
+                  />
+
+                  {diagnostic ? <DiagnosticCard diagnostic={diagnostic} /> : null}
+
                   {diagnostic ? (
                     <Button
                       busy={streamBusy}
@@ -910,11 +945,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                       }
                       onPress={() => void testEventStream()}
                     />
-                  ) : (
-                    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.helper}>
-                      Test the connection to run transport probes.
-                    </Text>
-                  )}
+                  ) : null}
 
                   {streamDiagnostic ? <StreamDiagnosticCard diagnostic={streamDiagnostic} /> : null}
 
@@ -948,38 +979,33 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                   {lifecycleProbe.result ? (
                     <LifecycleDiagnosticCard diagnostic={lifecycleProbe.result} />
                   ) : null}
+
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footer}>
+                    Client contract {openCodeClientContractVersion} / Hermes native
+                  </Text>
                 </View>
               ) : null}
 
               {editingProfile ? (
                 <Button
-                  accessibilityLabel={
-                    pendingRemovalId === editingProfile.id
-                      ? `Confirm remove ${editingProfile.name}`
-                      : `Remove ${editingProfile.name}`
-                  }
+                  accessibilityLabel={`Remove ${editingProfile.name}`}
                   fullWidth
-                  label={
-                    pendingRemovalId === editingProfile.id ? "Confirm remove" : "Remove server"
-                  }
-                  onPress={() => void removeProfile(editingProfile)}
+                  label="Remove server"
+                  onPress={() => confirmRemoval(editingProfile)}
                   variant="danger"
                 />
               ) : null}
             </View>
           ) : null}
-
-          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footer}>
-            Client contract {openCodeClientContractVersion} / Hermes native
-          </Text>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </FormKeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const ripple = { color: "rgba(255,255,255,0.12)" };
 const borderlessRipple = { ...ripple, borderless: true };
+const secretToggleHitSlop = { bottom: space.sm, top: space.sm };
 
 const authModeOptions = [
   { label: "Basic", value: "basic" },
@@ -1012,6 +1038,7 @@ function Field({
 }
 
 function ResultCard({ children, title }: { children: ReactNode; title: string }) {
+  useAnnouncement(title);
   return (
     <View accessibilityLiveRegion="polite" style={styles.resultCard}>
       <View style={styles.resultHeading}>
@@ -1086,6 +1113,7 @@ function LifecyclePrompt({ phase }: { phase: LifecycleTransportPhase }) {
     "ready-to-background": "Send the app to the background, wait a moment, then return to it.",
     recovering: "Foreground detected. Checking health and opening a fresh event stream.",
   }[phase];
+  useAnnouncement(copy);
 
   return (
     <View accessibilityLiveRegion="polite" style={[styles.resultCard, styles.lifecyclePrompt]}>
@@ -1127,16 +1155,6 @@ function credentialFromInput(
   return username && secret ? { mode, password: secret, schemaVersion: 1, username } : "MISSING";
 }
 
-function connectionConfigurationKey(
-  origin: string,
-  mode: ConnectionAuthMode,
-  username: string,
-  secret: string,
-  allowHttp: boolean,
-) {
-  return JSON.stringify([origin, mode, username, secret, allowHttp]);
-}
-
 function isLoopbackHost(origin: string) {
   const hostname = new URL(origin).hostname.toLowerCase();
   return (
@@ -1173,13 +1191,17 @@ function runtimeStatusLabel(status: ReturnType<typeof useConnectionRuntime>["sta
 }
 
 function urlErrorMessage(error: unknown) {
-  if (!(error instanceof Error)) return "Enter a valid HTTP or HTTPS server origin.";
-  if (error.message === "UNSUPPORTED_PROTOCOL") return "Use an HTTP or HTTPS URL.";
-  if (error.message === "EMBEDDED_CREDENTIALS") return "Enter credentials in the fields below.";
-  if (error.message === "BASE_URL_MUST_BE_ORIGIN") {
-    return "Enter only the server origin, without a path, query, or fragment.";
+  const code = error instanceof Error ? error.message : undefined;
+  if (code === "UNSUPPORTED_PROTOCOL") {
+    return "Use an address that starts with http:// or https://.";
   }
-  return "Enter a valid HTTP or HTTPS server origin.";
+  if (code === "EMBEDDED_CREDENTIALS") {
+    return "Enter the username and password in their own fields, not in the address.";
+  }
+  if (code === "BASE_URL_MUST_BE_ORIGIN") {
+    return "Enter only the server address and port, with nothing after them.";
+  }
+  return "Enter a server address, like 192.168.1.20:4096 or https://opencode.example.com.";
 }
 
 function connectionErrorMessage(kind: ReturnType<typeof classifyOpenCodeError>) {
@@ -1240,7 +1262,6 @@ function ptyProbeErrorMessage(error: unknown) {
 }
 
 const styles = StyleSheet.create({
-  actions: { gap: space.sm },
   advanced: { gap: space.md },
   content: {
     alignSelf: "center",
@@ -1269,7 +1290,6 @@ const styles = StyleSheet.create({
     minWidth: minTouchTarget,
   },
   doneLabel: { ...typography.navTitle, color: palette.signal },
-  emptyCopy: { ...typography.subheadline, color: palette.dim },
   error: { borderColor: palette.danger, color: palette.danger },
   fieldLabel: { ...typography.footnote, color: palette.dim },
   fieldRow: {
@@ -1279,6 +1299,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
+  firstRun: { gap: space.md, paddingTop: space.xl },
   flex: { flex: 1 },
   footer: {
     ...typography.footnote,
@@ -1293,6 +1314,20 @@ const styles = StyleSheet.create({
   },
   headerSide: { flex: 1 },
   headerTrailing: { alignItems: "flex-end" },
+  hero: { alignItems: "center", gap: space.sm, marginBottom: space.md },
+  heroCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  heroIcon: {
+    alignItems: "center",
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    height: 88,
+    justifyContent: "center",
+    marginBottom: space.sm,
+    width: 88,
+  },
+  heroTitle: { ...typography.largeTitle, color: palette.ink, textAlign: "center" },
   helper: {
     ...typography.footnote,
     color: palette.dim,
@@ -1306,7 +1341,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     paddingVertical: 0,
   },
-  intro: { ...typography.subheadline, color: palette.dim },
+  inlineCode: { color: palette.ink, fontFamily: typography.code.fontFamily },
   lifecycleCopy: { ...typography.subheadline, color: palette.dim },
   lifecyclePrompt: { borderColor: palette.warm },
   lifecycleTitle: { ...typography.sectionLabel, color: palette.warm },
@@ -1398,6 +1433,14 @@ const styles = StyleSheet.create({
   safeArea: {
     backgroundColor: palette.background,
     flex: 1,
+  },
+  secretInput: { flex: 1 },
+  secretRow: { alignItems: "center", flexDirection: "row", gap: space.xs },
+  secretToggle: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 32,
+    minWidth: minTouchTarget,
   },
   section: { gap: space.xs },
   sectionTitle: {

@@ -10,6 +10,9 @@ let mockConnections: {
   ready: boolean;
 };
 let mockPendingCount = 0;
+let mockTablet = false;
+
+type HostNode = { props: Record<string, unknown>; type: unknown };
 
 jest.mock("../connections/connections-context", () => ({
   useConnections: () => mockConnections,
@@ -19,7 +22,7 @@ jest.mock("../screens/app-shell", () => {
   return {
     ConnectionStorageFailureScreen: () => <Text>Connection storage failed</Text>,
     ConnectionStorageLoadingScreen: () => <Text>Connection storage loading</Text>,
-    isTabletShell: () => false,
+    isTabletShell: () => mockTablet,
     PendingInteractionsScreen: () => <Text>Pending screen</Text>,
     SettingsScreen: () => <Text>Settings screen</Text>,
   };
@@ -53,21 +56,35 @@ jest.mock("../screens/workspace-screen", () => {
 jest.mock("../screens/connection-screen", () => {
   const { Pressable, Text } = jest.requireActual<typeof import("react-native")>("react-native");
   return {
-    ConnectionScreen: ({ onDone }: { onDone?: () => void }) => (
-      <Pressable accessibilityRole="button" onPress={onDone}>
-        <Text>Connection manager</Text>
-      </Pressable>
+    ConnectionScreen: ({ onDone, onPair }: { onDone?: () => void; onPair?: () => void }) => (
+      <>
+        <Pressable accessibilityRole="button" onPress={onDone}>
+          <Text>Connection manager</Text>
+        </Pressable>
+        {onPair ? (
+          <Pressable accessibilityRole="button" onPress={onPair}>
+            <Text>Scan pairing code</Text>
+          </Pressable>
+        ) : null}
+      </>
     ),
   };
 });
 jest.mock("../screens/notification-pairing-screen", () => {
-  const { Text } = jest.requireActual<typeof import("react-native")>("react-native");
-  return { NotificationPairingScreen: () => <Text>Notification pairing</Text> };
+  const { Pressable, Text } = jest.requireActual<typeof import("react-native")>("react-native");
+  return {
+    NotificationPairingScreen: ({ onDone }: { onDone: () => void }) => (
+      <Pressable accessibilityRole="button" onPress={onDone}>
+        <Text>Notification pairing</Text>
+      </Pressable>
+    ),
+  };
 });
 
 beforeEach(() => {
   mockConnections = { profiles: [], ready: true };
   mockPendingCount = 0;
+  mockTablet = false;
 });
 
 test("shows loading, failure, and first-run onboarding gates", () => {
@@ -186,4 +203,94 @@ test("pushes session detail and presents workspace management routes over it", a
   expect(await screen.findByText("Settings screen")).toBeOnTheScreen();
   act(() => navigation.goBack());
   expect(await screen.findByText("Session screen")).toBeOnTheScreen();
+});
+
+test("presents first-run pairing as a modal that returns to first run", async () => {
+  const navigation = createNavigationContainerRef<RootStackParamList>();
+  render(
+    <NavigationContainer ref={navigation}>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  expect(await screen.findByText("Connection manager")).toBeOnTheScreen();
+
+  fireEvent.press(screen.getByRole("button", { name: "Scan pairing code" }));
+  expect(await screen.findByText("Notification pairing")).toBeOnTheScreen();
+  expect(navigation.getCurrentRoute()?.name).toBe("Pairing");
+  act(() => navigation.goBack());
+  expect(await screen.findByText("Connection manager")).toBeOnTheScreen();
+  expect(navigation.getCurrentRoute()?.name).toBe("Connections");
+
+  fireEvent.press(screen.getByRole("button", { name: "Scan pairing code" }));
+  fireEvent.press(await screen.findByRole("button", { name: "Notification pairing" }));
+  expect(await screen.findByText("Connection manager")).toBeOnTheScreen();
+});
+
+test("hands over to the main stack once a profile exists", async () => {
+  const view = render(
+    <NavigationContainer>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  expect(await screen.findByText("Connection manager")).toBeOnTheScreen();
+
+  mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+  view.rerender(
+    <NavigationContainer>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
+});
+
+test("keeps the title and Done on management modals on tablets", async () => {
+  mockTablet = true;
+  mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+  const navigation = createNavigationContainerRef<RootStackParamList>();
+  render(
+    <NavigationContainer ref={navigation}>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  await screen.findByText("Workspace shell");
+
+  for (const [route, body, title] of [
+    ["Settings", "Settings screen", "Settings"],
+    ["Pending", "Pending screen", "Needs you"],
+    ["FollowedProjects", "Followed projects screen", "Followed projects"],
+  ] as const) {
+    act(() => navigation.navigate(route));
+    expect(await screen.findByText(body)).toBeOnTheScreen();
+    const header = screen.UNSAFE_root.findAll(
+      (node: HostNode) => typeof node.type === "string" && node.props.title === title,
+    );
+    expect(header.length).toBeGreaterThan(0);
+    expect(header.every((node: HostNode) => !node.props.hidden)).toBe(true);
+    fireEvent.press(screen.getByRole("button", { name: "Done" }));
+    expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
+  }
+});
+
+test("describes waiting requests on the session back button in plain words", async () => {
+  mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+  mockPendingCount = 2;
+  const navigation = createNavigationContainerRef<RootStackParamList>();
+  render(
+    <NavigationContainer ref={navigation}>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  await screen.findByText("Workspace shell");
+  act(() =>
+    navigation.navigate("Session", {
+      connectionId: "connection-1",
+      location: { directory: "/workspace" },
+      sessionID: "ses_test",
+    }),
+  );
+  await screen.findByText("Session screen");
+
+  expect(screen.getByRole("button", { name: "Back to Sessions" })).toHaveAccessibilityValue({
+    text: "2 requests need you, up to date",
+  });
 });
