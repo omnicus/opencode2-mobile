@@ -49,9 +49,32 @@ test("variants change fill and label color; compact keeps the touch target", () 
   expect(screen.getByText("Delete")).toHaveStyle({ color: palette.danger });
   expect(screen.getByRole("button", { name: "Delete" })).toHaveStyle({ borderWidth: 1 });
   const text = screen.getByRole("button", { name: "Learn more" });
-  expect(text).toHaveStyle({ minHeight: 48, paddingHorizontal: 10 });
+  expect(text).toHaveStyle({ minHeight: 48, minWidth: 48, paddingHorizontal: 0 });
+  expect(text).toHaveProp("hitSlop", { left: 10, right: 10 });
   expect(text).not.toHaveStyle({ borderWidth: 1 });
   expect(screen.getByText("Learn more")).toHaveStyle({ color: palette.signal });
+  expect(screen.getByRole("button", { name: "Delete" })).not.toHaveProp("hitSlop");
+});
+
+test("align positions the button and style adds layout overrides", () => {
+  render(
+    <View>
+      <Button label="Center" align="center" onPress={() => {}} />
+      <Button
+        label="Stretch"
+        align="stretch"
+        style={{ marginTop: 8, flexGrow: 1 }}
+        onPress={() => {}}
+      />
+    </View>,
+  );
+  expect(screen.getByRole("button", { name: "Center" })).toHaveStyle({ alignSelf: "center" });
+  expect(screen.getByRole("button", { name: "Stretch" })).toHaveStyle({
+    alignSelf: "stretch",
+    marginTop: 8,
+    flexGrow: 1,
+    minHeight: 48,
+  });
 });
 
 test("busy and disabled buttons dim, report state, and ignore presses", () => {

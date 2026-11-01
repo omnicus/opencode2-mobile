@@ -5,6 +5,7 @@ import {
   type StyleProp,
   StyleSheet,
   TextInput,
+  type TextInputProps,
   View,
   type ViewStyle,
 } from "react-native";
@@ -24,6 +25,8 @@ export function SearchField({
   onFocus,
   onBlur,
   autoFocus,
+  returnKeyType,
+  onSubmitEditing,
   clearAccessibilityLabel = "Clear search",
   style,
 }: {
@@ -36,6 +39,8 @@ export function SearchField({
   onFocus?: () => void;
   onBlur?: () => void;
   autoFocus?: boolean;
+  returnKeyType?: TextInputProps["returnKeyType"];
+  onSubmitEditing?: TextInputProps["onSubmitEditing"];
   clearAccessibilityLabel?: string;
   style?: StyleProp<ViewStyle>;
 }) {
@@ -53,8 +58,10 @@ export function SearchField({
         onBlur={onBlur}
         onChangeText={onChangeText}
         onFocus={onFocus}
+        onSubmitEditing={onSubmitEditing}
         placeholder={placeholder}
         placeholderTextColor={palette.dim}
+        returnKeyType={returnKeyType}
         style={styles.input}
         value={value}
       />

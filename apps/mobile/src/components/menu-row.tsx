@@ -24,6 +24,7 @@ export function MenuRow({
   danger = false,
   last = false,
   disclosure = true,
+  expanded,
 }: {
   label: string;
   description?: string;
@@ -33,13 +34,17 @@ export function MenuRow({
   danger?: boolean;
   last?: boolean;
   disclosure?: boolean;
+  // Makes the row a disclosure toggle with an up/down chevron.
+  expanded?: boolean;
 }) {
+  const chevron =
+    expanded === undefined ? "chevron-right" : expanded ? "chevron-up" : "chevron-down";
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={description}
-      accessibilityState={{ disabled }}
+      accessibilityState={expanded === undefined ? { disabled } : { disabled, expanded }}
       android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
       disabled={disabled}
       onPress={onPress}
@@ -67,7 +72,7 @@ export function MenuRow({
         ) : null}
       </View>
       {disclosure ? (
-        <Feather accessible={false} name="chevron-right" size={16} color={palette.dim} />
+        <Feather accessible={false} name={chevron} size={16} color={palette.dim} />
       ) : null}
     </Pressable>
   );

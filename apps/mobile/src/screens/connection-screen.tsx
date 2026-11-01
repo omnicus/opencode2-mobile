@@ -29,7 +29,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/button";
 import { managementStyles, SettingsGroup } from "../components/management-layout";
-import { MenuRow } from "../components/menu-row";
+import { MenuGroup, MenuRow } from "../components/menu-row";
 import { SegmentedControl, type SegmentedOption } from "../components/segmented-control";
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import type {
@@ -601,15 +601,15 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                       <Feather accessible={false} color={palette.signal} name="check" size={18} />
                     ) : null}
                   </Pressable>
-                  <View style={[styles.profileAction, largeText && styles.profileActionLargeText]}>
-                    <Button
-                      accessibilityLabel={`Edit ${profile.name}`}
-                      label="Edit"
-                      onPress={() => void editProfile(profile)}
-                      size="compact"
-                      variant="text"
-                    />
-                  </View>
+                  <Button
+                    accessibilityLabel={`Edit ${profile.name}`}
+                    align={largeText ? "start" : "center"}
+                    label="Edit"
+                    onPress={() => void editProfile(profile)}
+                    size="compact"
+                    style={largeText ? styles.profileActionLargeText : styles.profileAction}
+                    variant="text"
+                  />
                 </View>
               );
             })}
@@ -823,36 +823,16 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                 />
               )}
 
-              <View style={managementStyles.group}>
-                <Pressable
-                  accessibilityHint="Diagnostics and transport probes"
-                  accessibilityLabel="Advanced"
-                  accessibilityRole="button"
-                  accessibilityState={{ expanded: showAdvanced }}
-                  android_ripple={Platform.OS === "android" ? ripple : undefined}
+              <MenuGroup>
+                <MenuRow
+                  description="Diagnostics and transport probes"
+                  expanded={showAdvanced}
+                  icon="activity"
+                  label="Advanced"
+                  last
                   onPress={() => setShowAdvanced((visible) => !visible)}
-                  style={({ pressed }) => [
-                    styles.menuRow,
-                    pressed && Platform.OS === "ios" && styles.pressed,
-                  ]}
-                >
-                  <Feather accessible={false} color={palette.dim} name="activity" size={18} />
-                  <View style={styles.menuCopy}>
-                    <Text dynamicTypeRamp={typeRamp.body} style={styles.rowTitle}>
-                      Advanced
-                    </Text>
-                    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.rowDescription}>
-                      Diagnostics and transport probes
-                    </Text>
-                  </View>
-                  <Feather
-                    accessible={false}
-                    color={palette.dim}
-                    name={showAdvanced ? "chevron-up" : "chevron-down"}
-                    size={16}
-                  />
-                </Pressable>
-              </View>
+                />
+              </MenuGroup>
 
               {showAdvanced ? (
                 <View style={styles.advanced}>
@@ -1330,15 +1310,6 @@ const styles = StyleSheet.create({
   lifecycleCopy: { ...typography.subheadline, color: palette.dim },
   lifecyclePrompt: { borderColor: palette.warm },
   lifecycleTitle: { ...typography.sectionLabel, color: palette.warm },
-  menuCopy: { flex: 1, gap: 2, minWidth: 0 },
-  menuRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 12,
-    minHeight: 52,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
   message: {
     ...typography.subheadline,
     backgroundColor: palette.background,
@@ -1363,8 +1334,8 @@ const styles = StyleSheet.create({
   metricValue: { ...typography.headline, color: palette.ink },
   notice: { borderColor: palette.success, color: palette.success },
   pressed: { opacity: pressedOpacity },
-  profileAction: { paddingRight: space.xs },
-  profileActionLargeText: { paddingBottom: space.xs, paddingHorizontal: space.xs },
+  profileAction: { marginRight: space.xs },
+  profileActionLargeText: { marginBottom: space.xs, marginHorizontal: space.xs },
   profileCopy: { flex: 1, gap: 2, minWidth: 0 },
   profileMain: {
     alignItems: "center",

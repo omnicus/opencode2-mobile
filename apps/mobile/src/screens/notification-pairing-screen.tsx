@@ -332,16 +332,15 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
               </Text>
             </View>
           ) : (
-            <View style={styles.scanAction}>
-              <Button
-                disabled={busy}
-                fullWidth
-                icon="camera"
-                label="Scan QR code"
-                onPress={() => void openScanner()}
-                variant="primary"
-              />
-            </View>
+            <Button
+              disabled={busy}
+              fullWidth
+              icon="camera"
+              label="Scan QR code"
+              onPress={() => void openScanner()}
+              style={styles.scanAction}
+              variant="primary"
+            />
           )}
 
           <View style={styles.dividerRow}>
@@ -367,14 +366,13 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
             style={styles.codeInput}
             value={manualCode}
           />
-          <View style={styles.checkAction}>
-            <Button
-              disabled={busy || manualCode.trim().length === 0}
-              fullWidth
-              label="Check code"
-              onPress={() => inspect()}
-            />
-          </View>
+          <Button
+            disabled={busy || manualCode.trim().length === 0}
+            fullWidth
+            label="Check code"
+            onPress={() => inspect()}
+            style={styles.checkAction}
+          />
 
           {preview ? (
             <View style={styles.previewCard}>

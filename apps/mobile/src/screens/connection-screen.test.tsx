@@ -224,9 +224,7 @@ test("runs the event and cancellation probe after REST succeeds", async () => {
   expect(await screen.findByText("Server reachable")).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Run event and cancellation probe" })).toBeNull();
   await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
-  expect(screen.getByRole("button", { name: "Advanced" })).toHaveProp("accessibilityState", {
-    expanded: true,
-  });
+  expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
   await act(async () => {
     fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
   });

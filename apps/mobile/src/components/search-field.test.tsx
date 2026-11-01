@@ -51,3 +51,20 @@ test("forwards the ref and container style", () => {
     borderRadius: 12,
   });
 });
+
+test("passes return key and submit handling to the input", () => {
+  const submit = jest.fn();
+  render(
+    <SearchField
+      value="deploy"
+      placeholder="Search projects"
+      returnKeyType="search"
+      onSubmitEditing={submit}
+      onChangeText={() => {}}
+    />,
+  );
+  const input = screen.getByLabelText("Search projects");
+  expect(input).toHaveProp("returnKeyType", "search");
+  fireEvent(input, "submitEditing", { nativeEvent: { text: "deploy" } });
+  expect(submit).toHaveBeenCalledTimes(1);
+});

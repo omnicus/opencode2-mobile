@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { StyleSheet } from "react-native";
@@ -37,4 +38,31 @@ test("row descriptions use footnote text", () => {
   );
   expect(screen.getByText("Version and licenses")).toHaveStyle({ fontSize: 13, lineHeight: 18 });
   expect(screen.getByRole("button", { name: "About" })).toHaveStyle({ minHeight: 52 });
+});
+
+test("expandable rows report state and swap the chevron direction", () => {
+  const view = render(
+    <MenuGroup>
+      <MenuRow icon="activity" label="Advanced" expanded={false} last onPress={() => {}} />
+    </MenuGroup>,
+  );
+  const chevron = () =>
+    screen.UNSAFE_getAllByType(Feather).map((icon) => icon.props.name as string);
+  expect(screen.getByRole("button", { name: "Advanced" })).toBeCollapsed();
+  expect(chevron()).toEqual(["activity", "chevron-down"]);
+  view.rerender(
+    <MenuGroup>
+      <MenuRow icon="activity" label="Advanced" expanded last onPress={() => {}} />
+    </MenuGroup>,
+  );
+  expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
+  expect(chevron()).toEqual(["activity", "chevron-up"]);
+});
+
+test("plain rows keep the forward chevron and no expanded state", () => {
+  render(<MenuRow icon="info" label="About" onPress={() => {}} />);
+  expect(screen.getByRole("button", { name: "About" })).toHaveProp("accessibilityState", {
+    disabled: false,
+  });
+  expect(screen.UNSAFE_getAllByType(Feather)[1]?.props.name).toBe("chevron-right");
 });

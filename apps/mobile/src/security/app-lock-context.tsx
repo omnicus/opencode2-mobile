@@ -186,9 +186,12 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
           >
             {error}
           </Text>
-          <View style={styles.action}>
-            <Button label="Retry" onPress={retryPreferenceLoad} variant="primary" />
-          </View>
+          <Button
+            label="Retry"
+            onPress={retryPreferenceLoad}
+            style={styles.action}
+            variant="primary"
+          />
         </View>
       ) : enabled && locked ? (
         <View style={styles.shell}>
@@ -214,14 +217,13 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
               {error}
             </Text>
           ) : null}
-          <View style={styles.action}>
-            <Button
-              busy={busy}
-              label={busy ? "Authenticating…" : "Unlock"}
-              onPress={() => void unlock()}
-              variant="primary"
-            />
-          </View>
+          <Button
+            busy={busy}
+            label={busy ? "Authenticating…" : "Unlock"}
+            onPress={() => void unlock()}
+            style={styles.action}
+            variant="primary"
+          />
         </View>
       ) : (
         children

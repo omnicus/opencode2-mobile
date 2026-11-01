@@ -1174,22 +1174,20 @@ export function ActionButton({
   secondary?: boolean;
 }) {
   return (
-    <View style={[styles.actionButton, fullWidth && styles.actionButtonFullWidth]}>
-      <Button
-        {...(accessibilityLabel ? { accessibilityLabel } : {})}
-        disabled={Boolean(disabled)}
-        fullWidth={Boolean(fullWidth)}
-        label={label}
-        onPress={() => void onPress()}
-        variant={secondary ? "secondary" : "primary"}
-      />
-    </View>
+    <Button
+      {...(accessibilityLabel ? { accessibilityLabel } : {})}
+      disabled={Boolean(disabled)}
+      fullWidth={Boolean(fullWidth)}
+      label={label}
+      onPress={() => void onPress()}
+      style={styles.actionButton}
+      variant={secondary ? "secondary" : "primary"}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  actionButton: { alignSelf: "flex-start", marginTop: space.md, maxWidth: "100%" },
-  actionButtonFullWidth: { alignSelf: "stretch" },
+  actionButton: { marginTop: space.md, maxWidth: "100%" },
   branchControl: {
     alignItems: "center",
     flex: 1,

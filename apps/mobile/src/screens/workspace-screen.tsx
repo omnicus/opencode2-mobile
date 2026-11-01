@@ -538,6 +538,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         onFocus={() => setSearchFocused(true)}
         placeholder="Search all sessions"
         ref={searchInputRef}
+        returnKeyType="search"
         style={styles.searchField}
         value={sessionSearch}
       />

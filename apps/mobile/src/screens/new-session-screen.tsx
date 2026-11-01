@@ -280,16 +280,14 @@ export function NewSessionScreen({ navigation }: Props) {
             >
               Project locations could not be loaded from this connection.
             </Text>
-            {/* Button aligns itself to the start; the wrapper keeps it centered. */}
-            <View>
-              <Button
-                label="Retry"
-                onPress={() => {
-                  setError(undefined);
-                  void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
-                }}
-              />
-            </View>
+            <Button
+              align="center"
+              label="Retry"
+              onPress={() => {
+                setError(undefined);
+                void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
+              }}
+            />
           </View>
         ) : selection.projects.length === 0 ? (
           <View style={styles.state}>
@@ -299,9 +297,7 @@ export function NewSessionScreen({ navigation }: Props) {
             <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
               OpenCode did not return any known projects.
             </Text>
-            <View>
-              <Button label="Retry" onPress={() => void selection.refetch()} />
-            </View>
+            <Button align="center" label="Retry" onPress={() => void selection.refetch()} />
           </View>
         ) : (
           <View style={styles.body}>
@@ -309,6 +305,7 @@ export function NewSessionScreen({ navigation }: Props) {
               clearAccessibilityLabel="Clear project search"
               onChangeText={setSearch}
               placeholder="Search projects"
+              returnKeyType="search"
               value={search}
             />
             <FlatList
