@@ -170,7 +170,29 @@ describe("sending queued notifications", () => {
     await new ExpoPushWorker(database, undefined, "expo").tick();
 
     expect(outboxRows(database)).toEqual([queuedRetry("MESSAGE_RATE_EXCEEDED")]);
+    expect(nextAttemptAtMs(database)).toBe(startMs + 2_000);
     expect(deviceState(database)).toEqual({ disabled_at_ms: null, disabled_reason: null });
+    database.close();
+  });
+
+  it("does not retry rate-limited tickets for interactions resolved during the send", async () => {
+    const database = interactionDatabase();
+    const fetch = stubFetch(() => {
+      resolveInteraction(database);
+      return Response.json({ data: expoError("MessageRateExceeded") });
+    });
+    const worker = new ExpoPushWorker(database, undefined, "expo");
+
+    await worker.tick();
+    vi.setSystemTime(startMs + 60_000);
+    await worker.tick();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(resolvedRow(database)).toEqual({
+      last_error_code: "RESOLVED",
+      push_data_json: "{}",
+      state: "failed",
+    });
     database.close();
   });
 
@@ -257,13 +279,100 @@ describe("checking receipts", () => {
     database.close();
   });
 
-  it("leaves rate-limited receipts ticketed", async () => {
+  it("requeues rate-limited receipts with the ticket backoff", async () => {
     const database = await ticketedDatabase();
     stubFetch(() => Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }));
 
     await new ExpoPushWorker(database, undefined, "expo").tick();
 
-    expect(outboxRows(database)).toEqual([ticketed()]);
+    expect(outboxRows(database)).toEqual([queuedRetry("MESSAGE_RATE_EXCEEDED")]);
+    expect(nextAttemptAtMs(database)).toBe(startMs + 15 * 60_000 + 2_000);
+    expect(deviceState(database)).toEqual({ disabled_at_ms: null, disabled_reason: null });
+    database.close();
+  });
+
+  it("resends rate-limited receipts after the backoff and backs off again", async () => {
+    const database = await ticketedDatabase();
+    const worker = new ExpoPushWorker(database, undefined, "expo");
+    stubFetch(() => Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }));
+    await worker.tick();
+
+    vi.setSystemTime(startMs + 15 * 60_000 + 1_999);
+    const early = stubFetch(() => Response.json({ data: { id: "ticket-2", status: "ok" } }));
+    await worker.tick();
+    expect(early).not.toHaveBeenCalled();
+
+    vi.setSystemTime(startMs + 15 * 60_000 + 2_000);
+    const resend = stubFetch(() => Response.json({ data: { id: "ticket-2", status: "ok" } }));
+    await worker.tick();
+    expect(resend.mock.calls.map(([url]) => url)).toEqual(["https://exp.host/--/api/v2/push/send"]);
+    expect(outboxRows(database)).toEqual([
+      {
+        attempts: 2,
+        last_error_code: "MESSAGE_RATE_EXCEEDED",
+        receipt_due_at_ms: startMs + 30 * 60_000 + 2_000,
+        state: "ticketed",
+        ticket_id: "ticket-2",
+      },
+    ]);
+
+    vi.setSystemTime(startMs + 30 * 60_000 + 2_000);
+    stubFetch(() => Response.json({ data: { "ticket-2": expoError("MessageRateExceeded") } }));
+    await worker.tick();
+    expect(outboxRows(database)).toEqual([
+      { ...queuedRetry("MESSAGE_RATE_EXCEEDED"), attempts: 2 },
+    ]);
+    expect(nextAttemptAtMs(database)).toBe(startMs + 30 * 60_000 + 6_000);
+    database.close();
+  });
+
+  it("fails rate-limited receipts while delivery is paused", async () => {
+    const database = await ticketedDatabase();
+    database.setDeliveryEnabled(false);
+    stubFetch(() => Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }));
+
+    await new ExpoPushWorker(database, undefined, "expo").tick();
+
+    expect(outboxRows(database)).toEqual([receiptFailed("PAUSED")]);
+    database.close();
+  });
+
+  it("does not resend rate-limited receipts for resolved interactions", async () => {
+    const database = await ticketedInteractionDatabase();
+    resolveInteraction(database);
+    const fetch = stubFetch(() =>
+      Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }),
+    );
+    const worker = new ExpoPushWorker(database, undefined, "expo");
+
+    await worker.tick();
+    vi.setSystemTime(startMs + 30 * 60_000);
+    await worker.tick();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(resolvedRow(database)).toEqual({
+      last_error_code: "RESOLVED",
+      push_data_json: "{}",
+      state: "failed",
+    });
+    database.close();
+  });
+
+  it("disables unregistered devices from receipts for resolved interactions", async () => {
+    const database = await ticketedInteractionDatabase();
+    resolveInteraction(database);
+    stubFetch(() => Response.json({ data: { "ticket-1": expoError("DeviceNotRegistered") } }));
+
+    await new ExpoPushWorker(database, undefined, "expo").tick();
+
+    expect(resolvedRow(database)).toMatchObject({
+      last_error_code: "DEVICE_NOT_REGISTERED",
+      state: "failed",
+    });
+    expect(deviceState(database)).toEqual({
+      disabled_at_ms: startMs + 15 * 60_000,
+      disabled_reason: "provider-unregistered",
+    });
     database.close();
   });
 
@@ -369,6 +478,45 @@ async function ticketedDatabase() {
   return database;
 }
 
+function interactionDatabase() {
+  vi.useFakeTimers({ now: startMs, toFake: ["Date"] });
+  const database = pairedDatabase();
+  database.database.prepare("DELETE FROM outbox").run();
+  database.acceptPluginEvent({ ...interactionEvent, eventID: "evt_pending", state: "pending" });
+  return database;
+}
+
+async function ticketedInteractionDatabase() {
+  const database = interactionDatabase();
+  stubFetch(() => Response.json({ data: { id: "ticket-1", status: "ok" } }));
+  await new ExpoPushWorker(database, undefined, "expo").tick();
+  vi.setSystemTime(startMs + 15 * 60_000);
+  return database;
+}
+
+const interactionEvent = {
+  interaction: "permission",
+  observedAtMs: startMs,
+  requestID: "per_1",
+  sessionID: "ses_1",
+  v: 1,
+};
+
+function resolveInteraction(database: BrokerDatabase) {
+  database.acceptPluginEvent({
+    ...interactionEvent,
+    eventID: "evt_resolved",
+    observedAtMs: Date.now(),
+    state: "resolved",
+  });
+}
+
+function resolvedRow(database: BrokerDatabase) {
+  return database.database
+    .prepare("SELECT state, push_data_json, last_error_code FROM outbox WHERE event_id = ?")
+    .get("evt_pending");
+}
+
 function stubFetch(respond: () => Response | Promise<Response>) {
   const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => respond());
   globalThis.fetch = fetch;
@@ -386,6 +534,13 @@ function outboxRows(database: BrokerDatabase) {
        FROM outbox ORDER BY created_at_ms`,
     )
     .all();
+}
+
+function nextAttemptAtMs(database: BrokerDatabase) {
+  const row = database.database.prepare("SELECT next_attempt_at_ms FROM outbox").get() as {
+    next_attempt_at_ms: number;
+  };
+  return row.next_attempt_at_ms;
 }
 
 function deviceState(database: BrokerDatabase) {
