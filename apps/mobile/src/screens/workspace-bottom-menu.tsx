@@ -34,7 +34,7 @@ const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } :
 const borderlessRipple =
   Platform.OS === "android" ? { borderless: true, color: "rgba(255,255,255,0.12)" } : undefined;
 
-// The phone Sessions menu: New session sits apart on the left, then the three list views.
+// The phone Sessions menu: the three list views, then New session apart on the right.
 export function WorkspaceBottomMenu({
   active,
   hidden = false,
@@ -72,22 +72,6 @@ export function WorkspaceBottomMenu({
 
   return (
     <View pointerEvents="box-none" style={styles.dock}>
-      <Pressable
-        accessibilityHint="Choose a project for a new session"
-        accessibilityLabel="New session"
-        accessibilityRole="button"
-        android_ripple={borderlessRipple}
-        onPress={() => {
-          Keyboard.dismiss();
-          onNewSession();
-        }}
-        style={({ pressed }) => [
-          styles.newSession,
-          pressed && Platform.OS === "ios" && styles.pressed,
-        ]}
-      >
-        <Feather accessible={false} color={palette.background} name="plus" size={24} />
-      </Pressable>
       <View accessibilityRole="tablist" style={styles.tabs}>
         {tabs.map(({ icon, label, tab }) => {
           const selected = tab === active;
@@ -146,6 +130,22 @@ export function WorkspaceBottomMenu({
           );
         })}
       </View>
+      <Pressable
+        accessibilityHint="Choose a project for a new session"
+        accessibilityLabel="New session"
+        accessibilityRole="button"
+        android_ripple={borderlessRipple}
+        onPress={() => {
+          Keyboard.dismiss();
+          onNewSession();
+        }}
+        style={({ pressed }) => [
+          styles.newSession,
+          pressed && Platform.OS === "ios" && styles.pressed,
+        ]}
+      >
+        <Feather accessible={false} color={palette.background} name="plus" size={24} />
+      </Pressable>
     </View>
   );
 }
