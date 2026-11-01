@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,10 +14,11 @@ import {
 } from "react-native";
 
 import { applicationName } from "../application-name";
+import { Button } from "../components/button";
 import { ModalSheet } from "../components/modal-sheet";
 import { requestCardStyles } from "../components/request-card-styles";
+import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import {
-  disabledOpacity,
   minTouchTarget,
   palette,
   pressedOpacity,
@@ -86,7 +88,12 @@ export function FormRequestCard({
   function submit() {
     const result = validateFormDraft(form, draft);
     setErrors(result.errors);
-    if (result.valid) onSubmit(result.answer);
+    if (result.valid) {
+      onSubmit(result.answer);
+      return;
+    }
+    const invalid = Object.keys(result.errors).length;
+    announceOnIOS(invalid === 1 ? "1 answer needs attention" : `${invalid} answers need attention`);
   }
 
   function confirmCancel() {
@@ -115,16 +122,25 @@ export function FormRequestCard({
           : true)
     );
   }).length;
-  const progress =
-    answerFields.length > 1 ? (
-      <Text
-        accessibilityLiveRegion="polite"
-        dynamicTypeRamp={typeRamp.footnote}
-        style={styles.description}
-      >
-        {answered} of {answerFields.length} answered
-      </Text>
-    ) : null;
+  const progressText =
+    answerFields.length > 1 ? `${answered} of ${answerFields.length} answered` : undefined;
+  const announcedProgress = useRef(progressText);
+  useEffect(() => {
+    if (announcedProgress.current === progressText) return;
+    announcedProgress.current = progressText;
+    announceOnIOS(progressText);
+  }, [progressText]);
+  useAnnouncement(busy && "Submitting answers…");
+  useAnnouncement(error);
+  const progress = progressText ? (
+    <Text
+      accessibilityLiveRegion="polite"
+      dynamicTypeRamp={typeRamp.footnote}
+      style={styles.description}
+    >
+      {progressText}
+    </Text>
+  ) : null;
   const fields = (
     <>
       {form.fields.map((field) =>
@@ -149,13 +165,20 @@ export function FormRequestCard({
   );
   const actions = (
     <View style={[styles.actions, allowFocus && styles.focusedActions]}>
-      <FormButton
-        primary
-        disabled={busy}
+      <Button
+        variant="primary"
+        busy={Boolean(busy)}
         label={busy ? "Submitting" : allowFocus ? "Send answers" : "Submit"}
         onPress={submit}
+        style={styles.actionButton}
       />
-      <FormButton danger disabled={busy} label="Cancel form" onPress={confirmCancel} />
+      <Button
+        variant="danger"
+        disabled={Boolean(busy)}
+        label="Cancel form"
+        onPress={confirmCancel}
+        style={styles.actionButton}
+      />
     </View>
   );
   return (
@@ -177,11 +200,12 @@ export function FormRequestCard({
             accessibilityRole="button"
             accessibilityLabel="Review input request"
             accessibilityHint="Opens the form with answer actions below the fields"
+            android_ripple={Platform.OS === "android" ? ripple : undefined}
             onPress={() => setFocused(true)}
             style={({ pressed }) => [
               styles.button,
               styles.buttonPrimary,
-              pressed && styles.pressed,
+              pressed && Platform.OS === "ios" && styles.pressed,
             ]}
           >
             <Text
@@ -257,7 +281,7 @@ function FormControl({
     return (
       <View style={styles.field}>
         <FieldHeading description={description} required={false} title={title} />
-        <FormButton label="Open external form" onPress={() => onOpenExternal(field.url)} />
+        <Button fullWidth label="Open external form" onPress={() => onOpenExternal(field.url)} />
       </View>
     );
   }
@@ -307,7 +331,7 @@ function FormControl({
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
           Choose any that apply
         </Text>
-        <View accessibilityRole="summary" style={styles.options}>
+        <View accessibilityLabel={title} role="group" style={styles.options}>
           {field.options.map((option) => (
             <ChoiceButton
               description={option.description}
@@ -325,24 +349,12 @@ function FormControl({
           ))}
         </View>
         {field.custom ? (
-          <TextInput
-            keyboardAppearance="dark"
-            accessibilityHint="Enter one value per line"
-            accessibilityLabel={`${title} custom values`}
-            multiline
-            onChangeText={(text) =>
-              onChange([
-                ...selected.filter((value) => optionValues.has(value)),
-                ...text
-                  .split("\n")
-                  .map((value) => value.trim())
-                  .filter(Boolean),
-              ])
+          <CustomValuesInput
+            initialValues={customValues}
+            onChange={(values) =>
+              onChange([...selected.filter((value) => optionValues.has(value)), ...values])
             }
-            placeholder="Other values, one per line"
-            placeholderTextColor={palette.dim}
-            style={[styles.input, styles.multilineInput]}
-            value={customValues.join("\n")}
+            title={title}
           />
         ) : null}
         <FieldError error={error} />
@@ -379,11 +391,19 @@ function FormControl({
           keyboardAppearance="dark"
           accessibilityLabel={title}
           autoCapitalize={
-            field.type === "string" && field.format === "email" ? "none" : "sentences"
+            field.type === "string" && (field.format === "email" || field.format === "uri")
+              ? "none"
+              : "sentences"
           }
+          autoCorrect={
+            !(field.type === "string" && (field.format === "email" || field.format === "uri"))
+          }
+          // numbers-and-punctuation is iOS-only; both keyboards include the minus sign.
           keyboardType={
             field.type === "number" || field.type === "integer"
-              ? "numbers-and-punctuation"
+              ? Platform.OS === "ios"
+                ? "numbers-and-punctuation"
+                : "numeric"
               : field.format === "email"
                 ? "email-address"
                 : field.format === "uri"
@@ -405,6 +425,48 @@ function FormControl({
       <FieldError error={error} />
     </View>
   );
+}
+
+function CustomValuesInput({
+  initialValues,
+  onChange,
+  title,
+}: {
+  initialValues: string[];
+  onChange: (values: string[]) => void;
+  title: string;
+}) {
+  // Keep the typed text so spaces and new lines survive; only the parsed values reach the draft.
+  const [text, setText] = useState(() => initialValues.join("\n"));
+  const values = parseCustomValues(text);
+  return (
+    <View style={styles.field}>
+      <TextInput
+        keyboardAppearance="dark"
+        accessibilityHint="Enter one value per line"
+        accessibilityLabel={`${title} custom values`}
+        multiline
+        onChangeText={(next) => {
+          setText(next);
+          onChange(parseCustomValues(next));
+        }}
+        placeholder="Other values, one per line"
+        placeholderTextColor={palette.dim}
+        style={[styles.input, styles.multilineInput]}
+        value={text}
+      />
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
+        One value per line · {values.length} {values.length === 1 ? "value" : "values"}
+      </Text>
+    </View>
+  );
+}
+
+function parseCustomValues(text: string) {
+  return text
+    .split("\n")
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function FieldHeading({
@@ -456,11 +518,12 @@ function ChoiceButton({
     <Pressable
       accessibilityRole={radio ? "radio" : "checkbox"}
       accessibilityState={{ checked: selected }}
+      android_ripple={Platform.OS === "android" ? ripple : undefined}
       onPress={onPress}
       style={({ pressed }) => [
         styles.choice,
         selected && styles.choiceSelected,
-        pressed && styles.pressed,
+        pressed && Platform.OS === "ios" && styles.pressed,
       ]}
     >
       <View style={styles.choiceHeading}>
@@ -482,46 +545,6 @@ function ChoiceButton({
           {description}
         </Text>
       ) : null}
-    </Pressable>
-  );
-}
-
-function FormButton({
-  primary,
-  danger,
-  disabled,
-  label,
-  onPress,
-}: {
-  primary?: boolean;
-  danger?: boolean | undefined;
-  disabled?: boolean | undefined;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        primary && styles.buttonPrimary,
-        pressed && styles.pressed,
-        disabled && styles.disabled,
-      ]}
-    >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[
-          styles.buttonLabel,
-          primary && styles.buttonPrimaryLabel,
-          danger && styles.buttonDangerLabel,
-        ]}
-      >
-        {label}
-      </Text>
     </Pressable>
   );
 }
@@ -561,6 +584,8 @@ export function openExternalFormUrl(url: string) {
   );
 }
 
+const ripple = { color: "rgba(255,255,255,0.12)" };
+
 const styles = StyleSheet.create({
   focusedFields: { flex: 1 },
   focusedContent: { gap: space.md, paddingBottom: space.md },
@@ -571,6 +596,7 @@ const styles = StyleSheet.create({
   },
   choiceHeading: { flexDirection: "row", gap: space.sm, alignItems: "center" },
   actions: requestCardStyles.actions,
+  actionButton: { flexGrow: 1, maxWidth: "100%" },
   booleanOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -579,7 +605,6 @@ const styles = StyleSheet.create({
   button: requestCardStyles.button,
   buttonPrimary: { backgroundColor: palette.signal, borderColor: palette.signal },
   buttonPrimaryLabel: { color: palette.background },
-  buttonDangerLabel: { color: palette.danger },
   buttonLabel: requestCardStyles.buttonLabel,
   card: requestCardStyles.card,
   choice: {
@@ -589,6 +614,7 @@ const styles = StyleSheet.create({
     gap: 2,
     justifyContent: "center",
     minHeight: minTouchTarget,
+    overflow: "hidden",
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
@@ -596,7 +622,6 @@ const styles = StyleSheet.create({
   choiceLabelSelected: { color: palette.signal },
   choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   description: { ...typography.footnote, color: palette.dim },
-  disabled: { opacity: disabledOpacity },
   error: { ...typography.subheadline, color: palette.danger },
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
   eyebrow: { ...typography.sectionLabel, color: palette.warm, flexShrink: 1 },

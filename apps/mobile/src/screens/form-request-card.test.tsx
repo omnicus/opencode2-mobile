@@ -1,7 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import type { FormInfo } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { Alert, Linking } from "react-native";
+import { AccessibilityInfo, Alert, Linking, Platform } from "react-native";
 
 import { minTouchTarget, palette, radius, typography } from "../theme";
 import { FormRequestCard, openExternalFormUrl } from "./form-request-card";
@@ -155,4 +155,108 @@ test("question progress counts visible answers and explains multiple selection",
   fireEvent.press(screen.getByRole("checkbox", { name: "Production" }));
   expect(screen.getByRole("checkbox", { name: "Production" })).toBeChecked();
   expect(screen.getByText("3 of 3 answered")).toBeOnTheScreen();
+});
+
+const channelsField = {
+  custom: true,
+  key: "channels",
+  options: [
+    { label: "Stable", value: "stable" },
+    { label: "Beta", value: "beta" },
+  ],
+  required: true,
+  title: "Channels",
+  type: "multiselect",
+} as const satisfies FormInfo["fields"][number];
+const channels: FormInfo = {
+  fields: [channelsField],
+  id: "frm_channels",
+  sessionID: "ses_test",
+  title: "Which channels should get this fix?",
+};
+
+test("other values keep spaces and new lines while typing and submit trimmed lines", () => {
+  const onSubmit = jest.fn();
+  render(<FormRequestCard form={channels} onCancel={jest.fn()} onSubmit={onSubmit} />);
+  fireEvent.press(screen.getByRole("checkbox", { name: "Stable" }));
+  const input = screen.getByLabelText("Channels custom values");
+  expect(screen.getByText("One value per line · 0 values")).toBeOnTheScreen();
+  fireEvent.changeText(input, "Internal ");
+  expect(screen.getByLabelText("Channels custom values").props.value).toBe("Internal ");
+  fireEvent.changeText(input, "Internal QA\n");
+  expect(screen.getByLabelText("Channels custom values").props.value).toBe("Internal QA\n");
+  expect(screen.getByText("One value per line · 1 value")).toBeOnTheScreen();
+  fireEvent.changeText(input, "Internal QA\n  Partner preview \n\n");
+  expect(screen.getByText("One value per line · 2 values")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("checkbox", { name: "Beta" }));
+  expect(screen.getByLabelText("Channels custom values").props.value).toBe(
+    "Internal QA\n  Partner preview \n\n",
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  expect(onSubmit).toHaveBeenCalledWith({
+    channels: ["stable", "Internal QA", "Partner preview", "beta"],
+  });
+});
+
+test("other values start from custom defaults and options form a labelled group", () => {
+  render(
+    <FormRequestCard
+      form={{
+        ...channels,
+        fields: [{ ...channelsField, default: ["stable", "Internal QA"] }],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+  expect(screen.getByLabelText("Channels custom values").props.value).toBe("Internal QA");
+  expect(screen.getByText("One value per line · 1 value")).toBeOnTheScreen();
+  const group = screen.getByLabelText("Channels");
+  expect(group.props.role).toBe("group");
+  expect(group.props.accessibilityRole).toBeUndefined();
+});
+
+test("URL and number fields use keyboards that exist on the current platform", () => {
+  const typed: FormInfo = {
+    fields: [
+      { format: "uri", key: "link", title: "Link", type: "string" },
+      { key: "count", title: "Count", type: "integer" },
+    ],
+    id: "frm_typed",
+    sessionID: "ses_test",
+    title: "Typed",
+  };
+  for (const os of ["ios", "android"] as const) {
+    jest.replaceProperty(Platform, "OS", os);
+    const view = render(<FormRequestCard form={typed} onCancel={jest.fn()} onSubmit={jest.fn()} />);
+    const link = screen.getByLabelText("Link");
+    expect(link.props.autoCapitalize).toBe("none");
+    expect(link.props.autoCorrect).toBe(false);
+    expect(link.props.keyboardType).toBe("url");
+    expect(screen.getByLabelText("Count").props.keyboardType).toBe(
+      os === "ios" ? "numbers-and-punctuation" : "numeric",
+    );
+    view.unmount();
+    jest.restoreAllMocks();
+  }
+});
+
+test("VoiceOver hears submit progress, failed validation, and server errors", () => {
+  jest.replaceProperty(Platform, "OS", "ios");
+  const announce = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibility")
+    .mockImplementation(jest.fn());
+  announce.mockClear();
+  const props = { form, onCancel: jest.fn(), onSubmit: jest.fn() };
+  const view = render(<FormRequestCard {...props} />);
+  expect(announce).not.toHaveBeenCalled();
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  expect(announce).toHaveBeenLastCalledWith("1 answer needs attention");
+  fireEvent.changeText(screen.getByLabelText("name"), "Ada");
+  expect(announce).toHaveBeenLastCalledWith("2 of 3 answered");
+  view.rerender(<FormRequestCard {...props} busy />);
+  expect(announce).toHaveBeenLastCalledWith("Submitting answers…");
+  view.rerender(<FormRequestCard {...props} error="The form response was not accepted." />);
+  expect(announce).toHaveBeenLastCalledWith("The form response was not accepted.");
+  jest.restoreAllMocks();
 });

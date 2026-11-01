@@ -4,10 +4,12 @@ import type {
   SessionInboxInfo,
 } from "@opencode2-mobile/opencode-adapter";
 import { type ReactNode, useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
+import { Button } from "../components/button";
+import { useAnnouncement } from "../components/use-announcement";
 import { WorkingIndicator } from "../components/working-indicator";
-import { control, palette, radius, space, typeRamp, typography } from "../theme";
+import { minTouchTarget, palette, radius, space, typeRamp, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
 import { type PromptAdmission, promptAdmissionNeedsOverlay } from "./prompt-admission-model";
 import { sanitizeTranscriptText } from "./session-transcript-model";
@@ -60,6 +62,8 @@ export function SessionExecutionPanel({
   const { height } = useWindowDimensions();
   const [, refreshDisplay] = useState(0);
   const [inboxDeadlines, setInboxDeadlines] = useState<Map<string, number>>(() => new Map());
+  // The reply error is shared across requests, so only the card that sent the reply shows it.
+  const [lastReplyId, setLastReplyId] = useState<string>();
   const now = Date.now();
 
   useEffect(() => {
@@ -164,8 +168,11 @@ export function SessionExecutionPanel({
           key={request.id}
           request={request}
           replying={replyingPermissionId === request.id}
-          error={permissionReplyError}
-          onReply={onReplyPermission}
+          error={permissionReplyError && lastReplyId === request.id}
+          onReply={(requestID, sessionID, reply) => {
+            setLastReplyId(requestID);
+            onReplyPermission(requestID, sessionID, reply);
+          }}
         />
       ))}
 
@@ -192,10 +199,10 @@ export function SessionExecutionPanel({
               : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."}
           </Text>
           <View style={styles.actionRow}>
-            <PanelButton label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
+            <Button label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
             {admission.retryOffered ? (
-              <PanelButton
-                danger
+              <Button
+                variant="danger"
                 label="Allow retry (may duplicate)"
                 onPress={() => onAllowRetry(admission.id)}
               />
@@ -220,8 +227,13 @@ export function SessionExecutionPanel({
             </Text>
           ) : null}
           <View style={styles.actionRow}>
-            <PanelButton label="Steer now" onPress={() => onSteerInbox(item.id)} />
-            <PanelButton danger label="Cancel" onPress={() => onCancelInbox(item.id)} />
+            <Button label="Steer now" onPress={() => onSteerInbox(item.id)} />
+            <Button
+              variant="danger"
+              label="Cancel"
+              accessibilityHint="Asks before removing the queued prompt"
+              onPress={() => confirmCancelInbox(() => onCancelInbox(item.id))}
+            />
           </View>
         </View>
       ))}
@@ -229,38 +241,11 @@ export function SessionExecutionPanel({
   );
 }
 
-function PanelButton({
-  danger,
-  disabled,
-  label,
-  onPress,
-}: {
-  danger?: boolean;
-  disabled?: boolean;
-  label: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionButton,
-        danger && styles.actionButtonDanger,
-        disabled && styles.disabled,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[styles.actionLabel, danger && styles.actionLabelDanger]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
+function confirmCancelInbox(onConfirm: () => void) {
+  Alert.alert("Cancel queued prompt?", "The prompt leaves the queue and is not sent.", [
+    { style: "cancel", text: "Keep" },
+    { onPress: onConfirm, style: "destructive", text: "Cancel prompt" },
+  ]);
 }
 
 function inboxTypeLabel(item: SessionInboxInfo) {
@@ -296,68 +281,47 @@ export function SessionWorkingStatus({
   onInterrupt: () => void;
   waitingFor?: "permission" | "input" | undefined;
 }) {
+  const status =
+    waitingFor === "permission"
+      ? "Waiting for permission"
+      : waitingFor === "input"
+        ? "Waiting for input"
+        : "Working";
+  useAnnouncement(waitingFor && status);
   return (
     <View style={styles.executionRow}>
       <View style={styles.headingRow}>
         {waitingFor ? <View style={styles.activeDot} /> : <WorkingIndicator />}
-        <Text dynamicTypeRamp={typeRamp.body} style={styles.executionTitle}>
-          {waitingFor === "permission"
-            ? "Waiting for permission"
-            : waitingFor === "input"
-              ? "Waiting for input"
-              : "Working"}
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.body}
+          style={styles.executionTitle}
+        >
+          {status}
         </Text>
       </View>
       {canBackground && onBackground && !waitingFor ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: Boolean(busyAction) }}
+        <Button
+          variant="text"
+          label={busyAction === "background" ? "Moving to background" : "Move to background"}
           disabled={Boolean(busyAction)}
           onPress={onBackground}
-          style={({ pressed }) => [
-            styles.stopButton,
-            busyAction && styles.disabled,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
-            {busyAction === "background" ? "Moving to background" : "Move to background"}
-          </Text>
-        </Pressable>
+        />
       ) : null}
       {!hideInterrupt ? (
-        <Pressable
-          accessibilityRole="button"
+        <Button
+          variant="text"
+          label={busyAction === "interrupt" ? "Stopping" : "Stop"}
           accessibilityHint="Interrupts the current session"
-          accessibilityState={{ disabled: Boolean(busyAction) }}
           disabled={Boolean(busyAction)}
           onPress={onInterrupt}
-          style={({ pressed }) => [
-            styles.stopButton,
-            busyAction && styles.disabled,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
-            {busyAction === "interrupt" ? "Stopping" : "Stop"}
-          </Text>
-        </Pressable>
+        />
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  actionButton: {
-    ...control,
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
-    justifyContent: "center",
-  },
-  actionButtonDanger: { borderColor: palette.border },
-  actionLabel: { ...typography.control, color: palette.ink },
-  actionLabelDanger: { color: palette.danger },
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   activeDot: { backgroundColor: palette.warm, borderRadius: 99, height: 6, width: 6 },
   admissionCard: {
@@ -371,18 +335,15 @@ const styles = StyleSheet.create({
   cardCopy: { ...typography.subheadline, color: palette.dim },
   sending: { ...typography.caption, color: palette.dim },
   cardEyebrow: { ...typography.label, color: palette.dim },
-  disabled: { opacity: 0.5 },
   executionRow: {
     alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.sm,
     justifyContent: "space-between",
-    minHeight: 44,
+    minHeight: minTouchTarget,
   },
   executionTitle: { ...typography.chatActivity, color: palette.dim, flexShrink: 1 },
-  stopButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
-  stopLabel: { ...typography.control, color: palette.ink },
   headingRow: { alignItems: "center", flexDirection: "row", flexShrink: 1, gap: space.sm },
   inboxCard: {
     backgroundColor: palette.card,
@@ -400,7 +361,6 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   inboxType: { ...typography.label, color: palette.dim },
-  pressed: { opacity: 0.62 },
   promptPreview: { ...typography.subheadline, color: palette.ink },
   content: { gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.xs },
   shell: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },

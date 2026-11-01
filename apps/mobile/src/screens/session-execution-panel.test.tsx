@@ -1,9 +1,18 @@
 import { expect, jest, test } from "@jest/globals";
 import type { SessionInboxInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { palette, typography } from "../theme";
+import { AccessibilityInfo, Alert, type AlertButton, Platform } from "react-native";
+import { minTouchTarget, palette, typography } from "../theme";
 import type { PromptAdmission } from "./prompt-admission-model";
 import { SessionExecutionPanel, SessionWorkingStatus } from "./session-execution-panel";
+
+function confirmAlerts() {
+  return jest
+    .spyOn(Alert, "alert")
+    .mockImplementation((_title, _message, buttons?: AlertButton[]) =>
+      buttons?.find((button) => button.style === "destructive")?.onPress?.(),
+    );
+}
 
 const callbacks = {
   onBackground: jest.fn(),
@@ -230,8 +239,10 @@ test.each(["submitting", "queued"] as const)(
       act(() => jest.advanceTimersByTime(1));
       expect(screen.getByText(status === "queued" ? "Queued" : "Sending")).toBeOnTheScreen();
       if (status === "queued") {
+        const alert = confirmAlerts();
         fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
         expect(callbacks.onCancelInbox).toHaveBeenCalledWith(admission.id);
+        alert.mockRestore();
       }
       view.unmount();
       expect(jest.getTimerCount()).toBe(0);
@@ -345,9 +356,50 @@ test("renders active execution and mutable queued inbox work", async () => {
     borderColor: palette.border,
   });
   fireEvent.press(screen.getByRole("button", { name: "Steer now" }));
-  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
   expect(callbacks.onSteerInbox).toHaveBeenCalledWith("msg_queued");
+  const alert = confirmAlerts();
+  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+  expect(alert).toHaveBeenCalledWith(
+    "Cancel queued prompt?",
+    "The prompt leaves the queue and is not sent.",
+    expect.any(Array),
+  );
   expect(callbacks.onCancelInbox).toHaveBeenCalledWith("msg_queued");
+  alert.mockRestore();
+});
+
+test("cancelling a queued prompt waits for confirmation", async () => {
+  callbacks.onCancelInbox.mockClear();
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[]}
+      inbox={[
+        {
+          delivery: "queue",
+          id: "msg_queued",
+          payload: { text: "Queued prompt" },
+          sessionID: "ses_test",
+          time: { created: 1 },
+          type: "user",
+        },
+      ]}
+      permissionReplyError={false}
+      permissions={[]}
+      {...callbacks}
+      projectedMessageIds={new Set()}
+    />,
+  );
+  await waitFor(() => expect(screen.getByText("Queued prompt")).toBeOnTheScreen());
+  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+  const buttons = alert.mock.calls[0]?.[2];
+  expect(buttons?.map((button) => [button.text, button.style])).toEqual([
+    ["Keep", "cancel"],
+    ["Cancel prompt", "destructive"],
+  ]);
+  expect(callbacks.onCancelInbox).not.toHaveBeenCalled();
+  alert.mockRestore();
 });
 
 test("agent-switch reminders do not become actionable steering cards", () => {
@@ -536,4 +588,45 @@ test("shows and replies to a permission blocking the current session", () => {
   expect(screen.getByText("pnpm test")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(callbacks.onReplyPermission).toHaveBeenCalledWith("per_test", "ses_test", "once");
+});
+
+test("a failed permission reply only marks the request that sent it", () => {
+  const permissions = ["per_first", "per_second"].map((id) => ({
+    action: "shell",
+    id,
+    resources: [`echo ${id}`],
+    save: [],
+    sessionID: "ses_test",
+  }));
+  const props = {
+    active: true,
+    admissions: [],
+    inbox: [],
+    permissions,
+    projectedMessageIds: new Set<string>(),
+    ...callbacks,
+  };
+  const view = render(<SessionExecutionPanel {...props} permissionReplyError={false} />);
+  const secondReject = screen.getAllByRole("button", { name: "Reject" })[1];
+  if (!secondReject) throw new Error("Missing second Reject action");
+  fireEvent.press(secondReject);
+  expect(callbacks.onReplyPermission).toHaveBeenLastCalledWith("per_second", "ses_test", "reject");
+  view.rerender(<SessionExecutionPanel {...props} permissionReplyError />);
+  expect(screen.getAllByRole("alert")).toHaveLength(1);
+  expect(screen.getAllByText(/^The server did not accept that reply/)).toHaveLength(1);
+});
+
+test("status controls keep a 48pt target and VoiceOver hears a permission wait", () => {
+  jest.replaceProperty(Platform, "OS", "ios");
+  const announce = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibility")
+    .mockImplementation(jest.fn());
+  announce.mockClear();
+  const view = render(<SessionWorkingStatus onInterrupt={jest.fn()} />);
+  expect(screen.getByRole("button", { name: "Stop" })).toHaveStyle({ minHeight: minTouchTarget });
+  expect(announce).not.toHaveBeenCalled();
+  view.rerender(<SessionWorkingStatus onInterrupt={jest.fn()} waitingFor="permission" />);
+  expect(announce).toHaveBeenCalledWith("Waiting for permission");
+  announce.mockRestore();
+  jest.restoreAllMocks();
 });
