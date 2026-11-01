@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import {
   classifyOpenCodeError,
   createOpenCodeClient,
@@ -10,7 +11,7 @@ import {
 } from "@opencode2-mobile/opencode-adapter";
 import * as Device from "expo-device";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -26,6 +27,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../components/button";
+import { managementStyles, SettingsGroup } from "../components/management-layout";
+import { MenuGroup, MenuRow } from "../components/menu-row";
+import { SegmentedControl, type SegmentedOption } from "../components/segmented-control";
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import type {
   ConnectionAuthMode,
@@ -34,9 +39,19 @@ import type {
 } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
 import { boundedOpenCodeFetch, expoOpenCodeFetch } from "../expo-open-code-fetch";
-import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
-import { control, palette, radius, space, switchColors, typography } from "../theme";
+import {
+  cardSurface,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  switchColors,
+  typeRamp,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 import {
   type LifecycleTransportPhase,
   type LifecycleTransportResult,
@@ -65,10 +80,9 @@ type PtyDiagnostic = {
 
 export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPair?: () => void }) {
   const connections = useConnections();
-  const appLock = useAppLock();
   const runtime = useConnectionRuntime();
   const { fontScale } = useWindowDimensions();
-  const largeText = fontScale >= 1.3;
+  const largeText = usesLargeTextLayout(fontScale);
   const profileLoadGeneration = useRef(0);
   const [editingProfileId, setEditingProfileId] = useState<string>();
   const [loadedProfileId, setLoadedProfileId] = useState<string>();
@@ -86,6 +100,7 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   const [notice, setNotice] = useState<string>();
   const [pendingRemovalId, setPendingRemovalId] = useState<string>();
   const [showDetails, setShowDetails] = useState(connections.profiles.length === 0);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [showRuntimeDiagnostics, setShowRuntimeDiagnostics] = useState(false);
   const [runtimeDiagnosticsText, setRuntimeDiagnosticsText] = useState("");
   const [diagnostic, setDiagnostic] = useState<Diagnostic>();
@@ -472,337 +487,277 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
     }
   }
 
+  const editingProfile = connections.profiles.find((profile) => profile.id === editingProfileId);
+  const actionsDisabled = saving || busy || streamBusy || ptyBusy || lifecycleBusy;
+  const centeredTitle = Platform.OS === "ios";
+
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
       <StatusBar style="light" />
+      <View style={styles.header}>
+        {centeredTitle ? <View style={styles.headerSide} /> : null}
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.navTitle}
+          style={[styles.title, centeredTitle ? styles.titleCentered : styles.titleLeading]}
+        >
+          Connections
+        </Text>
+        <View style={[styles.headerTrailing, centeredTitle && styles.headerSide]}>
+          {onDone ? (
+            <Pressable
+              accessibilityRole="button"
+              android_ripple={Platform.OS === "android" ? borderlessRipple : undefined}
+              onPress={onDone}
+              style={({ pressed }) => [
+                styles.doneButton,
+                pressed && Platform.OS === "ios" && styles.pressed,
+              ]}
+            >
+              <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.doneLabel}>
+                Done
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.header}>
-            <Text accessibilityRole="header" style={styles.title}>
-              Connections
+          {connections.profiles.length === 0 ? (
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.intro}>
+              Switch servers or add a direct OpenCode V2 connection.
             </Text>
-            {onDone ? (
-              <Pressable accessibilityRole="button" onPress={onDone} style={styles.closeButton}>
-                <Text style={styles.closeButtonLabel}>Done</Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          <Text style={styles.intro}>Switch servers or add a direct OpenCode V2 connection.</Text>
-          {onPair ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={onPair}
-              style={({ pressed }) => [
-                styles.secondaryButton,
-                pressed && styles.secondaryButtonPressed,
-              ]}
+          ) : null}
+          {connections.error ? (
+            <Text
+              accessibilityRole="alert"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={[styles.message, styles.error]}
             >
-              <Text style={styles.secondaryLabel}>Pair server</Text>
-            </Pressable>
+              {connections.error}
+            </Text>
           ) : null}
 
-          <View style={styles.profileSection}>
-            <View style={styles.profileHeading}>
-              <Text style={styles.sectionTitle}>Saved servers</Text>
-              <Pressable
-                accessibilityRole="button"
-                onPress={newConnection}
-                style={({ pressed }) => [
-                  styles.smallButton,
-                  pressed && styles.secondaryButtonPressed,
-                ]}
-              >
-                <Text style={styles.smallButtonLabel}>Add</Text>
-              </Pressable>
-            </View>
-            {!connections.ready ? <ActivityIndicator color={palette.signal} /> : null}
-            {connections.error ? (
-              <Text accessibilityRole="alert" style={styles.error}>
-                {connections.error}
-              </Text>
+          <SettingsGroup title="Saved servers">
+            {!connections.ready ? (
+              <View style={[styles.messageRow, styles.separator]}>
+                <ActivityIndicator color={palette.signal} />
+              </View>
             ) : null}
             {connections.ready && connections.profiles.length === 0 ? (
-              <Text style={styles.emptyCopy}>No connections saved on this device.</Text>
-            ) : null}
-            {connections.profiles.map((profile) => (
-              <View
-                key={profile.id}
-                style={[styles.profileCard, largeText && styles.profileCardLargeText]}
-              >
-                <Pressable
-                  accessibilityLabel={`Select ${profile.name}`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: connections.selectedProfileId === profile.id }}
-                  onPress={() => void selectProfile(profile)}
-                  style={styles.profileMain}
-                >
-                  <View style={styles.profileNameRow}>
-                    <Text numberOfLines={largeText ? undefined : 1} style={styles.profileName}>
-                      {profile.name}
-                    </Text>
-                    {connections.selectedProfileId === profile.id ? (
-                      <Text style={styles.selectedLabel}>✓ Selected</Text>
-                    ) : null}
-                  </View>
-                  <Text numberOfLines={largeText ? undefined : 1} style={styles.profileOrigin}>
-                    {profile.baseUrl}
-                  </Text>
-                  {profile.allowDevelopmentHttp ? (
-                    <Text style={styles.httpLabel}>CLEARTEXT HTTP APPROVED</Text>
-                  ) : null}
-                </Pressable>
-                <View style={[styles.profileActions, largeText && styles.profileActionsLargeText]}>
-                  <Pressable
-                    accessibilityLabel={`Edit ${profile.name}`}
-                    accessibilityRole="button"
-                    onPress={() => void editProfile(profile)}
-                    style={({ pressed }) => [
-                      styles.editButton,
-                      pressed && styles.secondaryButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.editLabel}>Edit</Text>
-                  </Pressable>
-                  <Pressable
-                    accessibilityLabel={
-                      pendingRemovalId === profile.id
-                        ? `Confirm remove ${profile.name}`
-                        : `Remove ${profile.name}`
-                    }
-                    accessibilityRole="button"
-                    onPress={() => removeProfile(profile)}
-                    style={({ pressed }) => [
-                      styles.removeButton,
-                      pressed && styles.removeButtonPressed,
-                    ]}
-                  >
-                    <Text style={styles.removeLabel}>
-                      {pendingRemovalId === profile.id ? "Confirm" : "Remove"}
-                    </Text>
-                  </Pressable>
-                </View>
+              <View style={[styles.messageRow, styles.separator]}>
+                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+                  No connections saved on this device.
+                </Text>
               </View>
-            ))}
-          </View>
+            ) : null}
+            {connections.profiles.map((profile) => {
+              const selected = connections.selectedProfileId === profile.id;
+              return (
+                <View
+                  key={profile.id}
+                  style={[
+                    styles.profileRow,
+                    styles.separator,
+                    largeText && styles.profileRowLargeText,
+                  ]}
+                >
+                  <Pressable
+                    accessibilityLabel={`Select ${profile.name}`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    android_ripple={Platform.OS === "android" ? ripple : undefined}
+                    onPress={() => void selectProfile(profile)}
+                    style={({ pressed }) => [
+                      styles.profileMain,
+                      pressed && Platform.OS === "ios" && styles.pressed,
+                    ]}
+                  >
+                    <View style={styles.profileCopy}>
+                      <Text
+                        dynamicTypeRamp={typeRamp.body}
+                        numberOfLines={largeText ? undefined : 1}
+                        style={styles.profileName}
+                      >
+                        {profile.name}
+                      </Text>
+                      <Text
+                        dynamicTypeRamp={typeRamp.footnote}
+                        numberOfLines={largeText ? undefined : 1}
+                        style={styles.profileOrigin}
+                      >
+                        {profile.baseUrl}
+                      </Text>
+                      {profile.allowDevelopmentHttp ? (
+                        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.httpLabel}>
+                          Cleartext HTTP approved
+                        </Text>
+                      ) : null}
+                    </View>
+                    {selected ? (
+                      <Feather accessible={false} color={palette.signal} name="check" size={18} />
+                    ) : null}
+                  </Pressable>
+                  <Button
+                    accessibilityLabel={`Edit ${profile.name}`}
+                    align={largeText ? "start" : "center"}
+                    label="Edit"
+                    onPress={() => void editProfile(profile)}
+                    size="compact"
+                    style={largeText ? styles.profileActionLargeText : styles.profileAction}
+                    variant="text"
+                  />
+                </View>
+              );
+            })}
+            <MenuRow
+              disclosure={false}
+              icon="plus"
+              label="Add server"
+              last={!onPair}
+              onPress={newConnection}
+            />
+            {onPair ? (
+              <MenuRow icon="camera" label="Pair with QR code" last onPress={onPair} />
+            ) : null}
+          </SettingsGroup>
 
           {notice && !showDetails ? (
-            <Text accessibilityLiveRegion="polite" style={styles.notice}>
+            <Text
+              accessibilityLiveRegion="polite"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={[styles.message, styles.notice]}
+            >
               {notice}
             </Text>
           ) : null}
           {error && !showDetails ? (
-            <Text accessibilityRole="alert" style={styles.error}>
+            <Text
+              accessibilityRole="alert"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={[styles.message, styles.error]}
+            >
               {error}
             </Text>
           ) : null}
 
           {showDetails ? (
-            <>
-              <View style={styles.detailHeading}>
-                <Text style={styles.sectionTitle}>
-                  {editingProfileId ? "CONNECTION DETAILS" : "NEW CONNECTION"}
-                </Text>
-                {connections.profiles.length > 0 ? (
-                  <Pressable
-                    accessibilityLabel="Hide connection details"
-                    accessibilityRole="button"
-                    onPress={() => setShowDetails(false)}
-                    style={styles.smallButton}
+            <View style={styles.details}>
+              <View style={styles.section}>
+                <View style={styles.detailHeading}>
+                  <Text
+                    accessibilityRole="header"
+                    dynamicTypeRamp={typeRamp.sectionLabel}
+                    style={styles.sectionTitle}
                   >
-                    <Text style={styles.smallButtonLabel}>HIDE</Text>
-                  </Pressable>
-                ) : null}
-              </View>
-              <View style={styles.guidance}>
-                <Text style={styles.guidanceTitle}>ADDRESSING FROM A DEVICE</Text>
-                <Text style={styles.guidanceText}>
+                    {editingProfileId ? "Server details" : "New server"}
+                  </Text>
+                  {connections.profiles.length > 0 ? (
+                    <Button
+                      accessibilityLabel="Hide connection details"
+                      label="Hide"
+                      onPress={() => setShowDetails(false)}
+                      size="compact"
+                      variant="text"
+                    />
+                  ) : null}
+                </View>
+                <View style={managementStyles.group}>
+                  <Field label="Name">
+                    <TextInput
+                      accessibilityLabel="Connection name"
+                      keyboardAppearance="dark"
+                      maxLength={80}
+                      onChangeText={setName}
+                      placeholder="My OpenCode server"
+                      placeholderTextColor={palette.dim}
+                      style={styles.input}
+                      value={name}
+                    />
+                  </Field>
+
+                  <Field label="Server address">
+                    <TextInput
+                      accessibilityLabel="Server origin"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      keyboardType="url"
+                      keyboardAppearance="dark"
+                      onChangeText={setOrigin}
+                      placeholder="http://100.64.0.10:4096"
+                      placeholderTextColor={palette.dim}
+                      style={styles.input}
+                      value={origin}
+                    />
+                  </Field>
+
+                  <View style={[styles.fieldRow, authMode !== "none" && styles.separator]}>
+                    <Text
+                      accessibilityElementsHidden
+                      dynamicTypeRamp={typeRamp.footnote}
+                      importantForAccessibility="no"
+                      style={styles.fieldLabel}
+                    >
+                      Authentication
+                    </Text>
+                    <SegmentedControl
+                      accessibilityLabel="Authentication"
+                      onChange={(mode) => {
+                        setAuthMode(mode);
+                        setSecret("");
+                      }}
+                      options={authModeOptions}
+                      surface="card"
+                      value={authMode}
+                    />
+                  </View>
+
+                  {authMode === "basic" ? (
+                    <Field label="Username">
+                      <TextInput
+                        accessibilityLabel="Username"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardAppearance="dark"
+                        onChangeText={setUsername}
+                        style={styles.input}
+                        value={username}
+                      />
+                    </Field>
+                  ) : null}
+
+                  {authMode !== "none" ? (
+                    <Field label={authMode === "basic" ? "Password" : "Token"} last>
+                      <TextInput
+                        accessibilityLabel={authMode === "basic" ? "Password" : "Token"}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardAppearance="dark"
+                        onChangeText={setSecret}
+                        secureTextEntry
+                        style={styles.input}
+                        value={secret}
+                      />
+                    </Field>
+                  ) : null}
+                </View>
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.helper}>
                   Physical devices need a LAN, Tailscale, tunnel, or remote address. iOS Simulator
                   can usually use the Mac's localhost. Android Emulator commonly uses 10.0.2.2 for
                   its host.
                 </Text>
               </View>
 
-              <View style={[styles.warningRow, styles.appLockRow]}>
-                <View style={styles.warningCopy}>
-                  <Text style={styles.warningTitle}>DEVICE AUTHENTICATION LOCK</Text>
-                  <Text style={styles.warningText}>
-                    Require Face ID, Touch ID, fingerprint, or the device passcode after launch and
-                    each time this app leaves the foreground.
-                  </Text>
-                  {appLock.error ? (
-                    <Text accessibilityRole="alert" style={styles.appLockError}>
-                      {appLock.error}
+              <View style={managementStyles.group}>
+                <View style={[styles.switchRow, largeText && styles.switchRowLargeText]}>
+                  <View style={styles.switchCopy}>
+                    <Text dynamicTypeRamp={typeRamp.body} style={styles.rowTitle}>
+                      Allow private-network HTTP
                     </Text>
-                  ) : null}
-                </View>
-                {appLock.busy ? <ActivityIndicator color={palette.signal} /> : null}
-                <Switch
-                  {...switchColors}
-                  accessibilityLabel="Require device authentication"
-                  disabled={appLock.busy}
-                  onValueChange={appLock.setEnabled}
-                  value={appLock.enabled}
-                />
-              </View>
-
-              {runtime.status !== "idle" ? (
-                <View accessibilityLiveRegion="polite" style={styles.runtimeStatus}>
-                  <View style={styles.resultHeading}>
-                    <View
-                      style={[
-                        styles.runtimeDot,
-                        runtime.status === "connected" && styles.runtimeDotConnected,
-                      ]}
-                    />
-                    <Text style={styles.runtimeTitle}>{runtimeStatusLabel(runtime.status)}</Text>
-                  </View>
-                  {runtime.reconnectAttempt > 0 ? (
-                    <Text style={styles.runtimeCopy}>
-                      Reconnect attempt {runtime.reconnectAttempt}
-                    </Text>
-                  ) : null}
-                  {runtime.cacheMetadata ? (
-                    <Text style={styles.runtimeCopy}>
-                      Cached shell: {runtime.cacheMetadata.projectCount} projects /{" "}
-                      {runtime.cacheMetadata.activeSessionCount} active
-                    </Text>
-                  ) : null}
-                  {runtime.serverVersion &&
-                  runtime.serverVersion !== openCodeClientContractVersion ? (
-                    <Text style={styles.runtimeCopy}>
-                      Server {runtime.serverVersion} passed checks against client contract{" "}
-                      {openCodeClientContractVersion}.
-                    </Text>
-                  ) : null}
-                  <View style={styles.runtimeActions}>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => {
-                        if (!showRuntimeDiagnostics) {
-                          setRuntimeDiagnosticsText(runtime.getDiagnosticsText());
-                        }
-                        setShowRuntimeDiagnostics((visible) => !visible);
-                      }}
-                      style={styles.runtimeButton}
-                    >
-                      <Text style={styles.smallButtonLabel}>
-                        {showRuntimeDiagnostics ? "HIDE DIAGNOSTICS" : "SHOW DIAGNOSTICS"}
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() =>
-                        Share.share({ message: runtime.getDiagnosticsText() }).catch(() =>
-                          setError("Diagnostics could not be shared."),
-                        )
-                      }
-                      style={styles.runtimeButton}
-                    >
-                      <Text style={styles.smallButtonLabel}>SHARE REDACTED</Text>
-                    </Pressable>
-                  </View>
-                  {showRuntimeDiagnostics ? (
-                    <Text selectable style={styles.diagnosticsText}>
-                      {runtimeDiagnosticsText}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-
-              <View style={styles.panel}>
-                <Field label="CONNECTION NAME">
-                  <TextInput
-                    accessibilityLabel="Connection name"
-                    keyboardAppearance="dark"
-                    maxLength={80}
-                    onChangeText={setName}
-                    placeholder="My OpenCode server"
-                    placeholderTextColor={palette.dim}
-                    style={styles.input}
-                    value={name}
-                  />
-                </Field>
-
-                <Field label="SERVER ORIGIN">
-                  <TextInput
-                    accessibilityLabel="Server origin"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    keyboardType="url"
-                    keyboardAppearance="dark"
-                    onChangeText={setOrigin}
-                    placeholder="http://100.64.0.10:4096"
-                    placeholderTextColor={palette.dim}
-                    style={styles.input}
-                    value={origin}
-                  />
-                </Field>
-
-                <Text style={styles.label}>AUTHENTICATION</Text>
-                <View
-                  accessibilityRole="radiogroup"
-                  style={[styles.segmented, largeText && styles.segmentedLargeText]}
-                >
-                  {(["basic", "bearer", "none"] as const).map((mode) => (
-                    <Pressable
-                      accessibilityRole="radio"
-                      accessibilityState={{ checked: authMode === mode }}
-                      key={mode}
-                      onPress={() => {
-                        setAuthMode(mode);
-                        setSecret("");
-                      }}
-                      style={[styles.segment, authMode === mode && styles.segmentSelected]}
-                    >
-                      <Text
-                        style={[
-                          styles.segmentLabel,
-                          authMode === mode && styles.segmentLabelSelected,
-                        ]}
-                      >
-                        {mode.toUpperCase()}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                {authMode === "basic" ? (
-                  <Field label="USERNAME">
-                    <TextInput
-                      accessibilityLabel="Username"
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardAppearance="dark"
-                      onChangeText={setUsername}
-                      style={styles.input}
-                      value={username}
-                    />
-                  </Field>
-                ) : null}
-
-                {authMode !== "none" ? (
-                  <Field label={authMode === "basic" ? "PASSWORD" : "TOKEN"}>
-                    <TextInput
-                      accessibilityLabel={authMode === "basic" ? "Password" : "Token"}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      keyboardAppearance="dark"
-                      onChangeText={setSecret}
-                      secureTextEntry
-                      style={styles.input}
-                      value={secret}
-                    />
-                  </Field>
-                ) : null}
-
-                <View style={styles.warningRow}>
-                  <View style={styles.warningCopy}>
-                    <Text style={styles.warningTitle}>ALLOW PRIVATE-NETWORK HTTP</Text>
-                    <Text style={styles.warningText}>
+                    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.rowDescription}>
                       HTTP exposes credentials and session data to anyone who can observe the route.
                       Use it only on an approved Tailscale or private network.
                     </Text>
@@ -814,120 +769,208 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
                     value={allowHttp}
                   />
                 </View>
-
-                {error ? (
-                  <Text accessibilityRole="alert" style={styles.error}>
-                    {error}
-                  </Text>
-                ) : null}
-                {notice ? (
-                  <Text accessibilityLiveRegion="polite" style={styles.notice}>
-                    {notice}
-                  </Text>
-                ) : null}
-
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={saving || busy || streamBusy || ptyBusy || lifecycleBusy}
-                  onPress={testConnection}
-                  style={({ pressed }) => [
-                    styles.primaryButton,
-                    pressed && styles.primaryButtonPressed,
-                    busy && styles.primaryButtonDisabled,
-                  ]}
-                >
-                  {busy ? <ActivityIndicator color={palette.background} /> : null}
-                  <Text style={styles.primaryLabel}>{busy ? "TESTING" : "TEST CONNECTION"}</Text>
-                </Pressable>
-
-                {diagnostic ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={saving || busy || streamBusy || ptyBusy || lifecycleBusy}
-                    onPress={saveConnection}
-                    style={({ pressed }) => [
-                      styles.saveButton,
-                      pressed && styles.secondaryButtonPressed,
-                      saving && styles.primaryButtonDisabled,
-                    ]}
-                  >
-                    {saving ? <ActivityIndicator color={palette.signal} /> : null}
-                    <Text style={styles.secondaryLabel}>
-                      {saving ? "SAVING" : editingProfileId ? "SAVE CHANGES" : "SAVE CONNECTION"}
-                    </Text>
-                  </Pressable>
-                ) : null}
               </View>
+
+              {error ? (
+                <Text
+                  accessibilityRole="alert"
+                  dynamicTypeRamp={typeRamp.subheadline}
+                  style={[styles.message, styles.error]}
+                >
+                  {error}
+                </Text>
+              ) : null}
+              {notice ? (
+                <Text
+                  accessibilityLiveRegion="polite"
+                  dynamicTypeRamp={typeRamp.subheadline}
+                  style={[styles.message, styles.notice]}
+                >
+                  {notice}
+                </Text>
+              ) : null}
 
               {diagnostic ? <DiagnosticCard diagnostic={diagnostic} /> : null}
 
               {diagnostic ? (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={saving || busy || streamBusy || ptyBusy || lifecycleBusy}
-                  onPress={testEventStream}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    pressed && styles.secondaryButtonPressed,
-                    streamBusy && styles.primaryButtonDisabled,
-                  ]}
-                >
-                  {streamBusy ? <ActivityIndicator color={palette.signal} /> : null}
-                  <Text style={styles.secondaryLabel}>
-                    {streamBusy ? "PROBING EVENT STREAM" : "RUN EVENT + CANCELLATION PROBE"}
-                  </Text>
-                </Pressable>
+                <View style={styles.actions}>
+                  <Button
+                    busy={saving}
+                    disabled={actionsDisabled}
+                    fullWidth
+                    label={
+                      saving ? "Saving…" : editingProfileId ? "Save changes" : "Save connection"
+                    }
+                    onPress={() => void saveConnection()}
+                    variant="primary"
+                  />
+                  <Button
+                    busy={busy}
+                    disabled={actionsDisabled}
+                    fullWidth
+                    label={busy ? "Testing…" : "Test again"}
+                    onPress={() => void testConnection()}
+                  />
+                </View>
+              ) : (
+                <Button
+                  busy={busy}
+                  disabled={actionsDisabled}
+                  fullWidth
+                  label={busy ? "Testing…" : "Test connection"}
+                  onPress={() => void testConnection()}
+                  variant="primary"
+                />
+              )}
+
+              <MenuGroup>
+                <MenuRow
+                  description="Diagnostics and transport probes"
+                  expanded={showAdvanced}
+                  icon="activity"
+                  label="Advanced"
+                  last
+                  onPress={() => setShowAdvanced((visible) => !visible)}
+                />
+              </MenuGroup>
+
+              {showAdvanced ? (
+                <View style={styles.advanced}>
+                  {runtime.status !== "idle" ? (
+                    <View accessibilityLiveRegion="polite" style={styles.runtimeStatus}>
+                      <View style={styles.resultHeading}>
+                        <View
+                          style={[
+                            styles.runtimeDot,
+                            runtime.status === "connected" && styles.runtimeDotConnected,
+                          ]}
+                        />
+                        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.runtimeTitle}>
+                          {runtimeStatusLabel(runtime.status)}
+                        </Text>
+                      </View>
+                      {runtime.reconnectAttempt > 0 ? (
+                        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.runtimeCopy}>
+                          Reconnect attempt {runtime.reconnectAttempt}
+                        </Text>
+                      ) : null}
+                      {runtime.cacheMetadata ? (
+                        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.runtimeCopy}>
+                          Cached shell: {runtime.cacheMetadata.projectCount} projects /{" "}
+                          {runtime.cacheMetadata.activeSessionCount} active
+                        </Text>
+                      ) : null}
+                      {runtime.serverVersion &&
+                      runtime.serverVersion !== openCodeClientContractVersion ? (
+                        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.runtimeCopy}>
+                          Server {runtime.serverVersion} passed checks against client contract{" "}
+                          {openCodeClientContractVersion}.
+                        </Text>
+                      ) : null}
+                      <View style={styles.runtimeActions}>
+                        <Button
+                          label={showRuntimeDiagnostics ? "Hide diagnostics" : "Show diagnostics"}
+                          onPress={() => {
+                            if (!showRuntimeDiagnostics) {
+                              setRuntimeDiagnosticsText(runtime.getDiagnosticsText());
+                            }
+                            setShowRuntimeDiagnostics((visible) => !visible);
+                          }}
+                          size="compact"
+                        />
+                        <Button
+                          label="Share redacted report"
+                          onPress={() =>
+                            void Share.share({ message: runtime.getDiagnosticsText() }).catch(() =>
+                              setError("Diagnostics could not be shared."),
+                            )
+                          }
+                          size="compact"
+                        />
+                      </View>
+                      {showRuntimeDiagnostics ? (
+                        <Text
+                          dynamicTypeRamp={typeRamp.footnote}
+                          selectable
+                          style={styles.diagnosticsText}
+                        >
+                          {runtimeDiagnosticsText}
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : null}
+
+                  {diagnostic ? (
+                    <Button
+                      busy={streamBusy}
+                      disabled={actionsDisabled}
+                      fullWidth
+                      label={
+                        streamBusy ? "Probing event stream…" : "Run event and cancellation probe"
+                      }
+                      onPress={() => void testEventStream()}
+                    />
+                  ) : (
+                    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.helper}>
+                      Test the connection to run transport probes.
+                    </Text>
+                  )}
+
+                  {streamDiagnostic ? <StreamDiagnosticCard diagnostic={streamDiagnostic} /> : null}
+
+                  {streamDiagnostic ? (
+                    <Button
+                      busy={ptyBusy}
+                      disabled={actionsDisabled}
+                      fullWidth
+                      label={ptyBusy ? "Probing PTY transport…" : "Run PTY WebSocket probe"}
+                      onPress={() => void testPtyTransport()}
+                    />
+                  ) : null}
+
+                  {ptyDiagnostic ? <PtyDiagnosticCard diagnostic={ptyDiagnostic} /> : null}
+
+                  {ptyDiagnostic ? (
+                    <Button
+                      busy={lifecycleBusy}
+                      disabled={actionsDisabled}
+                      fullWidth
+                      label={
+                        lifecycleBusy
+                          ? "Lifecycle probe running…"
+                          : "Run background and reconnect probe"
+                      }
+                      onPress={() => void testLifecycleRecovery()}
+                    />
+                  ) : null}
+
+                  {lifecycleBusy ? <LifecyclePrompt phase={lifecycleProbe.phase} /> : null}
+                  {lifecycleProbe.result ? (
+                    <LifecycleDiagnosticCard diagnostic={lifecycleProbe.result} />
+                  ) : null}
+                </View>
               ) : null}
 
-              {streamDiagnostic ? <StreamDiagnosticCard diagnostic={streamDiagnostic} /> : null}
-
-              {streamDiagnostic ? (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={saving || busy || streamBusy || ptyBusy || lifecycleBusy}
-                  onPress={testPtyTransport}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    pressed && styles.secondaryButtonPressed,
-                    ptyBusy && styles.primaryButtonDisabled,
-                  ]}
-                >
-                  {ptyBusy ? <ActivityIndicator color={palette.signal} /> : null}
-                  <Text style={styles.secondaryLabel}>
-                    {ptyBusy ? "PROBING PTY TRANSPORT" : "RUN PTY WEBSOCKET PROBE"}
-                  </Text>
-                </Pressable>
+              {editingProfile ? (
+                <Button
+                  accessibilityLabel={
+                    pendingRemovalId === editingProfile.id
+                      ? `Confirm remove ${editingProfile.name}`
+                      : `Remove ${editingProfile.name}`
+                  }
+                  fullWidth
+                  label={
+                    pendingRemovalId === editingProfile.id ? "Confirm remove" : "Remove server"
+                  }
+                  onPress={() => void removeProfile(editingProfile)}
+                  variant="danger"
+                />
               ) : null}
-
-              {ptyDiagnostic ? <PtyDiagnosticCard diagnostic={ptyDiagnostic} /> : null}
-
-              {ptyDiagnostic ? (
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={saving || busy || streamBusy || ptyBusy || lifecycleBusy}
-                  onPress={testLifecycleRecovery}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    pressed && styles.secondaryButtonPressed,
-                    lifecycleBusy && styles.primaryButtonDisabled,
-                  ]}
-                >
-                  {lifecycleBusy ? <ActivityIndicator color={palette.signal} /> : null}
-                  <Text style={styles.secondaryLabel}>
-                    {lifecycleBusy ? "LIFECYCLE PROBE RUNNING" : "RUN BACKGROUND + RECONNECT PROBE"}
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              {lifecycleBusy ? <LifecyclePrompt phase={lifecycleProbe.phase} /> : null}
-              {lifecycleProbe.result ? (
-                <LifecycleDiagnosticCard diagnostic={lifecycleProbe.result} />
-              ) : null}
-            </>
+            </View>
           ) : null}
 
-          <Text style={styles.footer}>
-            CLIENT CONTRACT {openCodeClientContractVersion} / HERMES NATIVE
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footer}>
+            Client contract {openCodeClientContractVersion} / Hermes native
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -935,10 +978,48 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   );
 }
 
-function Field({ children, label }: { children: React.ReactNode; label: string }) {
+const ripple = { color: "rgba(255,255,255,0.12)" };
+const borderlessRipple = { ...ripple, borderless: true };
+
+const authModeOptions = [
+  { label: "Basic", value: "basic" },
+  { label: "Bearer", value: "bearer" },
+  { label: "None", value: "none" },
+] as const satisfies readonly SegmentedOption<ConnectionAuthMode>[];
+
+function Field({
+  children,
+  label,
+  last = false,
+}: {
+  children: ReactNode;
+  label: string;
+  last?: boolean;
+}) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+    <View style={[styles.fieldRow, !last && styles.separator]}>
+      <Text
+        accessibilityElementsHidden
+        dynamicTypeRamp={typeRamp.footnote}
+        importantForAccessibility="no"
+        style={styles.fieldLabel}
+      >
+        {label}
+      </Text>
+      {children}
+    </View>
+  );
+}
+
+function ResultCard({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <View accessibilityLiveRegion="polite" style={styles.resultCard}>
+      <View style={styles.resultHeading}>
+        <View style={styles.resultDot} />
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.resultTitle}>
+          {title}
+        </Text>
+      </View>
       {children}
     </View>
   );
@@ -946,59 +1027,52 @@ function Field({ children, label }: { children: React.ReactNode; label: string }
 
 function DiagnosticCard({ diagnostic }: { diagnostic: Diagnostic }) {
   return (
-    <View accessibilityLiveRegion="polite" style={styles.result}>
-      <View style={styles.resultHeading}>
-        <View style={styles.resultDot} />
-        <Text style={styles.resultTitle}>SERVER REACHABLE</Text>
-      </View>
+    <ResultCard title="Server reachable">
       <View style={styles.metrics}>
-        <Metric label="VERSION" value={diagnostic.version} />
+        <Metric label="Version" value={diagnostic.version} />
         <Metric label="PID" value={String(diagnostic.pid)} />
-        <Metric label="SESSIONS" value={String(diagnostic.sessions)} />
-        <Metric label="URLS" value={String(diagnostic.advertisedUrls)} />
+        <Metric label="Sessions" value={String(diagnostic.sessions)} />
+        <Metric label="URLs" value={String(diagnostic.advertisedUrls)} />
       </View>
-    </View>
+    </ResultCard>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.metric}>
-      <Text numberOfLines={1} style={styles.metricValue}>
+      <Text dynamicTypeRamp={typeRamp.headline} numberOfLines={1} style={styles.metricValue}>
         {value}
       </Text>
-      <Text style={styles.metricLabel}>{label}</Text>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.metricLabel}>
+        {label}
+      </Text>
     </View>
   );
 }
 
 function StreamDiagnosticCard({ diagnostic }: { diagnostic: StreamDiagnostic }) {
   return (
-    <View accessibilityLiveRegion="polite" style={styles.streamResult}>
-      <View style={styles.resultHeading}>
-        <View style={styles.resultDot} />
-        <Text style={styles.resultTitle}>EVENT TRANSPORT PASSED</Text>
-      </View>
-      <Text style={styles.streamCopy}>
-        Received <Text style={styles.streamCode}>{diagnostic.eventType}</Text>, then stopped the
-        pending read with AbortSignal.
+    <ResultCard title="Event transport passed">
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.resultCopy}>
+        Received{" "}
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.resultCode}>
+          {diagnostic.eventType}
+        </Text>
+        , then stopped the pending read with AbortSignal.
       </Text>
-    </View>
+    </ResultCard>
   );
 }
 
 function PtyDiagnosticCard({ diagnostic }: { diagnostic: PtyDiagnostic }) {
   return (
-    <View accessibilityLiveRegion="polite" style={styles.streamResult}>
-      <View style={styles.resultHeading}>
-        <View style={styles.resultDot} />
-        <Text style={styles.resultTitle}>PTY TRANSPORT PASSED</Text>
-      </View>
-      <Text style={styles.streamCopy}>
+    <ResultCard title="PTY transport passed">
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.resultCopy}>
         Minted a {diagnostic.ticketExpiresIn}s ticket, received the probe marker over WebSocket,
         then removed the temporary PTY.
       </Text>
-    </View>
+    </ResultCard>
   );
 }
 
@@ -1014,26 +1088,32 @@ function LifecyclePrompt({ phase }: { phase: LifecycleTransportPhase }) {
   }[phase];
 
   return (
-    <View accessibilityLiveRegion="polite" style={styles.lifecyclePrompt}>
-      <Text style={styles.warningTitle}>LIFECYCLE ACTION REQUIRED</Text>
-      <Text style={styles.warningText}>{copy}</Text>
+    <View accessibilityLiveRegion="polite" style={[styles.resultCard, styles.lifecyclePrompt]}>
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.lifecycleTitle}>
+        Lifecycle action required
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.lifecycleCopy}>
+        {copy}
+      </Text>
     </View>
   );
 }
 
 function LifecycleDiagnosticCard({ diagnostic }: { diagnostic: LifecycleTransportResult }) {
   return (
-    <View accessibilityLiveRegion="polite" style={styles.streamResult}>
-      <View style={styles.resultHeading}>
-        <View style={styles.resultDot} />
-        <Text style={styles.resultTitle}>LIFECYCLE RECOVERY PASSED</Text>
-      </View>
-      <Text style={styles.streamCopy}>
-        Cancelled <Text style={styles.streamCode}>{diagnostic.initialEventType}</Text> on
-        background, passed a foreground health check, then received{" "}
-        <Text style={styles.streamCode}>{diagnostic.reconnectEventType}</Text> on a fresh stream.
+    <ResultCard title="Lifecycle recovery passed">
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.resultCopy}>
+        Cancelled{" "}
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.resultCode}>
+          {diagnostic.initialEventType}
+        </Text>{" "}
+        on background, passed a foreground health check, then received{" "}
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.resultCode}>
+          {diagnostic.reconnectEventType}
+        </Text>{" "}
+        on a fresh stream.
       </Text>
-    </View>
+    </ResultCard>
   );
 }
 
@@ -1081,14 +1161,14 @@ function profileErrorMessage(error: unknown) {
 
 function runtimeStatusLabel(status: ReturnType<typeof useConnectionRuntime>["status"]) {
   return {
-    connected: "LIVE CONNECTION",
-    connecting: "CONNECTING",
-    idle: "NO CONNECTION SELECTED",
-    incompatible: "INCOMPATIBLE SERVER",
-    offline: "DEVICE OFFLINE",
-    reconnecting: "RECONNECTING",
-    stale: "CONNECTION PAUSED",
-    unauthorized: "AUTHORIZATION REQUIRED",
+    connected: "Connected",
+    connecting: "Connecting",
+    idle: "No connection selected",
+    incompatible: "Incompatible server",
+    offline: "Device offline",
+    reconnecting: "Reconnecting",
+    stale: "Connection paused",
+    unauthorized: "Authorization required",
   }[status];
 }
 
@@ -1160,283 +1240,152 @@ function ptyProbeErrorMessage(error: unknown) {
 }
 
 const styles = StyleSheet.create({
-  appLockError: {
-    ...typography.caption,
-    color: palette.danger,
-    marginTop: space.sm,
-  },
-  appLockRow: { marginTop: space.lg },
+  actions: { gap: space.sm },
+  advanced: { gap: space.md },
   content: {
     alignSelf: "center",
+    gap: space.lg,
+    maxWidth: 680,
     paddingBottom: space.xl,
     paddingHorizontal: space.md,
     paddingTop: space.sm,
     width: "100%",
-    maxWidth: 680,
   },
-  error: {
-    ...typography.body,
-    backgroundColor: palette.background,
-    borderColor: palette.danger,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    color: palette.danger,
-    padding: space.md,
-  },
-  emptyCopy: {
-    ...typography.body,
-    color: palette.dim,
-  },
-  diagnosticsText: {
-    ...typography.code,
-    color: palette.dim,
-    marginTop: space.xs,
-  },
+  details: { gap: space.md },
   detailHeading: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: space.xl,
+    minHeight: minTouchTarget,
   },
-  editButton: {
-    alignItems: "center",
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+  diagnosticsText: {
+    ...typography.code,
+    color: palette.dim,
+  },
+  doneButton: {
+    alignItems: "flex-end",
     justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.sm,
+    minHeight: minTouchTarget,
+    minWidth: minTouchTarget,
   },
-  editLabel: { ...typography.control, color: palette.signal },
-  field: {
-    gap: space.xs,
+  doneLabel: { ...typography.navTitle, color: palette.signal },
+  emptyCopy: { ...typography.subheadline, color: palette.dim },
+  error: { borderColor: palette.danger, color: palette.danger },
+  fieldLabel: { ...typography.footnote, color: palette.dim },
+  fieldRow: {
+    gap: 2,
+    justifyContent: "center",
+    minHeight: 64,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   flex: { flex: 1 },
   footer: {
-    ...typography.caption,
+    ...typography.footnote,
     color: palette.dim,
-    marginTop: space.lg,
     textAlign: "center",
-  },
-  guidance: {
-    borderBottomColor: palette.border,
-    borderBottomWidth: 1,
-    gap: space.xs,
-    marginTop: space.lg,
-    paddingBottom: space.lg,
-  },
-  guidanceText: {
-    ...typography.body,
-    color: palette.dim,
-  },
-  guidanceTitle: {
-    ...typography.label,
-    color: palette.dim,
   },
   header: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  headerIdentity: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: space.sm,
-    minWidth: 0,
-  },
-  closeButton: {
-    marginLeft: space.sm,
     minHeight: 44,
     paddingHorizontal: space.md,
-    paddingVertical: 12,
   },
-  closeButtonLabel: {
-    ...typography.control,
-    color: palette.ink,
+  headerSide: { flex: 1 },
+  headerTrailing: { alignItems: "flex-end" },
+  helper: {
+    ...typography.footnote,
+    color: palette.dim,
+    paddingHorizontal: space.md,
   },
+  httpLabel: { ...typography.footnote, color: palette.warm },
   input: {
     ...typography.body,
-    backgroundColor: palette.background,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
     color: palette.ink,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    minHeight: 32,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
   },
-  intro: {
-    ...typography.caption,
-    color: palette.dim,
-    marginTop: space.xs,
-    maxWidth: 560,
-  },
-  label: {
-    ...typography.label,
-    color: palette.dim,
-  },
-  lifecyclePrompt: {
+  intro: { ...typography.subheadline, color: palette.dim },
+  lifecycleCopy: { ...typography.subheadline, color: palette.dim },
+  lifecyclePrompt: { borderColor: palette.warm },
+  lifecycleTitle: { ...typography.sectionLabel, color: palette.warm },
+  message: {
+    ...typography.subheadline,
     backgroundColor: palette.background,
-    borderColor: palette.warm,
     borderRadius: radius.md,
     borderWidth: 1,
-    marginTop: space.md,
     padding: space.md,
   },
-  metric: {
-    minWidth: "45%",
+  messageRow: {
+    alignItems: "flex-start",
+    justifyContent: "center",
+    minHeight: 52,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
-  metricLabel: {
-    ...typography.label,
-    color: palette.dim,
-    marginTop: 3,
-  },
+  metric: { minWidth: "45%" },
+  metricLabel: { ...typography.footnote, color: palette.dim },
   metrics: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: space.lg,
-  },
-  metricValue: {
-    ...typography.heading,
-    color: palette.ink,
-  },
-  notice: {
-    ...typography.body,
-    backgroundColor: palette.background,
-    borderColor: palette.success,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    color: palette.success,
-    padding: space.md,
-  },
-  panel: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
     gap: space.md,
-    marginTop: space.xl,
-    padding: space.md,
   },
-  primaryButton: {
-    ...control,
-    alignItems: "center",
-    backgroundColor: palette.signal,
-    flexDirection: "row",
-    gap: space.sm,
-    justifyContent: "center",
-  },
-  primaryButtonDisabled: { opacity: 0.65 },
-  primaryButtonPressed: { opacity: 0.7 },
-  primaryLabel: {
-    ...typography.control,
-    color: palette.background,
-    flexShrink: 1,
-    textAlign: "center",
-  },
-  profileCard: {
-    alignItems: "stretch",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "column",
-    overflow: "hidden",
-  },
-  profileCardLargeText: {
-    flexDirection: "column",
-  },
-  profileActions: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    borderTopColor: palette.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  profileActionsLargeText: {
-    borderLeftWidth: 0,
-    borderTopColor: palette.border,
-    borderTopWidth: 1,
-    flexDirection: "row",
-  },
-  profileHeading: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: space.sm,
-    justifyContent: "space-between",
-  },
+  metricValue: { ...typography.headline, color: palette.ink },
+  notice: { borderColor: palette.success, color: palette.success },
+  pressed: { opacity: pressedOpacity },
+  profileAction: { marginRight: space.xs },
+  profileActionLargeText: { marginBottom: space.xs, marginHorizontal: space.xs },
+  profileCopy: { flex: 1, gap: 2, minWidth: 0 },
   profileMain: {
-    minHeight: 44,
-    gap: 4,
-    padding: space.sm,
-  },
-  profileName: {
-    ...typography.heading,
-    color: palette.ink,
-    flex: 1,
-  },
-  profileNameRow: {
     alignItems: "center",
+    flex: 1,
     flexDirection: "row",
     gap: space.sm,
+    minHeight: 52,
+    paddingLeft: space.md,
+    paddingRight: space.xs,
+    paddingVertical: space.sm,
   },
+  profileName: { ...typography.body, color: palette.ink },
   profileOrigin: {
-    fontFamily: typography.code.fontFamily,
-    ...typography.caption,
+    ...typography.footnote,
     color: palette.dim,
+    fontFamily: typography.code.fontFamily,
   },
-  profileSection: {
-    gap: space.sm,
-    marginTop: space.xl,
-  },
-  product: {
-    ...typography.label,
-    color: palette.signal,
-  },
-  result: {
-    backgroundColor: palette.background,
+  profileRow: { alignItems: "center", flexDirection: "row" },
+  profileRowLargeText: { alignItems: "stretch", flexDirection: "column" },
+  resultCard: {
+    ...cardSurface,
     borderColor: palette.success,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: space.lg,
-    marginTop: space.md,
-    padding: space.lg,
+    gap: space.sm,
   },
+  resultCode: {
+    color: palette.signal,
+    fontFamily: typography.code.fontFamily,
+  },
+  resultCopy: { ...typography.subheadline, color: palette.ink },
   resultDot: {
     backgroundColor: palette.success,
-    borderRadius: 5,
-    height: 10,
-    width: 10,
+    borderRadius: 4,
+    height: 8,
+    width: 8,
   },
   resultHeading: {
     alignItems: "center",
     flexDirection: "row",
     gap: space.sm,
   },
-  resultTitle: {
-    ...typography.label,
-    color: palette.success,
-  },
-  runtimeCopy: {
-    ...typography.caption,
-    color: palette.dim,
-  },
+  resultTitle: { ...typography.sectionLabel, color: palette.success },
+  rowDescription: { ...typography.footnote, color: palette.dim },
+  rowTitle: { ...typography.body, color: palette.ink },
   runtimeActions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.sm,
     marginTop: space.xs,
   },
-  runtimeButton: {
-    alignItems: "center",
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-    paddingVertical: 8,
-  },
+  runtimeCopy: { ...typography.footnote, color: palette.dim },
   runtimeDot: {
     backgroundColor: palette.warm,
     borderRadius: 4,
@@ -1444,155 +1393,34 @@ const styles = StyleSheet.create({
     width: 8,
   },
   runtimeDotConnected: { backgroundColor: palette.success },
-  runtimeStatus: {
-    borderBottomColor: palette.border,
-    borderBottomWidth: 1,
-    gap: space.xs,
-    paddingBottom: space.md,
-    paddingTop: space.md,
-  },
-  runtimeTitle: {
-    ...typography.label,
-    color: palette.ink,
-  },
-  removeButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-  },
-  removeButtonPressed: { backgroundColor: palette.card },
-  removeLabel: {
-    ...typography.control,
-    color: palette.danger,
-    textAlign: "center",
-  },
-  saveButton: {
-    ...control,
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: space.sm,
-    justifyContent: "center",
-  },
-  secondaryButton: {
-    ...control,
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: space.sm,
-    justifyContent: "center",
-    marginTop: space.md,
-  },
-  secondaryButtonPressed: { backgroundColor: palette.signalDark },
-  secondaryLabel: {
-    ...typography.control,
-    color: palette.signal,
-    flexShrink: 1,
-    textAlign: "center",
-  },
-  sectionTitle: {
-    ...typography.label,
-    color: palette.dim,
-  },
-  selectedLabel: {
-    ...typography.label,
-    color: palette.signal,
-  },
-  smallButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-    paddingVertical: 8,
-  },
-  smallButtonLabel: {
-    ...typography.control,
-    color: palette.signal,
-  },
+  runtimeStatus: { ...cardSurface, gap: space.xs },
+  runtimeTitle: { ...typography.sectionLabel, color: palette.ink },
   safeArea: {
     backgroundColor: palette.background,
     flex: 1,
   },
-  segment: {
+  section: { gap: space.xs },
+  sectionTitle: {
+    ...typography.sectionLabel,
+    color: palette.dim,
+    flexShrink: 1,
+    paddingHorizontal: space.md,
+  },
+  separator: {
+    borderBottomColor: palette.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  switchCopy: { flex: 1, gap: 2, minWidth: 0 },
+  switchRow: {
     alignItems: "center",
-    borderRadius: 6,
-    flex: 1,
-    minHeight: 44,
-    paddingHorizontal: space.xs,
+    flexDirection: "row",
+    gap: 12,
+    minHeight: 64,
+    paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
-  segmented: {
-    backgroundColor: palette.background,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    flexDirection: "row",
-    padding: 3,
-  },
-  segmentedLargeText: {
-    flexDirection: "column",
-  },
-  segmentLabel: {
-    ...typography.control,
-    color: palette.dim,
-  },
-  segmentLabelSelected: { color: palette.background },
-  segmentSelected: { backgroundColor: palette.signal },
-  statusMark: {
-    backgroundColor: palette.success,
-    borderRadius: 4,
-    height: 8,
-    width: 8,
-  },
-  streamCode: {
-    ...typography.code,
-    color: palette.signal,
-  },
-  streamCopy: {
-    ...typography.body,
-    color: palette.ink,
-  },
-  streamResult: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    gap: space.md,
-    marginTop: space.md,
-    padding: space.lg,
-  },
-  title: {
-    ...typography.sheetTitle,
-    color: palette.ink,
-    flexShrink: 1,
-    maxWidth: 600,
-  },
-  httpLabel: {
-    ...typography.label,
-    color: palette.warm,
-    marginTop: 3,
-  },
-  warningCopy: { flex: 1 },
-  warningRow: {
-    alignItems: "flex-start",
-    backgroundColor: palette.background,
-    borderColor: palette.warm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: space.sm,
-    padding: space.md,
-  },
-  warningText: {
-    ...typography.body,
-    color: palette.dim,
-    marginTop: space.xs,
-  },
-  warningTitle: {
-    ...typography.label,
-    color: palette.warm,
-  },
+  switchRowLargeText: { alignItems: "flex-start", flexDirection: "column" },
+  title: { ...typography.navTitle, color: palette.ink },
+  titleCentered: { flexShrink: 1, textAlign: "center" },
+  titleLeading: { flex: 1 },
 });

@@ -541,7 +541,7 @@ function CompletionButton({
           /{completion.name}
         </Text>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
-          COMMAND
+          Command
         </Text>
       </View>
       {completion.label !== completion.name || completion.description ? (
@@ -588,7 +588,7 @@ function MentionButton({
           @{value}
         </Text>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
-          {completion.type.toUpperCase()}
+          {completion.type.charAt(0).toLocaleUpperCase() + completion.type.slice(1)}
         </Text>
       </View>
       {completion.label !== value || completion.description ? (
@@ -808,7 +808,7 @@ const styles = StyleSheet.create({
   editorRow: { alignItems: "center", flexDirection: "row", minWidth: 0 },
   editorRowExpanded: { alignItems: "stretch" },
   emptyResults: { color: palette.dim, paddingVertical: space.lg, textAlign: "center" },
-  error: { ...typography.body, color: palette.danger },
+  error: { ...typography.subheadline, color: palette.danger },
   input: {
     ...typography.chatBody,
     color: palette.ink,
@@ -830,14 +830,14 @@ const styles = StyleSheet.create({
   },
   optionCompact: { marginLeft: space.md, minHeight: 50, paddingVertical: space.sm },
   optionDescription: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  optionLabel: { ...typography.heading, color: palette.ink },
+  optionLabel: { ...typography.headline, color: palette.ink },
   optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   optionSeparator: { height: space.xs },
   pickerList: { flex: 1 },
   pickerListContent: { flexGrow: 1, justifyContent: "flex-start" },
   pressed: { opacity: 0.62 },
   searchInput: {
-    ...typography.body,
+    ...typography.subheadline,
     borderColor: palette.border,
     borderRadius: radius.sm,
     borderWidth: 1,

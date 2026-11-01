@@ -4,14 +4,14 @@ import {
   AccessibilityInfo,
   ActivityIndicator,
   AppState,
-  Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 
 import { applicationName } from "../application-name";
-import { control, palette, space, typography } from "../theme";
+import { Button } from "../components/button";
+import { palette, space, typeRamp, typography } from "../theme";
 import { authenticateDeviceOwner } from "./device-authentication";
 
 type AppLockContextValue = {
@@ -169,42 +169,61 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
         </View>
       ) : preferenceLoadFailed ? (
         <View style={styles.shell}>
-          <Text style={styles.errorEyebrow}>DEVICE LOCK UNAVAILABLE</Text>
-          <Text accessibilityRole="header" style={styles.title}>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
+            Device lock unavailable
+          </Text>
+          <Text
+            accessibilityRole="header"
+            dynamicTypeRamp={typeRamp.largeTitle}
+            style={styles.title}
+          >
             Secure preferences could not be read.
           </Text>
-          <Text accessibilityRole="alert" style={styles.error}>
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.subheadline}
+            style={styles.error}
+          >
             {error}
           </Text>
-          <Pressable
-            accessibilityRole="button"
+          <Button
+            label="Retry"
             onPress={retryPreferenceLoad}
-            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          >
-            <Text style={styles.buttonLabel}>RETRY</Text>
-          </Pressable>
+            style={styles.action}
+            variant="primary"
+          />
         </View>
       ) : enabled && locked ? (
         <View style={styles.shell}>
-          <Text style={styles.eyebrow}>DEVICE LOCK</Text>
-          <Text accessibilityRole="header" style={styles.title}>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
+            Device lock
+          </Text>
+          <Text
+            accessibilityRole="header"
+            dynamicTypeRamp={typeRamp.largeTitle}
+            style={styles.title}
+          >
             {applicationName} is locked.
           </Text>
-          <Text style={styles.copy}>Authenticate on this device to reveal saved connections.</Text>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
+            Authenticate on this device to reveal saved connections.
+          </Text>
           {error ? (
-            <Text accessibilityRole="alert" style={styles.error}>
+            <Text
+              accessibilityRole="alert"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={styles.error}
+            >
               {error}
             </Text>
           ) : null}
-          <Pressable
-            accessibilityRole="button"
-            disabled={busy}
-            onPress={unlock}
-            style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-          >
-            {busy ? <ActivityIndicator color={palette.background} /> : null}
-            <Text style={styles.buttonLabel}>{busy ? "AUTHENTICATING" : "UNLOCK"}</Text>
-          </Pressable>
+          <Button
+            busy={busy}
+            label={busy ? "Authenticating…" : "Unlock"}
+            onPress={() => void unlock()}
+            style={styles.action}
+            variant="primary"
+          />
         </View>
       ) : (
         children
@@ -220,49 +239,34 @@ export function useAppLock() {
 }
 
 const styles = StyleSheet.create({
-  button: {
-    ...control,
-    alignItems: "center",
-    backgroundColor: palette.signal,
-    flexDirection: "row",
-    gap: space.sm,
-    justifyContent: "center",
-    marginTop: space.lg,
-  },
-  buttonLabel: {
-    ...typography.control,
-    color: palette.background,
-    flexShrink: 1,
-    textAlign: "center",
-  },
-  buttonPressed: { opacity: 0.7 },
+  action: { marginTop: space.lg },
   copy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
     marginTop: space.md,
     maxWidth: 440,
   },
   error: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.danger,
     marginTop: space.md,
   },
   errorEyebrow: {
-    ...typography.label,
+    ...typography.sectionLabel,
     color: palette.danger,
   },
   eyebrow: {
-    ...typography.label,
+    ...typography.sectionLabel,
     color: palette.dim,
   },
   shell: {
     backgroundColor: palette.background,
     flex: 1,
     justifyContent: "center",
-    padding: 28,
+    padding: space.lg,
   },
   title: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
     marginTop: space.sm,
   },

@@ -1,6 +1,6 @@
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { palette, radius, space, typography } from "../theme";
+import { minTouchTarget, palette, radius, space, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
 
 const command = `python3 - <<'PY'\n${"print('review me')\n".repeat(100)}PY`;
@@ -15,11 +15,15 @@ const request = {
 test("permission messages use neutral headings and shared error typography", () => {
   render(<PermissionRequestCard request={request} replying={false} error onReply={jest.fn()} />);
   expect(screen.getByText("Permission required")).toHaveStyle({
-    ...typography.heading,
+    ...typography.headline,
     color: palette.ink,
   });
+  expect(screen.getByText("Run shell command")).toHaveStyle({
+    ...typography.sectionLabel,
+    color: palette.warm,
+  });
   expect(screen.getByRole("alert")).toHaveStyle({
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.danger,
   });
 });
@@ -88,11 +92,11 @@ test("compact approval actions retain all three reply values", () => {
   ] as const) {
     const button = screen.getByRole("button", { name });
     expect(button).toHaveStyle({
-      minHeight: 44,
-      borderRadius: radius.sm,
-      paddingHorizontal: space.sm,
+      minHeight: minTouchTarget,
+      borderRadius: radius.md,
+      paddingHorizontal: space.md,
+      flexGrow: 1,
     });
-    expect(button).not.toHaveStyle({ flexGrow: 1 });
     fireEvent.press(button);
     expect(reply).toHaveBeenLastCalledWith(request.id, request.sessionID, value);
   }

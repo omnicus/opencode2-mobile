@@ -184,7 +184,7 @@ export function SessionExecutionPanel({
       {localOverlays.map((admission) => (
         <View key={admission.id} style={styles.admissionCard}>
           <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-            DELIVERY UNKNOWN
+            Delivery unknown
           </Text>
           <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
             {admission.kind === "command"
@@ -208,14 +208,14 @@ export function SessionExecutionPanel({
         <View key={item.id} style={styles.inboxCard}>
           <View style={styles.inboxHeading}>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-              QUEUED
+              Queued
             </Text>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.inboxType}>
               {inboxTypeLabel(item)}
             </Text>
           </View>
           {item.type === "user" ? (
-            <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.promptPreview}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} selectable style={styles.promptPreview}>
               {boundedPromptPreview(item.payload.text)}
             </Text>
           ) : null}
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
     padding: space.md,
   },
-  cardCopy: { ...typography.body, color: palette.dim },
+  cardCopy: { ...typography.subheadline, color: palette.dim },
   sending: { ...typography.caption, color: palette.dim },
   cardEyebrow: { ...typography.label, color: palette.dim },
   disabled: { opacity: 0.5 },
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
   },
   inboxType: { ...typography.label, color: palette.dim },
   pressed: { opacity: 0.62 },
-  promptPreview: { ...typography.body, color: palette.ink },
+  promptPreview: { ...typography.subheadline, color: palette.ink },
   content: { gap: space.sm, paddingHorizontal: space.md, paddingVertical: space.xs },
   shell: { flexGrow: 0, flexShrink: 1, maxHeight: 280 },
 });

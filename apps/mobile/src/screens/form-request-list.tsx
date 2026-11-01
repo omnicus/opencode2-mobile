@@ -58,5 +58,5 @@ export function FormRequestList({
 }
 
 const styles = StyleSheet.create({
-  list: { gap: space.sm },
+  list: { gap: space.md },
 });

@@ -186,7 +186,7 @@ function Blocks({
             <SelectableTranscriptText
               key={key}
               accessibilityRole={token.type === "heading_open" ? "header" : undefined}
-              dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheading : typeRamp.body}
+              dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheadline : typeRamp.body}
               selectable
               style={[
                 props.style,

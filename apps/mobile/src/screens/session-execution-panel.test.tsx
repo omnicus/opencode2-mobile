@@ -173,7 +173,7 @@ test("a prompt promoted within 200ms never flashes admission or inbox action car
         ]}
       />,
     );
-    expect(screen.queryByText("QUEUED")).toBeNull();
+    expect(screen.queryByText("Queued")).toBeNull();
     expect(screen.queryByRole("button", { name: "Steer now" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
     act(() => jest.advanceTimersByTime(100));
@@ -228,7 +228,7 @@ test.each(["submitting", "queued"] as const)(
       act(() => jest.advanceTimersByTime(199));
       expect(screen.queryByLabelText("Session execution")).toBeNull();
       act(() => jest.advanceTimersByTime(1));
-      expect(screen.getByText(status === "queued" ? "QUEUED" : "Sending")).toBeOnTheScreen();
+      expect(screen.getByText(status === "queued" ? "Queued" : "Sending")).toBeOnTheScreen();
       if (status === "queued") {
         fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
         expect(callbacks.onCancelInbox).toHaveBeenCalledWith(admission.id);
@@ -336,8 +336,11 @@ test("renders active execution and mutable queued inbox work", async () => {
   fireEvent.press(screen.getByRole("button", { name: "Stop" }));
   expect(callbacks.onInterrupt).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(screen.getByText("Queued prompt")).toBeOnTheScreen());
-  expect(screen.getByText("Queued prompt")).toHaveStyle({ ...typography.body, color: palette.ink });
-  expect(screen.getByText("QUEUED")).toHaveStyle({ ...typography.label, color: palette.dim });
+  expect(screen.getByText("Queued prompt")).toHaveStyle({
+    ...typography.subheadline,
+    color: palette.ink,
+  });
+  expect(screen.getByText("Queued")).toHaveStyle({ ...typography.label, color: palette.dim });
   expect(screen.getByRole("button", { name: "Cancel" })).toHaveStyle({
     borderColor: palette.border,
   });
@@ -435,9 +438,9 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
     />,
   );
 
-  expect(screen.getByText("DELIVERY UNKNOWN")).toBeOnTheScreen();
+  expect(screen.getByText("Delivery unknown")).toBeOnTheScreen();
   expect(screen.getByText(/server may have admitted this prompt/)).toHaveStyle({
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
   });
   fireEvent.press(screen.getByRole("button", { name: "Check delivery" }));
@@ -454,7 +457,7 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
       projectedMessageIds={new Set(["msg_unknown"])}
     />,
   );
-  expect(screen.queryByText("DELIVERY UNKNOWN")).not.toBeOnTheScreen();
+  expect(screen.queryByText("Delivery unknown")).not.toBeOnTheScreen();
 });
 
 test("only offers a duplicate-risk retry after an explicit empty reconciliation", () => {

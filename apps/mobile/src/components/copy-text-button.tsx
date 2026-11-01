@@ -1,8 +1,8 @@
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, Pressable, StyleSheet, Text } from "react-native";
+import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text } from "react-native";
 
-import { palette, space, typography } from "../theme";
+import { palette, space, typeRamp, typography } from "../theme";
 
 export function CopyTextButton({
   text,
@@ -40,13 +40,18 @@ export function CopyTextButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
+      android_ripple={
+        Platform.OS === "android"
+          ? { color: "rgba(255,255,255,0.12)", borderless: true }
+          : undefined
+      }
       onPress={() => void copy()}
       style={styles.action}
     >
       {iconOnly && !status ? (
         <Feather accessible={false} name="copy" size={14} color={palette.dim} />
       ) : (
-        <Text style={styles.label}>
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.label}>
           {status === "copied" ? "Copied" : status === "failed" ? "Retry copy" : label}
         </Text>
       )}

@@ -1,10 +1,12 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useState } from "react";
-import { Keyboard, Pressable, StyleSheet, View } from "react-native";
+import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette } from "../theme";
+import { minTouchTarget, palette, radius } from "../theme";
+
+const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 
 type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Settings";
 
@@ -52,7 +54,11 @@ export function WorkspaceHeaderActions({
           Keyboard.dismiss();
           setMenuOpen(true);
         }}
-        style={({ pressed }) => [styles.optionsButton, pressed && styles.optionsButtonPressed]}
+        android_ripple={ripple}
+        style={({ pressed }) => [
+          styles.optionsButton,
+          pressed && Platform.OS === "ios" && styles.optionsButtonPressed,
+        ]}
       >
         <Feather
           accessibilityElementsHidden
@@ -120,7 +126,11 @@ export function NewSessionButton({ onPress }: { onPress: () => void }) {
         Keyboard.dismiss();
         onPress();
       }}
-      style={({ pressed }) => [styles.optionsButton, pressed && styles.optionsButtonPressed]}
+      android_ripple={ripple}
+      style={({ pressed }) => [
+        styles.optionsButton,
+        pressed && Platform.OS === "ios" && styles.optionsButtonPressed,
+      ]}
     >
       <Feather
         accessibilityElementsHidden
@@ -153,9 +163,9 @@ const styles = StyleSheet.create({
     backgroundColor: palette.card,
     borderWidth: 1,
     borderColor: palette.border,
-    borderRadius: 24,
-    width: 48,
-    height: 48,
+    borderRadius: radius.pill,
+    width: minTouchTarget,
+    height: minTouchTarget,
     alignItems: "center",
     justifyContent: "center",
     elevation: 3,
@@ -177,10 +187,11 @@ const styles = StyleSheet.create({
   },
   optionsButton: {
     alignItems: "center",
-    borderRadius: 22,
-    height: 44,
+    borderRadius: radius.pill,
+    height: minTouchTarget,
     justifyContent: "center",
-    width: 44,
+    overflow: "hidden",
+    width: minTouchTarget,
   },
   optionsButtonPressed: { backgroundColor: palette.card },
 });

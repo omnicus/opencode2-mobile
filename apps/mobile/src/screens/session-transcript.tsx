@@ -1,5 +1,5 @@
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { memo, useEffect, useRef, useState } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -24,6 +24,7 @@ import {
   parseSubagentProtocolText,
   type SubagentPresentation,
   type SubagentProtocolText,
+  type SubagentStates,
   sanitizeTranscriptText,
 } from "./session-transcript-model";
 import {
@@ -35,6 +36,8 @@ import {
 } from "./transcript-images";
 import { parseTranscriptLink } from "./transcript-link-card";
 import { InlineTranscriptMarkdown, TranscriptMarkdown } from "./transcript-markdown";
+
+export const SessionSubagentStates = createContext<SubagentStates | undefined>(undefined);
 
 const textStep = 4_000;
 const maxVisibleText = 32_000;
@@ -867,7 +870,8 @@ function ToolDisclosure({
   tool: AssistantTool;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const subagent = getSubagentPresentation(tool);
+  const subagentStates = useContext(SessionSubagentStates);
+  const subagent = getSubagentPresentation(tool, subagentStates);
   if (subagent) {
     return (
       <SubagentCard largeText={largeText} onOpenSubagent={onOpenSubagent} presentation={subagent} />
@@ -1269,7 +1273,7 @@ function SubagentCard({
     >
       <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.subagentLabel}>
-          {presentation.background ? "BACKGROUND SUBAGENT" : "SUBAGENT"}
+          {presentation.background ? "Background subagent" : "Subagent"}
         </Text>
         <Text
           accessibilityLiveRegion="polite"
@@ -1283,7 +1287,7 @@ function SubagentCard({
           {stateLabel}
         </Text>
       </View>
-      <Text dynamicTypeRamp={typeRamp.subheading} style={styles.subagentTitle}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.subagentTitle}>
         {sanitizeTranscriptText(presentation.title, 256)}
       </Text>
       {presentation.agent ? (
@@ -1838,13 +1842,13 @@ function capitalize(value: string) {
 function subagentStateLabel(state: SubagentPresentation["state"]) {
   switch (state) {
     case "streaming":
-      return "PREPARING";
+      return "Preparing";
     case "running":
-      return "RUNNING";
+      return "Running";
     case "completed":
-      return "COMPLETED";
+      return "Completed";
     case "error":
-      return "FAILED";
+      return "Failed";
   }
 }
 
@@ -2023,14 +2027,14 @@ const styles = StyleSheet.create({
     paddingRight: space.md,
   },
   diffActionLabel: { ...typography.control, color: palette.signal },
-  errorText: { ...typography.body, color: palette.danger },
+  errorText: { ...typography.subheadline, color: palette.danger },
   linkText: { color: markdownPalette.linkText, textDecorationLine: "underline" },
   notice: {
     marginHorizontal: space.md,
     paddingVertical: space.xs,
   },
   noticeLabel: { ...typography.label, color: palette.dim },
-  noticeText: { ...typography.body, color: palette.dim, marginTop: 5 },
+  noticeText: { ...typography.subheadline, color: palette.dim, marginTop: 5 },
   omittedText: { ...typography.caption, color: palette.dim, marginTop: 7 },
   outputText: {
     ...typography.code,
@@ -2085,7 +2089,7 @@ const styles = StyleSheet.create({
   subagentState: { ...typography.label, color: palette.dim },
   subagentStateError: { color: palette.danger },
   subagentStateRunning: { color: palette.activity },
-  subagentTitle: { ...typography.heading, color: palette.ink },
+  subagentTitle: { ...typography.headline, color: palette.ink },
   textAction: { alignSelf: "flex-start", minHeight: 44, paddingVertical: 10 },
   textActionLabel: { ...typography.label, color: palette.signal },
   userBubble: {

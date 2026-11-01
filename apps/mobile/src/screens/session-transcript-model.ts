@@ -58,7 +58,18 @@ export function hasForegroundBackgroundableTool(messages: SessionMessageInfo[]) 
   return false;
 }
 
-export function getSubagentPresentation(tool: AssistantTool): SubagentPresentation | undefined {
+type SubagentState = {
+  background: boolean;
+  childSessionID?: string;
+  state: SubagentPresentation["state"];
+};
+
+export type SubagentStates = ReadonlyMap<string, SubagentState>;
+
+export function getSubagentPresentation(
+  tool: AssistantTool,
+  states?: SubagentStates,
+): SubagentPresentation | undefined {
   const toolName = tool.name.trim().toLocaleLowerCase();
   if (toolName !== "subagent" && toolName !== "task") return undefined;
 
@@ -76,60 +87,115 @@ export function getSubagentPresentation(tool: AssistantTool): SubagentPresentati
     protocol?.childSessionID,
   );
   const protocolState = protocol?.state;
-  const state = protocolState ?? tool.state.status;
+  const background =
+    input?.background === true ||
+    metadata?.background === true ||
+    (tool.state.status === "completed" && protocolState === "running");
+  // A background launch completes as soon as the child starts; that is not the child finishing.
+  const launchState =
+    protocolState ??
+    (background && tool.state.status === "completed" ? "running" : tool.state.status);
+  const known = background && childSessionID ? states?.get(childSessionID) : undefined;
   return {
     ...(agent ? { agent } : {}),
-    background:
-      input?.background === true ||
-      metadata?.background === true ||
-      (tool.state.status === "completed" && protocolState === "running"),
+    background,
     ...(childSessionID ? { childSessionID } : {}),
     ...(result ? { result } : {}),
-    state,
+    state: known?.state ?? launchState,
     title: firstString(input?.description, metadata?.title, protocol?.summary) ?? "Delegated task",
   };
 }
 
-export function runningBackgroundSubagents(messages: SessionMessageInfo[]) {
-  const subagents = new Map<
-    string,
-    { background: boolean; state?: SubagentPresentation["state"]; childSessionID?: string }
-  >();
+// Messages arrive newest-first, so the first signal seen for a child is its latest.
+// Live activity is the same active-session store the Sessions list counts children from.
+export function subagentStates(
+  messages: SessionMessageInfo[],
+  activeSessions?: Readonly<Record<string, unknown>>,
+  sessionID?: string,
+): SubagentStates {
+  type Signal = SubagentState & { notified: boolean };
+  const states = new Map<string, Signal>();
+  const record = (key: string, signal: Signal) => {
+    const current = states.get(key);
+    if (current) current.background ||= signal.background;
+    else states.set(key, signal);
+  };
 
   for (const message of messages) {
+    if (message.type === "synthetic") {
+      const notice = subagentNotice(message);
+      if (notice) record(notice.childSessionID, { background: true, ...notice, notified: true });
+      continue;
+    }
     if (message.type !== "assistant") continue;
     for (const [ordinal, part] of message.content.entries()) {
       if (part.type === "text") {
         const protocol = parseSubagentProtocolText(part.text);
         if (!protocol.matched || !protocol.childSessionID || !protocol.state) continue;
-        const current = subagents.get(protocol.childSessionID);
-        subagents.set(protocol.childSessionID, {
+        record(protocol.childSessionID, {
           background: true,
-          state: current?.state ?? protocol.state,
           childSessionID: protocol.childSessionID,
+          notified: true,
+          state: protocol.state,
         });
         continue;
       }
       if (part.type !== "tool") continue;
       const presentation = getSubagentPresentation(part);
       if (!presentation) continue;
-      const key = presentation.childSessionID ?? `${message.id}:${part.id}:${ordinal}`;
-      const current = subagents.get(key);
-      subagents.set(key, {
-        background: Boolean(current?.background || presentation.background),
-        state: current?.state ?? presentation.state,
+      record(presentation.childSessionID ?? `${message.id}:${part.id}:${ordinal}`, {
+        background: presentation.background,
         ...(presentation.childSessionID ? { childSessionID: presentation.childSessionID } : {}),
+        notified: false,
+        state: presentation.state,
       });
     }
   }
 
-  return [...subagents.entries()]
+  if (activeSessions) {
+    for (const entry of states.values()) {
+      if (entry.notified || !entry.childSessionID) continue;
+      if (activeSessions[entry.childSessionID]) entry.state = "running";
+      // While the parent is still running, the child may not have reported busy yet.
+      else if (entry.state === "running" && !(sessionID && activeSessions[sessionID])) {
+        entry.state = "completed";
+      }
+    }
+  }
+  return states;
+}
+
+export function runningBackgroundSubagents(
+  messages: SessionMessageInfo[],
+  activeSessions?: Readonly<Record<string, unknown>>,
+  sessionID?: string,
+) {
+  return [...subagentStates(messages, activeSessions, sessionID).entries()]
     .filter(([, subagent]) => subagent.background && subagent.state === "running")
     .map(([key, subagent]) => ({ key, childSessionID: subagent.childSessionID }));
 }
 
-export function countRunningBackgroundSubagents(messages: SessionMessageInfo[]) {
-  return runningBackgroundSubagents(messages).length;
+export function countRunningBackgroundSubagents(
+  messages: SessionMessageInfo[],
+  activeSessions?: Readonly<Record<string, unknown>>,
+  sessionID?: string,
+) {
+  return runningBackgroundSubagents(messages, activeSessions, sessionID).length;
+}
+
+function subagentNotice(message: Extract<SessionMessageInfo, { type: "synthetic" }>) {
+  const metadata = isRecord(message.metadata) ? message.metadata : undefined;
+  const header =
+    /^<subagent sessionID="(ses[A-Za-z0-9_-]+)" state="([a-z_-]+)"/.exec(
+      message.text.trimStart(),
+    ) ?? undefined;
+  const childSessionID =
+    metadata?.source === "subagent" ? firstSessionID(metadata.childID) : header?.[1];
+  const state = metadata?.source === "subagent" ? firstString(metadata.state) : header?.[2];
+  if (!childSessionID || !state) return undefined;
+  const presented: SubagentPresentation["state"] =
+    state === "completed" || state === "running" ? state : "error";
+  return { childSessionID, state: presented };
 }
 
 export function parseSubagentProtocolText(text: string): SubagentProtocolText {

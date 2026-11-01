@@ -4,7 +4,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ComponentProps, type ReactNode, useEffect, useState } from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -19,8 +19,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../components/button";
 import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
 import { ModalSheet } from "../components/modal-sheet";
+import { SegmentedControl } from "../components/segmented-control";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { sendNotificationDeviceCommand } from "../notifications/notification-client";
@@ -35,8 +37,9 @@ import type { ConnectionTransportStatus } from "../state/connection-transport-co
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import {
-  control,
+  cardSurface,
   palette,
+  pressedOpacity,
   radius,
   space,
   switchColors,
@@ -82,13 +85,18 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
     <ShellFrame active="Pending" navigate={navigate}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {tablet ? (
-          <>
-            <Text style={styles.eyebrow}>PENDING WORK</Text>
-            <Text accessibilityRole="header" style={styles.title}>
+          <View style={styles.heading}>
+            <Text
+              accessibilityRole="header"
+              dynamicTypeRamp={typeRamp.largeTitle}
+              style={styles.title}
+            >
               Requests that need you.
             </Text>
-            <Text style={styles.lede}>Approvals and forms from followed projects appear here.</Text>
-          </>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.lede}>
+              Approvals and forms from followed projects appear here.
+            </Text>
+          </View>
         ) : null}
         {selection.preferencesLoading ? (
           <View style={styles.stateCard}>
@@ -96,32 +104,47 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
               accessibilityLabel="Loading followed projects"
               color={palette.signal}
             />
-            <Text style={styles.cardTitle}>Loading followed projects</Text>
+            <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateCardTitle}>
+              Loading followed projects
+            </Text>
           </View>
         ) : selection.followedProjectIds.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyMark}>UNAVAILABLE</Text>
-            <Text style={styles.cardTitle}>Follow a project to reconcile pending work.</Text>
+          <View style={styles.summary}>
+            <View style={styles.summaryRow}>
+              <StatusIcon color={palette.dim} name="folder" />
+              <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
+                Follow a project to reconcile pending work.
+              </Text>
+            </View>
+            <Button
+              label="Choose projects"
+              onPress={() => navigation.navigate("FollowedProjects")}
+            />
           </View>
         ) : selection.interactionsLoading && selection.pendingCount === 0 ? (
           <View style={styles.stateCard}>
             <ActivityIndicator accessibilityLabel="Loading pending work" color={palette.signal} />
-            <Text style={styles.cardTitle}>Reconciling pending work</Text>
+            <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateCardTitle}>
+              Reconciling pending work
+            </Text>
           </View>
         ) : selection.interactionsError && selection.pendingCount === 0 ? (
           <View
             accessibilityRole="alert"
             style={allKnownLocationsFailed ? styles.failureCard : styles.cacheCard}
           >
-            <Text style={styles.cardLabel}>
-              {allKnownLocationsFailed ? "UNAVAILABLE" : "PARTIAL"}
+            <Text
+              dynamicTypeRamp={typeRamp.sectionLabel}
+              style={allKnownLocationsFailed ? styles.failureLabel : styles.cacheLabel}
+            >
+              {allKnownLocationsFailed ? "Unavailable" : "Partial results"}
             </Text>
-            <Text style={styles.cardTitle}>
+            <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
               {allKnownLocationsFailed
                 ? "Pending requests could not be checked."
                 : locationFailureTitle(failedLocationCount)}
             </Text>
-            <Text style={styles.cardCopy}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
               {failedProjectSummary
                 ? `Affected ${selection.attentionCoverage.failedProjects.length === 1 ? "project" : "projects"}: ${failedProjectSummary}. `
                 : "The affected project could not be identified. "}
@@ -153,9 +176,13 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
           <>
             {selection.interactionsError ? (
               <View accessibilityRole="alert" style={styles.cacheCard}>
-                <Text style={styles.cardLabel}>PARTIAL</Text>
-                <Text style={styles.cardTitle}>{locationFailureTitle(failedLocationCount)}</Text>
-                <Text style={styles.cardCopy}>
+                <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.cacheLabel}>
+                  Partial results
+                </Text>
+                <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+                  {locationFailureTitle(failedLocationCount)}
+                </Text>
+                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
                   {failedProjectSummary
                     ? `Affected ${selection.attentionCoverage.failedProjects.length === 1 ? "project" : "projects"}: ${failedProjectSummary}. `
                     : "The affected project could not be identified. "}
@@ -173,18 +200,32 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 />
               </View>
             ) : null}
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyMark}>{selection.pendingCount}</Text>
-              <Text style={styles.cardTitle}>
-                {selection.attentionCoverage.completeness === "complete"
-                  ? selection.pendingCount === 1
-                    ? "Pending request"
-                    : "Pending requests"
-                  : selection.pendingCount === 1
-                    ? "Known pending request"
-                    : "Known pending requests"}
-              </Text>
-              <Text style={styles.cardCopy}>
+            <View style={styles.summary}>
+              <View
+                accessible
+                accessibilityLabel={pendingSummaryLabel(
+                  selection.pendingCount,
+                  selection.attentionCoverage.completeness === "complete",
+                )}
+                style={styles.summaryRow}
+              >
+                {selection.pendingCount > 0 ? (
+                  <View style={styles.countBadge}>
+                    <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.countBadgeText}>
+                      {selection.pendingCount}
+                    </Text>
+                  </View>
+                ) : (
+                  <StatusIcon color={palette.success} name="check-circle" />
+                )}
+                <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
+                  {pendingSummaryTitle(
+                    selection.pendingCount,
+                    selection.attentionCoverage.completeness === "complete",
+                  )}
+                </Text>
+              </View>
+              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.summaryCopy}>
                 {pendingCoverageLabel(selection.attentionCoverage)}
               </Text>
             </View>
@@ -214,24 +255,28 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
         visible={showLocations}
         onClose={() => setShowLocations(false)}
       >
-        <Text style={styles.cardCopy}>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
           These checks failed. Pending work at these locations is still unknown. Session history is
           preserved.
         </Text>
         {failedLocations.some(
           (failure) => failure.source === "session-history" || failure.source === "worktree",
         ) ? (
-          <Text style={styles.cardCopy}>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
             A directory referenced by session history or a worktree may have been moved or removed.
             A failed check alone does not confirm that it was deleted.
           </Text>
         ) : null}
         {failedLocations.map((failure) => (
           <View key={JSON.stringify(failure.location)} style={styles.locationFailure}>
-            <Text accessibilityRole="header" style={styles.cardTitle}>
+            <Text
+              accessibilityRole="header"
+              dynamicTypeRamp={typeRamp.headline}
+              style={styles.cardTitle}
+            >
               {sanitizeTranscriptText(failure.projectLabel, 256)}
             </Text>
-            <Text style={styles.cardCopy}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
               {failure.source === "project-root"
                 ? "Project root"
                 : failure.source === "worktree"
@@ -255,15 +300,17 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 )}
               </Text>
             ) : null}
-            <Text style={styles.cardCopy}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
               Could not check: {failure.failedChecks.join(" and ")}.
             </Text>
           </View>
         ))}
         {failedLocations.length === 0 ? (
-          <Text style={styles.cardTitle}>No location checks are currently failing.</Text>
+          <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+            No location checks are currently failing.
+          </Text>
         ) : (
-          <Text style={styles.cardCopy}>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
             Check these directories on the server. Restore a moved or removed worktree if you still
             need it, then retry. If a whole project is retired, unfollow it on this device.
             Unfollowing does not delete its sessions.
@@ -368,55 +415,43 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   return (
     <ShellFrame active="Settings" navigate={navigate}>
       <ScrollView contentContainerStyle={managementStyles.content}>
-        <Text style={managementStyles.description}>Device and connection controls.</Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={managementStyles.description}>
+          Device and connection controls.
+        </Text>
 
         <AppUpdateCard />
 
         <SettingsGroup title="Transcript">
           <SettingsRow>
             <View style={styles.settingText}>
-              <Text style={styles.cardTitle}>Default follow-up delivery</Text>
-              <Text style={styles.cardCopy}>
-                Steer updates the current work. Queue waits until it finishes.
-              </Text>
-              <View
-                accessibilityLabel="Default follow-up delivery"
-                accessibilityRole="radiogroup"
-                style={styles.deliveryOptions}
-              >
-                {(["steer", "queue"] as const).map((delivery) => (
-                  <Pressable
-                    key={delivery}
-                    accessibilityRole="radio"
-                    accessibilityState={{
-                      checked: transcript.defaultDelivery === delivery,
-                      disabled: transcript.busy,
-                    }}
-                    disabled={transcript.busy}
-                    onPress={() => void transcript.update({ defaultDelivery: delivery })}
-                    style={[
-                      styles.deliveryOption,
-                      transcript.defaultDelivery === delivery && styles.deliveryOptionSelected,
-                    ]}
-                  >
-                    <Text style={styles.cardTitle}>
-                      {transcript.defaultDelivery === delivery ? "✓ " : ""}
-                      {delivery === "steer" ? "Steer" : "Queue"}
-                    </Text>
-                  </Pressable>
-                ))}
+              <SettingText
+                description="Steer updates the current work. Queue waits until it finishes."
+                title="Default follow-up delivery"
+              />
+              <View style={styles.deliveryOptions}>
+                <SegmentedControl
+                  accessibilityLabel="Default follow-up delivery"
+                  disabled={transcript.busy}
+                  onChange={(defaultDelivery) => {
+                    if (!transcript.busy) void transcript.update({ defaultDelivery });
+                  }}
+                  options={deliveryOptions}
+                  value={transcript.defaultDelivery}
+                />
               </View>
             </View>
           </SettingsRow>
 
           <SettingsRow>
             <View style={styles.settingText}>
-              <Text style={styles.cardTitle}>Detailed transcript</Text>
-              <Text style={styles.cardCopy}>
-                {transcript.detailed
-                  ? "Detailed: individual tool executions and system notices."
-                  : "Compact: group activity and collapse routine details."}
-              </Text>
+              <SettingText
+                description={
+                  transcript.detailed
+                    ? "Detailed: individual tool executions and system notices."
+                    : "Compact: group activity and collapse routine details."
+                }
+                title="Detailed transcript"
+              />
             </View>
             <Switch
               {...switchColors}
@@ -428,10 +463,10 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           </SettingsRow>
           <SettingsRow>
             <View style={styles.settingText}>
-              <Text style={styles.cardTitle}>Show reasoning</Text>
-              <Text style={styles.cardCopy}>
-                Display model reasoning when provided by the server.
-              </Text>
+              <SettingText
+                description="Display model reasoning when provided by the server."
+                title="Show reasoning"
+              />
             </View>
             <Switch
               {...switchColors}
@@ -443,7 +478,11 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           </SettingsRow>
         </SettingsGroup>
         {transcript.error ? (
-          <Text accessibilityRole="alert" style={styles.errorText}>
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.footnote}
+            style={styles.errorText}
+          >
             Message preferences could not be loaded or saved. Try changing the setting again.
           </Text>
         ) : null}
@@ -451,10 +490,10 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         <SettingsGroup title="Security and notifications">
           <SettingsRow>
             <View style={styles.settingText}>
-              <Text style={styles.cardTitle}>App lock</Text>
-              <Text style={styles.cardCopy}>
-                Require device authentication after the app leaves the foreground.
-              </Text>
+              <SettingText
+                description="Require device authentication after the app leaves the foreground."
+                title="App lock"
+              />
             </View>
             <Switch
               {...switchColors}
@@ -466,7 +505,11 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           </SettingsRow>
           {appLock.error ? (
             <SettingsRow>
-              <Text accessibilityRole="alert" style={styles.errorText}>
+              <Text
+                accessibilityRole="alert"
+                dynamicTypeRamp={typeRamp.footnote}
+                style={styles.errorText}
+              >
                 {appLock.error}
               </Text>
             </SettingsRow>
@@ -474,18 +517,20 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
 
           <SettingsRow>
             <View style={styles.settingText}>
-              <Text style={styles.cardTitle}>Mobile notifications</Text>
-              <Text style={styles.cardCopy}>
-                {notificationLoading
-                  ? "Reading the shared broker setting."
-                  : !notificationPairing
-                    ? "Pair this connection for notifications before enabling delivery."
-                    : notificationState?.enabled
-                      ? "Enabled for every phone paired with this notification broker."
-                      : notificationState
-                        ? "Paused. New requests will not create mobile notifications."
-                        : "The shared broker setting is unavailable."}
-              </Text>
+              <SettingText
+                description={
+                  notificationLoading
+                    ? "Reading the shared broker setting."
+                    : !notificationPairing
+                      ? "Pair this connection for notifications before enabling delivery."
+                      : notificationState?.enabled
+                        ? "Enabled for every phone paired with this notification broker."
+                        : notificationState
+                          ? "Paused. New requests will not create mobile notifications."
+                          : "The shared broker setting is unavailable."
+                }
+                title="Mobile notifications"
+              />
             </View>
             {notificationLoading ? (
               <ActivityIndicator
@@ -504,17 +549,21 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           </SettingsRow>
         </SettingsGroup>
         {notificationError ? (
-          <Text accessibilityRole="alert" style={styles.errorText}>
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.footnote}
+            style={styles.errorText}
+          >
             The notification broker setting could not be read or updated.
           </Text>
         ) : null}
 
         <SettingsGroup title="Workspace">
           <View style={styles.managementAction}>
-            <Text style={styles.cardTitle}>Followed projects</Text>
-            <Text style={styles.cardCopy}>
-              Choose which server projects are merged into Sessions and attention reconciliation.
-            </Text>
+            <SettingText
+              description="Choose which server projects are merged into Sessions and attention reconciliation."
+              title="Followed projects"
+            />
             <ActionButton
               label="Manage followed projects"
               onPress={() => navigation.navigate("FollowedProjects")}
@@ -522,11 +571,13 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           </View>
 
           <View style={styles.managementAction}>
-            <Text style={styles.cardLabel}>Selected connection</Text>
-            <Text style={styles.cardTitle}>{selected?.name ?? "No connection selected"}</Text>
-            <Text style={styles.cardCopy}>
-              {selected?.baseUrl ?? "Choose a saved server profile."}
+            <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.cardLabel}>
+              Selected connection
             </Text>
+            <SettingText
+              description={selected?.baseUrl ?? "Choose a saved server profile."}
+              title={selected?.name ?? "No connection selected"}
+            />
             <ActionButton
               label="Manage connections"
               onPress={() => navigation.navigate("Connections")}
@@ -536,11 +587,10 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
 
         <SettingsGroup title="Support">
           <View style={styles.managementAction}>
-            <Text style={styles.cardTitle}>Redacted transport and transcript report</Text>
-            <Text style={styles.cardCopy}>
-              Includes status transitions, event types, and numeric transcript performance counters.
-              It excludes credentials, server addresses, paths, titles, prompts, and content.
-            </Text>
+            <SettingText
+              description="Includes status transitions, event types, and numeric transcript performance counters. It excludes credentials, server addresses, paths, titles, prompts, and content."
+              title="Redacted transport and transcript report"
+            />
             <ActionButton
               label="Share diagnostics"
               onPress={() => void shareDiagnostics()}
@@ -553,15 +603,32 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   );
 }
 
+function SettingText({ description, title }: { description: string; title: string }) {
+  return (
+    <>
+      <Text dynamicTypeRamp={typeRamp.body} style={styles.settingTitle}>
+        {title}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.settingCopy}>
+        {description}
+      </Text>
+    </>
+  );
+}
+
 export function ConnectionStorageLoadingScreen() {
   return (
     <SafeAreaView style={styles.centeredState}>
       <StatusBar style="light" />
       <ActivityIndicator accessibilityLabel="Loading saved connections" color={palette.signal} />
-      <Text accessibilityRole="header" style={styles.stateTitle}>
+      <Text
+        accessibilityRole="header"
+        dynamicTypeRamp={typeRamp.largeTitle}
+        style={styles.stateTitle}
+      >
         Opening the local shell
       </Text>
-      <Text style={styles.stateCopy}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
         Reading non-secret profiles and secure credential references.
       </Text>
     </SafeAreaView>
@@ -581,14 +648,24 @@ export function ConnectionStorageFailureScreen() {
   return (
     <SafeAreaView style={styles.centeredState}>
       <StatusBar style="light" />
-      <Text style={styles.errorEyebrow}>LOCAL STORAGE FAILURE</Text>
-      <Text accessibilityRole="header" style={styles.stateTitle}>
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.failureLabel}>
+        Local storage failure
+      </Text>
+      <Text
+        accessibilityRole="header"
+        dynamicTypeRamp={typeRamp.largeTitle}
+        style={styles.stateTitle}
+      >
         Saved connections are unavailable.
       </Text>
-      <Text accessibilityRole="alert" style={styles.stateCopy}>
+      <Text
+        accessibilityRole="alert"
+        dynamicTypeRamp={typeRamp.subheadline}
+        style={styles.stateCopy}
+      >
         {connections.error}
       </Text>
-      <ActionButton disabled={retrying} label={retrying ? "RETRYING" : "RETRY"} onPress={retry} />
+      <ActionButton disabled={retrying} label={retrying ? "Retrying" : "Retry"} onPress={retry} />
     </SafeAreaView>
   );
 }
@@ -601,16 +678,16 @@ export function getConnectionPresentation(
   status: ConnectionTransportStatus,
   reconnectAttempt: number,
 ) {
-  if (status === "connected") return { color: palette.success, label: "LIVE" };
-  if (status === "connecting") return { color: palette.warm, label: "CONNECTING" };
+  if (status === "connected") return { color: palette.success, label: "Connected" };
+  if (status === "connecting") return { color: palette.warm, label: "Connecting" };
   if (status === "reconnecting") {
-    return { color: palette.warm, label: `RECONNECTING ${reconnectAttempt}` };
+    return { color: palette.warm, label: `Reconnecting (${reconnectAttempt})` };
   }
-  if (status === "stale") return { color: palette.warm, label: "STALE" };
-  if (status === "offline") return { color: palette.dim, label: "OFFLINE" };
-  if (status === "unauthorized") return { color: palette.danger, label: "AUTH BLOCKED" };
-  if (status === "incompatible") return { color: palette.danger, label: "INCOMPATIBLE" };
-  return { color: palette.dim, label: "NO CONNECTION" };
+  if (status === "stale") return { color: palette.warm, label: "Stale" };
+  if (status === "offline") return { color: palette.dim, label: "Offline" };
+  if (status === "unauthorized") return { color: palette.danger, label: "Authorization required" };
+  if (status === "incompatible") return { color: palette.danger, label: "Incompatible server" };
+  return { color: palette.dim, label: "No connection" };
 }
 
 // The app only marks its connection stale while it is in the background, and it reconnects
@@ -691,10 +768,16 @@ export function ShellFrame({
         {tablet ? (
           <View accessibilityLabel="Primary navigation" style={styles.rail}>
             <View>
-              <Text style={styles.brand}>OpenCode</Text>
+              <Text dynamicTypeRamp={typeRamp.headline} style={styles.brand}>
+                OpenCode
+              </Text>
               {!sessionTabs ? (
-                <Text numberOfLines={2} style={styles.railConnection}>
-                  {selected?.name ?? "NO SERVER"}
+                <Text
+                  dynamicTypeRamp={typeRamp.headline}
+                  numberOfLines={2}
+                  style={styles.railConnection}
+                >
+                  {selected?.name ?? "No server"}
                 </Text>
               ) : null}
             </View>
@@ -728,7 +811,11 @@ export function ShellFrame({
                 style={styles.railFooter}
               >
                 <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
-                <Text numberOfLines={1} style={styles.railStatus}>
+                <Text
+                  dynamicTypeRamp={typeRamp.footnote}
+                  numberOfLines={1}
+                  style={styles.railStatus}
+                >
                   {connection.label}
                 </Text>
               </Pressable>
@@ -743,30 +830,20 @@ export function ShellFrame({
               style={[styles.connectionBar, largeText && styles.connectionBarLargeText]}
             >
               {sessionTabs ? (
-                <View accessibilityRole="tablist" style={styles.sessionTabs}>
-                  {(["session", "changes"] as const).map((tab) => (
-                    <Pressable
-                      key={tab}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: sessionTabs.active === tab }}
-                      onPress={() => sessionTabs.onSelect(tab)}
-                      style={[styles.sessionTab]}
-                    >
-                      <Text
-                        style={[
-                          styles.sessionTabText,
-                          sessionTabs.active === tab && styles.sessionTabTextSelected,
-                        ]}
-                      >
-                        {tab === "session" ? "Session" : "Changes"}
-                      </Text>
-                    </Pressable>
-                  ))}
+                <View style={[styles.sessionTabs, largeText && styles.sessionTabsLargeText]}>
+                  <SegmentedControl
+                    accessibilityLabel="Session view"
+                    onChange={sessionTabs.onSelect}
+                    options={sessionTabOptions}
+                    role="tablist"
+                    size="compact"
+                    value={sessionTabs.active}
+                  />
                 </View>
               ) : (
                 <View style={styles.connectionState}>
                   <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
-                  <Text dynamicTypeRamp={typeRamp.caption} style={styles.connectionStatus}>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionStatus}>
                     {connection.label}
                   </Text>
                 </View>
@@ -796,7 +873,7 @@ export function ShellFrame({
                           size={14}
                         />
                         <Text
-                          dynamicTypeRamp={typeRamp.subheading}
+                          dynamicTypeRamp={typeRamp.subheadline}
                           ellipsizeMode="middle"
                           numberOfLines={1}
                           style={styles.branchName}
@@ -818,7 +895,7 @@ export function ShellFrame({
                           name="git-branch"
                           size={14}
                         />
-                        <Text dynamicTypeRamp={typeRamp.subheading} style={styles.branchName}>
+                        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.branchName}>
                           {branch.state === "loading"
                             ? "Checking branch"
                             : branch.state === "none"
@@ -845,7 +922,7 @@ export function ShellFrame({
                   ]}
                 >
                   <Text
-                    dynamicTypeRamp={typeRamp.subheading}
+                    dynamicTypeRamp={typeRamp.subheadline}
                     numberOfLines={largeText ? undefined : 1}
                     style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
                   >
@@ -864,7 +941,8 @@ export function ShellFrame({
             >
               <Text
                 accessibilityLiveRegion="polite"
-                style={{ ...typography.caption, color: connection.color }}
+                dynamicTypeRamp={typeRamp.footnote}
+                style={[styles.connectionIssue, { color: connection.color }]}
               >
                 {connection.label}. Check connection settings.
               </Text>
@@ -881,11 +959,15 @@ export function ShellFrame({
         title={openDetail === "branch" ? "Current branch" : "Server name"}
         visible={Boolean(openDetail && detailName)}
       >
-        <Text selectable style={styles.branchDetailName}>
+        <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.branchDetailName}>
           {detailName}
         </Text>
         {openDetail === "branch" && branch?.stale ? (
-          <Text accessibilityRole="alert" style={styles.branchDetailNote}>
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.subheadline}
+            style={styles.branchDetailNote}
+          >
             This branch may be outdated while the server reconnects.
           </Text>
         ) : null}
@@ -911,6 +993,17 @@ function pendingLabel(count: number | undefined, complete: boolean) {
   return count && count > 0 ? `Pending ${count}` : "Pending";
 }
 
+function pendingSummaryTitle(count: number, complete: boolean) {
+  if (count === 0) return complete ? "No pending requests" : "No known pending requests";
+  if (complete) return count === 1 ? "Pending request" : "Pending requests";
+  return count === 1 ? "Known pending request" : "Known pending requests";
+}
+
+function pendingSummaryLabel(count: number, complete: boolean) {
+  const title = pendingSummaryTitle(count, complete);
+  return count === 0 ? title : `${count} ${title.toLowerCase()}`;
+}
+
 function pendingCoverageLabel(
   coverage: ReturnType<typeof useWorkspaceSelection>["attentionCoverage"],
 ) {
@@ -928,6 +1021,16 @@ function pendingCoverageLabel(
 function locationFailureTitle(count: number) {
   return `${count} ${count === 1 ? "location" : "locations"} could not be checked.`;
 }
+
+const sessionTabOptions = [
+  { value: "session", label: "Session" },
+  { value: "changes", label: "Changes" },
+] as const;
+
+const deliveryOptions = [
+  { value: "steer", label: "Steer" },
+  { value: "queue", label: "Queue" },
+] as const;
 
 function NavigationItem({
   active,
@@ -963,14 +1066,36 @@ function NavigationItem({
   );
 }
 
+function StatusIcon({
+  color,
+  name,
+}: {
+  color: string;
+  name: ComponentProps<typeof Feather>["name"];
+}) {
+  return (
+    <Feather
+      accessibilityElementsHidden
+      color={color}
+      importantForAccessibility="no-hide-descendants"
+      name={name}
+      size={20}
+    />
+  );
+}
+
 export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWorkspaceState> }) {
   if (state === "loading") {
     return (
       <View accessibilityLiveRegion="polite" style={styles.stateCard}>
         <ActivityIndicator color={palette.dim} />
         <View style={styles.stateCardText}>
-          <Text style={styles.cardTitle}>Loading server state</Text>
-          <Text style={styles.cardCopy}>Waiting for the first authoritative snapshot.</Text>
+          <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+            Loading server state
+          </Text>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+            Waiting for the first authoritative snapshot.
+          </Text>
         </View>
       </View>
     );
@@ -978,9 +1103,13 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
   if (state === "partial-cache") {
     return (
       <View accessibilityLiveRegion="polite" style={styles.cacheCard}>
-        <Text style={styles.cardLabel}>CACHED SHELL</Text>
-        <Text style={styles.cardTitle}>Server state may be out of date.</Text>
-        <Text style={styles.cardCopy}>
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.cacheLabel}>
+          Cached data
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+          Server state may be out of date.
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
           Counts below came from the last bounded snapshot. The app will replace them after
           reconnect.
         </Text>
@@ -990,9 +1119,15 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
   if (state === "incompatible") {
     return (
       <View accessibilityRole="alert" style={styles.failureCard}>
-        <Text style={styles.cardLabel}>BLOCKED</Text>
-        <Text style={styles.cardTitle}>Required V2 behavior is incompatible.</Text>
-        <Text style={styles.cardCopy}>Edit this connection or choose another server.</Text>
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.failureLabel}>
+          Blocked
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+          Required V2 behavior is incompatible.
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+          Edit this connection or choose another server.
+        </Text>
         <AppUpdateCard />
       </View>
     );
@@ -1000,17 +1135,25 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
   if (state === "failure") {
     return (
       <View accessibilityRole="alert" style={styles.failureCard}>
-        <Text style={styles.cardLabel}>UNAVAILABLE</Text>
-        <Text style={styles.cardTitle}>No current workspace snapshot.</Text>
-        <Text style={styles.cardCopy}>Check the connection, credentials, and network.</Text>
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.failureLabel}>
+          Unavailable
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+          No current workspace snapshot.
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+          Check the connection, credentials, and network.
+        </Text>
         <AppUpdateCard />
       </View>
     );
   }
   return (
-    <View style={styles.emptyCard}>
-      <Text style={styles.emptyMark}>READY</Text>
-      <Text style={styles.cardTitle}>The server snapshot is current.</Text>
+    <View style={styles.summaryRow}>
+      <StatusIcon color={palette.success} name="check-circle" />
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
+        The server snapshot is current.
+      </Text>
     </View>
   );
 }
@@ -1031,91 +1174,20 @@ export function ActionButton({
   secondary?: boolean;
 }) {
   return (
-    <Pressable
-      accessibilityLabel={accessibilityLabel}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.actionButton,
-        fullWidth && styles.actionButtonFullWidth,
-        secondary && styles.actionButtonSecondary,
-        pressed && styles.actionButtonPressed,
-        disabled && styles.actionButtonDisabled,
-      ]}
-    >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[styles.actionButtonLabel, secondary && styles.actionButtonLabelSecondary]}
-      >
-        {label}
-      </Text>
-    </Pressable>
+    <Button
+      {...(accessibilityLabel ? { accessibilityLabel } : {})}
+      disabled={Boolean(disabled)}
+      fullWidth={Boolean(fullWidth)}
+      label={label}
+      onPress={() => void onPress()}
+      style={styles.actionButton}
+      variant={secondary ? "secondary" : "primary"}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  deliveryOptions: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
-  deliveryOption: {
-    minHeight: 44,
-    minWidth: 88,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
-  },
-  deliveryOptionSelected: { backgroundColor: palette.background },
-  managementAction: {
-    padding: space.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.border,
-  },
-  locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
-  locationControlsLargeText: { flex: 0, width: "100%" },
-  sessionTabs: {
-    flexDirection: "row",
-    gap: space.xs,
-  },
-  sessionTab: {
-    minHeight: 44,
-    justifyContent: "center",
-    paddingHorizontal: 4,
-  },
-  sessionTabText: { color: palette.dim, fontSize: 12, lineHeight: 16 },
-  sessionTabTextSelected: { color: palette.ink, textDecorationLine: "underline" },
-  sessionConnectionIssue: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
-  locationFailure: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: space.md,
-    gap: space.xs,
-  },
-  locationPath: { ...typography.code, color: palette.ink },
-  actionButton: {
-    ...control,
-    alignSelf: "flex-start",
-    backgroundColor: palette.signal,
-    marginTop: space.md,
-    justifyContent: "center",
-    maxWidth: "100%",
-  },
-  actionButtonDisabled: { opacity: 0.5 },
-  actionButtonFullWidth: { alignSelf: "stretch", alignItems: "center" },
-  actionButtonLabel: {
-    ...typography.control,
-    color: palette.background,
-    textAlign: "center",
-  },
-  actionButtonLabelSecondary: { color: palette.ink },
-  actionButtonPressed: { opacity: 0.72 },
-  actionButtonSecondary: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderWidth: 1,
-  },
+  actionButton: { marginTop: space.md, maxWidth: "100%" },
   branchControl: {
     alignItems: "center",
     flex: 1,
@@ -1132,34 +1204,16 @@ const styles = StyleSheet.create({
     marginHorizontal: 0,
     width: "100%",
   },
-  branchControlPressed: { opacity: 0.55 },
-  branchDetailName: { color: palette.ink, fontSize: 17, lineHeight: 25 },
-  branchDetailNote: { color: palette.warm, fontSize: 14, lineHeight: 20 },
-  branchName: { color: palette.dim, flexShrink: 1, fontSize: 14, minWidth: 0 },
-  actionCard: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: space.md,
-    padding: space.lg,
-  },
-  brand: { color: palette.signal, fontSize: 15, fontWeight: "700" },
-  cacheCard: {
-    backgroundColor: palette.background,
-    borderColor: palette.warm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: space.lg,
-    padding: space.lg,
-  },
-  cardCopy: { ...typography.body, color: palette.dim, marginTop: space.xs },
-  cardLabel: { ...typography.label, color: palette.dim },
-  cardTitle: {
-    ...typography.heading,
-    color: palette.ink,
-    marginTop: space.xs,
-  },
+  branchControlPressed: { opacity: pressedOpacity },
+  branchDetailName: { ...typography.body, color: palette.ink },
+  branchDetailNote: { ...typography.subheadline, color: palette.warm },
+  branchName: { ...typography.subheadline, color: palette.dim, flexShrink: 1, minWidth: 0 },
+  brand: { ...typography.headline, color: palette.signal },
+  cacheCard: { ...cardSurface, borderColor: palette.warm, gap: space.xs },
+  cacheLabel: { ...typography.sectionLabel, color: palette.warm },
+  cardCopy: { ...typography.subheadline, color: palette.dim },
+  cardLabel: { ...typography.sectionLabel, color: palette.dim },
+  cardTitle: { ...typography.headline, color: palette.ink },
   centeredState: {
     alignItems: "flex-start",
     backgroundColor: palette.background,
@@ -1181,11 +1235,8 @@ const styles = StyleSheet.create({
     gap: 2,
     paddingVertical: space.xs,
   },
-  connectionName: {
-    color: palette.dim,
-    fontSize: 14,
-    textAlign: "right",
-  },
+  connectionIssue: typography.footnote,
+  connectionName: { ...typography.subheadline, color: palette.dim, textAlign: "right" },
   connectionNameControl: {
     flex: 1,
     justifyContent: "center",
@@ -1206,42 +1257,36 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   connectionState: { alignItems: "center", flexDirection: "row" },
-  connectionStatus: { color: palette.ink, fontSize: 11, fontWeight: "700" },
+  connectionStatus: { ...typography.footnote, color: palette.dim },
   content: { flex: 1 },
-  emptyCard: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: space.lg,
-    padding: space.lg,
+  countBadge: {
+    alignItems: "center",
+    backgroundColor: palette.warm,
+    borderRadius: radius.pill,
+    justifyContent: "center",
+    minHeight: 24,
+    minWidth: 24,
+    paddingHorizontal: space.xs,
   },
-  emptyMark: { color: palette.signal, fontSize: 34, fontWeight: "300", letterSpacing: -1.2 },
-  errorEyebrow: { ...typography.label, color: palette.danger },
-  errorText: { ...typography.body, color: palette.danger, marginTop: space.sm },
-  eyebrow: { ...typography.label, color: palette.dim },
-  failureCard: {
-    backgroundColor: palette.background,
-    borderColor: palette.danger,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: space.lg,
-    padding: space.lg,
-  },
-  lede: { ...typography.body, color: palette.dim, marginTop: space.sm, maxWidth: 620 },
+  countBadgeText: { ...typography.sectionLabel, color: palette.background },
+  deliveryOptions: { marginTop: space.sm },
+  errorText: { ...typography.footnote, color: palette.danger },
+  failureCard: { ...cardSurface, borderColor: palette.danger, gap: space.xs },
+  failureLabel: { ...typography.sectionLabel, color: palette.danger },
+  heading: { gap: space.xs },
+  lede: { ...typography.subheadline, color: palette.dim, maxWidth: 620 },
+  locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
+  locationControlsLargeText: { flex: 0, width: "100%" },
+  locationFailure: { ...cardSurface, gap: space.xs },
+  locationPath: { ...typography.code, color: palette.ink },
   main: { flex: 1, minWidth: 0 },
-  metric: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flex: 1,
-    minWidth: 120,
-    padding: space.md,
+  managementAction: {
+    borderBottomColor: palette.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    gap: 2,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
-  metricGrid: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.sm },
-  metricLabel: { ...typography.label, color: palette.dim },
-  metricValue: { color: palette.ink, fontSize: 34, fontWeight: "300", lineHeight: 41 },
   navigationItem: {
     alignItems: "center",
     borderRadius: radius.sm,
@@ -1253,13 +1298,8 @@ const styles = StyleSheet.create({
   },
   navigationItemLargeText: { paddingHorizontal: space.sm, paddingVertical: space.sm },
   navigationItemActive: { backgroundColor: palette.signalDark },
-  navigationItemPressed: { opacity: 0.68 },
-  navigationLabel: {
-    color: palette.dim,
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-  },
+  navigationItemPressed: { opacity: pressedOpacity },
+  navigationLabel: { ...typography.control, color: palette.dim, textAlign: "center" },
   navigationLabelActive: { color: palette.signal },
   rail: {
     backgroundColor: palette.card,
@@ -1269,55 +1309,47 @@ const styles = StyleSheet.create({
     padding: space.lg,
     width: 228,
   },
-  railConnection: {
-    color: palette.ink,
-    fontSize: 20,
-    fontWeight: "700",
-    lineHeight: 24,
-    marginTop: space.sm,
-  },
+  railConnection: { ...typography.headline, color: palette.ink, marginTop: space.sm },
   railFooter: { alignItems: "center", flexDirection: "row", minHeight: 44 },
   railNavigation: { gap: space.sm },
-  railStatus: { color: palette.dim, flex: 1, fontSize: 11, fontWeight: "700" },
+  railStatus: { ...typography.footnote, color: palette.dim, flex: 1 },
   safeArea: { backgroundColor: palette.background, flex: 1 },
   scrollContent: {
     alignSelf: "center",
+    gap: space.md,
     maxWidth: 720,
-    padding: space.lg,
-    paddingBottom: 80,
+    padding: space.md,
+    paddingBottom: space.xl,
     width: "100%",
   },
-  stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  settingText: { flexGrow: 1, flexShrink: 1 },
+  sessionConnectionIssue: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
+  // Fixed width keeps both compact segments legible beside the branch name.
+  sessionTabs: { width: 176 },
+  sessionTabsLargeText: { width: "100%" },
+  settingCopy: { ...typography.footnote, color: palette.dim },
+  settingText: { flexGrow: 1, flexShrink: 1, gap: 2 },
+  settingTitle: { ...typography.body, color: palette.ink },
   shell: { flex: 1 },
-  stateCard: {
-    alignItems: "center",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: space.md,
-    marginTop: space.lg,
-    padding: space.lg,
-  },
-  stateCardText: { flex: 1 },
+  stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  stateCard: { ...cardSurface, alignItems: "center", flexDirection: "row", gap: space.md },
+  stateCardText: { flex: 1, gap: space.xs },
+  stateCardTitle: { ...typography.headline, color: palette.ink, flex: 1 },
   stateCopy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
     marginTop: space.sm,
     maxWidth: 480,
   },
   stateTitle: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
     marginTop: space.sm,
   },
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },
+  summary: { gap: space.sm },
+  summaryCopy: { ...typography.subheadline, color: palette.dim },
+  summaryRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  summaryTitle: { ...typography.headline, color: palette.ink, flexShrink: 1 },
   tabletShell: { flexDirection: "row" },
-  title: {
-    ...typography.title,
-    color: palette.ink,
-    marginTop: space.sm,
-  },
+  title: { ...typography.largeTitle, color: palette.ink },
 });

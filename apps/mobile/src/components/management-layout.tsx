@@ -1,12 +1,16 @@
 import type { ReactNode } from "react";
 import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
-import { palette, radius, space, typography, usesLargeTextLayout } from "../theme";
+import { palette, radius, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
 
 export function SettingsGroup({ children, title }: { children: ReactNode; title: string }) {
   return (
     <View style={managementStyles.section}>
-      <Text accessibilityRole="header" style={managementStyles.sectionTitle}>
+      <Text
+        accessibilityRole="header"
+        dynamicTypeRamp={typeRamp.sectionLabel}
+        style={managementStyles.sectionTitle}
+      >
         {title}
       </Text>
       <View style={managementStyles.group}>{children}</View>
@@ -37,9 +41,9 @@ export const managementStyles = StyleSheet.create({
     paddingBottom: space.xl,
     gap: space.md,
   },
-  description: { ...typography.caption, color: palette.dim },
+  description: { ...typography.footnote, color: palette.dim },
   section: { gap: space.xs },
-  sectionTitle: { ...typography.label, color: palette.dim },
+  sectionTitle: { ...typography.sectionLabel, color: palette.dim, paddingHorizontal: space.md },
   group: {
     backgroundColor: palette.card,
     borderRadius: radius.md,
@@ -50,9 +54,10 @@ export const managementStyles = StyleSheet.create({
   row: {
     alignItems: "center",
     flexDirection: "row",
-    gap: space.sm,
-    minHeight: 48,
-    padding: space.sm,
+    gap: 12,
+    minHeight: 52,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },

@@ -2,12 +2,13 @@ import { NavigationContainer, type Theme } from "@react-navigation/native";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SQLiteProvider } from "expo-sqlite";
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Platform, Pressable, Share, StyleSheet, Text, View } from "react-native";
+import { Platform, Share, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { applicationName } from "./application-name";
+import { Button } from "./components/button";
 import { ConnectionsProvider } from "./connections/connections-context";
 import { rootNavigationRef } from "./navigation/navigation-ref";
 import { RootNavigation } from "./navigation/root-navigation";
@@ -17,7 +18,7 @@ import { ConnectionRuntimeProvider } from "./state/connection-runtime-context";
 import { FollowedProjectsProvider } from "./state/followed-projects-context";
 import { TranscriptPreferencesProvider } from "./state/transcript-preferences";
 import { migrateMobileDatabase, mobileDatabaseName } from "./storage/database";
-import { control, palette, typography } from "./theme";
+import { palette, space, typeRamp, typography } from "./theme";
 import { AppUpdateBanner, AppUpdateCard, AppUpdatesProvider } from "./updates/app-updates";
 
 const queryClient = new QueryClient({
@@ -118,32 +119,36 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundary
 
     return (
       <View style={styles.errorShell}>
-        <Text style={styles.errorEyebrow}>LOCAL FAILURE</Text>
-        <Text accessibilityRole="header" style={styles.errorTitle}>
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
+          Local failure
+        </Text>
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.largeTitle}
+          style={styles.errorTitle}
+        >
           The native shell stopped rendering.
         </Text>
-        <Text style={styles.errorCopy}>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.errorCopy}>
           No server or session content was written to diagnostics.
         </Text>
         <AppUpdateCard />
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => this.setState({ failed: false })}
-          style={styles.retryButton}
-        >
-          <Text style={styles.retryLabel}>Retry</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() =>
-            void Share.share({
-              message: `${applicationName} redacted render diagnostics\nkind=native-render-failure\ncontent_included=false`,
-            })
-          }
-          style={styles.reportButton}
-        >
-          <Text style={styles.reportLabel}>Share redacted report</Text>
-        </Pressable>
+        <View style={styles.errorActions}>
+          <Button
+            label="Retry"
+            onPress={() => this.setState({ failed: false })}
+            variant="primary"
+          />
+          <Button
+            label="Share redacted report"
+            onPress={() =>
+              void Share.share({
+                message: `${applicationName} redacted render diagnostics\nkind=native-render-failure\ncontent_included=false`,
+              })
+            }
+            variant="text"
+          />
+        </View>
       </View>
     );
   }
@@ -151,43 +156,25 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundary
 
 const styles = StyleSheet.create({
   appRoot: { flex: 1 },
+  errorActions: { gap: space.sm, marginTop: space.lg },
   errorCopy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
-    marginTop: 12,
+    marginTop: space.sm,
   },
   errorEyebrow: {
-    ...typography.label,
+    ...typography.sectionLabel,
     color: palette.danger,
   },
   errorShell: {
     backgroundColor: palette.background,
     flex: 1,
     justifyContent: "center",
-    padding: 28,
+    padding: space.lg,
   },
   errorTitle: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
-    marginTop: 10,
-  },
-  retryButton: {
-    ...control,
-    alignSelf: "flex-start",
-    backgroundColor: palette.signal,
-    marginTop: 24,
-  },
-  retryLabel: {
-    ...typography.control,
-    color: palette.background,
-  },
-  reportButton: {
-    marginTop: 18,
-    minHeight: 44,
-    paddingVertical: 12,
-  },
-  reportLabel: {
-    ...typography.control,
-    color: palette.dim,
+    marginTop: space.sm,
   },
 });

@@ -59,7 +59,13 @@ export const radius = {
   sm: 8,
   md: 12,
   lg: 18,
+  pill: 999,
 } as const;
+
+export const pressedOpacity = 0.6;
+export const disabledOpacity = 0.5;
+// Android's 48dp guideline, shared by both platforms' controls.
+export const minTouchTarget = 48;
 
 export const largeTextFontScale = 1.3;
 export const displayTitleMaxFontSizeMultiplier = 1.4;
@@ -69,24 +75,33 @@ export function usesLargeTextLayout(fontScale: number) {
 }
 
 export const typeRamp = {
+  largeTitle: "title1",
+  navTitle: "headline",
+  headline: "headline",
   body: "body",
-  caption: "caption1",
+  subheadline: "subheadline",
   control: "footnote",
-  heading: "title1",
-  subheading: "subheadline",
+  footnote: "footnote",
+  sectionLabel: "footnote",
+  caption: "caption1",
+  label: "caption1",
+  compactControl: "caption1",
 } as const;
 
 // Native system fonts for UI; platform monospace only for code and technical data.
 export const typography = {
-  title: { fontSize: 28, lineHeight: 34, fontWeight: "700" },
-  sheetTitle: { fontSize: 20, lineHeight: 26, fontWeight: "600" },
-  heading: { fontSize: 16, lineHeight: 22, fontWeight: "600" },
-  body: { fontSize: 15, lineHeight: 22 },
+  largeTitle: { fontSize: 28, lineHeight: 34, fontWeight: "700" },
+  navTitle: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  headline: { fontSize: 17, lineHeight: 22, fontWeight: "600" },
+  body: { fontSize: 17, lineHeight: 22 },
   // Chat sizes match the OpenCode iOS app: prose and tool summaries share one size.
   chatBody: { fontSize: 17, lineHeight: 25 },
   chatActivity: { fontSize: 17, lineHeight: 24 },
+  subheadline: { fontSize: 15, lineHeight: 20 },
   control: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
   compactControl: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
+  footnote: { fontSize: 13, lineHeight: 18 },
+  sectionLabel: { fontSize: 13, lineHeight: 18, fontWeight: "600" },
   caption: { fontSize: 12, lineHeight: 18 },
   label: { fontSize: 12, lineHeight: 18, fontWeight: "600" },
   code: {
@@ -101,6 +116,14 @@ export const control = {
   borderRadius: radius.md,
   paddingHorizontal: space.md,
   paddingVertical: space.sm,
+} as const;
+
+export const cardSurface = {
+  backgroundColor: palette.card,
+  borderColor: palette.border,
+  borderWidth: 1,
+  borderRadius: radius.md,
+  padding: space.md,
 } as const;
 
 export const switchColors = {

@@ -47,7 +47,7 @@ test("requires authentication at launch and after backgrounding", async () => {
 
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "UNLOCK" }));
+    fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -94,7 +94,7 @@ test("fails closed and retries when the lock preference cannot be read", async (
 
   mockGetPreference.mockResolvedValue({ app_lock_enabled: 0 });
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RETRY" }));
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -115,9 +115,9 @@ test("does not unlock after authentication finishes in the background", async ()
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  await screen.findByRole("button", { name: "UNLOCK" });
+  await screen.findByRole("button", { name: "Unlock" });
 
-  fireEvent.press(screen.getByRole("button", { name: "UNLOCK" }));
+  fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
   Object.defineProperty(AppState, "currentState", { configurable: true, value: "background" });
   await act(async () => {
     resolveAuthentication?.("AUTHENTICATED");
@@ -142,9 +142,9 @@ test("keeps unlock busy until a successful native prompt returns through inactiv
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  await screen.findByRole("button", { name: "UNLOCK" });
+  await screen.findByRole("button", { name: "Unlock" });
 
-  fireEvent.press(screen.getByRole("button", { name: "UNLOCK" }));
+  fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
   Object.defineProperty(AppState, "currentState", { configurable: true, value: "inactive" });
   act(() => appStateListener?.("inactive"));
   await act(async () => {
@@ -152,7 +152,7 @@ test("keeps unlock busy until a successful native prompt returns through inactiv
     await Promise.resolve();
   });
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: "AUTHENTICATING" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Authenticating…" })).toBeDisabled();
 
   Object.defineProperty(AppState, "currentState", { configurable: true, value: "active" });
   act(() => appStateListener?.("active"));

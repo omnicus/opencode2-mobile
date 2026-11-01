@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import { type FileDiffInfo, getOpenCodeVcsDiff } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
@@ -5,17 +6,19 @@ import { type RefObject, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
+  Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { Button } from "../components/button";
 import { ModalSheet } from "../components/modal-sheet";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { diffPalette, palette, space, typeRamp, typography } from "../theme";
+import { diffPalette, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Diff">;
@@ -122,17 +125,21 @@ export function SessionChanges({
             <View style={styles.summary}>
               <Text
                 accessibilityRole="header"
-                dynamicTypeRamp={typeRamp.subheading}
+                dynamicTypeRamp={typeRamp.headline}
                 style={styles.title}
               >
                 {files.length} {files.length === 1 ? "file" : "files"}
               </Text>
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.totals}>
-                <Text style={styles.additions}>+{additions}</Text>
+              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
+                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
+                  +{additions}
+                </Text>
                 {"  "}
-                <Text style={styles.deletions}>-{deletions}</Text>
+                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
+                  -{deletions}
+                </Text>
               </Text>
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.explanation}>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.explanation}>
                 Current working tree. This may include changes made after the selected tool call.
               </Text>
               {query.isError ? (
@@ -144,9 +151,8 @@ export function SessionChanges({
                 />
               ) : null}
               {expanded.size > 0 || canExpandAll ? (
-                <Pressable
-                  accessibilityRole="button"
-                  style={styles.retry}
+                <Button
+                  label={expanded.size > 0 ? "Collapse all" : "Expand all"}
                   onPress={() =>
                     setExpansion({
                       scope,
@@ -154,11 +160,8 @@ export function SessionChanges({
                         expanded.size > 0 ? new Set() : new Set(files.map((file) => file.file)),
                     })
                   }
-                >
-                  <Text style={styles.retryLabel}>
-                    {expanded.size > 0 ? "Collapse all" : "Expand all"}
-                  </Text>
-                </Pressable>
+                  variant="text"
+                />
               ) : null}
             </View>
           ) : null
@@ -202,10 +205,14 @@ export function SessionChanges({
         returnFocusRef={fileTriggerRef}
       >
         {focusedFile ? (
-          <Text style={styles.totals}>
-            <Text style={styles.additions}>+{focusedFile.additions}</Text>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
+              +{focusedFile.additions}
+            </Text>
             {"  "}
-            <Text style={styles.deletions}>-{focusedFile.deletions}</Text>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
+              -{focusedFile.deletions}
+            </Text>
             {" · "}
             {focusedFile.status}
           </Text>
@@ -244,24 +251,33 @@ function DiffFileHeader({
       accessibilityRole="button"
       accessibilityState={{ expanded }}
       accessibilityLabel={`${row.status} file, ${path}, ${row.additions} additions, ${row.deletions} deletions`}
+      android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
       onPress={onPress}
-      style={({ pressed }) => [styles.fileHeader, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.fileHeader,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
     >
-      <Text dynamicTypeRamp={typeRamp.control} style={styles.fileName}>
-        <Text style={styles.fileParent}>{path.slice(0, separator + 1)}</Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.fileName}>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.fileParent}>
+          {path.slice(0, separator + 1)}
+        </Text>
         {path.slice(separator + 1)}
       </Text>
       <View style={styles.fileMeta}>
-        <Text accessible={false} style={styles.fileStatus}>
-          {expanded ? "⌄" : "›"}
+        <Feather
+          accessible={false}
+          color={palette.dim}
+          name={expanded ? "chevron-down" : "chevron-right"}
+          size={14}
+        />
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.fileStatus}>
+          {row.status.charAt(0).toLocaleUpperCase() + row.status.slice(1)}
         </Text>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.fileStatus}>
-          {row.status.toLocaleUpperCase()}
-        </Text>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.additions}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={[styles.count, styles.additions]}>
           +{row.additions}
         </Text>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.deletions}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={[styles.count, styles.deletions]}>
           -{row.deletions}
         </Text>
       </View>
@@ -303,25 +319,15 @@ function DiffState({
     <View style={styles.state}>
       <Text
         accessibilityRole="header"
-        dynamicTypeRamp={typeRamp.subheading}
+        dynamicTypeRamp={typeRamp.headline}
         style={styles.stateTitle}
       >
         {title}
       </Text>
-      <Text dynamicTypeRamp={typeRamp.body} style={styles.stateDetail}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateDetail}>
         {detail}
       </Text>
-      {action && onPress ? (
-        <Pressable
-          accessibilityRole="button"
-          onPress={onPress}
-          style={({ pressed }) => [styles.retry, pressed && styles.pressed]}
-        >
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.retryLabel}>
-            {action}
-          </Text>
-        </Pressable>
-      ) : null}
+      {action && onPress ? <Button label={action} onPress={onPress} variant="text" /> : null}
     </View>
   );
 }
@@ -381,11 +387,12 @@ function diffLineKind(line: string): Extract<DiffRow, { type: "line" }>["kind"] 
 }
 
 const styles = StyleSheet.create({
-  additions: { color: diffPalette.addedText, fontWeight: "800" },
+  additions: { color: diffPalette.addedText },
   content: { paddingBottom: space.xl },
-  deletions: { color: diffPalette.removedText, fontWeight: "800" },
+  count: { ...typography.footnote, fontFamily: typography.code.fontFamily },
+  deletions: { color: diffPalette.removedText },
   emptyContent: { flexGrow: 1, justifyContent: "center", padding: space.lg },
-  explanation: { ...typography.caption, color: palette.dim },
+  explanation: { ...typography.footnote, color: palette.dim },
   fileHeader: {
     backgroundColor: palette.card,
     borderBottomColor: palette.border,
@@ -396,10 +403,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: 12,
   },
-  fileMeta: { flexDirection: "row", gap: space.sm },
-  fileParent: { color: palette.dim, fontWeight: "400" },
-  fileName: { ...typography.code, color: palette.ink, fontWeight: "600" },
-  fileStatus: { ...typography.label, color: palette.dim },
+  fileMeta: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  fileParent: { color: palette.dim },
+  fileName: { ...typography.code, color: palette.ink },
+  fileStatus: { ...typography.sectionLabel, color: palette.dim },
   line: {
     ...typography.code,
     color: diffPalette.contextText,
@@ -410,13 +417,11 @@ const styles = StyleSheet.create({
   lineDeletion: { backgroundColor: diffPalette.removedBackground, color: diffPalette.removedText },
   lineHunk: { color: diffPalette.hunkHeader, marginTop: space.xs },
   lineMeta: { color: palette.dim },
-  pressed: { opacity: 0.7 },
-  retry: { justifyContent: "center", minHeight: 44, paddingRight: space.md },
-  retryLabel: { ...typography.control, color: palette.signal },
+  pressed: { opacity: pressedOpacity },
   state: { gap: space.sm },
-  stateDetail: { ...typography.body, color: palette.dim },
-  stateTitle: { ...typography.heading, color: palette.ink },
+  stateDetail: { ...typography.subheadline, color: palette.dim },
+  stateTitle: { ...typography.headline, color: palette.ink },
   summary: { gap: space.xs, padding: space.md },
-  title: { ...typography.heading, color: palette.ink },
-  totals: { ...typography.code },
+  title: { ...typography.headline, color: palette.ink },
+  totals: { ...typography.code, color: palette.dim },
 });

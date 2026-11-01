@@ -8,13 +8,25 @@ import {
   SectionList,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
+import { Button } from "../components/button";
 import { ModalSheet } from "../components/modal-sheet";
+import { SearchField } from "../components/search-field";
 import type { useModelFavorites } from "../state/use-model-favorites";
 import { modelIdentityKey } from "../storage/model-favorites-repository";
-import { palette, radius, space, typography } from "../theme";
+import {
+  disabledOpacity,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
+
+const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 
 export type FavoriteControls = ReturnType<typeof useModelFavorites>;
 export type CatalogState = { loading: boolean; error: boolean; retry: () => void };
@@ -87,29 +99,12 @@ export function ModelPicker({
       size="full"
       returnFocusRef={returnFocusRef}
     >
-      <View style={styles.searchField}>
-        <TextInput
-          accessibilityLabel="Search models"
-          placeholder="Search models"
-          placeholderTextColor={palette.dim}
-          keyboardAppearance="dark"
-          autoCapitalize="none"
-          autoCorrect={false}
-          value={search}
-          onChangeText={setSearch}
-          style={styles.search}
-        />
-        {search ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Clear model search"
-            onPress={() => setSearch("")}
-            style={styles.clearSearch}
-          >
-            <Feather accessible={false} name="x" size={18} color={palette.dim} />
-          </Pressable>
-        ) : null}
-      </View>
+      <SearchField
+        clearAccessibilityLabel="Clear model search"
+        onChangeText={setSearch}
+        placeholder="Search models"
+        value={search}
+      />
       {state?.error ? (
         <PickerNotice text="Models could not be loaded." retry={state.retry} />
       ) : null}
@@ -131,13 +126,17 @@ export function ModelPicker({
           state?.loading ? (
             <ActivityIndicator accessibilityLabel="Loading models" color={palette.signal} />
           ) : !state?.error ? (
-            <Text style={styles.empty}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.empty}>
               {search.trim() ? "No matching models" : "No enabled models"}
             </Text>
           ) : null
         }
         renderSectionHeader={({ section }) => (
-          <Text accessibilityRole="header" style={styles.section}>
+          <Text
+            accessibilityRole="header"
+            dynamicTypeRamp={typeRamp.sectionLabel}
+            style={styles.section}
+          >
             {section.title}
           </Text>
         )}
@@ -151,21 +150,27 @@ export function ModelPicker({
                 accessibilityRole="button"
                 accessibilityLabel={`${item.name}, ${item.providerID}${ambiguous ? `, ${item.id}` : ""}`}
                 accessibilityState={{ selected }}
+                android_ripple={ripple}
                 onPress={() => {
                   onSelect({ id: item.id, providerID: item.providerID });
                   close();
                 }}
-                style={({ pressed }) => [styles.choice, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.choice,
+                  pressed && Platform.OS === "ios" && styles.pressed,
+                ]}
               >
                 <View style={styles.copy}>
-                  <Text style={[styles.label, selected && styles.selectedLabel]}>{item.name}</Text>
-                  <Text style={styles.provider}>
+                  <Text dynamicTypeRamp={typeRamp.body} style={styles.label}>
+                    {item.name}
+                  </Text>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.provider}>
                     {item.providerID}
                     {ambiguous ? ` · ${item.id}` : ""}
                   </Text>
                 </View>
                 {selected ? (
-                  <Feather accessible={false} name="check" size={20} color={palette.accent} />
+                  <Feather accessible={false} name="check" size={20} color={palette.signal} />
                 ) : null}
               </Pressable>
               <Pressable
@@ -175,13 +180,25 @@ export function ModelPicker({
                   checked: favorite,
                   disabled: !favorites || favorites.disabled,
                 }}
+                android_ripple={
+                  Platform.OS === "android"
+                    ? { color: "rgba(255,255,255,0.12)", borderless: true }
+                    : undefined
+                }
                 disabled={!favorites || favorites.disabled}
                 onPress={() => favorites?.toggle(item, !favorite)}
-                style={({ pressed }) => [styles.star, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.star,
+                  pressed && Platform.OS === "ios" && styles.pressed,
+                  (!favorites || favorites.disabled) && styles.disabled,
+                ]}
               >
-                <Text accessible={false} style={[styles.starText, favorite && styles.favorite]}>
-                  {favorite ? "★" : "☆"}
-                </Text>
+                <Feather
+                  accessible={false}
+                  name="star"
+                  size={20}
+                  color={favorite ? palette.ink : palette.dim}
+                />
               </Pressable>
             </View>
           );
@@ -194,40 +211,22 @@ export function ModelPicker({
 export function PickerNotice({ text, retry }: { text: string; retry: () => void }) {
   return (
     <View style={styles.notice}>
-      <Text accessibilityRole="alert" style={styles.provider}>
+      <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.provider}>
         {text}
       </Text>
-      <Pressable accessibilityRole="button" onPress={retry} style={styles.retry}>
-        <Text style={styles.label}>Retry</Text>
-      </Pressable>
+      <Button label="Retry" onPress={retry} variant="text" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  searchField: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-  },
-  clearSearch: { minHeight: 48, minWidth: 48, alignItems: "center", justifyContent: "center" },
-  selectedLabel: { color: palette.accent, fontWeight: "600" },
-  search: {
-    ...typography.body,
-    flex: 1,
-    minWidth: 0,
-    color: palette.ink,
-    minHeight: 48,
-    paddingHorizontal: space.md,
-  },
   list: { flex: 1 },
-  section: { ...typography.label, color: palette.dim, paddingVertical: space.sm },
+  section: { ...typography.sectionLabel, color: palette.dim, paddingVertical: space.sm },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
+    overflow: "hidden",
     paddingHorizontal: space.sm,
   },
   choice: {
@@ -240,19 +239,17 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   copy: { flex: 1, minWidth: 0 },
-  selectedRow: { backgroundColor: palette.raised },
+  selectedRow: { backgroundColor: palette.prompt },
   label: { ...typography.body, color: palette.ink },
-  provider: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  star: { minWidth: 48, minHeight: 48, alignItems: "center", justifyContent: "center" },
-  starText: { fontSize: 26, color: palette.dim },
-  favorite: { color: palette.ink },
-  pressed: { opacity: 0.6 },
-  empty: { ...typography.body, color: palette.dim, paddingVertical: space.lg },
-  notice: { gap: space.xs },
-  retry: {
-    minHeight: 44,
+  provider: { ...typography.footnote, color: palette.dim, marginTop: 2 },
+  star: {
+    minWidth: minTouchTarget,
+    minHeight: minTouchTarget,
+    alignItems: "center",
     justifyContent: "center",
-    alignSelf: "flex-start",
-    paddingRight: space.md,
   },
+  pressed: { opacity: pressedOpacity },
+  disabled: { opacity: disabledOpacity },
+  empty: { ...typography.subheadline, color: palette.dim, paddingVertical: space.lg },
+  notice: { gap: space.xs },
 });

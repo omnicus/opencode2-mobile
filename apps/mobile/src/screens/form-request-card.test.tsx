@@ -3,7 +3,7 @@ import type { FormInfo } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 import { Alert, Linking } from "react-native";
 
-import { palette, typography } from "../theme";
+import { minTouchTarget, palette, radius, typography } from "../theme";
 import { FormRequestCard, openExternalFormUrl } from "./form-request-card";
 
 const form: FormInfo = {
@@ -34,11 +34,20 @@ test("question controls use shared typography and neutral attention colors", () 
   render(<FormRequestCard form={form} onCancel={jest.fn()} onSubmit={jest.fn()} />);
 
   expect(screen.getByText("Input required")).toHaveStyle({
-    ...typography.label,
-    color: palette.dim,
+    ...typography.sectionLabel,
+    color: palette.warm,
   });
+  expect(screen.getByRole("header", { name: "Deploy" })).toHaveStyle(typography.headline);
   expect(screen.getByText("Production")).toHaveStyle(typography.control);
-  expect(screen.getByLabelText("name")).toHaveStyle(typography.body);
+  expect(screen.getByLabelText("name")).toHaveStyle({
+    ...typography.body,
+    borderRadius: radius.md,
+    minHeight: minTouchTarget,
+  });
+  expect(screen.getByRole("checkbox", { name: "Production" })).toHaveStyle({
+    borderRadius: radius.md,
+    minHeight: minTouchTarget,
+  });
 });
 
 test("renders all field controls, conditional visibility, and a validated reply", () => {

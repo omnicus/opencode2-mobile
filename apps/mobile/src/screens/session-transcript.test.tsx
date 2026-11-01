@@ -11,10 +11,12 @@ import {
   activitySummary,
   buildTranscriptPresentation,
   groupTranscriptMessages,
+  SessionSubagentStates,
   SessionTranscriptRow,
   TranscriptActivityGroup,
   TranscriptUpdatesGroup,
 } from "./session-transcript";
+import { subagentStates } from "./session-transcript-model";
 
 afterEach(resetTranscriptPerformanceMetrics);
 
@@ -1325,10 +1327,10 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
     />,
   );
 
-  expect(screen.getByText("BACKGROUND SUBAGENT")).toBeOnTheScreen();
+  expect(screen.getByText("Background subagent")).toBeOnTheScreen();
   expect(screen.getByText("Inspect event handling")).toBeOnTheScreen();
   expect(screen.getByText("@explore")).toBeOnTheScreen();
-  expect(screen.getByText("RUNNING")).toBeOnTheScreen();
+  expect(screen.getByText("Running")).toBeOnTheScreen();
   expect(screen.queryByText("subagent / Completed")).toBeNull();
   expect(screen.queryByText(/<task/)).toBeNull();
 
@@ -1337,6 +1339,54 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
   fireEvent.press(screen.getByRole("button", { name: "Show result" }));
   expect(screen.getByText("Working")).toBeOnTheScreen();
   expect(screen.queryByText(/task_result/)).toBeNull();
+});
+
+test("background subagent launches stay running until the child reports a result", () => {
+  const launch: SessionMessageInfo = {
+    agent: "build",
+    content: [
+      {
+        id: "tool-subagent",
+        name: "subagent",
+        state: {
+          content: [
+            {
+              text: "The subagent is working in the background (sessionID: ses_child). You will be notified automatically when it finishes.",
+              type: "text",
+            },
+          ],
+          input: { agent: "general", background: true, description: "Restyle Sessions list" },
+          metadata: { sessionID: "ses_child", status: "running", truncated: false },
+          status: "completed",
+        },
+        time: { created: 1 },
+        type: "tool",
+      },
+    ],
+    id: "msg_launch",
+    model: { id: "model-1", providerID: "provider" },
+    time: { completed: 1, created: 1 },
+    type: "assistant",
+  };
+  const notification: SessionMessageInfo = {
+    id: "msg_notice",
+    metadata: { childID: "ses_child", source: "subagent", state: "completed" },
+    text: '<subagent sessionID="ses_child" state="completed" description="Restyle Sessions list">\nDone\n</subagent>',
+    time: { created: 2 },
+    type: "synthetic",
+  };
+  const row = (messages: SessionMessageInfo[]) => (
+    <SessionSubagentStates.Provider value={subagentStates(messages, { ses_child: {} })}>
+      <SessionTranscriptRow message={launch} />
+    </SessionSubagentStates.Provider>
+  );
+  const view = render(row([launch]));
+
+  expect(screen.getByText("Background subagent")).toBeOnTheScreen();
+  expect(screen.getByText("Running")).toBeOnTheScreen();
+
+  view.rerender(row([notification, launch]));
+  expect(screen.getByText("Completed")).toBeOnTheScreen();
 });
 
 test("projects injected background results into subagent cards", () => {
@@ -1359,7 +1409,7 @@ test("projects injected background results into subagent cards", () => {
   );
 
   expect(screen.getByText("Background task completed: inspect code")).toBeOnTheScreen();
-  expect(screen.getByText("COMPLETED")).toBeOnTheScreen();
+  expect(screen.getByText("Completed")).toBeOnTheScreen();
   expect(screen.getByLabelText(/Subagent Background task completed/)).toHaveStyle({
     backgroundColor: "transparent",
     borderRadius: 0,

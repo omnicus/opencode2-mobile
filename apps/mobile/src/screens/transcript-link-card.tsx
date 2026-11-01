@@ -100,7 +100,7 @@ export function TranscriptLinkCard({
         size="compact"
         closeLabel="Close"
       >
-        <Text selectable dynamicTypeRamp={typeRamp.body} style={styles.destination}>
+        <Text selectable dynamicTypeRamp={typeRamp.subheadline} style={styles.destination}>
           {url.toString()}
         </Text>
         {local ? (
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   copy: { flex: 1, minWidth: 0, gap: 2 },
   title: { ...typography.compactControl, color: palette.ink },
   subtitle: { ...typography.caption, color: palette.dim },
-  destination: { ...typography.body, color: palette.ink },
+  destination: { ...typography.subheadline, color: palette.ink },
   open: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 48 },
   pressed: { opacity: 0.6 },
 });

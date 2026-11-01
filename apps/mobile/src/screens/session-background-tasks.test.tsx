@@ -52,3 +52,44 @@ test("empty session has no task chip", () => {
   render(<SessionBackgroundTasks messages={[]} onOpenChild={jest.fn()} />);
   expect(screen.queryByRole("button")).toBeNull();
 });
+
+test("background launches count while their child sessions are active", () => {
+  const launch = (sessionID: string): SessionMessageInfo => ({
+    id: `msg_${sessionID}`,
+    type: "assistant",
+    agent: "build",
+    model: { id: "model", providerID: "provider" },
+    time: { created: 1, completed: 1 },
+    content: [
+      {
+        id: `tool_${sessionID}`,
+        name: "subagent",
+        type: "tool",
+        time: { created: 1 },
+        state: {
+          status: "completed",
+          input: { background: true, description: "Restyle" },
+          metadata: { sessionID, status: "running" },
+          content: [{ type: "text", text: "The subagent is working in the background." }],
+        },
+      },
+    ],
+  });
+  const messages = [launch("ses_a"), launch("ses_b"), launch("ses_c")];
+  const view = render(<SessionBackgroundTasks messages={messages} onOpenChild={jest.fn()} />);
+  expect(
+    screen.getByRole("button", { name: "3 subagents running in background" }),
+  ).toBeOnTheScreen();
+
+  view.rerender(
+    <SessionBackgroundTasks
+      activeSessions={{ ses_a: {}, ses_c: {} }}
+      messages={messages}
+      onOpenChild={jest.fn()}
+      sessionID="ses_parent"
+    />,
+  );
+  expect(
+    screen.getByRole("button", { name: "2 subagents running in background" }),
+  ).toBeOnTheScreen();
+});

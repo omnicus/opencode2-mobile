@@ -1,5 +1,7 @@
+import Feather from "@expo/vector-icons/Feather";
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
+import { StyleSheet } from "react-native";
 import { MenuGroup, MenuRow } from "./menu-row";
 
 test("compact menu rows keep full touch targets and readable uncapped labels", () => {
@@ -11,11 +13,56 @@ test("compact menu rows keep full touch targets and readable uncapped labels", (
     </MenuGroup>,
   );
   const rename = screen.getByRole("button", { name: "Rename" });
-  expect(rename).toHaveStyle({ minHeight: 48 });
-  expect(screen.getByText("Rename")).toHaveStyle({ fontSize: 15 });
+  expect(rename).toHaveStyle({ minHeight: 52 });
+  expect(screen.getByText("Rename")).toHaveStyle({ fontSize: 17, lineHeight: 22 });
+  expect(StyleSheet.flatten(screen.getByText("Rename").props.style).fontWeight).toBeUndefined();
   expect(screen.getByText("Rename").props.numberOfLines).toBeUndefined();
   fireEvent.press(rename);
   fireEvent.press(screen.getByRole("button", { name: "Delete" }));
   expect(press).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Delete" })).toHaveStyle({ opacity: 0.5 });
+});
+
+test("row descriptions use footnote text", () => {
+  render(
+    <MenuGroup>
+      <MenuRow
+        icon="info"
+        label="About"
+        description="Version and licenses"
+        last
+        onPress={() => {}}
+      />
+    </MenuGroup>,
+  );
+  expect(screen.getByText("Version and licenses")).toHaveStyle({ fontSize: 13, lineHeight: 18 });
+  expect(screen.getByRole("button", { name: "About" })).toHaveStyle({ minHeight: 52 });
+});
+
+test("expandable rows report state and swap the chevron direction", () => {
+  const view = render(
+    <MenuGroup>
+      <MenuRow icon="activity" label="Advanced" expanded={false} last onPress={() => {}} />
+    </MenuGroup>,
+  );
+  const chevron = () =>
+    screen.UNSAFE_getAllByType(Feather).map((icon) => icon.props.name as string);
+  expect(screen.getByRole("button", { name: "Advanced" })).toBeCollapsed();
+  expect(chevron()).toEqual(["activity", "chevron-down"]);
+  view.rerender(
+    <MenuGroup>
+      <MenuRow icon="activity" label="Advanced" expanded last onPress={() => {}} />
+    </MenuGroup>,
+  );
+  expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
+  expect(chevron()).toEqual(["activity", "chevron-up"]);
+});
+
+test("plain rows keep the forward chevron and no expanded state", () => {
+  render(<MenuRow icon="info" label="About" onPress={() => {}} />);
+  expect(screen.getByRole("button", { name: "About" })).toHaveProp("accessibilityState", {
+    disabled: false,
+  });
+  expect(screen.UNSAFE_getAllByType(Feather)[1]?.props.name).toBe("chevron-right");
 });

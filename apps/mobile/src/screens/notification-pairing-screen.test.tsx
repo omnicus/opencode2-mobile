@@ -42,7 +42,7 @@ async function inspectCode(url = "https://server.test") {
     screen.getByPlaceholderText("Pairing code"),
     JSON.stringify({ urls: [url], username: "opencode", password: "test-password" }),
   );
-  await fireEvent.press(screen.getByText("CHECK CODE"));
+  await fireEvent.press(screen.getByText("Check code"));
 }
 
 test("pairs directly without push permission or a notification broker", async () => {
@@ -50,7 +50,7 @@ test("pairs directly without push permission or a notification broker", async ()
   await render(<NotificationPairingScreen onDone={done} />);
   await inspectCode();
   await act(async () => {
-    fireEvent.press(screen.getByText("PAIR WITHOUT NOTIFICATIONS"));
+    fireEvent.press(screen.getByText("Pair without notifications"));
   });
   expect(mockRegisterPush).not.toHaveBeenCalled();
   expect(mockCreateClient).toHaveBeenCalledWith(
@@ -80,7 +80,7 @@ test("automatically pairs after notification registration fails", async () => {
   await render(<NotificationPairingScreen onDone={jest.fn()} />);
   await inspectCode();
   await act(async () => {
-    fireEvent.press(screen.getByText("PAIR AND SAVE"));
+    fireEvent.press(screen.getByText("Pair and save"));
   });
   expect(mockSave).toHaveBeenCalledTimes(1);
 });
@@ -99,7 +99,7 @@ test("automatically pairs when the broker is unreachable", async () => {
     await render(<NotificationPairingScreen onDone={done} />);
     await inspectCode("http://server.test:4096");
     await act(async () => {
-      fireEvent.press(screen.getByText("APPROVE HTTP + PAIR"));
+      fireEvent.press(screen.getByText("Approve HTTP and pair"));
     });
     expect(fetch).toHaveBeenCalledWith(
       "http://server.test:37100/v1/pair/opencode",
@@ -117,13 +117,20 @@ test("requires explicit HTTP approval and does not save a failed connection", as
   const done = jest.fn();
   await render(<NotificationPairingScreen onDone={done} />);
   await inspectCode("http://server.test:4096");
-  expect(screen.queryByText("PAIR WITHOUT NOTIFICATIONS")).toBeNull();
+  expect(screen.queryByText("Pair without notifications")).toBeNull();
   await act(async () => {
-    fireEvent.press(screen.getByText("APPROVE HTTP + PAIR WITHOUT NOTIFICATIONS"));
+    fireEvent.press(screen.getByText("Approve HTTP and pair without notifications"));
   });
   expect(mockSave).not.toHaveBeenCalled();
   expect(done).not.toHaveBeenCalled();
   expect(
     screen.getByText("The paired OpenCode address or credentials could not be validated."),
   ).toBeTruthy();
+});
+
+test("closes from the Done action", async () => {
+  const done = jest.fn();
+  await render(<NotificationPairingScreen onDone={done} />);
+  await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+  expect(done).toHaveBeenCalledTimes(1);
 });
