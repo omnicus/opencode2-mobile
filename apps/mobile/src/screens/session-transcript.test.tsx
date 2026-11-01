@@ -2,10 +2,10 @@ import { afterEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
-import { AccessibilityInfo, Alert, Linking, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, Alert, Linking, Platform, StyleSheet, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
-import { markdownPalette, palette, typography } from "../theme";
+import { markdownPalette, palette, pressedOpacity, typography } from "../theme";
 import {
   activityFailureSummary,
   activitySummary,
@@ -1619,4 +1619,330 @@ test("transcript notices and disclosure labels match the chat activity size", ()
   });
   expect(screen.getByText("Thought")).toHaveStyle({ fontSize: typography.chatActivity.fontSize });
   expect(screen.getByRole("button", { name: /Thought/ })).toHaveStyle({ minHeight: 48 });
+});
+
+type UserMessage = Extract<SessionMessageInfo, { type: "user" }>;
+type AssistantMessage = Extract<SessionMessageInfo, { type: "assistant" }>;
+type AssistantTool = Extract<AssistantMessage["content"][number], { type: "tool" }>;
+type CompletedToolState = Extract<AssistantTool["state"], { status: "completed" }>;
+
+function assistantWith(content: AssistantMessage["content"]): AssistantMessage {
+  return {
+    agent: "build",
+    content,
+    id: "msg_tools",
+    model: { id: "model-1", providerID: "provider" },
+    time: { created: 1 },
+    type: "assistant",
+  };
+}
+
+function completedTool(
+  id: string,
+  name: string,
+  input: CompletedToolState["input"] = {},
+  content: CompletedToolState["content"] = [{ text: "Done", type: "text" }],
+): AssistantTool {
+  return {
+    id,
+    name,
+    state: { content, input, status: "completed" },
+    time: { created: 1 },
+    type: "tool",
+  };
+}
+
+test("labels file, agent and skill attachments and skips inline images", () => {
+  const message = {
+    agents: [{ name: "explore" }],
+    files: [
+      {
+        data: "cmVwb3J0",
+        mime: "application/pdf",
+        name: " /tmp/report.pdf ",
+        source: { type: "inline" },
+      },
+      { data: "bm90ZQ==", mime: "text/plain", source: { type: "inline" } },
+      { data: "aW1hZ2U=", mime: "image/png", name: "screen.png", source: { type: "inline" } },
+    ],
+    id: "msg_attachments",
+    skills: [{ id: "review", name: "Review" }],
+    text: "See attached",
+    time: { created: 1 },
+    type: "user",
+  } as UserMessage;
+  render(<SessionTranscriptRow message={message} />);
+
+  expect(screen.getByLabelText("4 attachments")).toBeOnTheScreen();
+  expect(screen.getByText("report.pdf")).toBeOnTheScreen();
+  expect(screen.getByText("File attachment")).toBeOnTheScreen();
+  expect(screen.getByText("@explore")).toBeOnTheScreen();
+  expect(screen.getByText("Skill: Review")).toBeOnTheScreen();
+  expect(screen.queryByText("screen.png")).toBeNull();
+  expect(screen.queryByText("Additional attachments omitted.")).toBeNull();
+});
+
+test("caps attachment labels and counts the omitted attachments", () => {
+  const files = (count: number, prefix: string) =>
+    Array.from({ length: count }, (_, index) => ({
+      data: "ZmlsZQ==",
+      mime: "text/plain",
+      name: `${prefix}-${index}.txt`,
+      source: { type: "inline" as const },
+    }));
+  const user = (patch: Partial<UserMessage>) =>
+    ({
+      id: "msg_many",
+      text: "Files",
+      time: { created: 1 },
+      type: "user",
+      ...patch,
+    }) as UserMessage;
+  const view = render(
+    <SessionTranscriptRow message={user({ agents: [{ name: "late" }], files: files(33, "a") })} />,
+  );
+  expect(screen.getByLabelText("34 attachments")).toBeOnTheScreen();
+  expect(screen.getByText("a-31.txt")).toBeOnTheScreen();
+  expect(screen.queryByText("a-32.txt")).toBeNull();
+  expect(screen.queryByText("@late")).toBeNull();
+  expect(screen.getByText("Additional attachments omitted.")).toBeOnTheScreen();
+
+  view.rerender(
+    <SessionTranscriptRow
+      message={user({
+        agents: [{ name: "first" }, { name: "second" }],
+        files: files(30, "b"),
+        skills: [{ id: "review", name: "Review" }] as NonNullable<UserMessage["skills"]>,
+      })}
+    />,
+  );
+  expect(screen.getByLabelText("33 attachments")).toBeOnTheScreen();
+  expect(screen.getByText("@second")).toBeOnTheScreen();
+  expect(screen.queryByText("Skill: Review")).toBeNull();
+  expect(screen.getByText("Additional attachments omitted.")).toBeOnTheScreen();
+});
+
+test.each([
+  {
+    detail: "1 file",
+    label: "Edited",
+    tools: [
+      completedTool("edit-a", "write", { path: "src/a.ts" }),
+      completedTool("edit-b", "edit", { filePath: "src/a.ts" }),
+    ],
+  },
+  {
+    detail: "2 edits",
+    label: "Edited",
+    tools: [completedTool("edit-a", "write"), completedTool("edit-b", "edit")],
+  },
+  {
+    detail: "2 commands",
+    label: "Ran shell",
+    tools: [
+      completedTool("shell-a", "shell", { command: "pnpm lint" }),
+      completedTool("shell-b", "bash", { command: "pnpm test" }),
+    ],
+  },
+  {
+    detail: "review, native-ui",
+    label: "Used Skill",
+    tools: [
+      completedTool("skill-a", "skill", { name: "review" }),
+      completedTool("skill-b", "skill", { id: "native-ui" }),
+      completedTool("skill-c", "use_skill", { skill: "review" }),
+    ],
+  },
+  {
+    detail: "2 uses",
+    label: "Used Skill",
+    tools: [completedTool("skill-a", "skill"), completedTool("skill-b", "skill")],
+  },
+  {
+    detail: "5 calls",
+    label: "Used Alpha, Beta, Gamma, +1",
+    tools: ["alpha", "beta", "alpha", "gamma", "delta"].map((name, index) =>
+      completedTool(`other-${index}`, name),
+    ),
+  },
+])("summarizes a completed $label group as $detail", ({ detail, label, tools }) => {
+  render(<SessionTranscriptRow message={assistantWith(tools)} />);
+  expect(screen.getByText(label)).toBeOnTheScreen();
+  expect(screen.getByText(detail)).toBeOnTheScreen();
+});
+
+test("labels skill calls while they load and lists file results once loaded", () => {
+  const skill = (state: AssistantTool["state"]): AssistantMessage =>
+    assistantWith([
+      { id: "tool_skill", name: " Skill ", state, time: { created: 1 }, type: "tool" },
+    ]);
+  const view = render(
+    <SessionTranscriptRow
+      detailed
+      message={skill({ input: {}, metadata: {}, status: "running" })}
+    />,
+  );
+  expect(screen.getByLabelText("Loading Skill")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Loading Skill" })).toBeNull();
+
+  view.rerender(
+    <SessionTranscriptRow
+      detailed
+      message={skill({ input: '{"name":"native-ui"}', status: "streaming" })}
+    />,
+  );
+  expect(screen.getByLabelText("Loading native-ui skill")).toBeOnTheScreen();
+
+  view.rerender(
+    <SessionTranscriptRow
+      detailed
+      message={skill({
+        content: [
+          { mime: "text/markdown", name: "SKILL.md", type: "file", uri: "file:///SKILL.md" },
+          { mime: "text/plain", type: "file", uri: "file:///notes" },
+        ],
+        input: { name: "native-ui" },
+        status: "completed",
+      })}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Loaded native-ui skill" }));
+  expect(screen.getByLabelText("Skill content")).toBeOnTheScreen();
+  expect(screen.getByText("SKILL.md")).toBeOnTheScreen();
+  expect(screen.getByText("File result")).toBeOnTheScreen();
+});
+
+test("expanded tool calls list file results and cap long output", () => {
+  const files = Array.from({ length: 33 }, (_, index) => ({
+    mime: "text/plain",
+    name: index === 1 ? " " : `/workspace/out-${index}.txt`,
+    type: "file" as const,
+    uri: `file:///out-${index}`,
+  }));
+  render(
+    <SessionTranscriptRow
+      detailed
+      message={assistantWith([
+        completedTool("tool_files", "collect", {}, files as CompletedToolState["content"]),
+      ])}
+    />,
+  );
+  expect(screen.getByText("Used Collect")).toBeOnTheScreen();
+  expect(screen.queryByText("out-0.txt")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: /Used Collect/ }));
+  expect(screen.getByText("out-0.txt")).toBeOnTheScreen();
+  expect(screen.getByText("File result")).toBeOnTheScreen();
+  expect(screen.getByText("out-31.txt")).toBeOnTheScreen();
+  expect(screen.queryByText("out-32.txt")).toBeNull();
+  expect(screen.getByText("Additional tool output omitted on this device.")).toBeOnTheScreen();
+});
+
+test("nested failed tools summarize the error until expanded", () => {
+  const failed: AssistantTool = {
+    id: "tool_failed",
+    name: "patch",
+    state: {
+      error: { message: "Patch rejected", type: "ToolError" },
+      input: { path: "src/a.ts" },
+      status: "error",
+    },
+    time: { created: 1 },
+    type: "tool",
+  };
+  const openDiff = jest.fn();
+  render(
+    <SessionTranscriptRow
+      compactActivity
+      detailed
+      message={assistantWith([failed])}
+      onOpenDiff={openDiff}
+    />,
+  );
+  expect(screen.getByText("Patch rejected")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Review current changes" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: /^Patch Patch rejected Show/ }));
+  expect(screen.getByText("Failed")).toBeOnTheScreen();
+  expect(screen.getByText("Patch rejected")).toBeOnTheScreen();
+  expect(screen.getByText("src/a.ts")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Review current changes" }));
+  expect(openDiff).toHaveBeenCalledTimes(1);
+});
+
+test("subagent cards without a child session stay static and announce failures", () => {
+  const subagent = (state: AssistantTool["state"]) =>
+    assistantWith([
+      { id: "tool_subagent", name: "task", state, time: { created: 1 }, type: "tool" },
+    ]);
+  const input = { description: "Fix tests" };
+  const view = render(
+    <SessionTranscriptRow message={subagent({ input, metadata: {}, status: "running" })} />,
+  );
+  const card = screen.getByLabelText("Subagent, Fix tests, Running");
+  expect(card.props.accessibilityRole).toBeUndefined();
+  expect(card.props.accessibilityHint).toBeUndefined();
+  expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.activity });
+  expect(screen.queryByRole("button", { name: "Show result" })).toBeNull();
+
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  try {
+    view.rerender(
+      <SessionTranscriptRow
+        message={subagent({
+          error: { message: "Tests failed", type: "ToolError" },
+          input,
+          status: "error",
+        })}
+      />,
+    );
+    expect(screen.getByText("Failed")).toHaveStyle({ color: palette.danger });
+    expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.danger });
+    expect(announce).toHaveBeenCalledWith("Subagent Fix tests failed");
+  } finally {
+    announce.mockRestore();
+  }
+});
+
+test.each(["ios", "android"] as const)("subagent cards give press feedback on %s", (os) => {
+  const platform = jest.replaceProperty(Platform, "OS", os);
+  try {
+    render(
+      <SessionTranscriptRow
+        message={assistantWith([
+          {
+            id: "tool_subagent",
+            name: "subagent",
+            state: {
+              content: [{ text: "Result", type: "text" }],
+              input: { description: "Explore" },
+              metadata: { sessionId: "ses_child" },
+              status: "completed",
+            },
+            time: { created: 1 },
+            type: "tool",
+          },
+        ])}
+        onOpenSubagent={jest.fn()}
+      />,
+    );
+    const card = screen.getByRole("button", { name: "Subagent, Explore, Completed" });
+    const toggle = screen.getByRole("button", { name: "Show result" });
+    if (os === "android") {
+      expect(card.props.nativeBackgroundAndroid).toMatchObject({ borderless: false });
+      expect(toggle.props.nativeBackgroundAndroid).toMatchObject({ borderless: true });
+    } else {
+      expect(card.props.nativeBackgroundAndroid).toBeUndefined();
+      expect(toggle.props.nativeBackgroundAndroid).toBeUndefined();
+    }
+
+    fireEvent(card, "pressIn");
+    if (os === "ios") {
+      expect(screen.getByTestId("subagent-card")).toHaveStyle({ opacity: pressedOpacity });
+    } else {
+      expect(screen.getByTestId("subagent-card")).not.toHaveStyle({ opacity: pressedOpacity });
+    }
+    fireEvent(card, "pressOut");
+    expect(screen.getByTestId("subagent-card")).not.toHaveStyle({ opacity: pressedOpacity });
+  } finally {
+    platform.restore();
+  }
 });

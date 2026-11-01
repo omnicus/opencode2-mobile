@@ -1,6 +1,14 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  memo,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Alert,
   Linking,
@@ -164,39 +172,13 @@ export function groupTranscriptMessages(
     count = 0;
     running = false;
   };
-  // Split mixed assistant messages at prose boundaries so adjacent tool runs
-  // share one disclosure, even when the server batches prose and tools together.
-  const segments = visibleMessages.flatMap((message): SessionMessageInfo[] => {
-    if (message.type !== "assistant" || message.error || message.retry) return [message];
-    const runs: AssistantMessage["content"][] = [];
-    for (const part of message.content) {
-      const previous = runs[runs.length - 1];
-      if (previous && (previous[0]?.type === "text") === (part.type === "text"))
-        previous.push(part);
-      else runs.push([part]);
-    }
-    if (runs.length < 2) return [message];
-    return runs.map((content, index) => ({
-      ...message,
-      id: index === 0 ? message.id : `${message.id}:segment:${index}`,
-      content,
-    }));
-  });
-  for (const message of segments) {
+  for (const message of visibleMessages.flatMap(splitAssistantProse)) {
     if (message.type === "idle" && message.outcome === "succeeded") continue;
     if (isTranscriptUpdate(message)) {
       pending.push(message);
       continue;
     }
-    if (
-      message.type === "assistant" &&
-      !message.error &&
-      !message.retry &&
-      message.content.length > 0 &&
-      message.content.every((part) =>
-        part.type === "reasoning" ? true : part.type === "tool" && !getSubagentPresentation(part),
-      )
-    ) {
+    if (isActivityMessage(message)) {
       pending.push(message);
       for (const part of message.content) {
         if (part.type !== "tool") continue;
@@ -210,6 +192,36 @@ export function groupTranscriptMessages(
   }
   flush();
   return result;
+}
+
+// Split mixed assistant messages at prose boundaries so adjacent tool runs
+// share one disclosure, even when the server batches prose and tools together.
+function splitAssistantProse(message: SessionMessageInfo): SessionMessageInfo[] {
+  if (message.type !== "assistant" || message.error || message.retry) return [message];
+  const runs: AssistantMessage["content"][] = [];
+  for (const part of message.content) {
+    const previous = runs[runs.length - 1];
+    if (previous && (previous[0]?.type === "text") === (part.type === "text")) previous.push(part);
+    else runs.push([part]);
+  }
+  if (runs.length < 2) return [message];
+  return runs.map((content, index) => ({
+    ...message,
+    id: index === 0 ? message.id : `${message.id}:segment:${index}`,
+    content,
+  }));
+}
+
+function isActivityMessage(message: SessionMessageInfo): message is AssistantMessage {
+  return (
+    message.type === "assistant" &&
+    !message.error &&
+    !message.retry &&
+    message.content.length > 0 &&
+    message.content.every((part) =>
+      part.type === "reasoning" ? true : part.type === "tool" && !getSubagentPresentation(part),
+    )
+  );
 }
 
 function isTranscriptUpdate(message: SessionMessageInfo) {
@@ -895,85 +907,99 @@ function ToolDisclosure({
   const [expanded, setExpanded] = useState(false);
   const subagentStates = useContext(SessionSubagentStates);
   const subagent = getSubagentPresentation(tool, subagentStates);
+  const toggle = () => setExpanded((value) => !value);
   if (subagent) {
     return (
       <SubagentCard largeText={largeText} onOpenSubagent={onOpenSubagent} presentation={subagent} />
     );
   }
   if (skillToolNames.has(tool.name.trim().toLocaleLowerCase()) && tool.state.status !== "error") {
-    const metadata = tool.state.status === "streaming" ? undefined : tool.state.metadata;
-    const name =
-      firstInputString(metadata, ["name"]) ??
-      firstInputString(toolInputRecord(tool), ["id", "name", "skill"]);
-    const running = tool.state.status === "running" || tool.state.status === "streaming";
-    const content = tool.state.status === "completed" ? tool.state.content : [];
-    const label = `${running ? "Loading" : "Loaded"} ${name ? `${sanitizeTranscriptText(name, 256)} skill` : "Skill"}`;
-    return (
-      <View>
-        <Pressable
-          accessibilityRole={content.length ? "button" : undefined}
-          accessibilityLabel={label}
-          accessibilityState={content.length ? { expanded } : undefined}
-          disabled={!content.length}
-          onPress={() => setExpanded((value) => !value)}
-          style={styles.loadedSkill}
-        >
-          <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
-            {running ? "Loading" : "Loaded"}{" "}
-            <Text style={styles.activityLabel}>
-              {name ? sanitizeTranscriptText(name, 256) : "Skill"}
-            </Text>
-            {name ? " skill" : ""}
-          </Text>
-        </Pressable>
-        {expanded ? (
-          <ScrollView
-            accessibilityLabel="Skill content"
-            nestedScrollEnabled
-            style={styles.toolOutputScroll}
-          >
-            {keyToolContent(content.slice(0, maxToolOutputs)).map(({ item, key }) => (
-              <ExpandableText
-                key={key}
-                style={styles.outputText}
-                text={item.type === "text" ? item.text : (item.name ?? "File result")}
-              />
-            ))}
-          </ScrollView>
-        ) : null}
-      </View>
-    );
+    return <SkillToolDisclosure expanded={expanded} onToggle={toggle} tool={tool} />;
   }
-  const content =
-    tool.state.status === "completed" || tool.state.status === "error"
-      ? (tool.state.content ?? [])
-      : [];
-  const error = tool.state.status === "error" ? tool.state.error.message : undefined;
-  const presentation = toolPresentation(tool);
-  const canExpand = canExpandTool(tool);
-  const category = toolCategory(tool);
+  return (
+    <ToolCallDisclosure
+      expanded={expanded}
+      largeText={largeText}
+      nested={nested}
+      onOpenDiff={onOpenDiff}
+      onToggle={toggle}
+      tool={tool}
+    />
+  );
+}
+
+function SkillToolDisclosure({
+  expanded,
+  onToggle,
+  tool,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  tool: AssistantTool;
+}) {
   const metadata = tool.state.status === "streaming" ? undefined : tool.state.metadata;
-  // A terminal snapshot already contains the authoritative result. Background
-  // handoffs keep metadata.status="running" even after the command later exits.
-  const savedShellOutput =
-    metadata?.status === "exited" ||
-    metadata?.status === "timeout" ||
-    metadata?.status === "killed";
-  const shellID =
-    category === "shell" && !savedShellOutput && typeof metadata?.shellID === "string"
-      ? metadata.shellID
-      : undefined;
-  const input = toolInputRecord(tool);
-  const commandKey = typeof input?.command === "string" ? "command" : "cmd";
-  const inputDetails =
-    input && category === "shell"
-      ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== commandKey))
-      : input;
-  const label =
-    !nested && tool.state.status === "completed" && !shellID
-      ? completedToolLabel(category, presentation.label)
-      : presentation.label;
+  const name =
+    firstInputString(metadata, ["name"]) ??
+    firstInputString(toolInputRecord(tool), ["id", "name", "skill"]);
+  const running = tool.state.status === "running" || tool.state.status === "streaming";
+  const content = tool.state.status === "completed" ? tool.state.content : [];
+  const label = `${running ? "Loading" : "Loaded"} ${name ? `${sanitizeTranscriptText(name, 256)} skill` : "Skill"}`;
+  return (
+    <View>
+      <Pressable
+        accessibilityRole={content.length ? "button" : undefined}
+        accessibilityLabel={label}
+        accessibilityState={content.length ? { expanded } : undefined}
+        disabled={!content.length}
+        onPress={onToggle}
+        style={styles.loadedSkill}
+      >
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
+          {running ? "Loading" : "Loaded"}{" "}
+          <Text style={styles.activityLabel}>
+            {name ? sanitizeTranscriptText(name, 256) : "Skill"}
+          </Text>
+          {name ? " skill" : ""}
+        </Text>
+      </Pressable>
+      {expanded ? (
+        <ScrollView
+          accessibilityLabel="Skill content"
+          nestedScrollEnabled
+          style={styles.toolOutputScroll}
+        >
+          {keyToolContent(content.slice(0, maxToolOutputs)).map(({ item, key }) => (
+            <ExpandableText
+              key={key}
+              style={styles.outputText}
+              text={item.type === "text" ? item.text : (item.name ?? "File result")}
+            />
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
+function ToolCallDisclosure({
+  expanded,
+  largeText,
+  nested,
+  onOpenDiff,
+  onToggle,
+  tool,
+}: {
+  expanded: boolean;
+  largeText: boolean;
+  nested: boolean;
+  onOpenDiff?: (() => void) | undefined;
+  onToggle: () => void;
+  tool: AssistantTool;
+}) {
+  const { canExpand, category, content, error, input, inputDetails, label, presentation, shellID } =
+    toolCallPresentation(tool, nested);
   const visibleContent = content.slice(0, maxToolOutputs);
+  const showOutcome = !nested || expanded;
   return (
     <View
       style={[
@@ -989,118 +1015,215 @@ function ToolDisclosure({
         expanded={expanded}
         label={label}
         largeText={largeText}
-        onPress={() => setExpanded((current) => !current)}
+        onPress={onToggle}
       />
       <View style={styles.toolDetails}>
-        {expanded && inputDetails && Object.keys(inputDetails).length > 0 ? (
-          <ScrollView
-            accessibilityLabel={`${presentation.label} input`}
-            nestedScrollEnabled
-            style={styles.toolOutputScroll}
-          >
-            <ExpandableText
-              style={styles.commandText}
-              text={JSON.stringify(inputDetails, null, 2).slice(0, maxSanitizedInput)}
-            />
-          </ScrollView>
+        {expanded ? (
+          <ToolCallDetails
+            category={category}
+            files={presentation.files}
+            input={input}
+            inputDetails={inputDetails}
+            label={presentation.label}
+            shellID={shellID}
+            tool={tool}
+            visibleContent={visibleContent}
+          />
         ) : null}
-        {expanded
-          ? presentation.files.map((file) => (
-              <SelectableTranscriptText
-                dynamicTypeRamp={typeRamp.control}
-                key={file}
-                selectable
-                style={styles.activityFile}
-              >
-                {file}
-              </SelectableTranscriptText>
-            ))
-          : null}
-        {expanded && category === "shell" ? (
-          <ShellObservation shellID={shellID}>
-            {(observation) => (
-              <View>
-                {observation ? (
-                  <Text style={styles.statusText}>
-                    {observation.statusLabel === "Running" && tool.state.status === "completed"
-                      ? "Running in background"
-                      : observation.statusLabel}
-                  </Text>
-                ) : null}
-                {observation?.error ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={observation.retry}
-                    style={styles.textAction}
-                  >
-                    <Text dynamicTypeRamp={typeRamp.control} style={styles.textActionLabel}>
-                      Retry shell output
-                    </Text>
-                  </Pressable>
-                ) : null}
-                {observation?.snapshot?.truncated ? (
-                  <Text style={styles.omittedText}>Showing recent output.</Text>
-                ) : null}
-                <ShellOutput
-                  command={firstInputString(input, ["command", "cmd"], maxSanitizedInput)}
-                  follow={observation?.snapshot?.info?.status === "running"}
-                  text={
-                    observation
-                      ? (observation.snapshot?.output ?? "")
-                      : visibleContent
-                          .flatMap((item) =>
-                            item.type === "text" ? [parseSubagentProtocolText(item.text).text] : [],
-                          )
-                          .join("\n\n")
-                  }
-                />
-              </View>
-            )}
-          </ShellObservation>
-        ) : null}
-        {expanded
-          ? keyToolContent(visibleContent).map(({ item, key }) =>
-              item.type === "text" ? (
-                category === "shell" ? null : (
-                  <ScrollView
-                    key={key}
-                    accessibilityLabel={`${presentation.label} output`}
-                    nestedScrollEnabled
-                    style={styles.toolOutputScroll}
-                  >
-                    <ExpandableText
-                      style={styles.outputText}
-                      text={parseSubagentProtocolText(item.text).text}
-                    />
-                  </ScrollView>
-                )
-              ) : (
-                <SelectableTranscriptText
-                  dynamicTypeRamp={typeRamp.body}
-                  key={key}
-                  style={styles.outputText}
-                >
-                  {sanitizeTranscriptText(
-                    item.name?.trim() ? basename(item.name.trim()) : "File result",
-                    256,
-                  )}
-                </SelectableTranscriptText>
-              ),
-            )
-          : null}
         {nested ? null : <TranscriptImages images={toolImages([tool])} />}
         {expanded && content.length > visibleContent.length ? (
           <Text style={styles.omittedText}>Additional tool output omitted on this device.</Text>
         ) : null}
-        {error && (!nested || expanded) ? (
+        {error && showOutcome ? (
           <ExpandableText error style={styles.errorText} text={error} />
         ) : null}
-        {(!nested || expanded) && category === "edit" && onOpenDiff ? (
+        {showOutcome && category === "edit" && onOpenDiff ? (
           <DiffAction onPress={onOpenDiff} />
         ) : null}
       </View>
     </View>
   );
+}
+
+function ToolCallDetails({
+  category,
+  files,
+  input,
+  inputDetails,
+  label,
+  shellID,
+  tool,
+  visibleContent,
+}: {
+  category: ToolCategory;
+  files: string[];
+  input: Record<string, unknown> | undefined;
+  inputDetails: Record<string, unknown> | undefined;
+  label: string;
+  shellID: string | undefined;
+  tool: AssistantTool;
+  visibleContent: ToolOutput[];
+}) {
+  return (
+    <>
+      {inputDetails && Object.keys(inputDetails).length > 0 ? (
+        <ScrollView
+          accessibilityLabel={`${label} input`}
+          nestedScrollEnabled
+          style={styles.toolOutputScroll}
+        >
+          <ExpandableText
+            style={styles.commandText}
+            text={JSON.stringify(inputDetails, null, 2).slice(0, maxSanitizedInput)}
+          />
+        </ScrollView>
+      ) : null}
+      {files.map((file) => (
+        <SelectableTranscriptText
+          dynamicTypeRamp={typeRamp.control}
+          key={file}
+          selectable
+          style={styles.activityFile}
+        >
+          {file}
+        </SelectableTranscriptText>
+      ))}
+      {category === "shell" ? (
+        <ToolShellObservation
+          input={input}
+          shellID={shellID}
+          tool={tool}
+          visibleContent={visibleContent}
+        />
+      ) : null}
+      {keyToolContent(visibleContent).map(({ item, key }) =>
+        item.type === "text" ? (
+          category === "shell" ? null : (
+            <ScrollView
+              key={key}
+              accessibilityLabel={`${label} output`}
+              nestedScrollEnabled
+              style={styles.toolOutputScroll}
+            >
+              <ExpandableText
+                style={styles.outputText}
+                text={parseSubagentProtocolText(item.text).text}
+              />
+            </ScrollView>
+          )
+        ) : (
+          <SelectableTranscriptText
+            dynamicTypeRamp={typeRamp.body}
+            key={key}
+            style={styles.outputText}
+          >
+            {sanitizeTranscriptText(
+              item.name?.trim() ? basename(item.name.trim()) : "File result",
+              256,
+            )}
+          </SelectableTranscriptText>
+        ),
+      )}
+    </>
+  );
+}
+
+function ToolShellObservation({
+  input,
+  shellID,
+  tool,
+  visibleContent,
+}: {
+  input: Record<string, unknown> | undefined;
+  shellID: string | undefined;
+  tool: AssistantTool;
+  visibleContent: ToolOutput[];
+}) {
+  return (
+    <ShellObservation shellID={shellID}>
+      {(observation) => (
+        <View>
+          {observation ? (
+            <Text style={styles.statusText}>
+              {observation.statusLabel === "Running" && tool.state.status === "completed"
+                ? "Running in background"
+                : observation.statusLabel}
+            </Text>
+          ) : null}
+          {observation?.error ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={observation.retry}
+              style={styles.textAction}
+            >
+              <Text dynamicTypeRamp={typeRamp.control} style={styles.textActionLabel}>
+                Retry shell output
+              </Text>
+            </Pressable>
+          ) : null}
+          {observation?.snapshot?.truncated ? (
+            <Text style={styles.omittedText}>Showing recent output.</Text>
+          ) : null}
+          <ShellOutput
+            command={firstInputString(input, ["command", "cmd"], maxSanitizedInput)}
+            follow={observation?.snapshot?.info?.status === "running"}
+            text={
+              observation
+                ? (observation.snapshot?.output ?? "")
+                : visibleContent
+                    .flatMap((item) =>
+                      item.type === "text" ? [parseSubagentProtocolText(item.text).text] : [],
+                    )
+                    .join("\n\n")
+            }
+          />
+        </View>
+      )}
+    </ShellObservation>
+  );
+}
+
+function toolCallPresentation(tool: AssistantTool, nested: boolean) {
+  const content =
+    tool.state.status === "completed" || tool.state.status === "error"
+      ? (tool.state.content ?? [])
+      : [];
+  const error = tool.state.status === "error" ? tool.state.error.message : undefined;
+  const presentation = toolPresentation(tool);
+  const category = toolCategory(tool);
+  const shellID = category === "shell" ? liveShellID(tool) : undefined;
+  const input = toolInputRecord(tool);
+  const commandKey = typeof input?.command === "string" ? "command" : "cmd";
+  const inputDetails =
+    input && category === "shell"
+      ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== commandKey))
+      : input;
+  const label =
+    !nested && tool.state.status === "completed" && !shellID
+      ? completedToolLabel(category, presentation.label)
+      : presentation.label;
+  return {
+    canExpand: canExpandTool(tool),
+    category,
+    content,
+    error,
+    input,
+    inputDetails,
+    label,
+    presentation,
+    shellID,
+  };
+}
+
+function liveShellID(tool: AssistantTool) {
+  const metadata = tool.state.status === "streaming" ? undefined : tool.state.metadata;
+  // A terminal snapshot already contains the authoritative result. Background
+  // handoffs keep metadata.status="running" even after the command later exits.
+  const savedShellOutput =
+    metadata?.status === "exited" ||
+    metadata?.status === "timeout" ||
+    metadata?.status === "killed";
+  return !savedShellOutput && typeof metadata?.shellID === "string" ? metadata.shellID : undefined;
 }
 
 function DiffAction({ onPress }: { onPress: () => void }) {
@@ -1326,18 +1449,11 @@ function SubagentCard({
   const kind = presentation.background ? "Background subagent" : "Subagent";
   const title = sanitizeTranscriptText(presentation.title, 256);
   const agent = presentation.agent ? `@${sanitizeTranscriptText(presentation.agent, 128)}` : "";
-  const previousState = useRef(state);
-  useEffect(() => {
-    const previous = previousState.current;
-    previousState.current = state;
-    // Announce the transition only; finished cards in the history stay quiet.
-    if (previous === state || (state !== "completed" && state !== "error")) return;
-    announceOnIOS(`${kind} ${title} ${state === "error" ? "failed" : "completed"}`);
-  }, [kind, state, title]);
+  useSubagentTransitionAnnouncement(kind, state, title);
   const open = () => {
     if (childSessionID) onOpenSubagent?.(childSessionID);
   };
-  const openProps = {
+  const openProps: SubagentOpenProps = {
     android_ripple: canOpen && Platform.OS === "android" ? { color: rippleColor } : undefined,
     disabled: !canOpen,
     onPress: open,
@@ -1366,25 +1482,13 @@ function SubagentCard({
         accessibilityHint={canOpen ? "Opens the subagent session" : undefined}
         style={styles.subagentMain}
       >
-        <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
-          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.subagentLabel}>
-            {kind}
-          </Text>
-          <View style={styles.subagentStatus}>
-            {inFlight ? <WorkingIndicator /> : null}
-            <Text
-              accessibilityLiveRegion="polite"
-              dynamicTypeRamp={typeRamp.sectionLabel}
-              style={[
-                styles.subagentState,
-                state === "error" && styles.subagentStateError,
-                inFlight && styles.subagentStateRunning,
-              ]}
-            >
-              {stateLabel}
-            </Text>
-          </View>
-        </View>
+        <SubagentCardHeading
+          inFlight={inFlight}
+          kind={kind}
+          largeText={largeText}
+          state={state}
+          stateLabel={stateLabel}
+        />
         <View style={styles.subagentTitleRow}>
           <Text dynamicTypeRamp={typeRamp.headline} style={styles.subagentTitle}>
             {title}
@@ -1396,46 +1500,126 @@ function SubagentCard({
         {canExpand ? null : agentText}
       </Pressable>
       {canExpand ? (
-        <View style={styles.subagentFooter}>
-          <Pressable
-            {...openProps}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.subagentFooterOpen}
-          >
-            {agentText}
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={expanded ? "Hide result" : "Show result"}
-            accessibilityState={{ expanded }}
-            android_ripple={
-              Platform.OS === "android" ? { color: rippleColor, borderless: true } : undefined
-            }
-            hitSlop={(minTouchTarget - subagentToggleHeight) / 2}
-            onPress={() => setExpanded((current) => !current)}
-            style={({ pressed: togglePressed }) => [
-              styles.subagentToggle,
-              togglePressed && Platform.OS === "ios" && styles.pressed,
-            ]}
-          >
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
-              {expanded ? "Hide result" : "Show result"}
-            </Text>
-            <Feather
-              accessible={false}
-              color={palette.signal}
-              name={expanded ? "chevron-up" : "chevron-down"}
-              size={16}
-            />
-          </Pressable>
-        </View>
+        <SubagentCardFooter
+          agentText={agentText}
+          expanded={expanded}
+          onToggle={() => setExpanded((current) => !current)}
+          openProps={openProps}
+        />
       ) : null}
       {expanded && presentation.result ? (
         <View style={styles.subagentResult}>
           <ExpandableText markdown style={styles.subagentResultText} text={presentation.result} />
         </View>
       ) : null}
+    </View>
+  );
+}
+
+type SubagentOpenProps = {
+  android_ripple: { color: string } | undefined;
+  disabled: boolean;
+  onPress: () => void;
+  onPressIn: () => void;
+  onPressOut: () => void;
+};
+
+function useSubagentTransitionAnnouncement(
+  kind: string,
+  state: SubagentPresentation["state"],
+  title: string,
+) {
+  const previousState = useRef(state);
+  useEffect(() => {
+    const previous = previousState.current;
+    previousState.current = state;
+    // Announce the transition only; finished cards in the history stay quiet.
+    if (previous === state || (state !== "completed" && state !== "error")) return;
+    announceOnIOS(`${kind} ${title} ${state === "error" ? "failed" : "completed"}`);
+  }, [kind, state, title]);
+}
+
+function SubagentCardHeading({
+  inFlight,
+  kind,
+  largeText,
+  state,
+  stateLabel,
+}: {
+  inFlight: boolean;
+  kind: string;
+  largeText: boolean;
+  state: SubagentPresentation["state"];
+  stateLabel: string;
+}) {
+  return (
+    <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.subagentLabel}>
+        {kind}
+      </Text>
+      <View style={styles.subagentStatus}>
+        {inFlight ? <WorkingIndicator /> : null}
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.sectionLabel}
+          style={[
+            styles.subagentState,
+            state === "error" && styles.subagentStateError,
+            inFlight && styles.subagentStateRunning,
+          ]}
+        >
+          {stateLabel}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function SubagentCardFooter({
+  agentText,
+  expanded,
+  onToggle,
+  openProps,
+}: {
+  agentText: ReactNode;
+  expanded: boolean;
+  onToggle: () => void;
+  openProps: SubagentOpenProps;
+}) {
+  return (
+    <View style={styles.subagentFooter}>
+      <Pressable
+        {...openProps}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={styles.subagentFooterOpen}
+      >
+        {agentText}
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={expanded ? "Hide result" : "Show result"}
+        accessibilityState={{ expanded }}
+        android_ripple={
+          Platform.OS === "android" ? { color: rippleColor, borderless: true } : undefined
+        }
+        hitSlop={(minTouchTarget - subagentToggleHeight) / 2}
+        onPress={onToggle}
+        style={({ pressed: togglePressed }) => [
+          styles.subagentToggle,
+          togglePressed && Platform.OS === "ios" && styles.pressed,
+        ]}
+      >
+        <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
+          {expanded ? "Hide result" : "Show result"}
+        </Text>
+        <Feather
+          accessible={false}
+          color={palette.signal}
+          name={expanded ? "chevron-up" : "chevron-down"}
+          size={16}
+        />
+      </Pressable>
     </View>
   );
 }
