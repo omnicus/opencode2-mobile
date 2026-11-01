@@ -672,7 +672,7 @@ test("attention section owns requests, with a shortcut only when search or archi
     expect(navigate).toHaveBeenCalledWith("Pending");
     fireEvent.press(screen.getByRole("button", { name: "Clear session search" }));
     await waitFor(() => expect(screen.queryByText("Needs you 1")).toBeNull());
-    fireEvent.press(screen.getByRole("button", { name: "Archived" }));
+    fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
     expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
   } finally {
     view.unmount();
@@ -959,14 +959,14 @@ test("hides Load older sessions once all rows are visible and the server is exha
   expect(view.UNSAFE_getByType(FlatList).props.ListFooterComponent.props.testID).toBe(
     "session-archive-footer",
   );
-  fireEvent.press(screen.getByRole("button", { name: "Archived" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
   expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
   expect(
     within(screen.getByTestId("session-archive-footer")).getByText(
       /Archived on this device only\. Restore/,
     ),
   ).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Inbox" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Inbox" }));
   expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
   view.unmount();
   queryClient.clear();
@@ -992,11 +992,11 @@ test("auto archives sessions after 30 days and Restore survives a remount", asyn
   let view = render(content());
   await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
   expect(screen.queryByRole("button", { name: "Keep latest 10" })).not.toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Archived" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
   const oldSession = await screen.findByRole("button", { name: /^Open session Session 0\./ });
   fireEvent(oldSession, "accessibilityAction", { nativeEvent: { actionName: "archive" } });
   await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("button", { name: "Inbox" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Inbox" }));
   expect(await screen.findByText("Session 0")).toBeOnTheScreen();
   expect(mockRestoredAt.ses_0).toBeGreaterThan(0);
   view.unmount();
@@ -1037,7 +1037,7 @@ test("old working sessions remain visible and auto archive when they become idle
   mockWorkspaceActive = false;
   view.rerender(content());
   await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("button", { name: "Archived" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
   expect(await screen.findByText("Session 0")).toBeOnTheScreen();
   view.unmount();
   queryClient.clear();
@@ -1107,11 +1107,11 @@ test("archives from the list, restores from Archived, and survives a remount", a
   view = renderWorkspace();
   await screen.findByText("Session 1");
   await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("button", { name: "Archived" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
   const archived = await screen.findByRole("button", { name: /^Open session Session 0\./ });
   fireEvent(archived, "accessibilityAction", { nativeEvent: { actionName: "archive" } });
   await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("button", { name: "Inbox" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Inbox" }));
   expect(await screen.findByText("Session 0")).toBeOnTheScreen();
   expect(mockArchivedIds).not.toContain("ses_0");
   view.unmount();
@@ -1331,10 +1331,9 @@ test("keeps connection management and new-session controls out of the phone list
   expect(screen.queryByRole("header", { name: "Sessions" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
   expect(screen.queryByLabelText(/Change new session location/)).toBeNull();
-  expect(screen.getByRole("button", { name: "Inbox" }).props.accessibilityState).toEqual({
-    selected: true,
-  });
-  expect(screen.getByRole("button", { name: "Archived" })).toBeOnTheScreen();
+  expect(screen.getByLabelText("Session list").props.accessibilityRole).toBe("radiogroup");
+  expect(screen.getByRole("radio", { name: "Inbox" })).toBeChecked();
+  expect(screen.getByRole("radio", { name: "Archived" })).not.toBeChecked();
   expect(screen.getByText("Recent")).toBeOnTheScreen();
   const list = screen.UNSAFE_getByType(FlatList);
   expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(

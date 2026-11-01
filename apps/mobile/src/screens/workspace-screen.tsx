@@ -39,13 +39,16 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
+  type TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, { LinearTransition } from "react-native-reanimated";
+import { Button } from "../components/button";
+import { SearchField } from "../components/search-field";
+import { SegmentedControl } from "../components/segmented-control";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
@@ -66,8 +69,11 @@ import { useSessionArchives } from "../state/use-session-archives";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import {
+  disabledOpacity,
   displayTitleMaxFontSizeMultiplier,
+  minTouchTarget,
   palette,
+  pressedOpacity,
   radius,
   space,
   typeRamp,
@@ -127,6 +133,10 @@ const liveEdgeRowTransition = LinearTransition.springify().mass(1).stiffness(289
 const userScrollSettleMs = 160;
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
+const archiveViewOptions = [
+  { label: "Inbox", value: "inbox" },
+  { label: "Archived", value: "archived" },
+] as const;
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const db = useSQLiteContext();
@@ -498,84 +508,76 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         </View>
       ) : null}
       {showAttentionNotice ? (
-        <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.connectionNotice}
+        >
           {workspaceSelection.attentionCoverage.freshness === "stale"
             ? "Request status is stale. Reconnect to check pending requests."
             : "Some request locations could not be checked. Pull to refresh."}
         </Text>
       ) : null}
       {showConnectionNotice ? (
-        <Text accessibilityLiveRegion="polite" style={styles.connectionNotice}>
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.connectionNotice}
+        >
           {runtime.cacheMetadata
             ? "Showing cached shell data until the server reconnects."
             : "Waiting for current server data."}
         </Text>
       ) : null}
-      <View style={styles.searchField}>
-        <TextInput
-          accessibilityLabel="Search sessions"
-          ref={searchInputRef}
-          autoCapitalize="none"
-          autoCorrect={false}
-          editable={workspaceSelection.followedProjectIds.length > 0}
-          keyboardAppearance="dark"
-          onChangeText={setSessionSearch}
-          onFocus={() => setSearchFocused(true)}
-          onBlur={() => setSearchFocused(false)}
-          placeholder="Search all sessions"
-          placeholderTextColor={palette.dim}
-          style={styles.searchInput}
-          value={sessionSearch}
-        />
-        {sessionSearch ? (
-          <Pressable
-            accessibilityLabel="Clear session search"
-            accessibilityRole="button"
-            onPress={() => setSessionSearch("")}
-            style={styles.clearSearch}
-          >
-            <Text style={styles.clearSearchLabel}>Clear</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      <SearchField
+        accessibilityLabel="Search sessions"
+        clearAccessibilityLabel="Clear session search"
+        editable={workspaceSelection.followedProjectIds.length > 0}
+        onBlur={() => setSearchFocused(false)}
+        onChangeText={setSessionSearch}
+        onFocus={() => setSearchFocused(true)}
+        placeholder="Search all sessions"
+        ref={searchInputRef}
+        style={styles.searchField}
+        value={sessionSearch}
+      />
 
       <View style={styles.archiveFilters}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: !archivedView }}
-          onPress={() => setArchivedView(false)}
-          style={styles.archiveFilter}
-        >
-          <Text style={!archivedView ? styles.archiveFilterSelected : styles.archiveFilterLabel}>
-            Inbox
-          </Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ selected: archivedView }}
-          onPress={() => setArchivedView(true)}
-          style={styles.archiveFilter}
-        >
-          <Text style={archivedView ? styles.archiveFilterSelected : styles.archiveFilterLabel}>
-            Archived
-          </Text>
-        </Pressable>
+        <SegmentedControl
+          accessibilityLabel="Session list"
+          onChange={(view) => setArchivedView(view === "archived")}
+          options={archiveViewOptions}
+          role="radiogroup"
+          value={archivedView ? "archived" : "inbox"}
+        />
       </View>
       {archives.error ? (
-        <Text accessibilityRole="alert" style={styles.connectionNotice}>
+        <Text
+          accessibilityRole="alert"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.connectionNotice}
+        >
           Archive preferences could not be loaded. Pull to refresh.
         </Text>
       ) : null}
       {archivedView && archivedSessionQueries.some((query) => query.isError) ? (
-        <Text accessibilityRole="alert" style={styles.connectionNotice}>
+        <Text
+          accessibilityRole="alert"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.connectionNotice}
+        >
           Some archived sessions are unavailable. Pull to refresh to retry.
         </Text>
       ) : null}
 
       {deferredSessionSearch ? (
         <View style={styles.listSectionHeader}>
-          <Text style={styles.listSectionTitle}>Search results</Text>
-          <Text style={styles.countLabel}>{sessionCount}</Text>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.listSectionTitle}>
+            Search results
+          </Text>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.countLabel}>
+            {sessionCount}
+          </Text>
         </View>
       ) : null}
     </View>
@@ -639,11 +641,11 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             !workspaceSelection.hasNextPage &&
             !archivedSessionQueries.some((query) => query.fetchStatus === "fetching") ? (
             <View style={styles.listFooter} testID="session-archive-footer">
-              <Text style={styles.connectionNotice}>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionNotice}>
                 Idle sessions archive automatically after 30 days without updates.
               </Text>
               {archivedView ? (
-                <Text style={styles.connectionNotice}>
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionNotice}>
                   Archived on this device only. Restore keeps a session in Inbox for another 30
                   days. Working sessions and requests remain visible.
                 </Text>
@@ -670,8 +672,12 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         renderItem={({ item }) =>
           item.type === "section" ? (
             <View style={[styles.listSectionHeader, styles.inboxSectionHeader]}>
-              <Text style={styles.listSectionTitle}>{item.label}</Text>
-              <Text style={styles.countLabel}>{item.count}</Text>
+              <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.listSectionTitle}>
+                {item.label}
+              </Text>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.countLabel}>
+                {item.count}
+              </Text>
             </View>
           ) : (
             <SessionRow
@@ -1196,7 +1202,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       >
         <View style={styles.staleRoute}>
           <InlineError message="This session belongs to a different connection." />
-          <ActionButton label="BACK TO WORKSPACE" onPress={() => navigation.popTo("Workspace")} />
+          <ActionButton label="Back to workspace" onPress={() => navigation.popTo("Workspace")} />
         </View>
       </ShellFrame>
     );
@@ -1375,21 +1381,24 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                   <InlineError message="The session could not be loaded." />
                 ) : null}
                 {canLoadOlder && !autoFillTranscript ? (
-                  <SmallButton
+                  <Button
                     label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
                     onPress={() => {
                       if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
                     }}
+                    variant="text"
                   />
                 ) : null}
                 {showOlderContextLoading ? (
-                  <Text style={styles.transcriptLimit}>Loading earlier context</Text>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.transcriptLimit}>
+                    Loading earlier context
+                  </Text>
                 ) : null}
                 {messagesQuery.isFetchNextPageError ? (
                   <InlineError message="Earlier context could not be loaded. Tap Load older to retry." />
                 ) : null}
                 {!canLoadOlder && messagesQuery.hasNextPage ? (
-                  <Text style={styles.transcriptLimit}>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.transcriptLimit}>
                     Older messages are not loaded on this device.
                   </Text>
                 ) : null}
@@ -1643,7 +1652,9 @@ function SessionRow({
               name={archived ? "corner-up-left" : "archive"}
               size={20}
             />
-            <Text style={styles.swipeArchiveLabel}>{archived ? "Restore" : "Archive"}</Text>
+            <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeArchiveLabel}>
+              {archived ? "Restore" : "Archive"}
+            </Text>
           </Pressable>
           <Pressable
             accessibilityLabel={`Delete ${session.title || "Untitled session"}`}
@@ -1654,7 +1665,9 @@ function SessionRow({
             }}
             style={styles.swipeDelete}
           >
-            <Text style={styles.swipeDeleteLabel}>Delete</Text>
+            <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeDeleteLabel}>
+              Delete
+            </Text>
           </Pressable>
         </View>
       )}
@@ -1689,25 +1702,37 @@ function SessionRow({
           <View style={styles.sessionMain}>
             <View style={styles.sessionTitleRow}>
               {active && !blocked ? (
-                <View style={[styles.sessionIndicator, { height: 21 * fontScale }]}>
+                // One body line tall, so the indicator centers on the title's first line.
+                <View
+                  style={[
+                    styles.sessionIndicator,
+                    { height: typography.body.lineHeight * fontScale },
+                  ]}
+                >
                   <WorkingIndicator />
                 </View>
               ) : null}
               <Text
-                dynamicTypeRamp={typeRamp.subheadline}
+                dynamicTypeRamp={typeRamp.body}
                 numberOfLines={largeText ? 4 : 2}
                 style={styles.sessionTitle}
               >
                 {session.title || "Untitled session"}
               </Text>
-              <Text style={styles.sessionTime}>{formatSessionTime(session.time.updated)}</Text>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
+                {formatSessionTime(session.time.updated)}
+              </Text>
             </View>
             <View style={styles.sessionMetadata}>
-              <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionProject}>
+              <Text
+                dynamicTypeRamp={typeRamp.footnote}
+                numberOfLines={largeText ? 2 : 1}
+                style={styles.sessionProject}
+              >
                 {row.projectLabel}
               </Text>
               {blocked ? (
-                <Text style={[styles.sessionStatus, styles.sessionStatusBlocked]}>
+                <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sessionStatusBlocked}>
                   {row.attentionLabel || "Needs input"}
                 </Text>
               ) : null}
@@ -1715,18 +1740,24 @@ function SessionRow({
             {showMetadata ? (
               <View style={styles.sessionMetadata}>
                 {row.activeChildCount > 0 ? (
-                  <Text style={styles.sessionMetaLabel}>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
                     {row.activeChildCount} background{" "}
                     {row.activeChildCount === 1 ? "task" : "tasks"}
                   </Text>
                 ) : null}
                 {archived ? (
-                  <Text style={styles.sessionMetaLabel}>Archived on this device</Text>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
+                    Archived on this device
+                  </Text>
                 ) : session.time.archived ? (
-                  <Text style={styles.sessionMetaLabel}>Archived</Text>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
+                    Archived
+                  </Text>
                 ) : null}
                 {showOutcome && session.outcome ? (
-                  <Text style={styles.sessionMetaLabel}>{sentenceCase(session.outcome)}</Text>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
+                    {sentenceCase(session.outcome)}
+                  </Text>
                 ) : null}
               </View>
             ) : null}
@@ -1737,9 +1768,13 @@ function SessionRow({
                   color={palette.dim}
                   importantForAccessibility="no-hide-descendants"
                   name="git-branch"
-                  size={12 * fontScale}
+                  size={13 * fontScale}
                 />
-                <Text numberOfLines={largeText ? 2 : 1} style={styles.sessionBranchName}>
+                <Text
+                  dynamicTypeRamp={typeRamp.caption}
+                  numberOfLines={largeText ? 2 : 1}
+                  style={styles.sessionBranchName}
+                >
                   {branchLabel}
                 </Text>
               </View>
@@ -1756,11 +1791,20 @@ function SessionRow({
           >
             <View style={styles.childBranch} />
             {child.active && child.attentionCount === 0 ? <WorkingIndicator /> : null}
-            <Text numberOfLines={2} style={styles.childTitle}>
+            <Text
+              dynamicTypeRamp={typeRamp.subheadline}
+              numberOfLines={2}
+              style={styles.childTitle}
+            >
               {child.session.title || "Untitled child session"}
             </Text>
             {child.attentionCount > 0 || !child.active ? (
-              <Text style={child.attentionCount > 0 ? styles.childAttention : styles.childState}>
+              <Text
+                dynamicTypeRamp={
+                  child.attentionCount > 0 ? typeRamp.sectionLabel : typeRamp.footnote
+                }
+                style={child.attentionCount > 0 ? styles.childAttention : styles.childState}
+              >
                 {child.attentionCount > 0 ? child.attentionLabel || "Needs input" : "Child"}
               </Text>
             ) : null}
@@ -1802,7 +1846,7 @@ function SessionEmptyState({
   }
   return (
     <View style={styles.emptyState}>
-      <Text style={styles.sectionTitle}>
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.sectionTitle}>
         {!hasLocation
           ? "Follow a project to build this inbox."
           : search
@@ -1857,23 +1901,9 @@ function HeaderAction({
   );
 }
 
-function SmallButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}
-    >
-      <Text dynamicTypeRamp={typeRamp.control} style={styles.smallButtonLabel}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 function InlineError({ message }: { message: string }) {
   return (
-    <Text accessibilityRole="alert" style={styles.error}>
+    <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
       {message}
     </Text>
   );
@@ -1971,7 +2001,7 @@ function sentenceCase(value: string) {
 const styles = StyleSheet.create({
   composerDock: { bottom: 0, left: 0, position: "absolute", right: 0, zIndex: 20 },
   workingStatus: { paddingHorizontal: space.md },
-  childAttention: { color: palette.warm, fontSize: 11, fontWeight: "800" },
+  childAttention: { ...typography.sectionLabel, color: palette.warm },
   childBranch: { backgroundColor: palette.border, height: 1, width: 18 },
   childRow: {
     alignItems: "center",
@@ -1979,54 +2009,14 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: space.sm,
-    minHeight: 44,
+    minHeight: minTouchTarget,
     paddingHorizontal: space.md,
   },
-  childState: { color: palette.signal, fontSize: 11, fontWeight: "800" },
-  childTitle: { color: palette.ink, flex: 1, fontSize: 14, fontWeight: "700" },
-  backgroundCount: { color: palette.dim, fontSize: 12, fontWeight: "700", marginTop: 3 },
-  badge: {
-    backgroundColor: palette.signalDark,
-    borderColor: palette.signal,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  badgeLabel: { ...typography.label, color: palette.signal },
-  badgeLabelMuted: { color: palette.dim },
-  badgeMuted: { backgroundColor: palette.card, borderColor: palette.border },
-  badges: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.xs },
-  clearSearch: { justifyContent: "center", minHeight: 44, paddingLeft: space.sm },
-  clearSearchLabel: { color: palette.signal, fontSize: 14, fontWeight: "700" },
-  connectionNotice: { color: palette.warm, fontSize: 12, lineHeight: 18, marginBottom: 2 },
-  contextLabel: { ...typography.label, color: palette.dim },
-  contextRow: {
-    alignItems: "center",
-    borderBottomColor: palette.border,
-    borderTopColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    minHeight: 62,
-    paddingVertical: space.sm,
-  },
-  contextRowLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
-  contextRowCopy: { flex: 1, minWidth: 0 },
-  contextValue: { ...typography.subheadline, color: palette.ink, marginTop: 4 },
-  countLabel: { ...typography.caption, color: palette.dim },
-  deleteButton: {
-    alignItems: "center",
-    borderColor: palette.danger,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    justifyContent: "center",
-    marginTop: space.lg,
-    minHeight: 52,
-    paddingHorizontal: space.md,
-  },
-  deleteLabel: { ...typography.control, color: palette.danger },
-  disabled: { opacity: 0.45 },
+  childState: { ...typography.footnote, color: palette.dim },
+  childTitle: { ...typography.subheadline, color: palette.ink, flex: 1 },
+  connectionNotice: { ...typography.footnote, color: palette.warm, marginBottom: 2 },
+  countLabel: { ...typography.footnote, color: palette.dim },
+  disabled: { opacity: disabledOpacity },
   detailContent: {
     alignSelf: "center",
     maxWidth: 720,
@@ -2037,51 +2027,31 @@ const styles = StyleSheet.create({
   detailHeader: { paddingHorizontal: space.md, paddingTop: space.md },
   emptyState: { alignItems: "center", minHeight: 160, padding: space.xl },
   error: { ...typography.subheadline, color: palette.danger },
-  eyebrow: { ...typography.label, color: palette.dim },
   headerAction: {
     alignItems: "center",
     borderColor: palette.border,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     justifyContent: "center",
-    minHeight: 44,
-    minWidth: 44,
-    paddingHorizontal: 15,
+    minHeight: minTouchTarget,
+    minWidth: minTouchTarget,
+    paddingHorizontal: space.md,
   },
   headerActionAttention: { borderColor: palette.warm },
-  headerActionLabel: { color: palette.ink, fontSize: 14, fontWeight: "700" },
+  headerActionLabel: { ...typography.control, color: palette.ink },
   headerActionLabelAttention: { color: palette.warm },
-  headingCopy: { flex: 1, minWidth: 180 },
   homeHeader: { paddingHorizontal: space.md, paddingTop: space.md },
   homeHeaderPhone: { paddingTop: space.sm },
-  homeTitle: {
-    color: palette.ink,
-    fontSize: 34,
-    fontWeight: "700",
-    letterSpacing: -1.2,
-    lineHeight: 39,
-    marginTop: 2,
-  },
+  homeTitle: { ...typography.largeTitle, color: palette.ink, marginTop: 2 },
   homeTitleCopy: { flex: 1, minWidth: 120 },
   homeTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
   homeTitleRowLargeText: { alignItems: "flex-start", flexDirection: "column" },
-  input: {
-    ...typography.subheadline,
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    color: palette.ink,
-    minHeight: 48,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
   latestButton: {
     alignItems: "center",
     alignSelf: "center",
     backgroundColor: palette.card,
     borderColor: palette.border,
-    borderRadius: 999,
+    borderRadius: radius.pill,
     borderWidth: 1,
     justifyContent: "center",
     height: 48,
@@ -2100,73 +2070,17 @@ const styles = StyleSheet.create({
   listSectionHeader: {
     alignItems: "center",
     flexDirection: "row",
-    marginTop: space.lg,
-    paddingBottom: space.sm,
+    marginTop: 20,
+    paddingBottom: 8,
   },
-  listSectionTitle: { color: palette.dim, flex: 1, fontSize: 14, fontWeight: "500" },
-  muted: { ...typography.subheadline, color: palette.dim, marginTop: space.xs },
-  newSessionCopy: { ...typography.subheadline, color: palette.dim, marginTop: space.xs },
-  newSessionIntro: { marginBottom: space.sm },
-  newSessionPrompt: {
-    color: palette.ink,
-    fontSize: 28,
-    fontWeight: "700",
-    letterSpacing: -0.7,
-    lineHeight: 34,
-  },
-  optionList: { gap: space.sm, marginTop: space.sm },
-  optionPicker: {
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    paddingBottom: space.md,
-  },
-  pathText: { ...typography.caption, color: palette.dim, marginTop: space.xs },
-  pickerRow: {
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    minHeight: 52,
-    padding: 12,
-  },
-  pickerRowSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  pickerTitle: { ...typography.headline, color: palette.ink },
-  pressed: { opacity: 0.7 },
-  scopeAction: { color: palette.signal, fontSize: 14, fontWeight: "700", marginLeft: space.sm },
-  scopeActionLargeText: { marginLeft: 0, marginTop: space.xs },
-  searchField: {
-    alignItems: "center",
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    marginTop: space.sm,
-    minHeight: 48,
-    paddingHorizontal: 14,
-  },
-  searchInput: {
-    ...typography.subheadline,
-    color: palette.ink,
-    flex: 1,
-    minHeight: 46,
-    paddingVertical: 10,
-  },
-  sectionCard: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: space.md,
-    padding: space.md,
-  },
-  sectionHeading: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  sectionLabel: { ...typography.label, color: palette.dim },
+  listSectionTitle: { ...typography.sectionLabel, color: palette.dim, flex: 1 },
+  pressed: { opacity: pressedOpacity },
+  searchField: { marginTop: space.sm },
   sectionTitle: {
     ...typography.headline,
     color: palette.ink,
     marginTop: 3,
   },
-  selectionMark: { color: palette.signal, fontSize: 12, fontWeight: "600", marginLeft: space.sm },
   sessionMain: { flex: 1, minWidth: 0 },
   sessionGroup: { backgroundColor: palette.card },
   sessionBranchRow: {
@@ -2176,27 +2090,26 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sessionBranchName: {
+    ...typography.caption,
     color: palette.dim,
     flexShrink: 1,
-    fontFamily: Platform.select({ android: "monospace", ios: "Menlo" }),
-    fontSize: 11,
+    fontFamily: typography.code.fontFamily,
     minWidth: 0,
   },
   sessionMetadata: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 4 },
-  sessionMetaLabel: { color: palette.dim, fontSize: 12 },
-  sessionProject: { color: palette.dim, fontSize: 12, fontWeight: "500", flexShrink: 1 },
+  sessionMetaLabel: { ...typography.footnote, color: palette.dim },
+  sessionProject: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
   sessionRow: {
     alignItems: "center",
     backgroundColor: palette.background,
     flexDirection: "row",
-    minHeight: 60,
+    minHeight: 64,
     paddingHorizontal: space.md,
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
   sessionRowLargeText: { alignItems: "flex-start" },
-  sessionStatus: { fontSize: 12, fontWeight: "700" },
-  sessionStatusBlocked: { color: palette.warm },
-  sessionTime: { color: palette.dim, fontSize: 12, marginLeft: space.sm },
+  sessionStatusBlocked: { ...typography.sectionLabel, color: palette.warm },
+  sessionTime: { ...typography.footnote, color: palette.dim, marginLeft: space.sm },
   sessionIndicator: { justifyContent: "center", flexShrink: 0 },
   sessionTitleRow: {
     alignItems: "flex-start",
@@ -2204,52 +2117,11 @@ const styles = StyleSheet.create({
     gap: space.sm,
     marginTop: 4,
   },
-  sessionTitle: {
-    color: palette.ink,
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "400",
-    lineHeight: 22,
-    minWidth: 0,
-  },
-  sessionTopRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
+  sessionTitle: { ...typography.body, color: palette.ink, flex: 1, minWidth: 0 },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
-  sheetRow: {
-    alignItems: "center",
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    minHeight: 62,
-    paddingHorizontal: 2,
-    paddingVertical: space.sm,
-  },
-  sheetRowCopy: { flex: 1, minWidth: 0 },
-  sheetRowSelected: { backgroundColor: palette.signalDark },
-  sheetRowSubtitle: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  sheetRowTitle: { ...typography.headline, color: palette.ink },
-  sheetSection: { marginTop: space.xs },
-  sheetSectionLabel: {
-    ...typography.label,
-    color: palette.dim,
-    marginBottom: space.xs,
-  },
-  smallButton: {
-    alignItems: "center",
-    justifyContent: "center",
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-  },
-  smallButtonLabel: { ...typography.control, color: palette.signal },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
-  archiveFilters: { flexDirection: "row", gap: space.sm },
-  archiveFilter: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.sm },
-  archiveFilterLabel: { color: palette.dim, fontSize: 14 },
-  archiveFilterSelected: { color: palette.ink, fontSize: 14, fontWeight: "600" },
-  archiveDisabled: { opacity: 0.4 },
+  archiveFilters: { marginTop: space.sm },
+  archiveDisabled: { opacity: disabledOpacity },
   swipeArchive: {
     minWidth: 88,
     alignItems: "center",
@@ -2258,7 +2130,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.card,
     paddingHorizontal: space.sm,
   },
-  swipeArchiveLabel: { color: palette.ink, fontSize: 13, fontWeight: "600" },
+  swipeArchiveLabel: { ...typography.sectionLabel, color: palette.ink },
   swipeActions: { flexDirection: "row" },
   swipeContainer: { backgroundColor: palette.background },
   swipeDelete: {
@@ -2268,46 +2140,13 @@ const styles = StyleSheet.create({
     minWidth: 82,
     paddingHorizontal: space.sm,
   },
-  swipeDeleteLabel: { color: palette.background, fontSize: 12, fontWeight: "700" },
-  title: { color: palette.ink, fontSize: 34, fontWeight: "700", letterSpacing: -1, lineHeight: 40 },
-  titleInput: {
-    ...typography.subheadline,
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    color: palette.ink,
-    minHeight: 118,
-    padding: space.md,
-  },
-  transcriptCount: { color: palette.dim, fontSize: 12, marginTop: 3 },
+  swipeDeleteLabel: { ...typography.sectionLabel, color: palette.background },
   transcriptContainer: { flex: 1 },
   transcriptList: { flex: 1 },
-  transcriptActions: { alignItems: "center", flexDirection: "row" },
-  transcriptActionsLargeText: {
-    alignItems: "flex-start",
-    flexWrap: "wrap",
-    marginTop: space.xs,
-  },
-  transcriptHeading: {
-    alignItems: "center",
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: space.lg,
-    minHeight: 54,
-    paddingBottom: space.sm,
-  },
-  transcriptHeadingLargeText: {
-    alignItems: "stretch",
-    flexDirection: "column",
-    justifyContent: "flex-start",
-  },
   transcriptState: { alignItems: "center", minHeight: 140, padding: space.lg },
   transcriptLimit: {
+    ...typography.footnote,
     color: palette.dim,
-    fontSize: 11,
     paddingBottom: space.sm,
     textAlign: "right",
   },
