@@ -125,6 +125,10 @@ export class ConnectionTransportCoordinator {
   private openGeneration(reason: ConnectionGenerationReason) {
     this.clearRetry();
     this.cancelGeneration();
+    // A new stream misses events sent while it connects, and its snapshot covers them.
+    // Comparing against the previous stream's sequences would report that as another gap
+    // and reconnect again, losing more events each time while a session is busy.
+    this.durableSequences.clear();
     const generation = ++this.generation;
     const controller = new AbortController();
     this.activeGeneration = {

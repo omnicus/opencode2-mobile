@@ -32,6 +32,26 @@ applied. A failed fetch applies the held events as before. Reducer and bridge
 tests cover full, partial, and no overlap, whole-delta matching, and a missed
 closing fence.
 
+A follow-up recording and transport report showed that this was not enough. On
+return, the transcript still ended where it had when the app left, and new
+deltas were appended to it, skipping the text streamed meanwhile. The message
+list returns projected messages built from durable events, and text deltas are
+not durable, so a refetch of an in-progress part cannot supply the missing text.
+The report also showed about ten `durable_gap` reconnects within ten seconds in
+the foreground. Each new stream missed events sent while it connected, then
+compared the next durable sequence with the previous stream's and reconnected
+again.
+
+Each event stream generation now starts its own durable sequence tracking; its
+snapshot covers anything sent between streams. Gaps within one stream are still
+detected. Text and reasoning deltas only extend a part whose start this stream
+delivered, or one that a refetch proves continuous by ending exactly where held
+deltas begin. Other deltas are dropped and the transcript is refetched once, and
+the part keeps its last known text until its authoritative `ended` text arrives.
+After returning mid-reply, text can therefore pause, but no longer shows holes.
+Coordinator and bridge tests cover the reconnect chain, the dropped deltas, the
+single refetch, and restored continuity.
+
 ## 2026-11-01: live-edge glide for streamed text, pending device verification
 
 The transcript anchors `maintainVisibleContentPosition` on the row above the

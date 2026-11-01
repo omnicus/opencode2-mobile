@@ -90,6 +90,39 @@ test("deduplicates event IDs and detects durable sequence gaps", async () => {
   expect(generationReasons).toEqual(["startup", "durable_gap"]);
 });
 
+test("a gap seen on a fresh stream does not chain into another reconnect", async () => {
+  const stream = createEventStream();
+  const generationReasons: ConnectionGenerationReason[] = [];
+  const coordinator = createCoordinator({
+    eventClient: { event: { subscribe: stream.subscribe } } as never,
+    onEvent: jest.fn(),
+    onGeneration: (reason) => generationReasons.push(reason),
+    onSnapshot: jest.fn(),
+    onUncertain: jest.fn(),
+    restClient: createSnapshotClient(true).client,
+  });
+  coordinator.start();
+  await flush();
+  stream.push(durableEvent("event-1", 1));
+  stream.push(durableEvent("event-3", 3));
+  await flush();
+  await flush();
+  expect(generationReasons).toEqual(["startup", "durable_gap"]);
+
+  // Events sent while the new stream connected are missing, and its snapshot covers them.
+  stream.push(durableEvent("event-6", 6));
+  stream.push(durableEvent("event-7", 7));
+  await flush();
+  await flush();
+  expect(generationReasons).toEqual(["startup", "durable_gap"]);
+  // A gap within the same stream is still detected.
+  stream.push(durableEvent("event-9", 9));
+  await flush();
+  await flush();
+  expect(generationReasons).toEqual(["startup", "durable_gap", "durable_gap"]);
+  coordinator.stop();
+});
+
 test("reconnects with bounded full-jitter backoff", async () => {
   const stream = createEventStream();
   const scheduled: Array<{ callback: () => void; delay: number }> = [];

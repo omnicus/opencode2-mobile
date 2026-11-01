@@ -181,6 +181,7 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
             transportMetricsRef.current.durableSequenceGaps += 1;
           },
           onGeneration(reason) {
+            bridge.streamRestarted();
             transportMetricsRef.current.generationStarts += 1;
             transportMetricsRef.current.snapshotRequests += 1;
             diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, {

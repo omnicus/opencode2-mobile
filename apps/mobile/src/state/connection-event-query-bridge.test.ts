@@ -187,6 +187,13 @@ test("does not refetch session lists for transcript deltas", () => {
     callback(),
   );
 
+  bridge.apply(
+    transcriptEvent("event-0", "session.text.started", {
+      assistantMessageID: "message-1",
+      ordinal: 0,
+      sessionID: "session-1",
+    }),
+  );
   bridge.apply(sessionTextDeltaEvent("event-1"));
 
   expect(invalidate).not.toHaveBeenCalled();
@@ -543,6 +550,15 @@ test.each([
       ],
     });
     queryClient.setQueryData(key, transcript("Hello"));
+    // This event stream saw the part start, so its deltas are continuous.
+    bridge.apply(
+      transcriptEvent("event-start", "session.text.started", {
+        assistantMessageID: "msg_assistant",
+        ordinal: 0,
+        sessionID: "session-1",
+      }),
+    );
+    scheduled.shift()?.();
     let resolve: (value: unknown) => void = () => {};
     const refetch = queryClient.fetchQuery({
       queryFn: () => new Promise((done) => (resolve = done)),
@@ -576,6 +592,104 @@ test.each([
     queryClient.clear();
   },
 );
+
+function assistantTranscript(text: string) {
+  return {
+    pageParams: [undefined],
+    pages: [
+      {
+        cursor: {},
+        data: [
+          {
+            agent: "build",
+            content: [{ text, type: "text" }],
+            id: "msg_assistant",
+            model: { id: "model-1", providerID: "provider-1" },
+            time: { created: 1 },
+            type: "assistant",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function textEvent(id: string, type: string, extra: Record<string, unknown> = {}) {
+  return transcriptEvent(id, type, {
+    assistantMessageID: "msg_assistant",
+    ordinal: 0,
+    sessionID: "session-1",
+    ...extra,
+  });
+}
+
+function cachedText(queryClient: QueryClient, key: readonly unknown[]) {
+  return (
+    queryClient.getQueryData(key) as {
+      pages: Array<{ data: Array<{ content: Array<{ text: string }> }> }>;
+    }
+  ).pages[0]?.data[0]?.content[0]?.text;
+}
+
+test("never stitches deltas onto text from before a stream gap", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const key = openCodeQueryKeys.messages("connection-1", { directory: "/workspace" }, "session-1", {
+    limit: 40,
+    order: "desc",
+  });
+  queryClient.setQueryData(key, assistantTranscript(""));
+  bridge.apply(textEvent("event-1", "session.text.started"));
+  bridge.apply(textEvent("event-2", "session.text.delta", { delta: "Before the app left. " }));
+  expect(cachedText(queryClient, key)).toBe("Before the app left. ");
+
+  // The app returns: deltas sent meanwhile are gone, so later ones would leave a hole.
+  bridge.streamRestarted();
+  bridge.apply(textEvent("event-3", "session.text.delta", { delta: "``\n\n## Six" }));
+  expect(cachedText(queryClient, key)).toBe("Before the app left. ");
+  // It asks once whether the server's transcript has the missing text.
+  expect(invalidate).toHaveBeenCalledTimes(1);
+  bridge.apply(textEvent("event-4", "session.text.delta", { delta: " more" }));
+  expect(invalidate).toHaveBeenCalledTimes(1);
+
+  bridge.apply(textEvent("event-5", "session.text.ended", { text: "The complete reply." }));
+  expect(cachedText(queryClient, key)).toBe("The complete reply.");
+  queryClient.clear();
+});
+
+test("a refetch that ends where held deltas begin restores live streaming", async () => {
+  const queryClient = new QueryClient();
+  const scheduled: Array<() => void> = [];
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) => {
+    scheduled.push(callback);
+  });
+  const key = openCodeQueryKeys.messages("connection-1", { directory: "/workspace" }, "session-1", {
+    limit: 40,
+    order: "desc",
+  });
+  queryClient.setQueryData(key, assistantTranscript("Stale"));
+  bridge.streamRestarted();
+  let resolve: (value: unknown) => void = () => {};
+  const refetch = queryClient.fetchQuery({
+    queryFn: () => new Promise((done) => (resolve = done)),
+    queryKey: key,
+  });
+  bridge.apply(textEvent("event-1", "session.text.delta", { delta: " world" }));
+  bridge.apply(textEvent("event-2", "session.text.delta", { delta: "!" }));
+  scheduled.shift()?.();
+  resolve(assistantTranscript("Hello world"));
+  await refetch;
+  while (scheduled.length > 0) scheduled.shift()?.();
+  expect(cachedText(queryClient, key)).toBe("Hello world!");
+
+  bridge.apply(textEvent("event-3", "session.text.delta", { delta: " Again" }));
+  while (scheduled.length > 0) scheduled.shift()?.();
+  expect(cachedText(queryClient, key)).toBe("Hello world! Again");
+  queryClient.clear();
+});
 
 test("invalidates only the affected transcript when reduction finds a gap", () => {
   const queryClient = new QueryClient();

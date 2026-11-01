@@ -12,6 +12,7 @@ import { openCodeQueryKeys } from "./open-code-query-keys";
 import {
   isTranscriptReductionEventType,
   reduceTranscriptEvents,
+  textPartKey,
   transcriptEventSessionID,
   trimSnapshotTextDeltas,
 } from "./transcript-event-reducer";
@@ -51,6 +52,10 @@ export class ConnectionEventQueryBridge {
   // Transcript events that arrived while their query was refetching, keyed by query hash.
   private readonly heldTranscripts = new Map<string, HeldTranscript>();
   private stopWatchingRefetches: (() => void) | undefined;
+  // Text deltas carry no offset, so they only extend a part this event stream saw start, or
+  // one a refetch proved continuous. Others wait for the part's authoritative ended text.
+  private readonly liveTextParts = new Set<string>();
+  private readonly gappedTextParts = new Set<string>();
   private scheduled = false;
 
   constructor(
@@ -100,6 +105,39 @@ export class ConnectionEventQueryBridge {
     ) {
       this.queue("messages", event.location, event.data.sessionID);
     }
+  }
+
+  // A new event stream starts after a gap: deltas for parts already open cannot be placed.
+  streamRestarted() {
+    if (this.scheduled) this.flush();
+    this.liveTextParts.clear();
+    this.gappedTextParts.clear();
+  }
+
+  private keepContinuousText(events: OpenCodeEvent[], continued?: Set<string>) {
+    for (const key of continued ?? []) this.liveTextParts.add(key);
+    let gapped = false;
+    const kept = events.filter((event) => {
+      const key = textPartKey(event);
+      if (!key) return true;
+      if (event.type === "session.text.started" || event.type === "session.reasoning.started") {
+        this.liveTextParts.add(key);
+        return true;
+      }
+      if (event.type === "session.text.ended" || event.type === "session.reasoning.ended") {
+        this.liveTextParts.delete(key);
+        this.gappedTextParts.delete(key);
+        return true;
+      }
+      if (this.liveTextParts.has(key)) return true;
+      // Ask once whether the server's transcript already has the text this stream missed.
+      if (!this.gappedTextParts.has(key)) {
+        this.gappedTextParts.add(key);
+        gapped = true;
+      }
+      return false;
+    });
+    return { events: kept, gapped };
   }
 
   uncertain(event?: OpenCodeEvent) {
@@ -200,6 +238,14 @@ export class ConnectionEventQueryBridge {
   private reduceTranscript(transcript: PendingTranscript) {
     let needsReconciliation = transcript.overflowed;
     let cacheWrites = 0;
+    let continuous: OpenCodeEvent[] | undefined;
+    const continuousEvents = () => {
+      if (continuous) return continuous;
+      const result = this.keepContinuousText(transcript.events);
+      needsReconciliation ||= result.gapped;
+      continuous = result.events;
+      return continuous;
+    };
     const queries = this.queryClient.getQueryCache().findAll({
       predicate: (query) =>
         matchesRoot(
@@ -223,7 +269,7 @@ export class ConnectionEventQueryBridge {
       if (current === undefined) continue;
       const result = reduceTranscriptEvents(
         current,
-        transcript.events,
+        continuousEvents(),
         isDescendingMessageQuery(query.queryKey),
       );
       needsReconciliation ||= result.needsReconciliation;
@@ -232,6 +278,8 @@ export class ConnectionEventQueryBridge {
         this.queryClient.setQueryData(query.queryKey, result.data);
       }
     }
+    // Track part starts and ends even when no transcript query is cached.
+    if (!queries.some((query) => query.state.fetchStatus === "fetching")) continuousEvents();
     return { cacheWrites, needsReconciliation };
   }
 
@@ -279,13 +327,16 @@ export class ConnectionEventQueryBridge {
       let cacheWrites = 0;
       let needsReconciliation = held.overflowed;
       if (current !== undefined) {
-        const events =
+        const continued = new Set<string>();
+        const trimmed =
           held.query.state.status === "success"
-            ? trimSnapshotTextDeltas(current, held.events)
+            ? trimSnapshotTextDeltas(current, held.events, continued)
             : held.events;
+        const continuity = this.keepContinuousText(trimmed, continued);
+        needsReconciliation ||= continuity.gapped;
         const result = reduceTranscriptEvents(
           current,
-          events,
+          continuity.events,
           isDescendingMessageQuery(held.query.queryKey),
         );
         needsReconciliation ||= result.needsReconciliation;

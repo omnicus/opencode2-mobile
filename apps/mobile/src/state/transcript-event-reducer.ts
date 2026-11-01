@@ -202,16 +202,31 @@ export function reduceTranscriptEvents(
 // already ends with whichever held deltas the server had applied, so drop those and keep
 // the rest. Only whole-delta boundaries count, so a coincidental shared character at the
 // end of the text cannot hide a delta.
+export function textPartKey(event: OpenCodeEvent) {
+  if (
+    event.type !== "session.text.started" &&
+    event.type !== "session.text.delta" &&
+    event.type !== "session.text.ended" &&
+    event.type !== "session.reasoning.started" &&
+    event.type !== "session.reasoning.delta" &&
+    event.type !== "session.reasoning.ended"
+  ) {
+    return undefined;
+  }
+  const type = event.type.startsWith("session.text.") ? "text" : "reasoning";
+  return `${event.data.assistantMessageID}\u0000${type}\u0000${event.data.ordinal}`;
+}
+
 export function trimSnapshotTextDeltas(
   snapshot: InfiniteData<SessionMessagesResponse, string | undefined>,
   events: OpenCodeEvent[],
+  continued?: Set<string>,
 ) {
   const deltas = new Map<string, number[]>();
   events.forEach((event, index) => {
     if (event.type !== "session.text.delta" && event.type !== "session.reasoning.delta") return;
-    const type = event.type === "session.text.delta" ? "text" : "reasoning";
-    const key = `${event.data.assistantMessageID}\u0000${type}\u0000${event.data.ordinal}`;
-    deltas.set(key, [...(deltas.get(key) ?? []), index]);
+    const key = textPartKey(event);
+    if (key) deltas.set(key, [...(deltas.get(key) ?? []), index]);
   });
   const dropped = new Set<number>();
   for (const [key, indexes] of deltas) {
@@ -232,6 +247,8 @@ export function trimSnapshotTextDeltas(
       if (part.text.endsWith(prefix)) included = count + 1;
     }
     for (const index of indexes.slice(0, included)) dropped.add(index);
+    // The refetched text ends exactly where these deltas pick up, so the part is continuous.
+    if (included > 0) continued?.add(key);
   }
   return dropped.size === 0 ? events : events.filter((_, index) => !dropped.has(index));
 }
