@@ -1112,8 +1112,11 @@ test("lists every Recent row with no paging, then Archived under its own header"
   mockArchivedCount = 2;
   mockHasNextSessionPage = true;
   mockFetchNextSessionPage.mockClear();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
   const view = render(
-    <QueryClientProvider client={new QueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <WorkspaceScreen
         navigation={{ navigate: jest.fn() } as never}
         route={{ key: "workspace", name: "Workspace" } as never}
@@ -1135,6 +1138,7 @@ test("lists every Recent row with no paging, then Archived under its own header"
     expect(mockFetchNextSessionPage).not.toHaveBeenCalled();
   } finally {
     view.unmount();
+    queryClient.clear();
   }
 });
 
