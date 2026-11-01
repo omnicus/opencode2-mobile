@@ -13,6 +13,7 @@ if (!exp.extra?.eas?.projectId || !exp.updates?.enabled)
   throw new Error("Configure the deployment's EAS project before fingerprinting.");
 
 const hashes = {};
+const sources = [];
 for (const platform of ["ios", "android"]) {
   const fingerprint = await createFingerprintAsync(project, {
     platforms: [platform],
@@ -27,6 +28,10 @@ for (const platform of ["ios", "android"]) {
     throw new Error(`Incomplete ${platform} native fingerprint. Publication stopped.`);
   }
   hashes[platform] = fingerprint.hash;
+  for (const source of fingerprint.sources) {
+    const name = source.type === "contents" ? source.id : source.filePath;
+    sources.push(`${platform} ${source.hash} ${name}`);
+  }
 }
 
 if (process.argv.includes("--check")) {
@@ -43,6 +48,9 @@ if (process.argv.includes("--check")) {
       );
   }
   console.log("Both native fingerprints and the installed runtime match.");
+} else if (process.argv.includes("--sources")) {
+  // Source names and hashes only, for comparing two commits. Never source contents.
+  console.log(sources.join("\n"));
 } else {
   // Hashes and version only. Fingerprint sources may contain deployment configuration.
   console.log(

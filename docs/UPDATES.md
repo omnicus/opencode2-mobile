@@ -116,6 +116,12 @@ The fingerprint also hashes the `scripts` in `apps/mobile/package.json`, so addi
 or editing one fails the check too. Put repository tooling in the root
 `package.json`.
 
+CI's `native-fingerprint` job catches this before merge. On each pull request it
+compares the fingerprint sources of the merge commit with its base, using
+`pnpm mobile:runtime --sources` and a placeholder project ID, and fails if any
+source changed. It prints source names and hashes only. A failure means the
+change can't ship as an OTA update to the installed builds.
+
 Once configured, run **Publish mobile update** from GitHub Actions with `main`
 to deliver the in-app updater to the existing compatible preview builds. The
 existing EAS launch check can download this first update. Reopen the app to load

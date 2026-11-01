@@ -31,6 +31,7 @@ architectural changes.
 fails the run if any test fails, then prints the worst functions first and
 writes `.metrics/crap.edn`. Below 5 is low risk and above 30 needs tests or a
 split. It needs [uv](https://docs.astral.sh/uv/) and Python 3.11 or later.
+CI runs `pnpm crap --threshold 30` and fails when any function scores above 30.
 
 ```sh
 pnpm crap                         # coverage, then scores
