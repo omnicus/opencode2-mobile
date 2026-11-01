@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "coverage": "pnpm --filter @opencode2-mobile/notification-protocol build && vitest run --coverage --coverage.reporter=lcovonly --coverage.reportsDirectory=../../coverage/apps/notification-broker",
     "start": "node dist/cli.js serve",
     "test": "pnpm --filter @opencode2-mobile/notification-protocol build && vitest run",
     "typecheck": "tsc -p tsconfig.json"
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@types/node": "26.0.0",
     "@types/qrcode-terminal": "0.12.2",
+    "@vitest/coverage-v8": "4.1.10",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

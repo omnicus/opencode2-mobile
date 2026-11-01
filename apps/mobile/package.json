@@ -6,6 +6,7 @@
   "scripts": {
     "android": "expo run:android",
     "build": "expo export --platform all --output-dir dist",
+    "coverage": "jest --runInBand --coverage --coverageReporters=lcovonly --coverageDirectory=../../coverage/apps/mobile",
     "doctor": "expo-doctor",
     "go": "expo start --go",
     "go:tailscale": "REACT_NATIVE_PACKAGER_HOSTNAME=$(tailscale ip -4) expo start --go --lan",
