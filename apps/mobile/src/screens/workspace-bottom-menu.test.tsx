@@ -51,10 +51,13 @@ test.each([
   },
 );
 
-test("New session sits first, apart from the three tabs", () => {
+test("New session sits last, on the right, apart from the three tabs", () => {
   const onSelect = jest.fn();
   render(<WorkspaceBottomMenu active="pulls" onNewSession={jest.fn()} onSelect={onSelect} />);
-  expect(screen.getAllByRole("button")[0]).toHaveAccessibleName("New session");
+  const order = screen
+    .getAllByRole(/^(button|tab)$/)
+    .map((element) => element.props.accessibilityLabel);
+  expect(order).toEqual(["Chat", "PRs", "Approvals", "New session"]);
   expect(screen.getByRole("tab", { name: "PRs" })).toBeSelected();
   expect(screen.getByRole("tab", { name: "Chat" })).not.toBeSelected();
   fireEvent.press(screen.getByRole("tab", { name: "Approvals" }));
