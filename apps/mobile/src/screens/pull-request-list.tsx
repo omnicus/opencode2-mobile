@@ -15,6 +15,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -22,15 +23,23 @@ import {
 } from "react-native";
 
 import { Button } from "../components/button";
+import { ModalSheet } from "../components/modal-sheet";
 import { ProjectAvatar } from "../components/project-avatar";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { labelProject } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
+import { usePullRequestFilter } from "../state/use-pull-request-filter";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import {
+  type PullRequestStatusFilter,
+  pullRequestStatusFilters,
+} from "../storage/pull-request-filter-repository";
+import {
+  disabledOpacity,
   minTouchTarget,
   palette,
   pressedOpacity,
+  radius,
   space,
   typeRamp,
   typography,
@@ -40,7 +49,7 @@ import { sanitizeTranscriptText } from "./session-transcript-model";
 import { formatSessionTime, sessionTimeDescription } from "./workspace-screen-model";
 
 type Project = ProjectListOutput[number];
-type ProjectState = "error" | "empty" | "loading" | GitHubPullRequestUnavailableReason;
+type ProjectState = "error" | "empty" | "loading" | "no-match" | GitHubPullRequestUnavailableReason;
 type ProjectResult = {
   data: GitHubPullRequestList | undefined;
   isError: boolean;
@@ -61,6 +70,7 @@ const stateCopy: Record<ProjectState, string> = {
   "gh-missing": "GitHub CLI (gh) is not installed on the server.",
   loading: "Checking pull requests",
   "no-github-remote": "This project has no GitHub repository.",
+  "no-match": "No open pull requests match this status.",
   timeout: "GitHub took too long to answer.",
 };
 const retryableStates: ReadonlySet<ProjectState> = new Set(["error", "failed", "timeout"]);
@@ -71,14 +81,45 @@ const reviewLabels: Record<NonNullable<GitHubPullRequest["reviewDecision"]>, str
 };
 const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 
+export const statusFilterLabels: Record<PullRequestStatusFilter, string> = {
+  all: "All statuses",
+  approved: "Approved",
+  "changes-requested": "Changes requested",
+  draft: "Draft",
+  ready: "Ready",
+  "review-required": "Review required",
+};
+
+export function matchesStatusFilter(
+  pullRequest: GitHubPullRequest,
+  status: PullRequestStatusFilter,
+) {
+  switch (status) {
+    case "all":
+      return true;
+    case "draft":
+      return pullRequest.draft;
+    case "ready":
+      return !pullRequest.draft;
+    case "approved":
+      return pullRequest.reviewDecision === "APPROVED";
+    case "changes-requested":
+      return pullRequest.reviewDecision === "CHANGES_REQUESTED";
+    case "review-required":
+      return !pullRequest.draft && pullRequest.reviewDecision === "REVIEW_REQUIRED";
+  }
+}
+
 export function pullRequestListItems(
   projects: readonly Project[],
   results: readonly ProjectResult[],
+  status: PullRequestStatusFilter = "all",
 ): PullRequestListItem[] {
   return projects.flatMap((project, index): PullRequestListItem[] => {
     const result = results[index];
     const label = labelProject(project, project.id);
-    const listed = result?.data?.status === "listed" ? result.data.pullRequests : undefined;
+    const all = result?.data?.status === "listed" ? result.data.pullRequests : undefined;
+    const listed = all?.filter((pullRequest) => matchesStatusFilter(pullRequest, status));
     const header: PullRequestListItem = {
       count: listed?.length,
       key: `project:${project.id}`,
@@ -93,9 +134,11 @@ export function pullRequestListItems(
           ? "error"
           : !result || result.isPending
             ? "loading"
-            : listed?.length === 0
+            : all?.length === 0
               ? "empty"
-              : undefined;
+              : listed?.length === 0
+                ? "no-match"
+                : undefined;
     if (state) {
       return [
         header,
@@ -131,19 +174,26 @@ export function PullRequestList({
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
   const [refreshing, setRefreshing] = useState(false);
+  const [openFilter, setOpenFilter] = useState<"project" | "status">();
   const client = runtime.restClient;
   const connectionId = runtime.connectionId;
+  const filters = usePullRequestFilter(connectionId, runtime.connectionUpdatedAtMs);
   const projectsById = new Map(selection.projects.map((project) => [project.id, project]));
   const followed = selection.followedProjectIds.flatMap((id) => {
     const project = projectsById.get(id);
     return project ? [project] : [];
   });
-  // Each check runs a command on the server, so nothing starts until the tab is open.
+  // A saved project that is no longer followed reads as All projects until it is changed.
+  const filteredProject = followed.find((project) => project.id === filters.filter.projectID);
+  const visibleProjects = filteredProject ? [filteredProject] : followed;
+  const status = filters.filter.status;
+  // Each check runs a command on the server, so nothing starts until the tab is open and the
+  // saved filter has loaded, and projects outside the filter are never checked.
   const results = useQueries({
-    queries: followed.map((project) => {
+    queries: visibleProjects.map((project) => {
       const location = { directory: project.canonical };
       return {
-        enabled: Boolean(active && client && connectionId),
+        enabled: Boolean(active && client && connectionId && filters.loaded),
         queryFn: ({ signal }: { signal: AbortSignal }) => {
           if (!client) throw new Error("CONNECTION_NOT_READY");
           return listGitHubPullRequests(client, location, { signal });
@@ -154,7 +204,7 @@ export function PullRequestList({
       };
     }),
   });
-  const items = pullRequestListItems(followed, results);
+  const items = pullRequestListItems(visibleProjects, results, status);
 
   async function refresh() {
     if (refreshing) return;
@@ -188,38 +238,199 @@ export function PullRequestList({
     );
   }
 
+  const projectLabel = filteredProject
+    ? labelProject(filteredProject, filteredProject.id)
+    : "All projects";
+
   return (
-    <FlatList
-      ListHeaderComponent={
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.source}>
-          Listed by GitHub CLI on the server.
-        </Text>
-      }
-      contentContainerStyle={styles.listContent}
-      data={items}
-      extraData={fontScale}
-      keyExtractor={(item) => item.key}
-      refreshControl={
-        <RefreshControl
-          onRefresh={() => void refresh()}
-          refreshing={refreshing}
-          tintColor={palette.signal}
-        />
-      }
-      renderItem={({ item }) =>
-        item.type === "project" ? (
-          <ProjectHeader count={item.count} label={item.label} project={item.project} />
-        ) : item.type === "state" ? (
-          <ProjectStateRow onRetry={item.onRetry} state={item.state} />
-        ) : (
-          <PullRequestRow
-            largeText={largeText}
-            projectLabel={item.projectLabel}
-            pullRequest={item.pullRequest}
+    <>
+      <View style={styles.filters}>
+        <ScrollView
+          contentContainerStyle={styles.filterChips}
+          horizontal
+          keyboardShouldPersistTaps="handled"
+          showsHorizontalScrollIndicator={false}
+        >
+          <FilterChip
+            active={status !== "all"}
+            disabled={!filters.loaded}
+            label={statusFilterLabels[status]}
+            name="Status"
+            onPress={() => setOpenFilter("status")}
           />
-        )
-      }
-    />
+          <FilterChip
+            active={Boolean(filteredProject)}
+            disabled={!filters.loaded}
+            label={projectLabel}
+            name="Project"
+            onPress={() => setOpenFilter("project")}
+          />
+        </ScrollView>
+        {filters.error ? (
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.footnote}
+            style={styles.filterError}
+          >
+            The filter could not be saved on this device.
+          </Text>
+        ) : null}
+      </View>
+      <FlatList
+        ListHeaderComponent={
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.source}>
+            Listed by GitHub CLI on the server.
+          </Text>
+        }
+        contentContainerStyle={styles.listContent}
+        data={items}
+        extraData={fontScale}
+        keyExtractor={(item) => item.key}
+        refreshControl={
+          <RefreshControl
+            onRefresh={() => void refresh()}
+            refreshing={refreshing}
+            tintColor={palette.signal}
+          />
+        }
+        renderItem={({ item }) =>
+          item.type === "project" ? (
+            <ProjectHeader count={item.count} label={item.label} project={item.project} />
+          ) : item.type === "state" ? (
+            <ProjectStateRow
+              onRetry={
+                item.state === "no-match"
+                  ? () => filters.setFilter({ ...filters.filter, status: "all" })
+                  : item.onRetry
+              }
+              state={item.state}
+            />
+          ) : (
+            <PullRequestRow
+              largeText={largeText}
+              projectLabel={item.projectLabel}
+              pullRequest={item.pullRequest}
+            />
+          )
+        }
+      />
+      <ModalSheet
+        onClose={() => setOpenFilter(undefined)}
+        size="compact"
+        title="Status"
+        visible={openFilter === "status"}
+      >
+        {pullRequestStatusFilters.map((value) => (
+          <FilterOption
+            key={value}
+            label={statusFilterLabels[value]}
+            onPress={() => {
+              setOpenFilter(undefined);
+              filters.setFilter({ ...filters.filter, status: value });
+            }}
+            selected={value === status}
+          />
+        ))}
+      </ModalSheet>
+      <ModalSheet
+        onClose={() => setOpenFilter(undefined)}
+        size="compact"
+        title="Project"
+        visible={openFilter === "project"}
+      >
+        <FilterOption
+          label="All projects"
+          onPress={() => {
+            setOpenFilter(undefined);
+            filters.setFilter({ status });
+          }}
+          selected={!filteredProject}
+        />
+        {followed.map((project) => (
+          <FilterOption
+            key={project.id}
+            label={labelProject(project, project.id)}
+            onPress={() => {
+              setOpenFilter(undefined);
+              filters.setFilter({ projectID: project.id, status });
+            }}
+            selected={project.id === filteredProject?.id}
+          />
+        ))}
+      </ModalSheet>
+    </>
+  );
+}
+
+function FilterChip({
+  active,
+  disabled,
+  label,
+  name,
+  onPress,
+}: {
+  active: boolean;
+  disabled: boolean;
+  label: string;
+  name: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityHint={`Opens ${name.toLocaleLowerCase()} choices`}
+      accessibilityLabel={`${name} filter, ${label}`}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      android_ripple={rowRipple}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.chip,
+        active && styles.chipActive,
+        disabled && styles.disabled,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
+    >
+      <Text
+        dynamicTypeRamp={typeRamp.control}
+        numberOfLines={1}
+        style={[styles.chipLabel, active && styles.chipLabelActive]}
+      >
+        {label}
+      </Text>
+      <Feather
+        accessible={false}
+        color={active ? palette.ink : palette.dim}
+        name="chevron-down"
+        size={16}
+      />
+    </Pressable>
+  );
+}
+
+function FilterOption({
+  label,
+  onPress,
+  selected,
+}: {
+  label: string;
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={label}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      android_ripple={rowRipple}
+      onPress={onPress}
+      style={({ pressed }) => [styles.option, pressed && Platform.OS === "ios" && styles.pressed]}
+    >
+      <Text dynamicTypeRamp={typeRamp.body} numberOfLines={2} style={styles.optionLabel}>
+        {label}
+      </Text>
+      {selected ? <Feather accessible={false} color={palette.ink} name="check" size={20} /> : null}
+    </Pressable>
   );
 }
 
@@ -272,6 +483,8 @@ function ProjectStateRow({ onRetry, state }: { onRetry: () => void; state: Proje
       </Text>
       {retryableStates.has(state) ? (
         <Button label="Retry" onPress={onRetry} size="compact" variant="text" />
+      ) : state === "no-match" ? (
+        <Button label="Show all statuses" onPress={onRetry} size="compact" variant="text" />
       ) : null}
     </View>
   );
@@ -365,7 +578,39 @@ function PullRequestRow({
 }
 
 const styles = StyleSheet.create({
+  chip: {
+    alignItems: "center",
+    borderColor: palette.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: space.xs,
+    maxWidth: 260,
+    minHeight: minTouchTarget,
+    overflow: "hidden",
+    paddingHorizontal: space.md,
+  },
+  chipActive: { backgroundColor: palette.card, borderColor: palette.ink },
+  chipLabel: { ...typography.control, color: palette.dim, flexShrink: 1 },
+  chipLabelActive: { color: palette.ink },
   copy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  disabled: { opacity: disabledOpacity },
+  filterChips: { gap: space.sm, paddingHorizontal: space.md },
+  filterError: {
+    ...typography.footnote,
+    color: palette.danger,
+    paddingHorizontal: space.md,
+    paddingTop: space.xs,
+  },
+  filters: { paddingBottom: space.xs },
+  option: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: minTouchTarget,
+    paddingVertical: space.xs,
+  },
+  optionLabel: { ...typography.body, color: palette.ink, flex: 1 },
   count: { ...typography.footnote, color: palette.dim },
   details: { ...typography.footnote, color: palette.dim },
   empty: {

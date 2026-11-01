@@ -79,6 +79,8 @@ let mockRuntimeStatus: "connected" | "reconnecting" = "connected";
 let mockFollowedProjectIds = ["project-1"];
 let mockEmptyInbox = false;
 let mockSelectionProjects: unknown[] = [];
+let mockPullRequestFilter: { projectID?: string; status: string } = { status: "all" };
+const mockSetPullRequestFilter = jest.fn();
 const mockListPullRequests = jest.fn(async (..._args: unknown[]) => ({
   pullRequests: [] as unknown[],
   status: "listed",
@@ -101,6 +103,8 @@ afterEach(() => {
   mockEmptyInbox = false;
   mockSelectionProjects = [];
   mockListPullRequests.mockClear();
+  mockPullRequestFilter = { status: "all" };
+  mockSetPullRequestFilter.mockClear();
 });
 function mockWorkspaceRow(index: number) {
   const session = {
@@ -317,6 +321,14 @@ jest.mock("../state/workspace-selection-context", () => ({
     setLocation: mockSetLocation,
     setSearch: jest.fn(),
     unavailableProjectIds: [],
+  }),
+}));
+jest.mock("../state/use-pull-request-filter", () => ({
+  usePullRequestFilter: () => ({
+    error: false,
+    filter: mockPullRequestFilter,
+    loaded: true,
+    setFilter: mockSetPullRequestFilter,
   }),
 }));
 jest.mock("expo-haptics", () => ({
@@ -795,6 +807,87 @@ test.each([
     await screen.findByText("Session 0");
     fireEvent.press(screen.getByRole("tab", { name: "PRs" }));
     expect(await screen.findByText(copy)).toBeOnTheScreen();
+  } finally {
+    view.cleanup();
+  }
+});
+
+const filterPullRequests = [
+  {
+    branch: "feature/ready",
+    draft: false,
+    number: 42,
+    reviewDecision: "REVIEW_REQUIRED",
+    title: "Ready change",
+    url: "https://github.com/acme/other/pull/42",
+  },
+  {
+    branch: "feature/draft",
+    draft: true,
+    number: 7,
+    title: "Draft change",
+    url: "https://github.com/acme/other/pull/7",
+  },
+];
+
+test("saved PR filters narrow the list, and only the chosen project is checked", async () => {
+  mockFollowedProjectIds = ["project-1", "project-2"];
+  mockSelectionProjects = [
+    { canonical: "/workspace", id: "project-1", name: "App", sandboxes: [], time: { created: 1 } },
+    { canonical: "/other", id: "project-2", name: "Other", sandboxes: [], time: { created: 1 } },
+  ];
+  mockPullRequestFilter = { projectID: "project-2", status: "draft" };
+  mockListPullRequests.mockResolvedValueOnce({
+    pullRequests: filterPullRequests,
+    status: "listed",
+  });
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    fireEvent.press(screen.getByRole("tab", { name: "PRs" }));
+    expect(await screen.findByText("Draft change")).toBeOnTheScreen();
+    expect(screen.queryByText("Ready change")).toBeNull();
+    expect(mockListPullRequests).toHaveBeenCalledTimes(1);
+    expect(mockListPullRequests).toHaveBeenCalledWith(
+      expect.anything(),
+      { directory: "/other" },
+      { signal: expect.anything() },
+    );
+    expect(screen.getByRole("button", { name: "Status filter, Draft" })).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole("button", { name: "Status filter, Draft" }));
+    fireEvent.press(screen.getByRole("button", { name: "Review required" }));
+    expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({
+      projectID: "project-2",
+      status: "review-required",
+    });
+
+    fireEvent.press(screen.getByRole("button", { name: "Project filter, Other" }));
+    // The chip's text also reads "Other", so pick the selected sheet option.
+    expect(screen.getByRole("button", { name: "Other", selected: true })).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "All projects" }));
+    expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({ status: "draft" });
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("a status with no matches offers to show all statuses", async () => {
+  mockSelectionProjects = [
+    { canonical: "/workspace", id: "project-1", name: "App", sandboxes: [], time: { created: 1 } },
+  ];
+  mockPullRequestFilter = { status: "approved" };
+  mockListPullRequests.mockResolvedValueOnce({
+    pullRequests: filterPullRequests,
+    status: "listed",
+  });
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    fireEvent.press(screen.getByRole("tab", { name: "PRs" }));
+    expect(await screen.findByText("No open pull requests match this status.")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Show all statuses" }));
+    expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({ status: "all" });
   } finally {
     view.cleanup();
   }

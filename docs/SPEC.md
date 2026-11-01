@@ -585,6 +585,18 @@ with `https` URLs, and opens a pull request in the system browser. A project
 without `gh`, without a `gh` login, or without a GitHub remote shows its own
 explanation instead of failing the whole tab.
 
+Two filter chips sit above the PR list. Status offers All statuses, Ready,
+Draft, Review required, Approved, and Changes requested; Review required leaves
+out drafts. Project offers All projects or one followed project. The status
+filter runs on the loaded list. The project filter also limits which projects
+are checked, so no `gh` command runs for the others, and checks wait until the
+saved filter has loaded. A project whose pull requests all fall outside the
+status shows "No open pull requests match this status." with Show all statuses.
+Filters persist per connection in the `pull_request_filters` table: the status
+keyword and a server project ID only, deleted with the connection profile. A
+saved project that is no longer followed reads as All projects. A filter change
+applies at once and reverts with an inline error if the save fails.
+
 On larger layouts, the same model becomes a persistent session sidebar and a
 session detail pane. Project filters and the ongoing and finished groups remain
 properties of the sidebar rather than separate top-level destinations.
