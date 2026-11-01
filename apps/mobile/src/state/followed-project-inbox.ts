@@ -229,27 +229,84 @@ export function buildFollowedInboxSections(input: {
     Object.values(input.ancestrySessions).map((session) => [session.id, session]),
   );
   for (const session of input.rootSessions) sessions.set(session.id, session);
+  const unmatchedSessionIDs = new Set<string>();
+  const resolveRoot = rootResolver(sessions, unmatchedSessionIDs);
+  const activeByRoot = groupActiveByRoot(input.activeSessionIDs, resolveRoot);
+  const attentionByRoot = groupAttentionByRoot(inboxInteractions(input), resolveRoot);
+
+  const context: InboxRowContext = {
+    activeByRoot,
+    attentionByRoot,
+    projects: new Map(input.projects.map((project) => [project.id, project])),
+    sessions,
+  };
+  const sections: FollowedInboxSections = {
+    archived: [],
+    needsYou: [],
+    recent: [],
+    unmatchedSessionIDs: [...unmatchedSessionIDs].sort(),
+    working: [],
+  };
+  for (const session of inboxRowSessions(input.rootSessions, context)) {
+    const row = buildInboxRow(session, context);
+    if (isOutsideRecentWindow(row, input.recentSince)) continue;
+    sections[sectionKeys.get(row.section) ?? "recent"].push(row);
+  }
+  sortInboxSections(sections, input.recentSince);
+  return sections;
+}
+
+type InboxInteraction = { id: string; sessionID: string; kind: "form" | "permission" };
+
+type InboxRowContext = {
+  activeByRoot: ReadonlyMap<string, ReadonlySet<string>>;
+  attentionByRoot: ReadonlyMap<string, readonly InboxInteraction[]>;
+  projects: ReadonlyMap<string, ProjectListOutput[number]>;
+  sessions: ReadonlyMap<string, SessionInfo>;
+};
+
+const sectionKeys = new Map<
+  FollowedInboxSection,
+  keyof Omit<FollowedInboxSections, "unmatchedSessionIDs">
+>([
+  ["archived", "archived"],
+  ["needs-you", "needsYou"],
+  ["recent", "recent"],
+  ["working", "working"],
+]);
+
+// Resolves a session to its root, recording the sessions whose family is not loaded.
+function rootResolver(sessions: ReadonlyMap<string, SessionInfo>, unmatched: Set<string>) {
   const rootIDs = new Set(
     [...sessions.values()].filter((session) => !session.parentID).map((session) => session.id),
   );
-  const activeByRoot = new Map<string, Set<string>>();
-  const attentionByRoot = new Map<
-    string,
-    Array<{ id: string; sessionID: string; kind: "form" | "permission" }>
-  >();
-  const unmatchedSessionIDs = new Set<string>();
-
-  for (const sessionID of new Set(input.activeSessionIDs)) {
+  return (sessionID: string) => {
     const rootID = resolveRootSessionID(sessionID, sessions, rootIDs);
-    if (!rootID) {
-      unmatchedSessionIDs.add(sessionID);
-      continue;
-    }
+    if (!rootID) unmatched.add(sessionID);
+    return rootID;
+  };
+}
+
+function groupActiveByRoot(
+  activeSessionIDs: readonly string[],
+  resolveRoot: (sessionID: string) => string | undefined,
+) {
+  const activeByRoot = new Map<string, Set<string>>();
+  for (const sessionID of new Set(activeSessionIDs)) {
+    const rootID = resolveRoot(sessionID);
+    if (!rootID) continue;
     const active = activeByRoot.get(rootID) ?? new Set<string>();
     active.add(sessionID);
     activeByRoot.set(rootID, active);
   }
-  for (const interaction of [
+  return activeByRoot;
+}
+
+function inboxInteractions(input: {
+  forms: readonly FormInfo[];
+  permissions: readonly PermissionRequest[];
+}): InboxInteraction[] {
+  return [
     ...input.permissions.map((request) => ({
       id: `permission:${request.id}`,
       sessionID: request.sessionID,
@@ -260,91 +317,102 @@ export function buildFollowedInboxSections(input: {
       sessionID: form.sessionID,
       kind: "form" as const,
     })),
-  ]) {
+  ];
+}
+
+function groupAttentionByRoot(
+  interactions: readonly InboxInteraction[],
+  resolveRoot: (sessionID: string) => string | undefined,
+) {
+  const attentionByRoot = new Map<string, InboxInteraction[]>();
+  for (const interaction of interactions) {
     if (interaction.sessionID === "global") continue;
-    const rootID = resolveRootSessionID(interaction.sessionID, sessions, rootIDs);
-    if (!rootID) {
-      unmatchedSessionIDs.add(interaction.sessionID);
-      continue;
-    }
+    const rootID = resolveRoot(interaction.sessionID);
+    if (!rootID) continue;
     const interactions = attentionByRoot.get(rootID) ?? [];
     if (!interactions.some((current) => current.id === interaction.id))
       interactions.push(interaction);
     attentionByRoot.set(rootID, interactions);
   }
+  return attentionByRoot;
+}
 
-  const projects = new Map(input.projects.map((project) => [project.id, project]));
-  const sections: FollowedInboxSections = {
-    archived: [],
-    needsYou: [],
-    recent: [],
-    unmatchedSessionIDs: [...unmatchedSessionIDs].sort(),
-    working: [],
-  };
-  const rowSessions = new Map(input.rootSessions.map((session) => [session.id, session]));
-  for (const rootID of new Set([...activeByRoot.keys(), ...attentionByRoot.keys()])) {
-    const session = sessions.get(rootID);
+// Listed roots plus active or blocked roots known only from ancestry, newest update first.
+function inboxRowSessions(rootSessions: readonly SessionInfo[], context: InboxRowContext) {
+  const rowSessions = new Map(rootSessions.map((session) => [session.id, session]));
+  for (const rootID of new Set([
+    ...context.activeByRoot.keys(),
+    ...context.attentionByRoot.keys(),
+  ])) {
+    const session = context.sessions.get(rootID);
     if (session && !rowSessions.has(rootID)) rowSessions.set(rootID, session);
   }
-  for (const session of [...rowSessions.values()].sort(compareSessions)) {
-    const attention = attentionByRoot.get(session.id) ?? [];
-    const active = activeByRoot.get(session.id) ?? new Set<string>();
-    const ownerSessionID = attention[0]?.sessionID;
-    const status: FollowedInboxStatus = attention.some((request) => request.kind === "permission")
-      ? "approval"
-      : attention.length > 0
-        ? "input"
-        : active.size > 0
-          ? "working"
-          : !isSessionUnread(session)
-            ? "ready"
-            : session.outcome === "failed"
-              ? "failed"
-              : "done";
-    const archived = session.time.archived !== undefined;
-    const section: FollowedInboxSection =
-      attention.length > 0
-        ? "needs-you"
-        : active.size > 0
-          ? "working"
-          : archived
-            ? "archived"
-            : "recent";
-    if (
-      (section === "recent" || section === "archived") &&
-      input.recentSince !== "all" &&
-      (input.recentSince === undefined || (session.time.idle ?? -1) < input.recentSince)
-    ) {
-      continue;
-    }
-    const targetSession = ownerSessionID ? (sessions.get(ownerSessionID) ?? session) : session;
-    const project = projects.get(session.projectID);
-    const worktreeLabel = labelWorktree(project, session.location.directory);
-    const row: FollowedInboxRow = {
-      active: active.size > 0,
-      archived,
-      attentionCount: attention.length,
-      ...(ownerSessionID ? { attentionOwnerSessionID: ownerSessionID } : {}),
-      ...(project?.icon ? { projectIcon: project.icon } : {}),
-      projectLabel: labelProject(project, session.projectID),
-      section,
-      session,
-      status,
-      targetLocation: targetSession.location,
-      targetSessionID: targetSession.id,
-      ...(worktreeLabel ? { worktreeLabel } : {}),
-    };
-    if (section === "needs-you") sections.needsYou.push(row);
-    else if (section === "working") sections.working.push(row);
-    else if (section === "archived") sections.archived.push(row);
-    else sections.recent.push(row);
-  }
+  return [...rowSessions.values()].sort(compareSessions);
+}
+
+function buildInboxRow(session: SessionInfo, context: InboxRowContext): FollowedInboxRow {
+  const attention = context.attentionByRoot.get(session.id) ?? [];
+  const active = (context.activeByRoot.get(session.id)?.size ?? 0) > 0;
+  const ownerSessionID = attention[0]?.sessionID;
+  const archived = session.time.archived !== undefined;
+  const targetSession = ownerSessionID
+    ? (context.sessions.get(ownerSessionID) ?? session)
+    : session;
+  const project = context.projects.get(session.projectID);
+  const worktreeLabel = labelWorktree(project, session.location.directory);
+  return {
+    active,
+    archived,
+    attentionCount: attention.length,
+    ...(ownerSessionID ? { attentionOwnerSessionID: ownerSessionID } : {}),
+    ...(project?.icon ? { projectIcon: project.icon } : {}),
+    projectLabel: labelProject(project, session.projectID),
+    section: inboxSection(attention, active, archived),
+    session,
+    status: inboxStatus(session, attention, active),
+    targetLocation: targetSession.location,
+    targetSessionID: targetSession.id,
+    ...(worktreeLabel ? { worktreeLabel } : {}),
+  };
+}
+
+function inboxStatus(
+  session: SessionInfo,
+  attention: readonly InboxInteraction[],
+  active: boolean,
+): FollowedInboxStatus {
+  if (attention.some((request) => request.kind === "permission")) return "approval";
+  if (attention.length > 0) return "input";
+  if (active) return "working";
+  if (!isSessionUnread(session)) return "ready";
+  return session.outcome === "failed" ? "failed" : "done";
+}
+
+function inboxSection(
+  attention: readonly InboxInteraction[],
+  active: boolean,
+  archived: boolean,
+): FollowedInboxSection {
+  if (attention.length > 0) return "needs-you";
+  if (active) return "working";
+  return archived ? "archived" : "recent";
+}
+
+function isOutsideRecentWindow(row: FollowedInboxRow, recentSince: number | "all" | undefined) {
+  if (row.section !== "recent" && row.section !== "archived") return false;
+  if (recentSince === "all") return false;
+  return recentSince === undefined || (row.session.time.idle ?? -1) < recentSince;
+}
+
+// Search keeps finished rows in update order.
+function sortInboxSections(
+  sections: FollowedInboxSections,
+  recentSince: number | "all" | undefined,
+) {
   sections.working.sort(compareWorking);
-  if (input.recentSince !== "all") {
-    sections.recent.sort(compareFinished);
-    sections.archived.sort(compareFinished);
-  }
-  return sections;
+  if (recentSince === "all") return;
+  sections.recent.sort(compareFinished);
+  sections.archived.sort(compareFinished);
 }
 
 // A session is unread while its last finished run is newer than the last one any client viewed.
