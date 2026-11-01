@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AccessibilityInfo } from "react-native";
 
+import { projectAvatarPalette } from "../theme";
 import { NewSessionScreen } from "./new-session-screen";
 
 const alpha = {
@@ -103,6 +104,20 @@ test("shows followed projects first and reveals other projects through browse an
   fireEvent.changeText(screen.getByLabelText("Search projects"), "beta-feature");
   await waitFor(() => expect(screen.queryByText("Alpha")).toBeNull());
   expect(screen.getByText("Beta")).toBeOnTheScreen();
+});
+
+test("project rows show the project's avatar color next to the title", async () => {
+  mockSelection.projects = [{ ...alpha, icon: { color: "pink" } }, beta];
+  renderScreen();
+
+  expect(await screen.findByText("Alpha")).toBeOnTheScreen();
+  expect(screen.getByTestId("project-avatar-letter", { includeHiddenElements: true })).toHaveStyle({
+    backgroundColor: projectAvatarPalette.colors.pink.fill,
+  });
+  expect(screen.getByText("A", { includeHiddenElements: true })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "Alpha, followed, /projects/alpha" }),
+  ).toBeOnTheScreen();
 });
 
 test("creates in a followed project's only location and replaces the modal", async () => {

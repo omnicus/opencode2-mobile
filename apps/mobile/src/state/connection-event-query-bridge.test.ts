@@ -298,6 +298,41 @@ test("invalidates VCS information only for the affected location", () => {
   queryClient.clear();
 });
 
+test("project updates replace the cached project or refetch only the project list", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const projectsKey = openCodeQueryKeys.projects("connection-1");
+  const project = {
+    canonical: "/workspace",
+    id: "project-1",
+    sandboxes: [],
+    time: { created: 1, updated: 1 },
+  };
+  const other = { ...project, canonical: "/other", id: "project-2" };
+  queryClient.setQueryData(projectsKey, [project, other]);
+  const updated = { ...project, icon: { color: "pink" }, time: { created: 1, updated: 2 } };
+  const event = (data: unknown, id: string) =>
+    ({ created: 2, data, id, type: "project.updated" }) as unknown as OpenCodeEvent;
+
+  bridge.apply(event(updated, "event-project-1"));
+  bridge.apply(event(updated, "event-project-1"));
+
+  expect(queryClient.getQueryData(projectsKey)).toEqual([updated, other]);
+  expect(invalidate).not.toHaveBeenCalled();
+
+  bridge.apply(event({ ...project, canonical: "/new", id: "project-3" }, "event-project-2"));
+  bridge.apply(event({ id: "project-1" }, "event-project-3"));
+
+  expect(invalidate).toHaveBeenCalledTimes(2);
+  for (const [filters] of invalidate.mock.calls) {
+    expect(filters).toEqual({ exact: true, queryKey: projectsKey });
+  }
+  queryClient.clear();
+});
+
 test("falls back to connection reconciliation for an unknown session event", () => {
   const queryClient = new QueryClient();
   const invalidate = jest.spyOn(queryClient, "invalidateQueries");

@@ -34,6 +34,7 @@ export type FollowedInboxRow = {
   attentionCount: number;
   attentionLabel?: string;
   attentionOwnerSessionID?: string;
+  projectIcon?: NonNullable<ProjectListOutput[number]["icon"]>;
   projectLabel: string;
   section: FollowedInboxSection;
   session: SessionInfo;
@@ -226,6 +227,7 @@ export function buildFollowedInboxSections(input: {
       attentionCount: attention.length,
       attentionLabel: requestReason(attention),
       ...(ownerSessionID ? { attentionOwnerSessionID: ownerSessionID } : {}),
+      ...(project?.icon ? { projectIcon: project.icon } : {}),
       projectLabel: labelProject(project, session.projectID),
       section,
       session,

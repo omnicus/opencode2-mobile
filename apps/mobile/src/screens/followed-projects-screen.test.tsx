@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { AccessibilityInfo, Platform, ScrollView } from "react-native";
 
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, typography } from "../theme";
+import { palette, projectAvatarPalette, typography } from "../theme";
 import { FollowedProjectsScreen } from "./followed-projects-screen";
 
 jest.mock("../state/workspace-selection-context", () => ({ useWorkspaceSelection: jest.fn() }));
@@ -193,6 +193,18 @@ test("keeps a tapped row in place while the screen is open", () => {
     />,
   );
   expect(rowOrder()).toEqual(["Delta", "Alpha", "Gamma", "Beta"]);
+});
+
+test("each project row shows its avatar beside the title", () => {
+  mockSelection({
+    projects: [{ ...projects[0], icon: { color: "lime" } }, ...projects.slice(1)],
+  });
+  renderScreen();
+  const avatars = screen.getAllByTestId("project-avatar-letter", { includeHiddenElements: true });
+  expect(avatars).toHaveLength(projects.length);
+  expect(avatars[0]).toHaveStyle({ backgroundColor: projectAvatarPalette.colors.green.fill });
+  expect(avatars[1]).toHaveStyle({ backgroundColor: projectAvatarPalette.colors.gray.fill });
+  expect(screen.getByRole("checkbox", { name: "Alpha" })).toBeOnTheScreen();
 });
 
 test("marks followed rows with a checked box and a signal border", () => {

@@ -47,6 +47,22 @@ export const codePalette = {
   type: "#9c94f0",
 } as const;
 
+// OpenCode desktop's dark project avatar colors: fill, 1px border, and a white letter.
+export const projectAvatarPalette = {
+  foreground: "#ffffff",
+  colors: {
+    orange: { fill: "#723d22", border: "#ff8648" },
+    yellow: { fill: "#68552b", border: "#e7af36" },
+    cyan: { fill: "#005a6e", border: "#0096b8" },
+    green: { fill: "#196130", border: "#49c970" },
+    red: { fill: "#7a1f23", border: "#d92e3c" },
+    pink: { fill: "#8c2d61", border: "#e4429e" },
+    blue: { fill: "#263fa9", border: "#7698fd" },
+    purple: { fill: "#361f83", border: "#7152f4" },
+    gray: { fill: "#5c5c5c", border: "#aeaeae" },
+  },
+} as const;
+
 export const space = {
   xs: 6,
   sm: 10,

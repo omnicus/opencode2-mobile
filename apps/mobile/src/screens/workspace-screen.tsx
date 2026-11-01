@@ -20,10 +20,12 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Dimensions,
   FlatList,
   Keyboard,
   type KeyboardEvent,
+  LayoutAnimation,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -32,16 +34,16 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  type TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, { LinearTransition } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../components/button";
-import { SearchField } from "../components/search-field";
-import { useAnnouncement } from "../components/use-announcement";
+import { ProjectAvatar } from "../components/project-avatar";
+import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
@@ -62,7 +64,6 @@ import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import {
   disabledOpacity,
-  displayTitleMaxFontSizeMultiplier,
   minTouchTarget,
   palette,
   pressedOpacity,
@@ -72,7 +73,7 @@ import {
   typography,
   usesLargeTextLayout,
 } from "../theme";
-import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
+import { ActionButton, getConnectionPresentation, isTabletShell, ShellFrame } from "./app-shell";
 import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
 import { SessionActionSheet } from "./session-action-sheet";
@@ -97,11 +98,15 @@ import {
 import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
+import { WorkspaceListHeader } from "./workspace-list-header";
 import { WorkspaceNewSessionAction } from "./workspace-new-session-action";
 import {
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
   searchResultItems,
+  type WorkspaceGroup,
+  type WorkspaceInboxItem,
+  workspaceGroupLabels,
   workspaceInboxItems,
 } from "./workspace-screen-model";
 
@@ -125,6 +130,9 @@ const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef
 const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 const borderlessRipple =
   Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
+const noCollapsedGroups: ReadonlySet<WorkspaceGroup> = new Set();
+// Collapsed groups last for the app session, per connection, and are never persisted.
+const collapsedGroupsByConnection = new Map<string, ReadonlySet<WorkspaceGroup>>();
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const db = useSQLiteContext();
@@ -133,6 +141,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const connections = useConnections();
   const queryClient = useQueryClient();
   const { fontScale, width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const largeText = usesLargeTextLayout(fontScale);
   const tablet = isTabletShell(width);
   const connectionId = runtime.connectionId;
@@ -140,10 +150,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [selectedDirectory, setSelectedDirectory] = useState<string>();
   const [sessionSearch, setSessionSearch] = useState("");
-  const searchInputRef = useRef<TextInput>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  const [screenFocused, setScreenFocused] = useState(() => navigation.isFocused?.() ?? true);
   const [actionSession, setActionSession] = useState<SessionInfo>();
   const presentationScope = connectionId ?? "unselected";
+  const [collapsedGroups, setCollapsedGroups] = useState(
+    () => collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups,
+  );
   const showAttentionNotice = useDelayedVisibility(
     workspaceSelection.attentionCoverage.freshness === "stale" ||
       (workspaceSelection.attentionCoverage.freshness === "current" &&
@@ -164,10 +178,36 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setSelectedProjectId(undefined);
     setSelectedDirectory(undefined);
     setSessionSearch("");
+    setSearchOpen(false);
     setActionSession(undefined);
     refreshGenerationRef.current += 1;
     setRefreshing(false);
   }, [connectionId]);
+
+  useEffect(() => {
+    setCollapsedGroups(collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups);
+  }, [presentationScope]);
+
+  useEffect(() => {
+    const focus = navigation.addListener?.("focus", () => setScreenFocused(true));
+    const blur = navigation.addListener?.("blur", () => setScreenFocused(false));
+    return () => {
+      focus?.();
+      blur?.();
+    };
+  }, [navigation]);
+
+  // Android back closes an open search before it can leave the screen.
+  useEffect(() => {
+    if (!searchOpen || !screenFocused) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setSessionSearch("");
+      setSearchOpen(false);
+      Keyboard.dismiss();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [screenFocused, searchOpen]);
 
   const projectsQuery = useQuery({
     enabled: Boolean(client && connectionId),
@@ -247,13 +287,34 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   }, [location, workspaceSelection.setLocation]);
 
   const inbox = workspaceSelection.inbox;
-  const inboxItems = deferredSessionSearch
+  const inboxItems: WorkspaceInboxItem[] = deferredSessionSearch
     ? searchResultItems(inbox)
-    : workspaceInboxItems(inbox, sessionListLimit);
+    : workspaceInboxItems(inbox, sessionListLimit, collapsedGroups);
   const sessionCount = inbox.needsYou.length + inbox.working.length + inbox.recent.length;
   const selectedConnection = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
+  const connectionPresentation = getConnectionPresentation(
+    runtime.status,
+    runtime.reconnectAttempt,
+  );
+
+  function closeSearch() {
+    setSessionSearch("");
+    setSearchOpen(false);
+    Keyboard.dismiss();
+  }
+
+  function toggleGroup(group: WorkspaceGroup) {
+    const collapsing = !collapsedGroups.has(group);
+    const next = new Set(collapsedGroups);
+    if (collapsing) next.add(group);
+    else next.delete(group);
+    collapsedGroupsByConnection.set(presentationScope, next);
+    if (!reducedMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCollapsedGroups(next);
+    announceOnIOS(`${workspaceGroupLabels[group]} ${collapsing ? "collapsed" : "expanded"}`);
+  }
 
   const removeMutation = useMutation({
     mutationFn: async (session: SessionInfo) => {
@@ -374,26 +435,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   useAnnouncement(workspaceSelection.sessionsError && "Sessions could not be loaded.");
 
   const header = (
-    <View style={[styles.homeHeader, !tablet && styles.homeHeaderPhone]}>
-      {tablet ? (
-        <View style={[styles.homeTitleRow, largeText && styles.homeTitleRowLargeText]}>
-          <View style={styles.homeTitleCopy}>
-            <Text
-              accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.largeTitle}
-              maxFontSizeMultiplier={displayTitleMaxFontSizeMultiplier}
-              style={styles.homeTitle}
-            >
-              Sessions
-            </Text>
-          </View>
-          <WorkspaceHeaderActions
-            navigate={(destination) => navigation.navigate(destination)}
-            onNewSession={() => navigation.navigate("NewSession")}
-          />
-        </View>
-      ) : null}
-
+    <View style={styles.homeHeader}>
       {!tablet &&
       workspaceSelection.pendingCount > 0 &&
       (Boolean(sessionSearch) ||
@@ -436,20 +478,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           {connectionNotice}
         </Text>
       ) : null}
-      <SearchField
-        accessibilityLabel="Search sessions"
-        clearAccessibilityLabel="Clear session search"
-        editable={workspaceSelection.followedProjectIds.length > 0}
-        onBlur={() => setSearchFocused(false)}
-        onChangeText={setSessionSearch}
-        onFocus={() => setSearchFocused(true)}
-        placeholder="Search all sessions"
-        ref={searchInputRef}
-        returnKeyType="search"
-        style={styles.searchField}
-        value={sessionSearch}
-      />
-
       {deferredSessionSearch ? (
         <ListSectionHeader count={sessionCount} label="Search results" />
       ) : null}
@@ -462,6 +490,31 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       hideConnectionBar
       navigate={(section) => navigation.navigate(section)}
     >
+      <WorkspaceListHeader
+        connection={connectionPresentation}
+        connectionName={selectedConnection?.name}
+        onChangeSearch={setSessionSearch}
+        onCloseSearch={closeSearch}
+        onOpenConnections={() => {
+          Keyboard.dismiss();
+          navigation.navigate("Connections");
+        }}
+        onOpenSearch={() => setSearchOpen(true)}
+        onSearchBlur={() => setSearchFocused(false)}
+        onSearchFocus={() => setSearchFocused(true)}
+        search={sessionSearch}
+        searchEditable={workspaceSelection.followedProjectIds.length > 0}
+        searchOpen={searchOpen}
+        topInset={tablet ? 0 : insets.top}
+        trailing={
+          tablet ? (
+            <WorkspaceHeaderActions
+              navigate={(destination) => navigation.navigate(destination)}
+              onNewSession={() => navigation.navigate("NewSession")}
+            />
+          ) : null
+        }
+      />
       <FlatList
         ListEmptyComponent={
           <SessionEmptyState
@@ -503,8 +556,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           />
         }
         renderItem={({ item }) =>
-          item.type === "divider" ? (
-            <FinishedDivider />
+          item.type === "group" ? (
+            <GroupSeparator item={item} onPress={() => toggleGroup(item.group)} />
           ) : (
             <SessionRow
               onActions={() => setActionSession(item.row.session)}
@@ -1463,68 +1516,92 @@ function SessionRow({
           pressed && Platform.OS === "ios" && styles.pressed,
         ]}
       >
-        <View style={styles.sessionTitleRow}>
-          {blocked || row.active ? (
-            // One body line tall, so the marker and the trailing label center on the first line.
+        <ProjectAvatar
+          icon={row.projectIcon}
+          lineHeight={typography.body.lineHeight * fontScale}
+          name={row.projectLabel}
+        />
+        <View style={styles.sessionCopy}>
+          <View style={styles.sessionTitleRow}>
+            <Text
+              dynamicTypeRamp={typeRamp.body}
+              numberOfLines={largeText ? 3 : 1}
+              style={styles.sessionTitle}
+            >
+              {title}
+            </Text>
+            {/* One body line tall, so the trailing status centers on the title's first line. */}
             <View
-              style={[styles.sessionIndicator, { height: typography.body.lineHeight * fontScale }]}
+              style={[styles.sessionTrailing, { height: typography.body.lineHeight * fontScale }]}
+              testID="session-row-trailing"
             >
               {blocked ? (
-                <View
-                  accessibilityElementsHidden
-                  importantForAccessibility="no-hide-descendants"
-                  style={styles.sessionAttentionMarker}
-                  testID="session-row-attention-marker"
-                />
-              ) : (
+                <>
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={styles.sessionAttentionMarker}
+                    testID="session-row-attention-marker"
+                  />
+                  <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sessionStatusBlocked}>
+                    {row.attentionLabel || "Needs input"}
+                  </Text>
+                </>
+              ) : row.active ? (
                 <WorkingIndicator />
+              ) : (
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
+                  {formatSessionTime(session.time.updated)}
+                </Text>
               )}
             </View>
-          ) : null}
-          <Text
-            dynamicTypeRamp={typeRamp.body}
-            numberOfLines={largeText ? 3 : 1}
-            style={styles.sessionTitle}
-          >
-            {title}
-          </Text>
-          <View
-            style={[styles.sessionIndicator, { height: typography.body.lineHeight * fontScale }]}
-          >
-            {blocked ? (
-              <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sessionStatusBlocked}>
-                {row.attentionLabel || "Needs input"}
-              </Text>
-            ) : (
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
-                {formatSessionTime(session.time.updated)}
-              </Text>
-            )}
           </View>
+          <Text
+            dynamicTypeRamp={typeRamp.footnote}
+            numberOfLines={largeText ? 2 : 1}
+            style={styles.sessionProject}
+          >
+            {row.worktreeLabel ? `${row.projectLabel} · ${row.worktreeLabel}` : row.projectLabel}
+          </Text>
         </View>
-        <Text
-          dynamicTypeRamp={typeRamp.footnote}
-          numberOfLines={largeText ? 2 : 1}
-          style={styles.sessionProject}
-        >
-          {row.worktreeLabel ? `${row.projectLabel} · ${row.worktreeLabel}` : row.projectLabel}
-        </Text>
       </Pressable>
     </ReanimatedSwipeable>
   );
 }
 
-function FinishedDivider() {
+function GroupSeparator({
+  item,
+  onPress,
+}: {
+  item: Extract<WorkspaceInboxItem, { type: "group" }>;
+  onPress: () => void;
+}) {
+  const label = workspaceGroupLabels[item.group];
   return (
-    <View
-      accessibilityLabel="Finished"
-      accessibilityRole="header"
-      accessible
-      style={styles.finishedDivider}
-      testID="session-list-finished-divider"
+    <Pressable
+      accessibilityHint={item.collapsed ? "Expands the group" : "Collapses the group"}
+      accessibilityLabel={`${label}, ${item.count} ${item.count === 1 ? "session" : "sessions"}`}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !item.collapsed }}
+      android_ripple={rowRipple}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.groupSeparator,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
+      testID={`session-list-group-${item.group}`}
     >
-      <View style={styles.finishedRule} />
-    </View>
+      <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.groupLabel}>
+        {label}
+      </Text>
+      <View style={styles.groupRule} />
+      <Feather
+        accessible={false}
+        color={palette.dim}
+        name={item.collapsed ? "chevron-down" : "chevron-up"}
+        size={16}
+      />
+    </Pressable>
   );
 }
 
@@ -1760,12 +1837,16 @@ const styles = StyleSheet.create({
   headerActionAttention: { borderColor: palette.warm },
   headerActionLabel: { ...typography.control, color: palette.ink },
   headerActionLabelAttention: { color: palette.warm },
-  homeHeader: { paddingHorizontal: space.md, paddingTop: space.md },
-  homeHeaderPhone: { paddingTop: space.sm },
-  homeTitle: { ...typography.largeTitle, color: palette.ink, marginTop: 2 },
-  homeTitleCopy: { flex: 1, minWidth: 120 },
-  homeTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
-  homeTitleRowLargeText: { alignItems: "flex-start", flexDirection: "column" },
+  groupLabel: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
+  groupRule: { backgroundColor: palette.border, flex: 1, height: StyleSheet.hairlineWidth },
+  groupSeparator: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
+  },
+  homeHeader: { paddingHorizontal: space.md },
   latestButton: {
     alignItems: "center",
     alignSelf: "center",
@@ -1785,8 +1866,6 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
     width: "100%",
   },
-  finishedDivider: { paddingBottom: space.sm, paddingHorizontal: space.md, paddingTop: space.lg },
-  finishedRule: { backgroundColor: palette.border, height: StyleSheet.hairlineWidth },
   listFooter: { alignItems: "center", padding: space.lg },
   listSectionHeader: {
     alignItems: "center",
@@ -1796,7 +1875,6 @@ const styles = StyleSheet.create({
   },
   listSectionTitle: { ...typography.sectionLabel, color: palette.dim, flex: 1 },
   pressed: { opacity: pressedOpacity },
-  searchField: { marginBottom: space.sm, marginTop: space.sm },
   notice: { alignItems: "flex-start", gap: space.xs, marginBottom: space.xs },
   sessionActionsButton: {
     alignItems: "center",
@@ -1811,17 +1889,25 @@ const styles = StyleSheet.create({
     height: 7,
     width: 7,
   },
+  sessionCopy: { flex: 1, gap: space.xs / 2, minWidth: 0 },
   sessionRow: {
+    alignItems: "flex-start",
     backgroundColor: palette.background,
-    gap: 2,
-    justifyContent: "center",
+    flexDirection: "row",
+    gap: space.sm,
     minHeight: minTouchTarget,
     paddingHorizontal: space.md,
-    paddingVertical: space.xs,
+    paddingVertical: space.sm,
   },
   sessionStatusBlocked: { ...typography.sectionLabel, color: palette.warm },
   sessionTime: { ...typography.footnote, color: palette.dim },
-  sessionIndicator: { justifyContent: "center", flexShrink: 0 },
+  sessionTrailing: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: space.xs,
+    justifyContent: "flex-end",
+  },
   sessionTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
   sessionTitle: { ...typography.body, color: palette.ink, flex: 1, minWidth: 0 },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
