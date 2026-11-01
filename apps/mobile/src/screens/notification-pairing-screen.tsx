@@ -249,7 +249,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
       const code =
         preview.kind === "notification"
           ? preview.code
-          : await issueNotificationPairingFromOpenCode(preview.prepared);
+          : await issueNotificationPairingFromOpenCode(preview.prepared, signal);
       throwIfCancelled(signal);
       pairingMaterial.current ??= createNotificationPairingMaterial();
       stage = "secure-storage";
@@ -269,6 +269,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           platform: push.platform,
         },
         pairingMaterial.current.deviceKey,
+        signal,
       );
       throwIfCancelled(signal);
       const credential = bootstrapCredential(registered.bootstrap.auth);

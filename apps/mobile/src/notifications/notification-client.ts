@@ -28,6 +28,7 @@ export async function completeNotificationPairing(
   codeValue: unknown,
   registration: Omit<NotificationPairingRegistration, "deviceKey" | "v">,
   encodedDeviceKey?: string,
+  signal?: AbortSignal,
 ) {
   const code = parseNotificationPairingCode(codeValue);
   if (code.expiresAtMs < Date.now()) throw new Error("PAIRING_CODE_EXPIRED");
@@ -56,6 +57,8 @@ export async function completeNotificationPairing(
     `${code.brokerOrigin}/v1/pair/complete`,
     request,
     parseNotificationPairingResponse,
+    10_000,
+    signal,
   );
   const bootstrap = parseNotificationConnectionBootstrap(
     openNotificationJson(
@@ -117,6 +120,7 @@ export function prepareOpenCodeDevicePairing(value: unknown) {
 
 export async function issueNotificationPairingFromOpenCode(
   prepared: ReturnType<typeof prepareOpenCodeDevicePairing>,
+  signal?: AbortSignal,
 ) {
   const request = parseNotificationPairingIssueRequest({
     allowDevelopmentHttp: prepared.allowDevelopmentHttp,
@@ -131,6 +135,7 @@ export async function issueNotificationPairingFromOpenCode(
     request,
     parseNotificationPairingCode,
     15_000,
+    signal,
   );
   if (
     code.allowDevelopmentHttp !== prepared.allowDevelopmentHttp ||
@@ -202,9 +207,14 @@ async function postJson<T>(
   body: unknown,
   parse: (value: unknown) => T,
   timeoutMs = 10_000,
+  signal?: AbortSignal,
 ) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  const timeout = setTimeout(abort, timeoutMs);
+  // Hermes may lack AbortSignal.any, so forward the caller's cancel by hand.
+  signal?.addEventListener("abort", abort);
+  if (signal?.aborted) abort();
   let response: Response;
   try {
     response = await fetch(url, {
@@ -216,6 +226,7 @@ async function postJson<T>(
     });
   } finally {
     clearTimeout(timeout);
+    signal?.removeEventListener("abort", abort);
   }
   const value = await response.json().catch(() => undefined);
   if (!response.ok) {

@@ -53,6 +53,8 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   openCodeClientContractVersion: "test",
 }));
 
+// Feather loads its font after render, which warns outside act in synchronous tests.
+jest.mock("@expo/vector-icons/Feather", () => () => null);
 jest.mock("expo/fetch", () => ({ fetch: jest.fn() }));
 jest.mock("react-native-keyboard-controller", () =>
   require("react-native-keyboard-controller/jest"),

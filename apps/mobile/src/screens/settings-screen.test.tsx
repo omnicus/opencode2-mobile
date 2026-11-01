@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Dimensions, Switch } from "react-native";
 
 import { useConnections } from "../connections/connections-context";
@@ -132,7 +132,9 @@ test("an unpaired connection offers pairing and refreshes when Settings regains 
   jest.mocked(readNotificationPairingSecret).mockResolvedValue({ deviceKey: "key" } as never);
   jest.mocked(sendNotificationDeviceCommand).mockResolvedValue({ enabled: true } as never);
   const focus = navigation.addListener.mock.calls.find(([event]) => event === "focus");
-  focus?.[1]();
+  await act(async () => {
+    focus?.[1]();
+  });
   await waitFor(() =>
     expect(screen.getByText("On for every phone paired with this connection.")).toBeOnTheScreen(),
   );

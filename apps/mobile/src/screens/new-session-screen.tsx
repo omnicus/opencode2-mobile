@@ -20,7 +20,6 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Button } from "../components/button";
@@ -41,6 +40,7 @@ import {
   typography,
   usesLargeTextLayout,
 } from "../theme";
+import { FormKeyboardAvoidingView } from "./form-keyboard-avoiding-view";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "NewSession">;
@@ -226,7 +226,7 @@ export function NewSessionScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.screen}>
-      <KeyboardAvoidingView behavior="padding" style={styles.keyboardView}>
+      <FormKeyboardAvoidingView style={styles.keyboardView}>
         <View style={[styles.header, largeText && styles.headerLargeText]}>
           <View style={[styles.headerSide, largeText && styles.headerSideLargeText]}>
             <Pressable
@@ -404,7 +404,7 @@ export function NewSessionScreen({ navigation }: Props) {
             {error}
           </Text>
         ) : null}
-      </KeyboardAvoidingView>
+      </FormKeyboardAvoidingView>
     </SafeAreaView>
   );
 }

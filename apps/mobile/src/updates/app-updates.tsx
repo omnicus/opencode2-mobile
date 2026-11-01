@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.md,
   },
-  card: { ...cardSurface, gap: space.sm },
+  card: { ...cardSurface, borderWidth: StyleSheet.hairlineWidth, gap: space.sm },
   title: { ...typography.headline, color: palette.ink },
   copy: { ...typography.subheadline, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
