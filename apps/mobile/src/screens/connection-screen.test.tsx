@@ -1,6 +1,6 @@
-import { beforeEach, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import { Alert, Dimensions, Platform, Share } from "react-native";
 
 import { palette, typography } from "../theme";
 import { ConnectionScreen } from "./connection-screen";
@@ -29,6 +29,10 @@ const mockReadCredential = jest.fn<() => Promise<unknown>>(async () => undefined
 let mockProfiles: unknown[] = [];
 let mockSelectedProfileId: string | undefined;
 let mockClassifiedError = "UNREACHABLE";
+let mockReady = true;
+let mockIsDevice = false;
+let mockRuntime: Record<string, unknown> = {};
+let mockLifecycleState: Record<string, unknown> = {};
 
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   classifyOpenCodeError: () => mockClassifiedError,
@@ -59,13 +63,17 @@ jest.mock("expo/fetch", () => ({ fetch: jest.fn() }));
 jest.mock("react-native-keyboard-controller", () =>
   require("react-native-keyboard-controller/jest"),
 );
-jest.mock("expo-device", () => ({ isDevice: false }));
+jest.mock("expo-device", () => ({
+  get isDevice() {
+    return mockIsDevice;
+  },
+}));
 
 jest.mock("../connections/connections-context", () => ({
   useConnections: () => ({
     profiles: mockProfiles,
     readCredential: mockReadCredential,
-    ready: true,
+    ready: mockReady,
     remove: mockConnectionsRemove,
     save: mockConnectionsSave,
     select: mockConnectionsSelect,
@@ -79,6 +87,7 @@ jest.mock("../state/connection-runtime-context", () => ({
       "OpenCode2 Mobile redacted transport diagnostics\ncurrent_status=idle",
     reconnectAttempt: 0,
     status: "idle",
+    ...mockRuntime,
   }),
 }));
 
@@ -89,6 +98,7 @@ jest.mock("../use-lifecycle-transport-probe", () => ({
     result: undefined,
     run: mockLifecycleRun,
     running: false,
+    ...mockLifecycleState,
   }),
 }));
 
@@ -106,7 +116,31 @@ beforeEach(() => {
   mockProfiles = [];
   mockSelectedProfileId = undefined;
   mockClassifiedError = "UNREACHABLE";
+  mockReady = true;
+  mockIsDevice = false;
+  mockRuntime = {};
+  mockLifecycleState = {};
 });
+
+const originalWindow = Dimensions.get("window");
+const originalScreen = Dimensions.get("screen");
+const restorers: (() => void)[] = [];
+
+afterEach(() => {
+  for (const restore of restorers.splice(0)) restore();
+  Dimensions.set({ window: originalWindow, screen: originalScreen });
+});
+
+const savedProfile = {
+  allowDevelopmentHttp: true,
+  authMode: "basic",
+  baseUrl: "http://saved.test",
+  createdAtMs: 1,
+  id: "profile-1",
+  name: "Saved server",
+  schemaVersion: 1,
+  updatedAtMs: 1,
+};
 
 function reachableClient() {
   return {
@@ -447,4 +481,502 @@ test("offers done, add, and pairing from the header and saved servers", async ()
   expect(pair).toHaveBeenCalledTimes(1);
   await fireEvent.press(screen.getByRole("button", { name: "Done" }));
   expect(done).toHaveBeenCalledTimes(1);
+});
+
+async function openSavedProfile() {
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Edit Saved server" }));
+  });
+}
+
+async function pressButton(name: string) {
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name }));
+  });
+}
+
+async function openAdvanced() {
+  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
+}
+
+async function runProbesThroughPty(address = "https://server.test") {
+  mockProbeEventStream.mockResolvedValue({ cancellation: true, eventType: "server.connected" });
+  mockProbePtyTransport.mockResolvedValue({ cleanup: true, output: true, ticketExpiresIn: 30 });
+  await fillBasic(address);
+  if (address.startsWith("http:")) {
+    await fireEvent(screen.getByLabelText("Allow HTTP"), "valueChange", true);
+  }
+  await openAdvanced();
+  await pressButton("Test without saving");
+  await pressButton("Run event and cancellation probe");
+  await pressButton("Run PTY WebSocket probe");
+}
+
+test("shows the runtime status card and redacted diagnostics under Advanced", async () => {
+  mockRuntime = {
+    cacheMetadata: { activeSessionCount: 1, projectCount: 3 },
+    reconnectAttempt: 2,
+    serverVersion: "other",
+    status: "connected",
+  };
+  const share = jest.spyOn(Share, "share").mockRejectedValue(new Error("share failed"));
+  restorers.push(() => share.mockRestore());
+  await render(<ConnectionScreen />);
+  await openForm();
+  await openAdvanced();
+
+  expect(screen.getByText("Connected")).toBeOnTheScreen();
+  expect(screen.getByText("Reconnect attempt 2")).toBeOnTheScreen();
+  expect(screen.getByText("Cached list: 3 projects, 1 active")).toBeOnTheScreen();
+  expect(
+    screen.getByText("Server other passed checks against client contract test."),
+  ).toBeOnTheScreen();
+
+  await fireEvent.press(screen.getByRole("button", { name: "Show diagnostics" }));
+  expect(screen.getByText(/current_status=idle/)).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", { name: "Hide diagnostics" }));
+  expect(screen.queryByText(/current_status=idle/)).toBeNull();
+
+  await pressButton("Share redacted report");
+  expect(share).toHaveBeenCalledWith({ message: expect.stringContaining("current_status=idle") });
+  expect(await screen.findByRole("alert")).toHaveTextContent("Diagnostics could not be shared.");
+
+  await openAdvanced();
+  expect(screen.queryByText("Connected")).toBeNull();
+});
+
+test("omits optional runtime details that do not apply", async () => {
+  mockRuntime = { serverVersion: "test", status: "reconnecting" };
+  await render(<ConnectionScreen />);
+  await openForm();
+  await openAdvanced();
+
+  expect(screen.getByText("Reconnecting")).toBeOnTheScreen();
+  expect(screen.queryByText(/Reconnect attempt/)).toBeNull();
+  expect(screen.queryByText(/Cached list/)).toBeNull();
+  expect(screen.queryByText(/passed checks against client contract/)).toBeNull();
+});
+
+test("guides the user through a running lifecycle probe and shows its result", async () => {
+  mockLifecycleState = {
+    phase: "ready-to-background",
+    result: {
+      backgroundCancellation: true,
+      foregroundHealth: true,
+      initialEventType: "server.connected",
+      reconnectEventType: "server.heartbeat",
+    },
+    running: true,
+  };
+  await render(<ConnectionScreen />);
+  await openForm();
+  await openAdvanced();
+
+  expect(screen.getByText("Lifecycle action required")).toBeOnTheScreen();
+  expect(
+    screen.getByText("Send the app to the background, wait a moment, then return to it."),
+  ).toBeOnTheScreen();
+  expect(screen.getByText("Lifecycle recovery passed")).toBeOnTheScreen();
+  expect(screen.getByText("server.heartbeat")).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Test without saving" })).toBeDisabled();
+});
+
+test("shows busy labels while each probe is pending and ignores a second connect", async () => {
+  const client = reachableClient();
+  mockCreateOpenCodeClient.mockReturnValue(client);
+  await render(<ConnectionScreen />);
+  await openForm();
+  await fillBasic("https://server.test");
+  await openAdvanced();
+
+  let finishRest: () => void = () => undefined;
+  client.server.status.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRest = () => resolve({ urls: [], pid: 42, version: "test" });
+      }),
+  );
+  await pressButton("Test without saving");
+  expect(screen.getByRole("button", { name: "Testing…" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Connecting…" })).toBeOnTheScreen();
+  await act(async () => {
+    fireEvent(screen.getByLabelText("Password"), "submitEditing");
+  });
+  expect(mockCreateOpenCodeClient).toHaveBeenCalledTimes(1);
+  await act(async () => finishRest());
+  expect(screen.getByText("Server reachable")).toBeOnTheScreen();
+
+  let finishStream: () => void = () => undefined;
+  mockProbeEventStream.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishStream = () => resolve({ cancellation: true, eventType: "server.connected" });
+      }),
+  );
+  await pressButton("Run event and cancellation probe");
+  expect(screen.getByRole("button", { name: "Probing event stream…" })).toBeOnTheScreen();
+  await act(async () => finishStream());
+
+  let finishPty: () => void = () => undefined;
+  mockProbePtyTransport.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishPty = () => resolve({ cleanup: true, output: true, ticketExpiresIn: 30 });
+      }),
+  );
+  await pressButton("Run PTY WebSocket probe");
+  expect(screen.getByRole("button", { name: "Probing PTY transport…" })).toBeOnTheScreen();
+  await act(async () => finishPty());
+  expect(screen.getByText("PTY transport passed")).toBeOnTheScreen();
+  expect(screen.getByText(/Minted a 30s ticket/)).toBeOnTheScreen();
+
+  let finishSave: (id: string) => void = () => undefined;
+  mockConnectionsSave.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }),
+  );
+  await pressButton("Connect");
+  expect(screen.getByRole("button", { name: "Saving…" })).toBeOnTheScreen();
+  await act(async () => finishSave("profile-1"));
+  expect(screen.getByText("Connected and saved.")).toBeOnTheScreen();
+});
+
+test("explains failed transport probes", async () => {
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen />);
+  await openForm();
+  await runProbesThroughPty();
+
+  mockProbeEventStream.mockRejectedValueOnce(new Error("private stream detail"));
+  await pressButton("Run event and cancellation probe");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "The server could not be reached. Check its address, network, and TLS settings.",
+  );
+  expect(screen.queryByText("Event transport passed")).toBeNull();
+
+  await pressButton("Run event and cancellation probe");
+  mockProbePtyTransport.mockRejectedValueOnce({ _tag: "ForbiddenError" });
+  await pressButton("Run PTY WebSocket probe");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "The server rejected the PTY connect-ticket request.",
+  );
+
+  await pressButton("Run PTY WebSocket probe");
+  mockLifecycleReset.mockClear();
+  mockLifecycleRun.mockRejectedValueOnce(new Error("private lifecycle detail"));
+  await pressButton("Run background and reconnect probe");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "The server could not be reached. Check its address, network, and TLS settings.",
+  );
+  expect(mockLifecycleReset).toHaveBeenCalledTimes(1);
+});
+
+test("stops transport probes when the target is no longer allowed", async () => {
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen />);
+  await openForm();
+  await runProbesThroughPty("http://localhost:4096");
+  mockCreateOpenCodeClient.mockClear();
+  mockIsDevice = true;
+  const localhost =
+    "localhost points to this phone. Use your computer's network address, Tailscale address, or hostname.";
+
+  await pressButton("Run background and reconnect probe");
+  expect(screen.getByRole("alert")).toHaveTextContent(localhost);
+  await pressButton("Run PTY WebSocket probe");
+  expect(screen.getByRole("alert")).toHaveTextContent(localhost);
+  await pressButton("Run event and cancellation probe");
+  expect(screen.getByRole("alert")).toHaveTextContent(localhost);
+  await pressButton("Test without saving");
+  expect(screen.getByRole("alert")).toHaveTextContent(localhost);
+  expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
+  expect(mockLifecycleRun).not.toHaveBeenCalled();
+});
+
+test("explains a failed save and finishes after a successful one", async () => {
+  const done = jest.fn();
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  mockConnectionsSave.mockRejectedValueOnce(new Error("CREDENTIAL_TOO_LARGE"));
+  await render(<ConnectionScreen onDone={done} />);
+  await openForm();
+  await fillBasic("https://server.test");
+
+  await pressConnect();
+  expect(screen.getByRole("alert")).toHaveTextContent("The credential is too large to store.");
+  expect(done).not.toHaveBeenCalled();
+
+  await pressConnect();
+  expect(screen.getByText("Connected and saved.")).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeOnTheScreen();
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
+test("saves changes to an existing profile under its id", async () => {
+  mockProfiles = [savedProfile];
+  mockReadCredential.mockResolvedValue({
+    mode: "basic",
+    password: "secret",
+    schemaVersion: 1,
+    username: "opencode",
+  });
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen />);
+  await openSavedProfile();
+
+  expect(screen.getByDisplayValue("opencode")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Allow HTTP")).toHaveProp("value", true);
+  await pressButton("Save changes");
+
+  expect(mockConnectionsSave).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({
+        allowDevelopmentHttp: true,
+        authMode: "basic",
+        id: "profile-1",
+        name: "Saved server",
+      }),
+    }),
+  );
+});
+
+test("explains saved profiles that cannot be read, opened, selected, or removed", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  restorers.push(() => alert.mockRestore());
+  mockProfiles = [savedProfile];
+  mockSelectedProfileId = savedProfile.id;
+  mockReadCredential.mockRejectedValueOnce(new Error("keychain"));
+  render(<ConnectionScreen />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Stored credentials could not be read. Enter them again.",
+  );
+
+  mockConnectionsSelect.mockRejectedValueOnce(new Error("select"));
+  await pressButton("Select Saved server");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "This saved connection could not be selected.",
+  );
+
+  mockReadCredential.mockRejectedValueOnce(new Error("keychain"));
+  await openSavedProfile();
+  expect(screen.getByRole("alert")).toHaveTextContent("This saved connection could not be opened.");
+
+  await openSavedProfile();
+  fireEvent.press(screen.getByRole("button", { name: "Remove Saved server" }));
+  const buttons = alert.mock.calls[0]?.[2] ?? [];
+  expect(buttons.find((button) => button.text === "Cancel")?.style).toBe("cancel");
+  mockConnectionsRemove.mockRejectedValueOnce(new Error("remove"));
+  await act(async () => {
+    buttons.find((button) => button.text === "Remove")?.onPress?.();
+  });
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "The connection could not be removed. Try again.",
+  );
+  expect(screen.getByText("Server details")).toBeOnTheScreen();
+});
+
+test("ignores a profile load that a newer action replaced", async () => {
+  mockProfiles = [savedProfile];
+  let finishRead: (value: unknown) => void = () => undefined;
+  mockReadCredential.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  await render(<ConnectionScreen />);
+  await openSavedProfile();
+  await fireEvent.press(screen.getByRole("button", { name: "Add server" }));
+  await act(async () => finishRead(undefined));
+
+  expect(screen.getByText("New server")).toBeOnTheScreen();
+  expect(screen.queryByDisplayValue("Saved server")).toBeNull();
+
+  let failRead: (error: Error) => void = () => undefined;
+  mockReadCredential.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        failRead = reject;
+      }),
+  );
+  await openSavedProfile();
+  await fireEvent.press(screen.getByRole("button", { name: "Add server" }));
+  await act(async () => failRead(new Error("keychain")));
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("ignores a selected profile's credentials after the screen unmounts", async () => {
+  mockProfiles = [savedProfile];
+  mockSelectedProfileId = savedProfile.id;
+  let finishRead: (value: unknown) => void = () => undefined;
+  let failRead: (error: Error) => void = () => undefined;
+  mockReadCredential.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  const first = render(<ConnectionScreen />);
+  first.unmount();
+  await act(async () => finishRead(undefined));
+
+  mockReadCredential.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        failRead = reject;
+      }),
+  );
+  const second = render(<ConnectionScreen />);
+  second.unmount();
+  await act(async () => failRead(new Error("keychain")));
+  expect(mockReadCredential).toHaveBeenCalledTimes(2);
+});
+
+test("starts a new connection after removing the open profile", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  restorers.push(() => alert.mockRestore());
+  mockProfiles = [savedProfile];
+  await render(<ConnectionScreen />);
+  await openSavedProfile();
+  await fireEvent.press(screen.getByRole("button", { name: "Show password" }));
+  fireEvent.press(screen.getByRole("button", { name: "Remove Saved server" }));
+  await act(async () => {
+    alert.mock.calls[0]?.[2]?.find((button) => button.text === "Remove")?.onPress?.();
+  });
+
+  expect(screen.getByText("New server")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Server address")).toHaveProp("value", "");
+  expect(screen.getByLabelText("Password")).toHaveProp("secureTextEntry", true);
+  expect(screen.queryByLabelText("Allow HTTP")).toBeNull();
+  expect(
+    screen.getByText("Connection and credentials removed from this device."),
+  ).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", { name: "Hide connection details" }));
+  expect(screen.queryByText("New server")).toBeNull();
+  expect(
+    screen.getByText("Connection and credentials removed from this device."),
+  ).toBeOnTheScreen();
+});
+
+test("finishes after selecting a saved profile", async () => {
+  const done = jest.fn();
+  mockProfiles = [{ ...savedProfile, allowDevelopmentHttp: false }];
+  await render(<ConnectionScreen onDone={done} />);
+
+  await pressButton("Select Saved server");
+
+  expect(screen.getByText("Saved server selected.")).toBeOnTheScreen();
+  expect(screen.queryByText("HTTP allowed, not encrypted")).toBeNull();
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
+test("moves through the form from the keyboard for each authentication mode", async () => {
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  await fireEvent(screen.getByLabelText("Server address"), "submitEditing");
+  await fireEvent(screen.getByLabelText("Connection name"), "submitEditing");
+  await fireEvent(screen.getByLabelText("Username"), "submitEditing");
+  expect(screen.getByLabelText("Password")).toHaveProp("textContentType", "password");
+
+  await fireEvent.press(screen.getByRole("radio", { name: "Bearer" }));
+  expect(screen.queryByLabelText("Username")).toBeNull();
+  expect(screen.getByLabelText("Token")).toHaveProp("textContentType", "none");
+  expect(screen.getByRole("button", { name: "Show token" })).toBeOnTheScreen();
+  await fireEvent(screen.getByLabelText("Connection name"), "submitEditing");
+
+  await fireEvent.press(screen.getByRole("radio", { name: "None" }));
+  expect(screen.queryByLabelText("Token")).toBeNull();
+  expect(screen.getByLabelText("Connection name")).toHaveProp("returnKeyType", "go");
+  expect(screen.getByLabelText("Connection name")).toHaveProp("submitBehavior", "blurAndSubmit");
+  expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
+  await fireEvent.changeText(screen.getByLabelText("Server address"), "https://server.test");
+  await act(async () => {
+    fireEvent(screen.getByLabelText("Connection name"), "submitEditing");
+  });
+  expect(mockConnectionsSave).toHaveBeenCalledWith(
+    expect.not.objectContaining({ credential: expect.anything() }),
+  );
+  expect(mockConnectionsSave).toHaveBeenCalledWith(
+    expect.objectContaining({ draft: expect.objectContaining({ authMode: "none" }) }),
+  );
+});
+
+test("asks for the missing credential before connecting", async () => {
+  await render(<ConnectionScreen />);
+  await openForm();
+  await fireEvent.changeText(screen.getByLabelText("Server address"), "https://server.test");
+
+  await pressConnect();
+  expect(screen.getByRole("alert")).toHaveTextContent("Enter a username and password.");
+  await fireEvent.press(screen.getByRole("radio", { name: "Bearer" }));
+  await pressConnect();
+  expect(screen.getByRole("alert")).toHaveTextContent("Enter a bearer token.");
+  expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
+});
+
+test("blocks localhost on a physical device", async () => {
+  mockIsDevice = true;
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  await fillBasic("https://localhost");
+  await pressConnect();
+
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "localhost points to this phone. Use your computer's network address, Tailscale address, or hostname.",
+  );
+  expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
+});
+
+test("shows a loading row until saved connections are ready", async () => {
+  mockReady = false;
+  await render(<ConnectionScreen />);
+
+  expect(screen.getByText("Saved servers")).toBeOnTheScreen();
+  expect(screen.queryByText("Connect to OpenCode")).toBeNull();
+  expect(screen.getByRole("header", { name: "Connections" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Scan pairing code" })).toBeNull();
+});
+
+test("offers only manual entry on first run without pairing", async () => {
+  await render(<ConnectionScreen />);
+
+  expect(screen.queryByRole("button", { name: "Scan pairing code" })).toBeNull();
+  expect(screen.queryByRole("header", { name: "Connections" })).toBeNull();
+  await openForm();
+  expect(screen.getByRole("header", { name: "Connections" })).toBeOnTheScreen();
+  expect(screen.getByText("New server")).toBeOnTheScreen();
+});
+
+test("uses Android ripples and a leading title", async () => {
+  const os = jest.replaceProperty(Platform, "OS", "android");
+  restorers.push(() => os.restore());
+  mockProfiles = [savedProfile];
+  mockSelectedProfileId = savedProfile.id;
+  render(<ConnectionScreen onDone={() => undefined} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  expect(screen.getByRole("header", { name: "Connections" })).toHaveStyle({ flex: 1 });
+  expect(screen.getByRole("button", { name: "Done" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Select Saved server" })).toBeSelected();
+  await openSavedProfile();
+  expect(screen.getByRole("button", { name: "Show password" })).toBeOnTheScreen();
+});
+
+test("stacks saved server rows and the HTTP switch for large text", async () => {
+  Dimensions.set({ window: { width: 390, height: 844, scale: 3, fontScale: 2 } });
+  mockProfiles = [savedProfile];
+  await render(<ConnectionScreen />);
+
+  expect(screen.getByText("Saved server")).not.toHaveProp("numberOfLines");
+  await openSavedProfile();
+  expect(screen.getByText("Server details")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Allow HTTP")).toBeOnTheScreen();
 });
