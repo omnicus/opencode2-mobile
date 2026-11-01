@@ -6,6 +6,7 @@ import {
 } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { AccessibilityInfo } from "react-native";
 
 import { NewSessionScreen } from "./new-session-screen";
 
@@ -50,6 +51,9 @@ jest.mock("../state/connection-runtime-context", () => ({
 jest.mock("../state/workspace-selection-context", () => ({
   useWorkspaceSelection: () => mockSelection,
 }));
+jest.mock("react-native-keyboard-controller", () =>
+  jest.requireActual("react-native-keyboard-controller/jest"),
+);
 jest.mock("expo-haptics", () => ({
   NotificationFeedbackType: { Success: "success" },
   notificationAsync: jest.fn(async () => undefined),
@@ -102,7 +106,7 @@ test("shows followed projects first and reveals other projects through browse an
 });
 
 test("creates in a followed project's only location and replaces the modal", async () => {
-  const navigation = { goBack: jest.fn(), replace: jest.fn() };
+  const navigation = mockNavigation();
   mockRefetch.mockImplementationOnce(() => new Promise(() => undefined));
   renderScreen(navigation);
 
@@ -146,14 +150,14 @@ test("waits for the default location before enabling project selection", async (
 });
 
 test("chooses a worktree and follows an unfollowed project before creation", async () => {
-  const navigation = { goBack: jest.fn(), replace: jest.fn() };
+  const navigation = mockNavigation();
   renderScreen(navigation);
   fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
   fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
 
   expect(await screen.findByRole("header", { name: "Choose location" })).toBeOnTheScreen();
   expect(mockCreateSession).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: /Worktree 1/ }));
+  fireEvent.press(screen.getByRole("button", { name: /^beta-feature,/ }));
 
   await waitFor(() => expect(mockSetFollowedProjectIds).toHaveBeenCalledWith([alpha.id, beta.id]));
   await waitFor(() =>
@@ -170,13 +174,131 @@ test("does not create when adding an unfollowed project fails", async () => {
   renderScreen();
   fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
   fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  fireEvent.press(screen.getByRole("button", { name: /Worktree 1/ }));
+  fireEvent.press(screen.getByRole("button", { name: /^beta-feature,/ }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(/could not be created/i);
   expect(mockCreateSession).not.toHaveBeenCalled();
 });
 
-function renderScreen(navigation = { goBack: jest.fn(), replace: jest.fn() }) {
+test("puts Cancel on the leading side of the header", async () => {
+  renderScreen();
+  await screen.findByText("Alpha");
+  expect(screen.getAllByRole("button")[0]).toHaveAccessibleName("Cancel");
+});
+
+test("labels locations by directory name", async () => {
+  mockGetDefaultLocation.mockResolvedValue({
+    ...betaLocation,
+    directory: "/projects/beta/nested",
+  });
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
+  expect(await screen.findByRole("button", { name: /^Main directory,/ })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: /^Server's working directory,/ })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: /^beta-feature, / })).toBeOnTheScreen();
+  expect(screen.queryByText(/Worktree \d/)).toBeNull();
+});
+
+test("back and the swipe gesture return from the location step to Projects", async () => {
+  const navigation = mockNavigation();
+  renderScreen(navigation);
+  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
+  await screen.findByRole("header", { name: "Choose location" });
+  expect(navigation.setOptions).toHaveBeenLastCalledWith({ gestureEnabled: false });
+
+  const back = removeEvent("GO_BACK");
+  act(() => navigation.emitBeforeRemove(back));
+  expect(back.preventDefault).toHaveBeenCalled();
+  expect(await screen.findByRole("header", { name: "New session" })).toBeOnTheScreen();
+  expect(navigation.setOptions).toHaveBeenLastCalledWith({ gestureEnabled: true });
+
+  const close = removeEvent("GO_BACK");
+  act(() => navigation.emitBeforeRemove(close));
+  expect(close.preventDefault).not.toHaveBeenCalled();
+});
+
+test("Cancel closes the sheet from the location step", async () => {
+  const navigation = mockNavigation();
+  navigation.goBack.mockImplementation(() => {
+    navigation.emitBeforeRemove(removeEvent("GO_BACK"));
+  });
+  renderScreen(navigation);
+  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
+  await screen.findByRole("header", { name: "Choose location" });
+  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+  expect(navigation.goBack).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("header", { name: "Choose location" })).toBeOnTheScreen();
+});
+
+test("does not block leaving while a session is being created", async () => {
+  const navigation = mockNavigation();
+  mockCreateSession.mockImplementationOnce(() => new Promise(() => undefined));
+  renderScreen(navigation);
+  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
+  fireEvent.press(await screen.findByRole("button", { name: /^beta-feature,/ }));
+  await waitFor(() => expect(mockCreateSession).toHaveBeenCalled());
+  expect(navigation.setOptions).toHaveBeenLastCalledWith({ gestureEnabled: true });
+  const back = removeEvent("GO_BACK");
+  act(() => navigation.emitBeforeRemove(back));
+  expect(back.preventDefault).not.toHaveBeenCalled();
+});
+
+test("shows progress in the tapped row and announces it", async () => {
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  mockCreateSession.mockImplementationOnce(() => new Promise(() => undefined));
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
+  const row = await screen.findByRole("button", { name: /Alpha, followed.*creating session$/ });
+  expect(row).toHaveProp("accessibilityState", expect.objectContaining({ busy: true }));
+  expect(announce).toHaveBeenCalledWith("Creating session");
+  announce.mockRestore();
+});
+
+test("a location that moved to another project returns to Projects and reloads them", async () => {
+  mockGetLocation.mockResolvedValue(alphaLocation);
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
+  fireEvent.press(await screen.findByRole("button", { name: /^beta-feature,/ }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "The project list changed. Choose the project again.",
+  );
+  expect(screen.getByRole("header", { name: "New session" })).toBeOnTheScreen();
+  expect(mockRefetch).toHaveBeenCalled();
+  expect(mockCreateSession).not.toHaveBeenCalled();
+});
+
+type BeforeRemoveEvent = {
+  data: { action: { type: string } };
+  preventDefault: jest.Mock;
+};
+
+function removeEvent(type: string): BeforeRemoveEvent {
+  return { data: { action: { type } }, preventDefault: jest.fn() };
+}
+
+function mockNavigation() {
+  const listeners = new Set<(event: BeforeRemoveEvent) => void>();
+  return {
+    addListener: jest.fn((_event: string, listener: (event: BeforeRemoveEvent) => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    }),
+    emitBeforeRemove(event: BeforeRemoveEvent) {
+      for (const listener of listeners) listener(event);
+    },
+    goBack: jest.fn(),
+    replace: jest.fn(),
+    setOptions: jest.fn(),
+  };
+}
+
+function renderScreen(navigation = mockNavigation()) {
   const queryClient = new QueryClient({
     defaultOptions: {
       mutations: { gcTime: Number.POSITIVE_INFINITY, networkMode: "always" },

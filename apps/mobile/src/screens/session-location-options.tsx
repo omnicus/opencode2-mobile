@@ -11,9 +11,10 @@ import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, StyleSheet, Switch, Text, View } from "react-native";
 
+import { Button } from "../components/button";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { palette, space, switchColors, typeRamp, typography } from "../theme";
+import { minTouchTarget, palette, space, switchColors, typeRamp, typography } from "../theme";
 import { ActionButton } from "./app-shell";
 
 export function SessionDevTools({
@@ -35,6 +36,7 @@ export function SessionDevTools({
   const client = runtime.restClient;
   const queryClient = useQueryClient();
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
+  const [userRefreshing, setUserRefreshing] = useState(false);
   const requestRef = useRef<AbortController | null>(null);
   const available = Boolean(
     ready && client && runtime.connectionId === connectionId && runtime.status === "connected",
@@ -55,6 +57,11 @@ export function SessionDevTools({
     if (!client || !available) requestRef.current?.abort();
     return () => requestRef.current?.abort();
   }, [client, available]);
+  useEffect(() => {
+    if (copyState !== "copied") return;
+    const timer = setTimeout(() => setCopyState("idle"), 2_000);
+    return () => clearTimeout(timer);
+  }, [copyState]);
   const mutation = useMutation({
     retry: false,
     mutationFn: async ({ server, connect }: { server: string; connect: boolean }) => {
@@ -85,13 +92,17 @@ export function SessionDevTools({
   const unsupported =
     (query.isError && classifyOpenCodeError(query.error) === "INCOMPATIBLE") ||
     (mutation.isError && classifyOpenCodeError(mutation.error) === "INCOMPATIBLE");
-  const canChange =
-    available &&
-    query.isSuccess &&
-    !query.isError &&
-    !query.isFetching &&
-    !mutation.isPending &&
-    !unsupported;
+  // The 10-second poll must not flicker the switches; only the first load and a change block them.
+  const canChange = available && servers !== undefined && !mutation.isPending && !unsupported;
+
+  async function refresh() {
+    setUserRefreshing(true);
+    try {
+      await query.refetch();
+    } finally {
+      setUserRefreshing(false);
+    }
+  }
 
   async function copyBranch() {
     if (!branch) return;
@@ -117,7 +128,7 @@ export function SessionDevTools({
         MCP changes affect all sessions at this location. They do not change saved configuration and
         may reset when the server restarts.
       </Text>
-      <Text dynamicTypeRamp={typeRamp.subheadline} selectable style={styles.path}>
+      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.path}>
         {location.directory}
       </Text>
       <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
@@ -158,15 +169,15 @@ export function SessionDevTools({
           This server does not expose MCP management.
         </Text>
       ) : query.isError ? (
-        <View>
+        <View style={styles.errorBlock}>
           <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
             MCP servers could not be refreshed. Their status may be outdated.
           </Text>
-          <ActionButton
-            secondary
+          <Button
+            busy={userRefreshing}
             disabled={!available || mutation.isPending}
             label="Try again"
-            onPress={() => void query.refetch()}
+            onPress={() => void refresh()}
           />
         </View>
       ) : available && query.isPending ? (
@@ -246,9 +257,9 @@ export function SessionDevTools({
       {query.isSuccess && !unsupported ? (
         <ActionButton
           secondary
-          disabled={!available || mutation.isPending || query.isFetching}
-          label={query.isFetching ? "Refreshing MCP servers" : "Refresh MCP servers"}
-          onPress={() => void query.refetch()}
+          disabled={!available || mutation.isPending || userRefreshing}
+          label={userRefreshing ? "Refreshing MCP servers" : "Refresh MCP servers"}
+          onPress={() => void refresh()}
         />
       ) : null}
     </View>
@@ -275,12 +286,18 @@ const styles = StyleSheet.create({
   heading: { ...typography.headline, color: palette.ink },
   name: { ...typography.body, color: palette.ink },
   note: { ...typography.footnote, color: palette.dim },
-  path: { ...typography.code, color: palette.dim },
-  serverHeader: { flexDirection: "row", alignItems: "center", gap: space.md },
+  errorBlock: { alignItems: "flex-start", gap: space.sm },
+  path: { ...typography.footnote, color: palette.dim, fontFamily: typography.code.fontFamily },
+  serverHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    minHeight: minTouchTarget,
+  },
   serverInfo: { flex: 1, minWidth: 0, gap: space.xs },
   switchTarget: {
-    minWidth: 44,
-    minHeight: 44,
+    minWidth: minTouchTarget,
+    minHeight: minTouchTarget,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,

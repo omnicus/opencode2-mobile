@@ -26,8 +26,15 @@ export function WorkspaceNewSessionAction({
 }) {
   const [keyboardVisible, setKeyboardVisible] = useState(() => Keyboard.isVisible());
   useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardVisible(false));
+    // iOS sends Will events, so the pill hides as the keyboard starts to rise. Android only
+    // sends Did events.
+    const ios = Platform.OS === "ios";
+    const show = Keyboard.addListener(ios ? "keyboardWillShow" : "keyboardDidShow", () =>
+      setKeyboardVisible(true),
+    );
+    const hide = Keyboard.addListener(ios ? "keyboardWillHide" : "keyboardDidHide", () =>
+      setKeyboardVisible(false),
+    );
     return () => {
       show.remove();
       hide.remove();

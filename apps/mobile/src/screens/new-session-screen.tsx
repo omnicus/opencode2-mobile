@@ -8,12 +8,11 @@ import {
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useDeferredValue, useEffect, useRef, useState } from "react";
+import { type ReactNode, useDeferredValue, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -21,10 +20,12 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Button } from "../components/button";
 import { SearchField } from "../components/search-field";
+import { useAnnouncement } from "../components/use-announcement";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
@@ -138,10 +139,14 @@ export function NewSessionScreen({ navigation }: Props) {
     },
     onError: (caught) => {
       if (caught instanceof Error && caught.message === "REQUEST_ABORTED") return;
+      if (caught instanceof Error && caught.message === "LOCATION_PROJECT_MISMATCH") {
+        setSelectedProject(undefined);
+        setError("The project list changed. Choose the project again.");
+        void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
+        return;
+      }
       setError(
-        caught instanceof Error && caught.message === "LOCATION_PROJECT_MISMATCH"
-          ? "That directory no longer belongs to this project. Refresh projects and try again."
-          : "The session could not be created. Check this project and connection, then try again.",
+        "The session could not be created. Check this project and connection, then try again.",
       );
     },
     onMutate: () => setError(undefined),
@@ -190,45 +195,76 @@ export function NewSessionScreen({ navigation }: Props) {
   const loading =
     selection.preferencesLoading || selection.projectsLoading || defaultLocationQuery.isPending;
   const disabled = createMutation.isPending || selection.preferencesSaving;
+  const creating = createMutation.isPending ? createMutation.variables : undefined;
+  const onLocationStep = Boolean(selectedProject);
+  const blockBackRef = useRef(false);
+  blockBackRef.current = onLocationStep && !createMutation.isPending;
+  useAnnouncement(createMutation.isPending && "Creating session");
+  useAnnouncement(error);
+
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: !onLocationStep || createMutation.isPending });
+  }, [createMutation.isPending, navigation, onLocationStep]);
+
+  // Back and the iOS swipe-down return to Projects from the location step instead of closing.
+  useEffect(
+    () =>
+      navigation.addListener("beforeRemove", (event) => {
+        const { type } = event.data.action;
+        if (type === "REPLACE") return;
+        if (!closedRef.current && blockBackRef.current && (type === "GO_BACK" || type === "POP")) {
+          event.preventDefault();
+          setError(undefined);
+          setSelectedProject(undefined);
+          return;
+        }
+        closedRef.current = true;
+        createAbortRef.current?.abort();
+      }),
+    [navigation],
+  );
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.screen}>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.keyboardView}
-      >
+      <KeyboardAvoidingView behavior="padding" style={styles.keyboardView}>
         <View style={[styles.header, largeText && styles.headerLargeText]}>
+          <View style={[styles.headerSide, largeText && styles.headerSideLargeText]}>
+            <Pressable
+              accessibilityRole="button"
+              android_ripple={
+                Platform.OS === "android"
+                  ? { color: "rgba(255,255,255,0.12)", borderless: true }
+                  : undefined
+              }
+              onPress={close}
+              style={({ pressed }) => [
+                styles.cancelButton,
+                pressed && Platform.OS === "ios" && styles.pressed,
+              ]}
+            >
+              <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.cancelLabel}>
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
           <View style={[styles.heading, largeText && styles.headingLargeText]}>
             <Text
               accessibilityRole="header"
               dynamicTypeRamp={typeRamp.navTitle}
-              style={styles.title}
+              style={[styles.title, largeText && styles.headingTextLargeText]}
             >
               {selectedProject ? "Choose location" : "New session"}
             </Text>
-            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
+            <Text
+              dynamicTypeRamp={typeRamp.footnote}
+              style={[styles.subtitle, largeText && styles.headingTextLargeText]}
+            >
               {selectedProject
                 ? projectLabel(selectedProject)
                 : "Choose where this session should start."}
             </Text>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            android_ripple={
-              Platform.OS === "android"
-                ? { color: "rgba(255,255,255,0.12)", borderless: true }
-                : undefined
-            }
-            onPress={close}
-            style={({ pressed }) => [
-              styles.cancelButton,
-              pressed && Platform.OS === "ios" && styles.pressed,
-            ]}
-          >
-            <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.cancelLabel}>
-              Cancel
-            </Text>
-          </Pressable>
+          {largeText ? null : <View style={styles.headerSide} />}
         </View>
 
         {selectedProject ? (
@@ -257,6 +293,10 @@ export function NewSessionScreen({ navigation }: Props) {
               keyExtractor={(choice) => choice.key}
               renderItem={({ item: choice }) => (
                 <LocationButton
+                  busy={
+                    creating?.project.id === selectedProject.id &&
+                    locationKey(creating.requested) === choice.key
+                  }
                   disabled={disabled}
                   directory={choice.location.directory}
                   label={choice.label}
@@ -340,6 +380,7 @@ export function NewSessionScreen({ navigation }: Props) {
                   </Text>
                 ) : item.project ? (
                   <ProjectButton
+                    busy={creating?.project.id === item.project.id}
                     disabled={disabled}
                     followed={followed.has(item.project.id)}
                     onPress={() => chooseProject(item.project as Project)}
@@ -354,14 +395,6 @@ export function NewSessionScreen({ navigation }: Props) {
           </View>
         )}
 
-        {createMutation.isPending ? (
-          <View accessibilityLiveRegion="polite" style={styles.creatingState}>
-            <ActivityIndicator color={palette.signal} />
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
-              Creating session...
-            </Text>
-          </View>
-        ) : null}
         {error ? (
           <Text
             accessibilityRole="alert"
@@ -397,18 +430,16 @@ function projectLocations(
   if (isDefaultProject && defaultRef && defaultRef.directory !== project.canonical) {
     choices.push({
       key: locationKey(defaultRef),
-      label: "Current server directory",
+      label: "Server's working directory",
       location: defaultRef,
     });
   }
-  let worktreeIndex = 0;
   for (const directory of project.sandboxes) {
     if (choices.some((choice) => choice.location.directory === directory)) continue;
-    worktreeIndex += 1;
     const location = { directory };
     choices.push({
       key: locationKey(location),
-      label: `Worktree ${worktreeIndex}`,
+      label: directory.split(/[\\/]/).filter(Boolean).at(-1) || directory,
       location,
     });
   }
@@ -447,11 +478,13 @@ function projectRows(projects: Project[], followed: ReadonlySet<string>, showOth
 }
 
 function ProjectButton({
+  busy,
   disabled,
   followed,
   onPress,
   project,
 }: {
+  busy: boolean;
   disabled: boolean;
   followed: boolean;
   onPress: () => void;
@@ -460,23 +493,16 @@ function ProjectButton({
   const label = projectLabel(project);
   const path = sanitizeTranscriptText(project.canonical, 1_024);
   return (
-    <Pressable
+    <ChoiceRow
       accessibilityLabel={`${label}, ${followed ? "followed" : "not followed, will be added to Sessions"}, ${path}`}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      android_ripple={rowRipple}
+      busy={busy}
       disabled={disabled}
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.project,
-        disabled && styles.disabled,
-        pressed && Platform.OS === "ios" && styles.pressed,
-      ]}
     >
       <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
         {label}
       </Text>
-      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.projectPath}>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.projectPath}>
         {path}
       </Text>
       {!followed ? (
@@ -484,16 +510,18 @@ function ProjectButton({
           Will be added to Sessions
         </Text>
       ) : null}
-    </Pressable>
+    </ChoiceRow>
   );
 }
 
 function LocationButton({
+  busy,
   directory,
   disabled,
   label,
   onPress,
 }: {
+  busy: boolean;
   directory: string;
   disabled: boolean;
   label: string;
@@ -501,25 +529,52 @@ function LocationButton({
 }) {
   const path = sanitizeTranscriptText(directory, 1_024);
   return (
-    <Pressable
+    <ChoiceRow
       accessibilityLabel={`${label}, ${path}`}
+      busy={busy}
+      disabled={disabled}
+      onPress={onPress}
+    >
+      <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
+        {label}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.projectPath}>
+        {path}
+      </Text>
+    </ChoiceRow>
+  );
+}
+
+function ChoiceRow({
+  accessibilityLabel,
+  busy,
+  children,
+  disabled,
+  onPress,
+}: {
+  accessibilityLabel: string;
+  busy: boolean;
+  children: ReactNode;
+  disabled: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityLabel={busy ? `${accessibilityLabel}, creating session` : accessibilityLabel}
+      accessibilityLiveRegion={busy ? "polite" : "none"}
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
+      accessibilityState={{ busy, disabled }}
       android_ripple={rowRipple}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.project,
-        disabled && styles.disabled,
+        disabled && !busy && styles.disabled,
         pressed && Platform.OS === "ios" && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
-        {label}
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.projectPath}>
-        {path}
-      </Text>
+      <View style={styles.projectCopy}>{children}</View>
+      {busy ? <ActivityIndicator color={palette.signal} /> : null}
     </Pressable>
   );
 }
@@ -556,18 +611,9 @@ const styles = StyleSheet.create({
   cancelButton: {
     justifyContent: "center",
     minHeight: minTouchTarget,
-    paddingHorizontal: space.sm,
+    minWidth: minTouchTarget,
   },
   cancelLabel: { ...typography.navTitle, color: palette.signal },
-  creatingState: {
-    alignItems: "center",
-    borderTopColor: palette.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: space.sm,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-  },
   disabled: { opacity: disabledOpacity },
   emptyState: { alignItems: "center", gap: space.xs, paddingVertical: space.xl },
   error: { ...typography.subheadline, color: palette.danger, textAlign: "center" },
@@ -588,18 +634,29 @@ const styles = StyleSheet.create({
     minHeight: 64,
     paddingHorizontal: space.md,
   },
-  heading: { flex: 1, minWidth: 0 },
-  headerLargeText: { alignItems: "flex-start", flexDirection: "column", paddingVertical: space.sm },
-  headingLargeText: { flex: 0, width: "100%" },
+  headerSide: { alignItems: "flex-start", flex: 1 },
+  headerSideLargeText: { flex: 0 },
+  heading: { alignItems: "center", flexShrink: 1, maxWidth: "50%" },
+  headingTextLargeText: { textAlign: "left" },
+  headerLargeText: {
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: space.xs,
+    paddingVertical: space.sm,
+  },
+  headingLargeText: { alignItems: "flex-start", maxWidth: "100%", width: "100%" },
   keyboardView: { flex: 1 },
   listContent: { paddingBottom: space.xl },
   pressed: { opacity: pressedOpacity },
   project: {
     ...cardSurface,
-    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.sm,
     minHeight: 64,
     overflow: "hidden",
   },
+  projectCopy: { flex: 1, minWidth: 0 },
   projectPath: {
     ...typography.footnote,
     color: palette.dim,
@@ -624,6 +681,6 @@ const styles = StyleSheet.create({
   },
   stateCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
   stateTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
-  subtitle: { ...typography.footnote, color: palette.dim, marginTop: 2 },
-  title: { ...typography.navTitle, color: palette.ink },
+  subtitle: { ...typography.footnote, color: palette.dim, marginTop: 2, textAlign: "center" },
+  title: { ...typography.navTitle, color: palette.ink, textAlign: "center" },
 });

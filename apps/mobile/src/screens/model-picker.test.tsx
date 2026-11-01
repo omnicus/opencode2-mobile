@@ -1,7 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import type { ModelInfo } from "@opencode2-mobile/opencode-adapter";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { palette } from "../theme";
+import { minTouchTarget, palette } from "../theme";
 import { ModelPicker } from "./model-picker";
 
 const models = [
@@ -95,4 +95,22 @@ test("duplicate display names remain distinguishable by provider and model ID", 
   expect(screen.getByRole("button", { name: "Shared name, second" })).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Shared name, first, beta" }));
   expect(onSelect).toHaveBeenCalledWith({ id: "beta", providerID: "first" });
+});
+
+test("model rows meet the touch target and search uses the search return key", () => {
+  render(
+    <ModelPicker
+      models={models}
+      model={undefined}
+      favorites={undefined}
+      state={undefined}
+      visible
+      onSelect={jest.fn()}
+      onClose={jest.fn()}
+    />,
+  );
+  expect(screen.getByLabelText("Search models").props.returnKeyType).toBe("search");
+  expect(screen.getByRole("button", { name: "Model One, p" })).toHaveStyle({
+    minHeight: minTouchTarget,
+  });
 });
