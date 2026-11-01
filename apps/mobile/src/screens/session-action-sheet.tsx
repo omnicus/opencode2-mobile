@@ -58,6 +58,8 @@ export function SessionActionSheet({
     runtime.status === "connected" &&
     Boolean(runtime.restClient);
 
+  const canSaveName = connected && Boolean(title.trim()) && title.trim() !== session.title;
+
   async function perform(action: "rename" | "archive" | "delete") {
     if (controllerRef.current || runtime.connectionId !== connectionId) return;
     if (action !== "archive" && (!connected || !runtime.restClient)) return;
@@ -218,11 +220,15 @@ export function SessionActionSheet({
             editable={!busy}
             keyboardAppearance="dark"
             maxLength={512}
+            onSubmitEditing={() => {
+              if (canSaveName) void perform("rename");
+            }}
+            returnKeyType="done"
             style={styles.input}
           />
           <Button
             busy={busy}
-            disabled={!connected || !title.trim() || title.trim() === session.title}
+            disabled={!canSaveName}
             fullWidth
             label={busy ? "Saving" : "Save name"}
             onPress={() => void perform("rename")}

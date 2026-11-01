@@ -120,6 +120,28 @@ test("renames through the adapter and closes only after confirmation", async () 
   }
 });
 
+test("the keyboard Done key saves the name, but not an unchanged one", async () => {
+  const view = mount();
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Rename" }));
+    const input = screen.getByLabelText("Session name");
+    expect(input.props).toMatchObject({ keyboardAppearance: "dark", returnKeyType: "done" });
+    fireEvent(input, "submitEditing");
+    expect(mockRename).not.toHaveBeenCalled();
+    fireEvent.changeText(input, "Typed title");
+    fireEvent(input, "submitEditing");
+    await waitFor(() => expect(view.onClose).toHaveBeenCalledTimes(1));
+    expect(mockRename).toHaveBeenCalledWith(
+      {},
+      "ses_one",
+      "Typed title",
+      expect.objectContaining({ signal: expect.anything() }),
+    );
+  } finally {
+    view.cleanup();
+  }
+});
+
 test("dev tools open within the session menu without another overflow button", async () => {
   const view = mount();
   try {

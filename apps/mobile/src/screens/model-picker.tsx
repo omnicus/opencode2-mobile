@@ -103,6 +103,7 @@ export function ModelPicker({
         clearAccessibilityLabel="Clear model search"
         onChangeText={setSearch}
         placeholder="Search models"
+        returnKeyType="search"
         value={search}
       />
       {state?.error ? (
@@ -233,7 +234,7 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 52,
+    minHeight: minTouchTarget,
     paddingVertical: space.sm,
     paddingRight: space.sm,
     gap: space.sm,
