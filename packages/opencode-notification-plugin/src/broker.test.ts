@@ -54,6 +54,10 @@ describe("notification broker access", () => {
     "http://127.0.0.1:37101/v1",
     "http://127.0.0.1:37101/?token=1",
     "http://127.0.0.1:37101/#token",
+    // The broker's plugin port listens on IPv4 loopback only.
+    "http://[::1]:37101",
+    "http://[0:0:0:0:0:0:0:1]:37101",
+    "http://[::ffff:127.0.0.1]:37101",
   ])("rejects the non-loopback or decorated origin %s", async (brokerOrigin) => {
     await expect(readBrokerAccess({ brokerOrigin, tokenFile })).rejects.toThrow(
       "INVALID_NOTIFICATION_BROKER_ORIGIN",

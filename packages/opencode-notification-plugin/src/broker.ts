@@ -16,7 +16,7 @@ export async function readBrokerAccess(options: Readonly<Record<string, unknown>
   const url = new URL(brokerOrigin);
   if (
     url.protocol !== "http:" ||
-    (url.hostname !== "127.0.0.1" && url.hostname !== "localhost" && url.hostname !== "::1") ||
+    (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") ||
     url.username ||
     url.password ||
     url.pathname !== "/" ||
