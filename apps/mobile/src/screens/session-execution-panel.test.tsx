@@ -3,7 +3,7 @@ import type { SessionInboxInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { palette, typography } from "../theme";
 import type { PromptAdmission } from "./prompt-admission-model";
-import { SessionExecutionPanel } from "./session-execution-panel";
+import { SessionExecutionPanel, SessionWorkingStatus } from "./session-execution-panel";
 
 const callbacks = {
   onBackground: jest.fn(),
@@ -32,6 +32,37 @@ test("composer-owned Stop removes the duplicate panel control", () => {
   );
   expect(screen.getByText("Working")).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+});
+
+test("a transcript-pinned status leaves the panel empty while only working", () => {
+  render(
+    <SessionExecutionPanel
+      active
+      canBackground
+      hideInterrupt
+      hideStatus
+      admissions={[]}
+      inbox={[]}
+      permissions={[]}
+      permissionReplyError={false}
+      projectedMessageIds={new Set()}
+      {...callbacks}
+    />,
+  );
+  expect(screen.queryByLabelText("Session execution")).toBeNull();
+  expect(screen.queryByText("Working")).toBeNull();
+  const onBackground = jest.fn();
+  render(
+    <SessionWorkingStatus
+      canBackground
+      hideInterrupt
+      onBackground={onBackground}
+      onInterrupt={jest.fn()}
+    />,
+  );
+  expect(screen.getByText("Working")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Move to background" }));
+  expect(onBackground).toHaveBeenCalledTimes(1);
 });
 
 test.each(["admitted", "queued", "steered", "promoted", "executing"] as const)(

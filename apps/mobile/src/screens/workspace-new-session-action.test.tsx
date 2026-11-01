@@ -39,6 +39,16 @@ test("thumb action is available only when eligible and the keyboard is hidden", 
   }
 });
 
+test("workspace gear sits at the left edge and New session at the right edge", () => {
+  render(
+    <WorkspaceNewSessionAction eligible showSettings onNavigate={jest.fn()} onPress={jest.fn()} />,
+  );
+  const [first, second] = screen.getAllByRole("button");
+  expect(first).toHaveAccessibleName("Workspace options");
+  expect(second).toHaveAccessibleName("New session");
+  expect(second).toHaveStyle({ marginLeft: "auto" });
+});
+
 test("floating workspace gear remains available without an eligible new session pill", () => {
   const navigate = jest.fn();
   render(

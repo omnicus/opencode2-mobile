@@ -109,13 +109,14 @@ test("idle composer never offers Stop", () => {
 
 test("composer chips use compact type without shrinking chat or touch targets", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
+  fireEvent(screen.getByLabelText("Prompt"), "focus");
   for (const label of ["Choose model", "Default", "Choose agent"])
     expect(screen.getByText(label)).toHaveStyle({ fontSize: 12, lineHeight: 18 });
   for (const prefix of ["Model", "Variant", "Agent"])
     expect(screen.getByRole("button", { name: new RegExp(`^${prefix}:`) })).toHaveStyle({
       minHeight: 44,
     });
-  expect(screen.getByLabelText("Prompt")).toHaveStyle({ fontSize: 16 });
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ fontSize: 17 });
 });
 
 test.each([false, true])("composer placeholder is Message while active %s", (active) => {
@@ -233,19 +234,18 @@ test("closes before publishing an immediate active-session transition", () => {
   dismissKeyboard.mockRestore();
 });
 
-test("keeps model, variant, and agent chips visible in the composer footer", () => {
+test("collapses to one pill and shows model, variant, and agent chips while expanded", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
 
   const input = screen.getByLabelText("Prompt");
   expect(input).toHaveStyle({ height: 42 });
-  expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: /^Model:/ })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull();
   expect(screen.queryByRole("button", { name: "Composer options" })).toBeNull();
 
   fireEvent(input, "focus");
 
-  expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
+  expect(input).toHaveStyle({ minHeight: 58, maxHeight: 120 });
   expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Variant: Default" })).toBeDisabled();
@@ -257,7 +257,7 @@ test("lets native multiline layout grow without waiting for a size-change event"
   const input = screen.getByLabelText("Prompt");
   fireEvent(input, "focus");
   // The native test environment uses 200% font scaling.
-  expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
+  expect(input).toHaveStyle({ minHeight: 58, maxHeight: 120 });
   expect(StyleSheet.flatten(input.props.style).height).toBeUndefined();
   fireEvent.changeText(input, "First line\nSecond line\nThird line");
   expect(input.props.value).toBe("First line\nSecond line\nThird line");
@@ -266,7 +266,7 @@ test("lets native multiline layout grow without waiting for a size-change event"
   // even if iOS does not emit another content-size event at that fixed limit.
   expect(input.props.scrollEnabled).toBe(true);
   fireEvent.changeText(input, "");
-  expect(input).toHaveStyle({ minHeight: 56, maxHeight: 120 });
+  expect(input).toHaveStyle({ minHeight: 58, maxHeight: 120 });
 });
 
 test("keeps send in the focused composer toolbar", () => {
@@ -363,6 +363,7 @@ test("selects a server agent and model", () => {
 
 test("selects a variant separately and can return to the model default", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
+  fireEvent(screen.getByLabelText("Prompt"), "focus");
   fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
   fireEvent.press(screen.getByRole("button", { name: /Model One/ }));
   fireEvent.press(screen.getByRole("button", { name: "Variant: Default" }));
@@ -376,6 +377,7 @@ test("selects a variant separately and can return to the model default", () => {
 
 test("opening and closing a footer picker keeps the current draft", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
+  fireEvent(screen.getByLabelText("Prompt"), "focus");
   fireEvent.changeText(screen.getByLabelText("Prompt"), "Keep this prompt");
   fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
   expect(screen.queryByRole("button", { name: "Close Composer options" })).toBeNull();

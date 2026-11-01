@@ -22,6 +22,7 @@ export function SessionExecutionPanel({
   canBackground = false,
   formRequests,
   hideInterrupt = false,
+  hideStatus = false,
   inbox,
   onAllowRetry,
   onCancelInbox,
@@ -41,6 +42,8 @@ export function SessionExecutionPanel({
   canBackground?: boolean;
   formRequests?: ReactNode;
   hideInterrupt?: boolean;
+  // The session screen pins the status row to the bottom of the transcript instead.
+  hideStatus?: boolean;
   inbox: SessionInboxInfo[];
   onAllowRetry: (admissionID: string) => void;
   onCancelInbox: (inboxID: string) => void;
@@ -128,7 +131,7 @@ export function SessionExecutionPanel({
       promptAdmissionNeedsOverlay(admission, projectedMessageIds.has(admission.id)),
   );
   if (
-    !active &&
+    (!active || hideStatus) &&
     !sending &&
     promptInbox.length === 0 &&
     localOverlays.length === 0 &&
@@ -145,54 +148,15 @@ export function SessionExecutionPanel({
       keyboardShouldPersistTaps="handled"
       style={[styles.shell, permissions.length > 0 && { maxHeight: height * 0.65 }]}
     >
-      {active ? (
-        <View style={styles.executionRow}>
-          <View style={styles.headingRow}>
-            {permissions.length > 0 || formRequests ? (
-              <View style={styles.activeDot} />
-            ) : (
-              <WorkingIndicator variant="blocks" />
-            )}
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.executionTitle}>
-              {permissions.length > 0
-                ? "Waiting for permission"
-                : formRequests
-                  ? "Waiting for input"
-                  : "Working"}
-            </Text>
-          </View>
-          {canBackground && onBackground && permissions.length === 0 && !formRequests ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: Boolean(busyAction) }}
-              disabled={Boolean(busyAction)}
-              onPress={onBackground}
-              style={[styles.stopButton, busyAction && styles.disabled]}
-            >
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
-                {busyAction === "background" ? "Moving to background" : "Move to background"}
-              </Text>
-            </Pressable>
-          ) : null}
-          {!hideInterrupt ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityHint="Interrupts the current session"
-              accessibilityState={{ disabled: Boolean(busyAction) }}
-              disabled={Boolean(busyAction)}
-              onPress={onInterrupt}
-              style={({ pressed }) => [
-                styles.stopButton,
-                busyAction && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
-                {busyAction === "interrupt" ? "Stopping" : "Stop"}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
+      {active && !hideStatus ? (
+        <SessionWorkingStatus
+          busyAction={busyAction}
+          canBackground={canBackground}
+          hideInterrupt={hideInterrupt}
+          onBackground={onBackground}
+          onInterrupt={onInterrupt}
+          waitingFor={permissions.length > 0 ? "permission" : formRequests ? "input" : undefined}
+        />
       ) : null}
 
       {permissions.map((request) => (
@@ -317,6 +281,72 @@ function boundedPromptPreview(text: string) {
   return sanitized.length > 2_000 ? `${sanitized.slice(0, 2_000)}\n...` : sanitized;
 }
 
+export function SessionWorkingStatus({
+  busyAction,
+  canBackground = false,
+  hideInterrupt = false,
+  onBackground,
+  onInterrupt,
+  waitingFor,
+}: {
+  busyAction?: "background" | "interrupt" | "wait" | undefined;
+  canBackground?: boolean;
+  hideInterrupt?: boolean;
+  onBackground?: (() => void) | undefined;
+  onInterrupt: () => void;
+  waitingFor?: "permission" | "input" | undefined;
+}) {
+  return (
+    <View style={styles.executionRow}>
+      <View style={styles.headingRow}>
+        {waitingFor ? <View style={styles.activeDot} /> : <WorkingIndicator />}
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.executionTitle}>
+          {waitingFor === "permission"
+            ? "Waiting for permission"
+            : waitingFor === "input"
+              ? "Waiting for input"
+              : "Working"}
+        </Text>
+      </View>
+      {canBackground && onBackground && !waitingFor ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: Boolean(busyAction) }}
+          disabled={Boolean(busyAction)}
+          onPress={onBackground}
+          style={({ pressed }) => [
+            styles.stopButton,
+            busyAction && styles.disabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
+            {busyAction === "background" ? "Moving to background" : "Move to background"}
+          </Text>
+        </Pressable>
+      ) : null}
+      {!hideInterrupt ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityHint="Interrupts the current session"
+          accessibilityState={{ disabled: Boolean(busyAction) }}
+          disabled={Boolean(busyAction)}
+          onPress={onInterrupt}
+          style={({ pressed }) => [
+            styles.stopButton,
+            busyAction && styles.disabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text dynamicTypeRamp={typeRamp.control} style={styles.stopLabel}>
+            {busyAction === "interrupt" ? "Stopping" : "Stop"}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   actionButton: {
     ...control,
@@ -348,10 +378,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: space.sm,
     justifyContent: "space-between",
-    paddingHorizontal: space.sm,
     minHeight: 44,
   },
-  executionTitle: { ...typography.caption, color: palette.dim, flexShrink: 1 },
+  executionTitle: { ...typography.chatActivity, color: palette.dim, flexShrink: 1 },
   stopButton: { minHeight: 44, minWidth: 44, alignItems: "center", justifyContent: "center" },
   stopLabel: { ...typography.control, color: palette.ink },
   headingRow: { alignItems: "center", flexDirection: "row", flexShrink: 1, gap: space.sm },

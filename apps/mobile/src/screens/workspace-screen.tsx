@@ -85,7 +85,7 @@ import {
 import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
-import { SessionExecutionPanel } from "./session-execution-panel";
+import { SessionExecutionPanel, SessionWorkingStatus } from "./session-execution-panel";
 import { SessionShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
@@ -1201,6 +1201,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       />
       <SessionExecutionPanel
         hideInterrupt
+        hideStatus
         active={execution.active}
         admissions={execution.admissions}
         busyAction={execution.busyAction}
@@ -1379,6 +1380,27 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                   </Text>
                 ) : null}
               </View>
+            }
+            // The inverted list draws its header below the newest row.
+            ListHeaderComponent={
+              execution.active ? (
+                <View style={styles.workingStatus}>
+                  <SessionWorkingStatus
+                    hideInterrupt
+                    busyAction={execution.busyAction}
+                    canBackground={execution.canBackground}
+                    onBackground={execution.background}
+                    onInterrupt={execution.interrupt}
+                    waitingFor={
+                      sessionPermissions.length > 0
+                        ? "permission"
+                        : sessionForms.length > 0
+                          ? "input"
+                          : undefined
+                    }
+                  />
+                </View>
+              ) : null
             }
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             maxToRenderPerBatch={12}
@@ -1933,6 +1955,7 @@ function sentenceCase(value: string) {
 
 const styles = StyleSheet.create({
   composerDock: { bottom: 0, left: 0, position: "absolute", right: 0, zIndex: 20 },
+  workingStatus: { paddingHorizontal: space.md },
   childAttention: { color: palette.warm, fontSize: 11, fontWeight: "800" },
   childBranch: { backgroundColor: palette.border, height: 1, width: 18 },
   childRow: {

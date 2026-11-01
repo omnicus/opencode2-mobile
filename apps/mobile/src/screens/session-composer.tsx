@@ -223,7 +223,7 @@ export function SessionComposer({
 
   return (
     <View accessibilityLabel="Session composer" style={styles.shell}>
-      <View style={[styles.surface, styles.surfaceExpanded]}>
+      <View style={[styles.surface, expanded && styles.surfaceExpanded]}>
         <View
           accessibilityLabel="Prompt editor"
           style={[styles.editorRow, expanded && styles.editorRowExpanded]}
@@ -340,55 +340,58 @@ export function SessionComposer({
           </ScrollView>
         ) : null}
 
-        <View style={styles.toolbar}>
-          <ScrollView
-            contentContainerStyle={styles.selectorRow}
-            horizontal
-            keyboardShouldPersistTaps="always"
-            showsHorizontalScrollIndicator={false}
-            style={styles.selectorScroller}
-          >
-            <SelectorButton
-              compact
-              label={modelLabel(selectedModel, model)}
-              onPress={() => {
-                Keyboard.dismiss();
-                setModelPickerOpen(true);
-              }}
-              prefix="Model"
-              buttonRef={modelSelectorRef}
-            />
-            <SelectorButton
-              compact
-              label={model?.variant ?? "Default"}
-              prefix="Variant"
-              buttonRef={variantSelectorRef}
-              disabled={!selectedModel?.variants.length}
-              onPress={() => {
-                Keyboard.dismiss();
-                pickerReturnFocusRef.current = variantSelectorRef;
-                setOptionsPage("variant");
-              }}
-            />
-            <SelectorButton
-              compact
-              label={selectedAgent?.name ?? agent ?? "Choose agent"}
-              prefix="Agent"
-              buttonRef={agentSelectorRef}
-              onPress={() => {
-                Keyboard.dismiss();
-                setAgentSearch("");
-                pickerReturnFocusRef.current = agentSelectorRef;
-                setOptionsPage("agent");
-              }}
-            />
-            {draft.length >= maximumDraftLength * 0.9 ? (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.count}>
-                {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
-              </Text>
-            ) : null}
-          </ScrollView>
-        </View>
+        {/* Model, variant, and agent appear once the composer expands for input. */}
+        {expanded ? (
+          <View style={styles.toolbar}>
+            <ScrollView
+              contentContainerStyle={styles.selectorRow}
+              horizontal
+              keyboardShouldPersistTaps="always"
+              showsHorizontalScrollIndicator={false}
+              style={styles.selectorScroller}
+            >
+              <SelectorButton
+                compact
+                label={modelLabel(selectedModel, model)}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setModelPickerOpen(true);
+                }}
+                prefix="Model"
+                buttonRef={modelSelectorRef}
+              />
+              <SelectorButton
+                compact
+                label={model?.variant ?? "Default"}
+                prefix="Variant"
+                buttonRef={variantSelectorRef}
+                disabled={!selectedModel?.variants.length}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  pickerReturnFocusRef.current = variantSelectorRef;
+                  setOptionsPage("variant");
+                }}
+              />
+              <SelectorButton
+                compact
+                label={selectedAgent?.name ?? agent ?? "Choose agent"}
+                prefix="Agent"
+                buttonRef={agentSelectorRef}
+                onPress={() => {
+                  Keyboard.dismiss();
+                  setAgentSearch("");
+                  pickerReturnFocusRef.current = agentSelectorRef;
+                  setOptionsPage("agent");
+                }}
+              />
+              {draft.length >= maximumDraftLength * 0.9 ? (
+                <Text dynamicTypeRamp={typeRamp.caption} style={styles.count}>
+                  {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
+                </Text>
+              ) : null}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
 
       {error ? (
@@ -872,20 +875,24 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: { backgroundColor: palette.border, opacity: 0.68 },
   stopIcon: { width: 12, height: 12, borderRadius: 2, backgroundColor: palette.background },
+  // Collapsed, the composer floats as one pill like the OpenCode iOS app.
   shell: {
-    backgroundColor: palette.background,
     gap: space.xs,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   surface: {
     backgroundColor: palette.card,
     borderColor: palette.border,
+    borderRadius: 28,
     borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
+    boxShadow: "0px 4px 16px rgba(0, 0, 0, 0.35)",
+    paddingLeft: 16,
+    paddingRight: 4,
+    paddingVertical: 4,
   },
   surfaceExpanded: {
-    borderRadius: 10,
+    borderRadius: 22,
     gap: 2,
     paddingBottom: 6,
     paddingHorizontal: 12,

@@ -26,6 +26,13 @@ import {
   type SubagentProtocolText,
   sanitizeTranscriptText,
 } from "./session-transcript-model";
+import {
+  attachmentImages,
+  isInlineImageAttachment,
+  messageToolImages,
+  TranscriptImages,
+  toolImages,
+} from "./transcript-images";
 import { parseTranscriptLink } from "./transcript-link-card";
 import { InlineTranscriptMarkdown, TranscriptMarkdown } from "./transcript-markdown";
 
@@ -361,13 +368,13 @@ export function TranscriptActivityGroup({
         style={[styles.activityGroupHeader, largeText && styles.activityGroupHeaderLargeText]}
       >
         <Text
-          dynamicTypeRamp={typeRamp.control}
+          dynamicTypeRamp={typeRamp.body}
           style={[styles.activitySummary, largeText && styles.activitySummaryLargeText]}
         >
           Used <Text style={styles.activityLabel}>{activitySummary(item.messages).slice(5)}</Text>
         </Text>
         <Text
-          dynamicTypeRamp={typeRamp.caption}
+          dynamicTypeRamp={typeRamp.body}
           style={[styles.toolProgress, failureSummary && styles.toolProgressFailed]}
         >
           {progressLabel}
@@ -381,6 +388,7 @@ export function TranscriptActivityGroup({
           {failureSummary}. Expand for details.
         </Text>
       ) : null}
+      <TranscriptImages images={messageToolImages(item.messages)} />
       {expanded
         ? item.messages.map((message) => (
             <SessionTranscriptRow
@@ -430,6 +438,9 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
     case "user":
       return (
         <View style={styles.userRow}>
+          <View style={styles.userImages}>
+            <TranscriptImages images={attachmentImages(message.files)} />
+          </View>
           <View style={[styles.userBubble, largeText && styles.userBubbleLargeText]}>
             <ExpandableText measureWidth style={styles.userText} text={message.text} />
             <AttachmentLabels largeText={largeText} message={message} />
@@ -594,7 +605,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
     case "agent-switched":
       return (
         <View style={styles.notice}>
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
+          <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
             Agent changed to{" "}
             <Text style={styles.activityLabel}>
               {sanitizeTranscriptText(capitalize(message.agent), 256)}
@@ -651,6 +662,7 @@ function AttachmentLabels({
   const labels: string[] = [];
   for (const file of message.files ?? []) {
     if (labels.length >= maxAttachments) break;
+    if (isInlineImageAttachment(file)) continue;
     labels.push(file.name?.trim() ? basename(file.name.trim()) : "File attachment");
   }
   for (const agent of message.agents ?? []) {
@@ -663,7 +675,9 @@ function AttachmentLabels({
   }
   if (labels.length === 0) return null;
   const attachmentCount =
-    (message.files?.length ?? 0) + (message.agents?.length ?? 0) + (message.skills?.length ?? 0);
+    (message.files?.filter((file) => !isInlineImageAttachment(file)).length ?? 0) +
+    (message.agents?.length ?? 0) +
+    (message.skills?.length ?? 0);
   const keyedLabels = withOccurrenceKeys(labels);
   return (
     <View accessibilityLabel={`${attachmentCount} attachments`} style={styles.attachments}>
@@ -790,6 +804,7 @@ function ExplorationDisclosure({
             />
           ))
         : null}
+      <TranscriptImages images={toolImages(tools)} />
     </View>
   );
 }
@@ -832,6 +847,7 @@ function ToolGroupDisclosure({
             />
           ))
         : null}
+      <TranscriptImages images={toolImages(tools)} />
       {category === "edit" && onOpenDiff ? <DiffAction onPress={onOpenDiff} /> : null}
     </View>
   );
@@ -875,7 +891,7 @@ function ToolDisclosure({
           onPress={() => setExpanded((value) => !value)}
           style={styles.loadedSkill}
         >
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.activitySummary}>
+          <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
             {running ? "Loading" : "Loaded"}{" "}
             <Text style={styles.activityLabel}>
               {name ? sanitizeTranscriptText(name, 256) : "Skill"}
@@ -1042,6 +1058,7 @@ function ToolDisclosure({
               ),
             )
           : null}
+        {nested ? null : <TranscriptImages images={toolImages([tool])} />}
         {expanded && content.length > visibleContent.length ? (
           <Text style={styles.omittedText}>Additional tool output omitted on this device.</Text>
         ) : null}
@@ -1101,12 +1118,12 @@ function ActivityHeader({
       ]}
     >
       <View style={[styles.activityCopy, largeText && styles.activityCopyLargeText]}>
-        <Text dynamicTypeRamp={typeRamp.control} style={styles.activityLabel}>
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.activityLabel}>
           {sanitizeTranscriptText(label, 128)}
         </Text>
         {detail ? (
           <Text
-            dynamicTypeRamp={typeRamp.control}
+            dynamicTypeRamp={typeRamp.body}
             numberOfLines={largeText ? undefined : 1}
             style={[styles.activityDetail, error && { color: palette.danger }]}
           >
@@ -1116,7 +1133,7 @@ function ActivityHeader({
       </View>
       {canExpand ? (
         <Text
-          dynamicTypeRamp={typeRamp.control}
+          dynamicTypeRamp={typeRamp.body}
           style={[styles.activityAction, largeText && styles.activityActionLargeText]}
         >
           {expanded ? "⌄" : "›"}
@@ -1853,7 +1870,7 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
-  toolProgress: { ...typography.caption, color: palette.dim, flexShrink: 0 },
+  toolProgress: { ...typography.chatActivity, color: palette.dim, flexShrink: 0 },
   toolProgressFailed: { color: palette.warm },
   activityFailureSummary: {
     ...typography.caption,
@@ -1914,7 +1931,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   loadedSkill: { minHeight: 44, justifyContent: "center", paddingVertical: 4 },
-  activityAction: { ...typography.compactControl, color: palette.dim },
+  activityAction: { ...typography.chatActivity, color: palette.dim },
   activityError: {
     borderBottomWidth: 0,
     marginHorizontal: -space.sm,
@@ -1932,7 +1949,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   activityCopyLargeText: { alignItems: "flex-start", flexDirection: "column", gap: 2 },
-  activityDetail: { ...typography.caption, color: palette.dim, flexShrink: 1 },
+  activityDetail: { ...typography.chatActivity, color: palette.dim, flexShrink: 1 },
   activityFile: {
     ...typography.code,
     borderTopColor: palette.border,
@@ -1950,8 +1967,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   activityHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
-  activityLabel: { ...typography.compactControl, color: palette.ink },
-  activitySummary: { ...typography.caption, color: palette.dim, flexShrink: 1 },
+  activityLabel: { ...typography.chatActivity, color: palette.ink, fontWeight: "500" },
+  activitySummary: { ...typography.chatActivity, color: palette.dim, flexShrink: 1 },
   activityNested: { marginLeft: 0 },
   compactActivity: { paddingLeft: space.sm, gap: 2 },
   toolDetails: { paddingLeft: 0 },
@@ -1978,7 +1995,7 @@ const styles = StyleSheet.create({
   disclosure: {
     backgroundColor: "transparent",
   },
-  disclosureAction: { ...typography.compactControl, color: palette.dim },
+  disclosureAction: { ...typography.chatActivity, color: palette.dim },
   disclosureActionLargeText: { alignSelf: "flex-start" },
   disclosureHeader: {
     alignItems: "center",
@@ -2089,6 +2106,7 @@ const styles = StyleSheet.create({
   pendingLabel: { ...typography.caption, color: palette.dim },
   // Supply intrinsic text width to Yoga; the native selection view supplies height.
   textWidthMeasurement: { height: 0, overflow: "hidden", opacity: 0 },
+  userImages: { width: "75%" },
   userRow: { alignItems: "flex-end", paddingHorizontal: space.md, paddingVertical: space.md },
   userText: { ...typography.chatBody, color: palette.ink },
 });

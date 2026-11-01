@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
-import { palette, radius, space, typeRamp, typography } from "../theme";
+import { WorkingIndicator } from "../components/working-indicator";
+import { palette, space, typeRamp, typography } from "../theme";
 import { runningBackgroundSubagents } from "./session-transcript-model";
 
 export function SessionBackgroundTasks({
@@ -29,11 +30,13 @@ export function SessionBackgroundTasks({
         accessibilityLabel={`${label} running in background`}
         accessibilityHint="Shows background tasks for this session"
         accessibilityState={{ expanded: visible }}
+        hitSlop={4}
         onPress={() => setVisible(true)}
         style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
       >
+        <WorkingIndicator />
         <Text dynamicTypeRamp={typeRamp.control} style={styles.label}>
-          {label} · Running
+          {label}
         </Text>
       </Pressable>
       <ModalSheet
@@ -77,13 +80,19 @@ export function SessionBackgroundTasks({
 
 const styles = StyleSheet.create({
   container: { paddingHorizontal: space.md, paddingVertical: space.xs },
+  // Floats above the composer as a compact pill, like the OpenCode iOS app.
   chip: {
+    alignItems: "center",
     alignSelf: "flex-start",
-    minHeight: 44,
-    justifyContent: "center",
-    borderRadius: radius.lg,
     backgroundColor: palette.card,
-    paddingHorizontal: space.md,
+    borderColor: palette.border,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.3)",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: 36,
+    paddingHorizontal: 14,
   },
   label: { ...typography.control, color: palette.ink, flexShrink: 1 },
   row: {
