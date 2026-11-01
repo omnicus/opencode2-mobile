@@ -8,6 +8,7 @@ import type {
   FollowedInboxSections,
   FollowedInboxStatus,
 } from "../state/followed-project-inbox";
+import type { AttentionCoverage } from "../state/followed-projects-context";
 
 type Project = ProjectListOutput[number];
 
@@ -42,6 +43,138 @@ export function sessionTimeDescription(value: number) {
   } catch {
     return "Updated earlier";
   }
+}
+
+export type SessionBranchState =
+  | { name: string; stale: boolean; state: "known" }
+  | { state: "loading" | "none" | "unavailable" };
+
+export function sessionBranchState(
+  current: string | undefined,
+  unavailable: boolean,
+  pending: boolean,
+): SessionBranchState {
+  if (current) return { name: current, stale: unavailable, state: "known" };
+  if (unavailable) return { state: "unavailable" };
+  return { state: pending ? "loading" : "none" };
+}
+
+export function sessionWaitingFor(
+  permissionCount: number,
+  formCount: number,
+): "input" | "permission" | undefined {
+  if (permissionCount > 0) return "permission";
+  return formCount > 0 ? "input" : undefined;
+}
+
+export function attentionNoticeVisible(
+  coverage: Pick<AttentionCoverage, "completeness" | "freshness">,
+) {
+  return (
+    coverage.freshness === "stale" ||
+    (coverage.freshness === "current" && coverage.completeness === "incomplete")
+  );
+}
+
+export function attentionNoticeText(visible: boolean, freshness: AttentionCoverage["freshness"]) {
+  if (!visible) return undefined;
+  return freshness === "stale"
+    ? "Request status is stale. Reconnect to check pending requests."
+    : "Some request locations could not be checked.";
+}
+
+export function connectionNoticeText(visible: boolean, cached: boolean) {
+  if (!visible) return undefined;
+  return cached
+    ? "Showing saved data until the server reconnects."
+    : "Waiting for current server data.";
+}
+
+export function pendingShortcutLabels(pendingCount: number) {
+  return {
+    accessibilityLabel: `${pendingCount} known ${pendingCount === 1 ? "request" : "requests"}`,
+    label: pendingCount > 99 ? "Needs you 99+" : `Needs you ${pendingCount}`,
+  };
+}
+
+export function selectFollowedProject(
+  projects: readonly Project[],
+  followedProjectIds: readonly string[],
+  defaultProjectId: string | undefined,
+  defaultDirectory: string | undefined,
+) {
+  const followedProjects = projects.filter((project) => followedProjectIds.includes(project.id));
+  const project =
+    followedProjects.find((candidate) => candidate.id === defaultProjectId) ?? followedProjects[0];
+  if (!project) return undefined;
+  return {
+    directory:
+      project.id === defaultProjectId && defaultDirectory ? defaultDirectory : project.canonical,
+    id: project.id,
+  };
+}
+
+export type TranscriptSize = { content: number; scope: string; viewport: number };
+
+export function shouldAutoFillTranscript(state: {
+  canLoadOlder: boolean;
+  connected: boolean;
+  liveFollowEnabled: boolean;
+  messagesError: boolean;
+  messagesPending: boolean;
+  ready: boolean;
+  size: TranscriptSize;
+  sizeScope: string;
+  visible: boolean;
+  viewportSlack: number;
+}) {
+  return (
+    state.canLoadOlder &&
+    state.visible &&
+    state.ready &&
+    state.connected &&
+    state.liveFollowEnabled &&
+    !state.messagesPending &&
+    !state.messagesError &&
+    state.size.scope === state.sizeScope &&
+    state.size.viewport > 0 &&
+    state.size.content > 0 &&
+    state.size.content < state.size.viewport - state.viewportSlack
+  );
+}
+
+export function withTranscriptContentSize(current: TranscriptSize, scope: string, height: number) {
+  if (current.scope === scope && current.content === height) return current;
+  return { scope, viewport: current.scope === scope ? current.viewport : 0, content: height };
+}
+
+export function withTranscriptViewportSize(current: TranscriptSize, scope: string, height: number) {
+  if (current.scope === scope && current.viewport === height) return current;
+  return { scope, viewport: height, content: current.scope === scope ? current.content : 0 };
+}
+
+export function mentionFileState<File>(state: {
+  deferredSearch: string | undefined;
+  executionLoading: boolean;
+  executionUnavailable: boolean;
+  files: File[] | undefined;
+  filesError: boolean;
+  filesPending: boolean;
+  search: string | undefined;
+}) {
+  const current = state.deferredSearch === state.search;
+  return {
+    files: current ? (state.files ?? []) : [],
+    loading:
+      state.executionLoading || (state.search !== undefined && (state.filesPending || !current)),
+    unavailable: state.executionUnavailable || state.filesError,
+  };
+}
+
+export function transcriptLoadErrorMessage(error: unknown) {
+  return error instanceof Error && error.message === "MALFORMED_MESSAGE_LIST"
+    ? "This server returned unsupported transcript data."
+    : "The transcript could not be loaded. Refresh and try again.";
 }
 
 export function needsComposerDockMeasurement(
