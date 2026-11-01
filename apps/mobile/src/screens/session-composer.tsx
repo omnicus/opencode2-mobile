@@ -12,12 +12,14 @@ import { type RefObject, useDeferredValue, useEffect, useRef, useState } from "r
 import {
   FlatList,
   Keyboard,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  type TextInputSelectionChangeEventData,
   useWindowDimensions,
   View,
 } from "react-native";
@@ -43,22 +45,32 @@ import {
 } from "./model-picker";
 import type { PromptDelivery } from "./prompt-admission-model";
 import {
+  agentPickerEmptyLabel,
   applyMentionCompletion,
   applySlashCompletion,
   type ComposerMention,
   type ComposerSubmitIntent,
+  commandCompletionStatus,
+  filterComposerAgents,
   findMentionTrigger,
   listMentionCompletions,
   listSlashCompletions,
   type MentionCompletion,
+  mentionCompletionKey,
+  mentionCompletionStatus,
+  mentionValue,
   rebaseComposerMentions,
   resolveComposerSubmitIntent,
+  resolveComposerSubmitState,
   type SlashCompletion,
 } from "./session-composer-model";
 
 const maximumDraftLength = 32_000;
 // A second tap on Send lands where Stop appears once the session starts, so keep Send for a moment.
 const stopAfterSendDelayMs = 600;
+
+type OptionsPage = "agent" | "variant";
+type DraftSelection = { end: number; start: number };
 
 export function SessionComposer({
   active,
@@ -134,91 +146,39 @@ export function SessionComposer({
   const agentSelectorRef = useRef<View>(null);
   const variantSelectorRef = useRef<View>(null);
   const pickerReturnFocusRef = useRef(agentSelectorRef);
-  const { fontScale } = useWindowDimensions();
-  const [optionsPage, setOptionsPage] = useState<"agent" | "variant">();
+  const [optionsPage, setOptionsPage] = useState<OptionsPage>();
   const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const [justSent, setJustSent] = useState(false);
-  const agentPickerOpen = optionsPage === "agent";
-  const variantPickerOpen = optionsPage === "variant";
+  const [justSent, markSent] = useJustSent();
   const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
   const deferredAgentSearch = useDeferredValue(agentSearch.trim().toLocaleLowerCase());
-  const selectedAgent = agents.find((candidate) => candidate.id === agent);
-  const selectedModel = models.find(
-    (candidate) => candidate.id === model?.id && candidate.providerID === model.providerID,
-  );
-  const visibleAgents = deferredAgentSearch
-    ? agents.filter((candidate) =>
-        `${candidate.name}\n${candidate.id}\n${candidate.description ?? ""}`
-          .toLocaleLowerCase()
-          .includes(deferredAgentSearch),
-      )
-    : agents;
+  const selectedModel = findModel(models, model);
   const expanded = largeText || focused || Boolean(optionsPage) || modelPickerOpen;
-  const minimumInputHeight = Math.max(40, typography.chatBody.lineHeight * fontScale + 8);
-  const maximumInputHeight = Math.max(120, minimumInputHeight * 2);
-  const completions = listSlashCompletions(draft, commands);
   const mentionTrigger = findMentionTrigger(draft, selection);
-  const mentionCompletions = mentionTrigger
-    ? listMentionCompletions(mentionTrigger.query, mentionAgents, skills, mentionFiles)
-    : [];
   const submitIntent = resolveComposerSubmitIntent(draft, commands, mentions, location);
-  const slashCatalogPending = completionLoading && draft.startsWith("/");
-  const slashCatalogUnavailable = completionUnavailable && draft.startsWith("/");
-  const submitHint = slashCatalogPending
-    ? "Wait for commands to load."
-    : slashCatalogUnavailable
-      ? "Commands are unavailable."
-      : undefined;
-  const canSubmit =
-    !disabled &&
-    !stopping &&
-    !slashCatalogPending &&
-    !slashCatalogUnavailable &&
-    draft.trim().length > 0 &&
-    (!active || delivery === "queue" || delivery === "steer");
-  const showStop = active && draft.trim().length === 0 && Boolean(onInterrupt) && !justSent;
+  const { canSubmit, showStop, submitHint } = resolveComposerSubmitState({
+    active,
+    completionLoading,
+    completionUnavailable,
+    delivery,
+    disabled,
+    draft,
+    interruptible: Boolean(onInterrupt),
+    justSent,
+    stopping,
+  });
 
-  useEffect(() => {
-    if (!justSent) return;
-    const timer = setTimeout(() => setJustSent(false), stopAfterSendDelayMs);
-    return () => clearTimeout(timer);
-  }, [justSent]);
-
-  useEffect(() => {
-    if (!focusOnMount || !editable) return;
-    const frame = requestAnimationFrame(() => inputRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, [editable, focusOnMount]);
-
-  useEffect(() => {
-    if (!focused) {
-      setSelection({ end: draft.length, start: draft.length });
-      return;
-    }
-    setSelection((current) =>
-      current.end <= draft.length ? current : { end: draft.length, start: draft.length },
-    );
-  }, [draft, focused]);
-
-  useEffect(() => {
-    onMentionSearchChange(mentionTrigger?.query);
-  }, [mentionTrigger?.query, onMentionSearchChange]);
-
-  useEffect(
-    () => () => {
-      onMentionSearchChange(undefined);
-    },
-    [onMentionSearchChange],
-  );
+  useFocusOnMount(inputRef, focusOnMount, editable);
+  useSelectionWithinDraft(draft, focused, setSelection);
+  useMentionSearch(mentionTrigger?.query, onMentionSearchChange);
 
   function submit() {
     if (!canSubmit) return;
     inputRef.current?.blur();
     setFocused(false);
     Keyboard.dismiss();
-    setJustSent(true);
+    markSent();
     onSubmit(submitIntent);
   }
 
@@ -226,7 +186,7 @@ export function SessionComposer({
     onDraftChange(nextDraft, rebaseComposerMentions(draft, nextDraft, mentions, selection));
   }
 
-  function selectCompletion(completion: (typeof completions)[number]) {
+  function selectCompletion(completion: SlashCompletion) {
     const nextDraft = applySlashCompletion(draft, completion);
     onDraftChange(nextDraft, mentions);
     setSelection({ end: nextDraft.length, start: nextDraft.length });
@@ -248,48 +208,16 @@ export function SessionComposer({
           accessibilityLabel="Prompt editor"
           style={[styles.editorRow, expanded && styles.editorRowExpanded]}
         >
-          <TextInput
-            keyboardAppearance="dark"
-            accessibilityHint="Enter inserts a new line. Use the Send button to submit."
-            accessibilityLabel="Prompt"
-            autoFocus={focusOnMount}
+          <PromptInput
+            draft={draft}
             editable={editable}
-            maxLength={maximumDraftLength}
-            multiline
-            onBlur={() => setFocused(false)}
+            expanded={expanded}
+            focusOnMount={focusOnMount}
+            inputRef={inputRef}
             onChangeText={changeDraft}
-            onFocus={() => setFocused(true)}
+            onFocusChange={setFocused}
             onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
-            placeholder="Message"
-            placeholderTextColor={palette.dim}
-            ref={inputRef}
-            returnKeyType="default"
-            scrollEnabled={expanded}
-            selectionColor={palette.signal}
             selection={selection}
-            style={[
-              styles.input,
-              // iOS Fabric emits content-size changes during layout. Let native
-              // text measurement grow the editor instead of fixing its height
-              // and waiting for an event that requires that height to change.
-              expanded
-                ? [
-                    styles.inputExpanded,
-                    { minHeight: minimumInputHeight, maxHeight: maximumInputHeight },
-                  ]
-                : [
-                    styles.inputCollapsed,
-                    {
-                      paddingVertical: Math.max(
-                        0,
-                        (42 - typography.chatBody.lineHeight * fontScale) / 2,
-                      ),
-                    },
-                  ],
-            ]}
-            submitBehavior="newline"
-            textAlignVertical={expanded ? "top" : "center"}
-            value={draft}
           />
           <ComposerActionButton
             active={active}
@@ -303,114 +231,55 @@ export function SessionComposer({
           />
         </View>
 
-        {expanded && /^\/[^\s/]*$/.test(draft) ? (
-          <ScrollView
-            accessibilityLabel="Command suggestions"
-            contentContainerStyle={styles.completionListContent}
-            keyboardShouldPersistTaps="always"
-            nestedScrollEnabled
-            showsVerticalScrollIndicator={false}
-            style={styles.completionList}
-          >
-            {completions.length > 0 ? (
-              completions.map((completion) => (
-                <CompletionButton
-                  completion={completion}
-                  key={`command:${completion.name}`}
-                  onPress={() => selectCompletion(completion)}
-                />
-              ))
-            ) : (
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.completionState}>
-                {completionLoading
-                  ? "Loading commands"
-                  : completionUnavailable
-                    ? "Commands are unavailable"
-                    : "No matching commands"}
-              </Text>
-            )}
-          </ScrollView>
-        ) : null}
-
-        {expanded && mentionTrigger ? (
-          <ScrollView
-            accessibilityLabel="File, skill, and agent suggestions"
-            contentContainerStyle={styles.completionListContent}
-            keyboardShouldPersistTaps="always"
-            nestedScrollEnabled
-            showsVerticalScrollIndicator={false}
-            style={styles.completionList}
-          >
-            {mentionCompletions.map((completion) => (
-              <MentionButton
-                completion={completion}
-                key={mentionCompletionKey(completion)}
-                onPress={() => selectMention(completion)}
-              />
-            ))}
-            {mentionCompletions.length === 0 || mentionLoading || mentionUnavailable ? (
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.completionState}>
-                {mentionLoading
-                  ? "Searching files, skills, and agents"
-                  : mentionUnavailable
-                    ? "Some mention results are unavailable"
-                    : "No matching files, skills, or agents"}
-              </Text>
-            ) : null}
-          </ScrollView>
-        ) : null}
-
-        {/* Model, variant, and agent appear once the composer expands for input. */}
         {expanded ? (
-          <View style={styles.toolbar}>
-            <ScrollView
-              contentContainerStyle={styles.selectorRow}
-              horizontal
-              keyboardShouldPersistTaps="always"
-              showsHorizontalScrollIndicator={false}
-              style={styles.selectorScroller}
-            >
-              <SelectorButton
-                compact
-                label={modelLabel(selectedModel, model)}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setModelPickerOpen(true);
-                }}
-                prefix="Model"
-                buttonRef={modelSelectorRef}
+          <>
+            <CommandSuggestions
+              commands={commands}
+              draft={draft}
+              loading={completionLoading}
+              onSelect={selectCompletion}
+              unavailable={completionUnavailable}
+            />
+            {mentionTrigger ? (
+              <MentionSuggestions
+                completions={listMentionCompletions(
+                  mentionTrigger.query,
+                  mentionAgents,
+                  skills,
+                  mentionFiles,
+                )}
+                loading={mentionLoading}
+                onSelect={selectMention}
+                unavailable={mentionUnavailable}
               />
-              <SelectorButton
-                compact
-                label={model?.variant ?? "Default"}
-                prefix="Variant"
-                buttonRef={variantSelectorRef}
-                disabled={!selectedModel?.variants.length}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  pickerReturnFocusRef.current = variantSelectorRef;
-                  setOptionsPage("variant");
-                }}
-              />
-              <SelectorButton
-                compact
-                label={selectedAgent?.name ?? agent ?? "Choose agent"}
-                prefix="Agent"
-                buttonRef={agentSelectorRef}
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setAgentSearch("");
-                  pickerReturnFocusRef.current = agentSelectorRef;
-                  setOptionsPage("agent");
-                }}
-              />
-              {draft.length >= maximumDraftLength * 0.9 ? (
-                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.count}>
-                  {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
-                </Text>
-              ) : null}
-            </ScrollView>
-          </View>
+            ) : null}
+            {/* Model, variant, and agent appear once the composer expands for input. */}
+            <ComposerToolbar
+              agent={agent}
+              agentSelectorRef={agentSelectorRef}
+              agents={agents}
+              draftLength={draft.length}
+              model={model}
+              modelSelectorRef={modelSelectorRef}
+              onAgentPress={() => {
+                Keyboard.dismiss();
+                setAgentSearch("");
+                pickerReturnFocusRef.current = agentSelectorRef;
+                setOptionsPage("agent");
+              }}
+              onModelPress={() => {
+                Keyboard.dismiss();
+                setModelPickerOpen(true);
+              }}
+              onVariantPress={() => {
+                Keyboard.dismiss();
+                pickerReturnFocusRef.current = variantSelectorRef;
+                setOptionsPage("variant");
+              }}
+              selectedModel={selectedModel}
+              variantSelectorRef={variantSelectorRef}
+            />
+          </>
         ) : null}
       </View>
 
@@ -420,100 +289,29 @@ export function SessionComposer({
         </Text>
       ) : null}
 
-      <ModalSheet
+      <ComposerOptionsSheet
+        agent={agent}
+        agentCatalog={agentCatalog}
+        agentSearch={agentSearch}
+        agents={filterComposerAgents(agents, deferredAgentSearch)}
+        model={model}
+        onAgentChange={(nextAgent) => {
+          onAgentChange(nextAgent);
+          setOptionsPage(undefined);
+        }}
+        onAgentSearchChange={setAgentSearch}
         onClose={() => {
           setOptionsPage(undefined);
           setAgentSearch("");
         }}
-        size="page"
-        scrollable={false}
-        subtitle={
-          agentPickerOpen
-            ? "Primary agents available at this session location"
-            : (selectedModel?.name ?? "Select a model first")
-        }
-        title={agentPickerOpen ? "Choose agent" : "Choose variant"}
+        onModelChange={(nextModel) => {
+          onModelChange(nextModel);
+          setOptionsPage(undefined);
+        }}
+        page={optionsPage}
         returnFocusRef={pickerReturnFocusRef.current}
-        visible={optionsPage !== undefined}
-      >
-        {agentPickerOpen ? (
-          <>
-            <SearchField
-              accessibilityLabel="Search agents"
-              onChangeText={setAgentSearch}
-              placeholder="Search agents"
-              value={agentSearch}
-            />
-            {agentCatalog?.error ? (
-              <PickerNotice text="Agents could not be loaded." retry={agentCatalog.retry} />
-            ) : null}
-            <FlatList
-              accessibilityLabel="Agent results"
-              contentContainerStyle={styles.pickerListContent}
-              data={visibleAgents}
-              ItemSeparatorComponent={OptionSeparator}
-              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-              keyboardShouldPersistTaps="always"
-              keyExtractor={(candidate) => candidate.id}
-              ListEmptyComponent={
-                <EmptyResults
-                  label={
-                    agentCatalog?.loading
-                      ? "Loading agents"
-                      : agentCatalog?.error
-                        ? ""
-                        : agentSearch.trim()
-                          ? "No matching agents"
-                          : "No primary agents available"
-                  }
-                />
-              }
-              renderItem={({ item: candidate }) => (
-                <OptionButton
-                  {...(candidate.description ? { description: candidate.description } : {})}
-                  label={candidate.name}
-                  onPress={() => {
-                    onAgentChange(candidate.id);
-                    setOptionsPage(undefined);
-                  }}
-                  selected={candidate.id === agent}
-                />
-              )}
-              style={styles.pickerList}
-            />
-          </>
-        ) : null}
-        {variantPickerOpen && selectedModel ? (
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.optionsContent}
-          >
-            <OptionButton
-              label="Default"
-              selected={!model?.variant}
-              onPress={() => {
-                onModelChange({ id: selectedModel.id, providerID: selectedModel.providerID });
-                setOptionsPage(undefined);
-              }}
-            />
-            {selectedModel.variants.map((variant) => (
-              <OptionButton
-                key={variant.id}
-                label={variant.id}
-                selected={variant.id === model?.variant}
-                onPress={() => {
-                  onModelChange({
-                    id: selectedModel.id,
-                    providerID: selectedModel.providerID,
-                    variant: variant.id,
-                  });
-                  setOptionsPage(undefined);
-                }}
-              />
-            ))}
-          </ScrollView>
-        ) : null}
-      </ModalSheet>
+        selectedModel={selectedModel}
+      />
       <ModelPicker
         onClose={() => setModelPickerOpen(false)}
         onSelect={onModelChange}
@@ -525,6 +323,409 @@ export function SessionComposer({
         visible={modelPickerOpen}
       />
     </View>
+  );
+}
+
+function useJustSent() {
+  const [justSent, setJustSent] = useState(false);
+
+  useEffect(() => {
+    if (!justSent) return;
+    const timer = setTimeout(() => setJustSent(false), stopAfterSendDelayMs);
+    return () => clearTimeout(timer);
+  }, [justSent]);
+
+  return [justSent, () => setJustSent(true)] as const;
+}
+
+function useFocusOnMount(
+  inputRef: RefObject<TextInput | null>,
+  focusOnMount: boolean | undefined,
+  editable: boolean,
+) {
+  useEffect(() => {
+    if (!focusOnMount || !editable) return;
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [editable, focusOnMount, inputRef]);
+}
+
+function useSelectionWithinDraft(
+  draft: string,
+  focused: boolean,
+  setSelection: (update: (current: DraftSelection) => DraftSelection) => void,
+) {
+  useEffect(() => {
+    setSelection((current) =>
+      focused && current.end <= draft.length ? current : { end: draft.length, start: draft.length },
+    );
+  }, [draft, focused, setSelection]);
+}
+
+function useMentionSearch(
+  query: string | undefined,
+  onMentionSearchChange: (query: string | undefined) => void,
+) {
+  useEffect(() => {
+    onMentionSearchChange(query);
+  }, [query, onMentionSearchChange]);
+
+  useEffect(
+    () => () => {
+      onMentionSearchChange(undefined);
+    },
+    [onMentionSearchChange],
+  );
+}
+
+function PromptInput({
+  draft,
+  editable,
+  expanded,
+  focusOnMount,
+  inputRef,
+  onChangeText,
+  onFocusChange,
+  onSelectionChange,
+  selection,
+}: {
+  draft: string;
+  editable: boolean;
+  expanded: boolean;
+  focusOnMount: boolean | undefined;
+  inputRef: RefObject<TextInput | null>;
+  onChangeText: (draft: string) => void;
+  onFocusChange: (focused: boolean) => void;
+  onSelectionChange: (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
+  selection: DraftSelection;
+}) {
+  const { fontScale } = useWindowDimensions();
+  const minimumInputHeight = Math.max(40, typography.chatBody.lineHeight * fontScale + 8);
+  const maximumInputHeight = Math.max(120, minimumInputHeight * 2);
+  return (
+    <TextInput
+      keyboardAppearance="dark"
+      accessibilityHint="Enter inserts a new line. Use the Send button to submit."
+      accessibilityLabel="Prompt"
+      autoFocus={focusOnMount}
+      editable={editable}
+      maxLength={maximumDraftLength}
+      multiline
+      onBlur={() => onFocusChange(false)}
+      onChangeText={onChangeText}
+      onFocus={() => onFocusChange(true)}
+      onSelectionChange={onSelectionChange}
+      placeholder="Message"
+      placeholderTextColor={palette.dim}
+      ref={inputRef}
+      returnKeyType="default"
+      scrollEnabled={expanded}
+      selectionColor={palette.signal}
+      selection={selection}
+      style={[
+        styles.input,
+        // iOS Fabric emits content-size changes during layout. Let native
+        // text measurement grow the editor instead of fixing its height
+        // and waiting for an event that requires that height to change.
+        expanded
+          ? [styles.inputExpanded, { minHeight: minimumInputHeight, maxHeight: maximumInputHeight }]
+          : [
+              styles.inputCollapsed,
+              {
+                paddingVertical: Math.max(0, (42 - typography.chatBody.lineHeight * fontScale) / 2),
+              },
+            ],
+      ]}
+      submitBehavior="newline"
+      textAlignVertical={expanded ? "top" : "center"}
+      value={draft}
+    />
+  );
+}
+
+function CommandSuggestions({
+  commands,
+  draft,
+  loading,
+  onSelect,
+  unavailable,
+}: {
+  commands: CommandInfo[];
+  draft: string;
+  loading: boolean | undefined;
+  onSelect: (completion: SlashCompletion) => void;
+  unavailable: boolean | undefined;
+}) {
+  if (!/^\/[^\s/]*$/.test(draft)) return null;
+  const completions = listSlashCompletions(draft, commands);
+  return (
+    <ScrollView
+      accessibilityLabel="Command suggestions"
+      contentContainerStyle={styles.completionListContent}
+      keyboardShouldPersistTaps="always"
+      nestedScrollEnabled
+      showsVerticalScrollIndicator={false}
+      style={styles.completionList}
+    >
+      {completions.length > 0 ? (
+        completions.map((completion) => (
+          <CompletionButton
+            completion={completion}
+            key={`command:${completion.name}`}
+            onPress={() => onSelect(completion)}
+          />
+        ))
+      ) : (
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.completionState}>
+          {commandCompletionStatus(loading, unavailable)}
+        </Text>
+      )}
+    </ScrollView>
+  );
+}
+
+function MentionSuggestions({
+  completions,
+  loading,
+  onSelect,
+  unavailable,
+}: {
+  completions: MentionCompletion[];
+  loading: boolean | undefined;
+  onSelect: (completion: MentionCompletion) => void;
+  unavailable: boolean | undefined;
+}) {
+  return (
+    <ScrollView
+      accessibilityLabel="File, skill, and agent suggestions"
+      contentContainerStyle={styles.completionListContent}
+      keyboardShouldPersistTaps="always"
+      nestedScrollEnabled
+      showsVerticalScrollIndicator={false}
+      style={styles.completionList}
+    >
+      {completions.map((completion) => (
+        <MentionButton
+          completion={completion}
+          key={mentionCompletionKey(completion)}
+          onPress={() => onSelect(completion)}
+        />
+      ))}
+      {completions.length === 0 || loading || unavailable ? (
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.completionState}>
+          {mentionCompletionStatus(loading, unavailable)}
+        </Text>
+      ) : null}
+    </ScrollView>
+  );
+}
+
+function ComposerToolbar({
+  agent,
+  agentSelectorRef,
+  agents,
+  draftLength,
+  model,
+  modelSelectorRef,
+  onAgentPress,
+  onModelPress,
+  onVariantPress,
+  selectedModel,
+  variantSelectorRef,
+}: {
+  agent: string | undefined;
+  agentSelectorRef: RefObject<View | null>;
+  agents: AgentInfo[];
+  draftLength: number;
+  model: ModelRef | undefined;
+  modelSelectorRef: RefObject<View | null>;
+  onAgentPress: () => void;
+  onModelPress: () => void;
+  onVariantPress: () => void;
+  selectedModel: ModelInfo | undefined;
+  variantSelectorRef: RefObject<View | null>;
+}) {
+  const selectedAgent = agents.find((candidate) => candidate.id === agent);
+  return (
+    <View style={styles.toolbar}>
+      <ScrollView
+        contentContainerStyle={styles.selectorRow}
+        horizontal
+        keyboardShouldPersistTaps="always"
+        showsHorizontalScrollIndicator={false}
+        style={styles.selectorScroller}
+      >
+        <SelectorButton
+          compact
+          label={modelLabel(selectedModel, model)}
+          onPress={onModelPress}
+          prefix="Model"
+          buttonRef={modelSelectorRef}
+        />
+        <SelectorButton
+          compact
+          label={model?.variant ?? "Default"}
+          prefix="Variant"
+          buttonRef={variantSelectorRef}
+          disabled={!selectedModel?.variants.length}
+          onPress={onVariantPress}
+        />
+        <SelectorButton
+          compact
+          label={selectedAgent?.name ?? agent ?? "Choose agent"}
+          prefix="Agent"
+          buttonRef={agentSelectorRef}
+          onPress={onAgentPress}
+        />
+        {draftLength >= maximumDraftLength * 0.9 ? (
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.count}>
+            {draftLength.toLocaleString()} / {maximumDraftLength.toLocaleString()}
+          </Text>
+        ) : null}
+      </ScrollView>
+    </View>
+  );
+}
+
+function ComposerOptionsSheet({
+  agent,
+  agentCatalog,
+  agentSearch,
+  agents,
+  model,
+  onAgentChange,
+  onAgentSearchChange,
+  onClose,
+  onModelChange,
+  page,
+  returnFocusRef,
+  selectedModel,
+}: {
+  agent: string | undefined;
+  agentCatalog: CatalogState | undefined;
+  agentSearch: string;
+  agents: AgentInfo[];
+  model: ModelRef | undefined;
+  onAgentChange: (agent: string) => void;
+  onAgentSearchChange: (search: string) => void;
+  onClose: () => void;
+  onModelChange: (model: ModelRef) => void;
+  page: OptionsPage | undefined;
+  returnFocusRef: RefObject<View | null>;
+  selectedModel: ModelInfo | undefined;
+}) {
+  const agentPickerOpen = page === "agent";
+  return (
+    <ModalSheet
+      onClose={onClose}
+      size="page"
+      scrollable={false}
+      subtitle={
+        agentPickerOpen
+          ? "Primary agents available at this session location"
+          : (selectedModel?.name ?? "Select a model first")
+      }
+      title={agentPickerOpen ? "Choose agent" : "Choose variant"}
+      returnFocusRef={returnFocusRef}
+      visible={page !== undefined}
+    >
+      {agentPickerOpen ? (
+        <AgentOptions
+          agent={agent}
+          agents={agents}
+          catalog={agentCatalog}
+          onSearchChange={onAgentSearchChange}
+          onSelect={onAgentChange}
+          search={agentSearch}
+        />
+      ) : null}
+      {page === "variant" && selectedModel ? (
+        <VariantOptions model={model} onSelect={onModelChange} selectedModel={selectedModel} />
+      ) : null}
+    </ModalSheet>
+  );
+}
+
+function AgentOptions({
+  agent,
+  agents,
+  catalog,
+  onSearchChange,
+  onSelect,
+  search,
+}: {
+  agent: string | undefined;
+  agents: AgentInfo[];
+  catalog: CatalogState | undefined;
+  onSearchChange: (search: string) => void;
+  onSelect: (agent: string) => void;
+  search: string;
+}) {
+  return (
+    <>
+      <SearchField
+        accessibilityLabel="Search agents"
+        onChangeText={onSearchChange}
+        placeholder="Search agents"
+        value={search}
+      />
+      {catalog?.error ? (
+        <PickerNotice text="Agents could not be loaded." retry={catalog.retry} />
+      ) : null}
+      <FlatList
+        accessibilityLabel="Agent results"
+        contentContainerStyle={styles.pickerListContent}
+        data={agents}
+        ItemSeparatorComponent={OptionSeparator}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardShouldPersistTaps="always"
+        keyExtractor={(candidate) => candidate.id}
+        ListEmptyComponent={<EmptyResults label={agentPickerEmptyLabel(catalog, search)} />}
+        renderItem={({ item: candidate }) => (
+          <OptionButton
+            {...(candidate.description ? { description: candidate.description } : {})}
+            label={candidate.name}
+            onPress={() => onSelect(candidate.id)}
+            selected={candidate.id === agent}
+          />
+        )}
+        style={styles.pickerList}
+      />
+    </>
+  );
+}
+
+function VariantOptions({
+  model,
+  onSelect,
+  selectedModel,
+}: {
+  model: ModelRef | undefined;
+  onSelect: (model: ModelRef) => void;
+  selectedModel: ModelInfo;
+}) {
+  return (
+    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.optionsContent}>
+      <OptionButton
+        label="Default"
+        selected={!model?.variant}
+        onPress={() => onSelect({ id: selectedModel.id, providerID: selectedModel.providerID })}
+      />
+      {selectedModel.variants.map((variant) => (
+        <OptionButton
+          key={variant.id}
+          label={variant.id}
+          selected={variant.id === model?.variant}
+          onPress={() =>
+            onSelect({
+              id: selectedModel.id,
+              providerID: selectedModel.providerID,
+              variant: variant.id,
+            })
+          }
+        />
+      ))}
+    </ScrollView>
   );
 }
 
@@ -580,12 +781,7 @@ function MentionButton({
   completion: MentionCompletion;
   onPress: () => void;
 }) {
-  const value =
-    completion.type === "file"
-      ? completion.path
-      : completion.type === "agent"
-        ? completion.name
-        : completion.id;
+  const value = mentionValue(completion);
   return (
     <Pressable
       accessibilityHint={
@@ -615,14 +811,6 @@ function MentionButton({
       ) : null}
     </Pressable>
   );
-}
-
-function mentionCompletionKey(completion: MentionCompletion) {
-  return completion.type === "file"
-    ? `file:${completion.path}`
-    : completion.type === "agent"
-      ? `agent:${completion.name}`
-      : `skill:${completion.id}`;
 }
 
 function EmptyResults({ label }: { label: string }) {
@@ -787,6 +975,12 @@ function OptionButton({
         <Feather accessible={false} name="check" size={20} color={palette.signal} />
       ) : null}
     </Pressable>
+  );
+}
+
+function findModel(models: ModelInfo[], model: ModelRef | undefined) {
+  return models.find(
+    (candidate) => candidate.id === model?.id && candidate.providerID === model.providerID,
   );
 }
 

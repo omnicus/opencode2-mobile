@@ -8,7 +8,7 @@ import type {
   SkillInfo,
 } from "@opencode2-mobile/opencode-adapter";
 import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { Keyboard, StyleSheet } from "react-native";
 
 import { palette, typography } from "../theme";
@@ -497,6 +497,279 @@ test("searches files, skills, and agents with at and submits a structured skill 
     type: "prompt",
   });
 });
+
+test.each([
+  [{ completionLoading: true }, "Loading commands"],
+  [{ completionUnavailable: true }, "Commands are unavailable"],
+  [{}, "No matching commands"],
+])("explains an empty command list with %p", (overrides, status) => {
+  render(<SessionComposer {...composerProps({ draft: "/zz", largeText: true, ...overrides })} />);
+  expect(within(screen.getByLabelText("Command suggestions")).getByText(status)).toBeOnTheScreen();
+});
+
+test.each([
+  [{ mentionLoading: true }, "Searching files, skills, and agents"],
+  [{ mentionUnavailable: true }, "Some mention results are unavailable"],
+  [{}, "No matching files, skills, or agents"],
+])("explains an empty mention list with %p", (overrides, status) => {
+  render(
+    <SessionComposer
+      {...composerProps({ draft: "Ask @zz", largeText: true, mentionFiles: [], ...overrides })}
+    />,
+  );
+  expect(
+    within(screen.getByLabelText("File, skill, and agent suggestions")).getByText(status),
+  ).toBeOnTheScreen();
+});
+
+test("keeps mention results visible while more are loading", () => {
+  render(
+    <SessionComposer
+      {...composerProps({ draft: "Ask @rel", largeText: true, mentionLoading: true })}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "@release, skill" })).toBeOnTheScreen();
+  expect(screen.getByText("Searching files, skills, and agents")).toBeOnTheScreen();
+});
+
+test("hides mention suggestions while the composer is collapsed", () => {
+  render(<SessionComposer {...composerProps({ draft: "Ask @rel" })} />);
+  expect(screen.queryByLabelText("File, skill, and agent suggestions")).toBeNull();
+  expect(screen.queryByLabelText("Command suggestions")).toBeNull();
+});
+
+test("publishes the mention query and clears it on unmount", () => {
+  const onMentionSearchChange = jest.fn();
+  const view = render(
+    <SessionComposer {...composerProps({ draft: "Ask @rel", onMentionSearchChange })} />,
+  );
+  expect(onMentionSearchChange).toHaveBeenLastCalledWith("rel");
+  view.rerender(<SessionComposer {...composerProps({ draft: "Ask", onMentionSearchChange })} />);
+  expect(onMentionSearchChange).toHaveBeenLastCalledWith(undefined);
+  onMentionSearchChange.mockClear();
+  view.unmount();
+  expect(onMentionSearchChange).toHaveBeenCalledWith(undefined);
+});
+
+test("announces composer errors", () => {
+  render(<SessionComposer {...composerProps({ error: "Prompt failed" })} />);
+  expect(screen.getByRole("alert")).toHaveTextContent("Prompt failed");
+});
+
+test("large text keeps the toolbar open and counts characters near the limit", () => {
+  render(<SessionComposer {...composerProps({ draft: "x".repeat(28_800), largeText: true })} />);
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ minHeight: 58, maxHeight: 120 });
+  expect(screen.getByText("28,800 / 32,000")).toBeOnTheScreen();
+});
+
+test("hides the character count well below the limit", () => {
+  render(<SessionComposer {...composerProps({ draft: "x".repeat(28_799), largeText: true })} />);
+  expect(screen.queryByText(/ \/ 32,000$/)).toBeNull();
+});
+
+test("labels selectors from references missing in the catalogs", () => {
+  render(
+    <SessionComposer
+      {...composerProps({
+        agent: "ghost",
+        largeText: true,
+        model: { id: "missing", providerID: "other", variant: "fast" },
+      })}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Model: other/missing" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Variant: fast" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Agent: ghost" })).toBeOnTheScreen();
+});
+
+test("labels selectors from catalog names", () => {
+  render(
+    <SessionComposer
+      {...composerProps({
+        agent: "build",
+        largeText: true,
+        model: { id: "model-1", providerID: "provider" },
+      })}
+    />,
+  );
+  expect(screen.getByRole("button", { name: "Model: Model One" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Agent: Build" })).toBeOnTheScreen();
+});
+
+test("shows agent catalog loading, failure, and empty states", () => {
+  const retry = jest.fn();
+  const view = render(
+    <SessionComposer
+      {...composerProps({
+        agentCatalog: { error: false, loading: true, retry },
+        agents: [],
+        largeText: true,
+      })}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  expect(screen.getByText("Primary agents available at this session location")).toBeOnTheScreen();
+  expect(screen.getByText("Loading agents")).toBeOnTheScreen();
+
+  view.rerender(
+    <SessionComposer
+      {...composerProps({
+        agentCatalog: { error: true, loading: false, retry },
+        agents: [],
+        largeText: true,
+      })}
+    />,
+  );
+  expect(screen.getByText("Agents could not be loaded.")).toBeOnTheScreen();
+  expect(screen.queryByText("No primary agents available")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+
+  view.rerender(<SessionComposer {...composerProps({ agents: [], largeText: true })} />);
+  expect(screen.getByText("No primary agents available")).toBeOnTheScreen();
+});
+
+test("searches agents by description and reports no matches", () => {
+  const onAgentChange = jest.fn();
+  const described = [
+    ...agents,
+    { description: "Writes docs", hidden: false, id: "docs", mode: "primary", name: "Scribe" },
+  ] as AgentInfo[];
+  render(
+    <SessionComposer
+      {...composerProps({ agent: "docs", agents: described, largeText: true, onAgentChange })}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Scribe" }));
+  fireEvent.changeText(screen.getByLabelText("Search agents"), "writes");
+  expect(screen.getByText("Writes docs")).toBeOnTheScreen();
+  expect(
+    within(screen.getByLabelText("Agent results")).getByRole("button", { name: "Scribe" }),
+  ).toBeSelected();
+  expect(screen.queryByRole("button", { name: "Build" })).toBeNull();
+  fireEvent.changeText(screen.getByLabelText("Search agents"), "nothing");
+  expect(screen.getByText("No matching agents")).toBeOnTheScreen();
+  fireEvent.changeText(screen.getByLabelText("Search agents"), "writes");
+  fireEvent.press(
+    within(screen.getByLabelText("Agent results")).getByRole("button", { name: "Scribe" }),
+  );
+  expect(onAgentChange).toHaveBeenCalledWith("docs");
+});
+
+test("reopening the agent picker clears the previous search", () => {
+  render(<SessionComposer {...composerProps({ largeText: true })} />);
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  fireEvent.changeText(screen.getByLabelText("Search agents"), "nothing");
+  fireEvent.press(screen.getByRole("button", { name: "Close Choose agent" }));
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  expect(screen.getByLabelText("Search agents").props.value).toBe("");
+  expect(screen.getByRole("button", { name: "Build" })).toBeOnTheScreen();
+});
+
+test("names the selected model in the variant picker", () => {
+  const onModelChange = jest.fn();
+  render(
+    <SessionComposer
+      {...composerProps({
+        largeText: true,
+        model: { id: "model-1", providerID: "provider", variant: "deep" },
+        onModelChange,
+      })}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Variant: deep" }));
+  expect(screen.getByText("Choose variant")).toBeOnTheScreen();
+  expect(screen.getAllByText("Model One")).toHaveLength(2);
+  expect(screen.getByLabelText("deep")).toBeSelected();
+  fireEvent.press(screen.getByRole("button", { name: "Default" }));
+  expect(onModelChange).toHaveBeenCalledWith({ id: "model-1", providerID: "provider" });
+});
+
+test.each([
+  [true, true, 1],
+  [true, false, 0],
+  [false, true, 0],
+])(
+  "focus on mount %s with editable %s requests %i focus frame",
+  (focusOnMount, editable, frames) => {
+    const requestFrame = jest
+      .spyOn(globalThis, "requestAnimationFrame")
+      .mockImplementation((callback) => {
+        callback(0);
+        return 7;
+      });
+    const cancelFrame = jest
+      .spyOn(globalThis, "cancelAnimationFrame")
+      .mockImplementation(() => undefined);
+    try {
+      const view = render(<SessionComposer {...composerProps({ editable, focusOnMount })} />);
+      expect(screen.getByLabelText("Prompt").props.autoFocus).toBe(focusOnMount);
+      expect(requestFrame).toHaveBeenCalledTimes(frames);
+      view.unmount();
+      expect(cancelFrame).toHaveBeenCalledTimes(frames);
+    } finally {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
+  },
+);
+
+test("moves the caret to the end of external drafts until the editor is focused", () => {
+  const view = render(<SessionComposer {...composerProps({ draft: "Hello" })} />);
+  expect(screen.getByLabelText("Prompt").props.selection).toEqual({ end: 5, start: 5 });
+  view.rerender(<SessionComposer {...composerProps({ draft: "Hello there" })} />);
+  expect(screen.getByLabelText("Prompt").props.selection).toEqual({ end: 11, start: 11 });
+
+  const input = screen.getByLabelText("Prompt");
+  fireEvent(input, "focus");
+  fireEvent(input, "selectionChange", { nativeEvent: { selection: { end: 5, start: 2 } } });
+  view.rerender(<SessionComposer {...composerProps({ draft: "Hello the" })} />);
+  expect(screen.getByLabelText("Prompt").props.selection).toEqual({ end: 5, start: 2 });
+  view.rerender(<SessionComposer {...composerProps({ draft: "Hel" })} />);
+  expect(screen.getByLabelText("Prompt").props.selection).toEqual({ end: 3, start: 3 });
+});
+
+test("explains why an active send is unavailable", () => {
+  const view = render(
+    <SessionComposer {...composerProps({ active: true, draft: "Next", onInterrupt: jest.fn() })} />,
+  );
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Send" }).props.accessibilityHint).toBe(
+    "Choose steer or queue before sending.",
+  );
+  view.rerender(
+    <SessionComposer {...composerProps({ completionLoading: true, draft: "/review" })} />,
+  );
+  expect(screen.getByRole("button", { name: "Send" }).props.accessibilityHint).toBe(
+    "Wait for commands to load.",
+  );
+  expect(screen.queryByLabelText("Command suggestions")).toBeNull();
+});
+
+function composerProps(
+  overrides: Partial<ComponentProps<typeof SessionComposer>> = {},
+): ComponentProps<typeof SessionComposer> {
+  return {
+    active: false,
+    agents,
+    commands,
+    draft: "",
+    largeText: false,
+    location: { directory: "/workspace" },
+    mentionAgents: agents,
+    mentionFiles: files,
+    mentions: [],
+    models,
+    onAgentChange: jest.fn(),
+    onDraftChange: jest.fn(),
+    onModelChange: jest.fn(),
+    onMentionSearchChange: jest.fn(),
+    onSubmit: jest.fn(),
+    skills,
+    ...overrides,
+  };
+}
 
 function ComposerHarness({
   active = false,
