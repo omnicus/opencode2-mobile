@@ -63,14 +63,6 @@ async function main() {
   const server = await registry("@opencode/cli", target);
   if (server.version !== target) throw new Error("Matching V2 server is unavailable.");
   const outputs = { current, target, changed: String(changed) };
-  if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(
-      process.env.GITHUB_OUTPUT,
-      Object.entries(outputs)
-        .map(([key, value]) => `${key}=${value}\n`)
-        .join(""),
-    );
-  }
   if (process.argv.includes("--apply") && changed) {
     manifest.dependencies["@opencode/client"] = target;
     const adapterPath = "packages/opencode-adapter/src/index.ts";
@@ -81,6 +73,14 @@ async function main() {
     writeFileSync(
       adapterPath,
       source.replace(expected, `export const openCodeClientContractVersion = "${target}";`),
+    );
+  }
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      Object.entries(outputs)
+        .map(([key, value]) => `${key}=${value}\n`)
+        .join(""),
     );
   }
   console.log(JSON.stringify(outputs));

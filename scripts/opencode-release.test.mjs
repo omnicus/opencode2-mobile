@@ -15,7 +15,13 @@ const releaseScript = fileURLToPath(new URL("./opencode-release.mjs", import.met
 async function runRelease(
   t,
   mockFetch,
-  { adapterVersion = "2.1.0", args = ["--apply"], githubOutput = true, targetVersion } = {},
+  {
+    adapterMode = 0o644,
+    adapterVersion = "2.1.0",
+    args = ["--apply"],
+    githubOutput = true,
+    targetVersion,
+  } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "opencode-release-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -24,10 +30,13 @@ async function runRelease(
     join(directory, "packages/opencode-adapter/package.json"),
     JSON.stringify({ dependencies: { "@opencode/client": "2.1.0" } }),
   );
-  await writeFile(
-    join(directory, "packages/opencode-adapter/src/index.ts"),
-    `export const openCodeClientContractVersion = "${adapterVersion}";\n`,
-  );
+  if (adapterVersion !== null) {
+    await writeFile(
+      join(directory, "packages/opencode-adapter/src/index.ts"),
+      `export const openCodeClientContractVersion = "${adapterVersion}";\n`,
+      { mode: adapterMode },
+    );
+  }
   const output = join(directory, "output");
   const result = run(
     process.execPath,
@@ -252,8 +261,42 @@ test("release detection refuses to apply when the adapter version disagrees", as
     assert.match(error.stderr, /Adapter version and dependency disagree\./);
     return true;
   });
-  assert.equal(await readFile(output, "utf8"), "current=2.1.0\ntarget=2.1.2\nchanged=true\n");
+  await assert.rejects(readFile(output), { code: "ENOENT" });
   await assertUnchanged(directory, "2.0.9");
+});
+
+test("release detection writes no outputs when the adapter source is missing", async (t) => {
+  const { directory, output, result } = await runRelease(t, registryVersions("2.1.2"), {
+    adapterVersion: null,
+  });
+  await assert.rejects(result, (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /ENOENT/);
+    return true;
+  });
+  await assert.rejects(readFile(output), { code: "ENOENT" });
+  const manifest = JSON.parse(
+    await readFile(join(directory, "packages/opencode-adapter/package.json"), "utf8"),
+  );
+  assert.equal(manifest.dependencies["@opencode/client"], "2.1.0");
+});
+
+test("release detection writes no outputs when the adapter cannot be updated", {
+  skip: process.getuid?.() === 0 && "root ignores file permissions",
+}, async (t) => {
+  const { directory, output, result } = await runRelease(t, registryVersions("2.1.2"), {
+    adapterMode: 0o444,
+  });
+  await assert.rejects(result, (error) => {
+    assert.equal(error.code, 1);
+    assert.match(error.stderr, /EACCES/);
+    return true;
+  });
+  await assert.rejects(readFile(output), { code: "ENOENT" });
+  assert.equal(
+    await readFile(join(directory, "packages/opencode-adapter/src/index.ts"), "utf8"),
+    'export const openCodeClientContractVersion = "2.1.0";\n',
+  );
 });
 
 test("release detection compares numeric components and never downgrades", () => {
