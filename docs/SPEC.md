@@ -380,18 +380,30 @@ not a project-first hierarchy. Project filters narrow this inbox without
 changing navigation ownership. Creating a session still requires one explicit
 project location or worktree.
 
-The default inbox is one list in two groups, without visible headings or counts:
+The screen header shows the selected connection's name after a status dot in
+the connection status color. Long names truncate. Tapping the name opens
+Connections. A search button on the right expands a search field over the whole
+header. Close search clears the query, hides the keyboard, and collapses the
+field, and Android back does the same while search is open. The list body has
+no search field of its own.
 
-1. Ongoing sessions come first. Sessions with pending permissions or forms lead,
-   followed by sessions present in the connection-wide active-session snapshot.
-2. Finished sessions follow, in server recency order.
+The default inbox is one list in up to three groups, in this order:
 
-A hairline divider with extra space separates the groups. Screen readers hear
-the divider as a "Finished" heading. When either group is empty, the divider is
-omitted. The list shows every ongoing session and fills the remaining rows up
-to 20 with the most recent finished sessions. It has no "load older" control.
-Search queries older sessions on the server, shows its results as one list
-ordered by recency, and supports cursor pagination with "Load more results".
+1. "Needs you": sessions with pending permissions or forms.
+2. "Working": sessions present in the connection-wide active-session snapshot.
+3. "Finished": the remaining sessions, in server recency order.
+
+A small separator sits above each group that has rows, including the first.
+It shows the group name in a dim footnote, a hairline that fills the row, and a
+chevron. The whole separator is one 48-point button whose screen-reader label
+names the group and its session count and whose state says whether it is
+expanded. Tapping it collapses or expands the group. The app keeps collapsed
+groups in memory per connection until it quits and never stores them. Groups
+start expanded. The change animates only when Reduce Motion is off. The list
+shows every ongoing session and fills the remaining rows up to 20 with the most
+recent finished sessions. It has no "load older" control. Search queries older
+sessions on the server, shows its results as one flat list ordered by recency
+without separators, and supports cursor pagination with "Load more results".
 
 The app has no archive. Every followed-project session that the server returns
 can appear in the list or in search results.
@@ -403,14 +415,30 @@ internal facts even when the row presents one primary label. Do not reinterpret
 OpenCode's `{ type: "running" }` active-session result as a broader inbox
 lifecycle.
 
-Each row is one title line with a status marker for attention or work, and
-either the request label or the relative update time on the right. A second
-line names the project. It adds the worktree name only when the session's
+Each row starts with the project's avatar, centered on the title line. The
+right side of the title line shows an amber dot and the request label when the
+session needs you, the working indicator while it works, and otherwise the
+relative update time. A second line, aligned with the title, names the project. It adds the worktree name only when the session's
 directory differs from the project's canonical directory and that data is
 already loaded. Rows do not show branches, child rows, or background-task
-counts. The row's screen-reader label still includes the title, project, state,
-and update time. Keep existing rows stable while activity streams instead of
+counts. Rows have no cards or separators between them. A two-line row is about
+64 points tall. Search results use the same rows. The row's screen-reader label
+still includes the title, project, state, and update time. Keep existing rows stable while activity streams instead of
 reordering them on every update.
+
+Project avatars follow OpenCode desktop. The project's `icon.color` picks one of
+orange, yellow, cyan, green, red, pink, blue, purple, or gray. "mint" means
+cyan, "lime" means green, and any other or missing value means gray. The avatar
+is a small rounded square in that color's fill and border with the first letter
+of the project name in white. If no color is set, `icon.override`, then
+`icon.url`, may replace the letter, but only as an inline PNG, JPEG, GIF, or
+WebP data URI within a size limit. The app never fetches an icon over the
+network. Avatars are hidden from screen readers because the row already names
+the project. New session and Followed projects show the same avatar beside each
+project title. A `project.updated` event replaces the cached project, or
+refetches the project list when the project is not cached, so a color change on
+another client appears without a manual refresh.
+
 Server-backed search and cursor pagination operate per followed project, and the
 client merges the results by stable session ID. A global first page followed by
 local filtering is insufficient because unrelated projects could consume the
@@ -517,8 +545,8 @@ state rather than local transcript storage.
 - Followed-project management using projects known to the selected OpenCode
   connection.
 - Project, location, directory, and worktree selection for new sessions.
-- Cross-project session inbox: ongoing sessions, a divider, then recent finished
-  sessions up to 20 rows, with server search and pagination for older sessions.
+- Cross-project session inbox: collapsible Needs you, Working, and Finished
+  groups up to 20 rows, with server search and pagination for older sessions.
 - Session transcript with stable live-follow and unread controls.
 - Composer with multiline native editing and model/agent controls.
 - Permission and form sheets.

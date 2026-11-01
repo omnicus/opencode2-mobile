@@ -23,6 +23,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Button } from "../components/button";
+import { ProjectAvatar } from "../components/project-avatar";
 import { SearchField } from "../components/search-field";
 import { useAnnouncement } from "../components/use-announcement";
 import type { RootStackParamList } from "../navigation/root-navigation";
@@ -490,6 +491,7 @@ function ProjectButton({
   onPress: () => void;
   project: Project;
 }) {
+  const { fontScale } = useWindowDimensions();
   const label = projectLabel(project);
   const path = sanitizeTranscriptText(project.canonical, 1_024);
   return (
@@ -499,9 +501,19 @@ function ProjectButton({
       disabled={disabled}
       onPress={onPress}
     >
-      <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
-        {label}
-      </Text>
+      <View style={styles.projectTitleRow}>
+        <ProjectAvatar
+          icon={project.icon}
+          lineHeight={typography.body.lineHeight * fontScale}
+          name={label}
+        />
+        <Text
+          dynamicTypeRamp={typeRamp.body}
+          style={[styles.projectTitle, styles.projectTitleText]}
+        >
+          {label}
+        </Text>
+      </View>
       <Text dynamicTypeRamp={typeRamp.footnote} style={styles.projectPath}>
         {path}
       </Text>
@@ -664,6 +676,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   projectTitle: { ...typography.body, color: palette.ink },
+  projectTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
+  projectTitleText: { flex: 1, minWidth: 0 },
   screen: { backgroundColor: palette.background, flex: 1 },
   sectionTitle: {
     ...typography.sectionLabel,

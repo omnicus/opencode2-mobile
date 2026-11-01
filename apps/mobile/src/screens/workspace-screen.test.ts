@@ -74,18 +74,44 @@ test("keeps stabilized order while picking the newest finished rows for the rema
   });
 
   expect(keys(workspaceInboxItems(inbox, 5))).toEqual([
+    "group:needs-you",
     "ses_blocked",
+    "group:working",
     "ses_working",
-    "divider:finished",
+    "group:finished",
     "ses_a",
     "ses_streaming",
     "ses_b",
   ]);
-  expect(keys(workspaceInboxItems(inbox, 2))).toEqual(["ses_blocked", "ses_working"]);
+  expect(keys(workspaceInboxItems(inbox, 2))).toEqual([
+    "group:needs-you",
+    "ses_blocked",
+    "group:working",
+    "ses_working",
+  ]);
   expect(keys(workspaceInboxItems(sections({ recent: inbox.recent }), 2))).toEqual([
+    "group:finished",
     "ses_a",
     "ses_streaming",
   ]);
+});
+
+test("collapsed groups keep their separator and count but hide their rows", () => {
+  const inbox = sections({
+    recent: [row("ses_a", 50), row("ses_b", 40)],
+    working: [row("ses_working", 2)],
+  });
+
+  const items = workspaceInboxItems(inbox, 20, new Set(["finished"]));
+  expect(keys(items)).toEqual(["group:working", "ses_working", "group:finished"]);
+  expect(items.at(-1)).toEqual({
+    collapsed: true,
+    count: 2,
+    group: "finished",
+    key: "group:finished",
+    type: "group",
+  });
+  expect(items[0]).toMatchObject({ collapsed: false, count: 1, group: "working" });
 });
 
 test("search results are one list ordered by recency", () => {

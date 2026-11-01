@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Button } from "../components/button";
 import { managementStyles } from "../components/management-layout";
+import { ProjectAvatar } from "../components/project-avatar";
 import { useAnnouncement } from "../components/use-announcement";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
@@ -26,7 +27,7 @@ const saveError = "The followed project selection could not be saved. Try again.
 
 export function FollowedProjectsScreen({ navigation }: Props) {
   const selection = useWorkspaceSelection();
-  const { width } = useWindowDimensions();
+  const { fontScale, width } = useWindowDimensions();
   const [error, setError] = useState(false);
   // Fixed on first render with projects so a tapped row stays under the finger and screen
   // reader focus. Earlier and Later reorder followed rows explicitly.
@@ -170,9 +171,19 @@ export function FollowedProjectsScreen({ navigation }: Props) {
                       style={styles.checkbox}
                     />
                     <View style={styles.projectText}>
-                      <Text dynamicTypeRamp={typeRamp.headline} style={styles.projectTitle}>
-                        {projectLabel(project)}
-                      </Text>
+                      <View style={styles.projectTitleRow}>
+                        <ProjectAvatar
+                          icon={project.icon}
+                          lineHeight={typography.headline.lineHeight * fontScale}
+                          name={projectLabel(project)}
+                        />
+                        <Text
+                          dynamicTypeRamp={typeRamp.headline}
+                          style={[styles.projectTitle, styles.projectTitleText]}
+                        >
+                          {projectLabel(project)}
+                        </Text>
+                      </View>
                       <Text
                         dynamicTypeRamp={typeRamp.footnote}
                         numberOfLines={2}
@@ -304,6 +315,8 @@ const styles = StyleSheet.create({
   projectSelected: { borderColor: palette.signal },
   projectText: { flex: 1, gap: 4, minWidth: 0 },
   projectTitle: { ...typography.headline, color: palette.ink },
+  projectTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
+  projectTitleText: { flex: 1, minWidth: 0 },
   state: { gap: space.sm, paddingVertical: space.xl },
   unavailableProject: { ...cardSurface, borderColor: palette.warm, gap: space.sm },
 });

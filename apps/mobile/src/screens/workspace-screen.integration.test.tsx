@@ -18,11 +18,14 @@ import type { ReactElement, ReactNode } from "react";
 import {
   AccessibilityInfo,
   Alert,
+  BackHandler,
   Dimensions,
   FlatList,
+  Keyboard,
   Platform,
   RefreshControl,
 } from "react-native";
+import { WorkingIndicator } from "../components/working-indicator";
 import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
@@ -639,9 +642,9 @@ test("attention rows own requests, with a shortcut only when search hides them",
     expect(
       screen.getByTestId("session-row-attention-marker", { includeHiddenElements: true }),
     ).toBeTruthy();
-    expect(screen.queryByText("Needs you")).toBeNull();
+    expect(screen.queryByRole("button", { name: "1 known request" })).toBeNull();
     expect(screen.queryByText("Needs you 1")).toBeNull();
-    fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+    openSearch("Session");
     expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "1 known request" }));
     expect(navigate).toHaveBeenCalledWith("Pending");
@@ -680,6 +683,11 @@ test.each([
     }
   },
 );
+
+function openSearch(text: string) {
+  fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+  fireEvent.changeText(screen.getByLabelText("Search sessions"), text);
+}
 
 function renderWorkspace(navigate = jest.fn()) {
   const queryClient = new QueryClient({
@@ -851,11 +859,7 @@ test("long pressing a session opens grouped management actions", async () => {
 });
 
 function sessionKeys(view: ReturnType<typeof render>) {
-  return view
-    .UNSAFE_getByType(FlatList)
-    .props.data.map((item: { key: string; type: string }) =>
-      item.type === "divider" ? "divider" : item.key,
-    );
+  return view.UNSAFE_getByType(FlatList).props.data.map((item: { key: string }) => item.key);
 }
 
 test("shows the 20 newest finished sessions with no paging or archive controls", async () => {
@@ -874,8 +878,11 @@ test("shows the 20 newest finished sessions with no paging or archive controls",
   );
   try {
     await screen.findByText("Session 0");
-    expect(sessionKeys(view)).toEqual(Array.from({ length: 20 }, (_, index) => `ses_${index}`));
-    expect(screen.queryByTestId("session-list-finished-divider")).toBeNull();
+    expect(sessionKeys(view)).toEqual([
+      "group:finished",
+      ...Array.from({ length: 20 }, (_, index) => `ses_${index}`),
+    ]);
+    expect(screen.getByRole("button", { name: "Finished, 20 sessions" })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Load older sessions" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
     expect(screen.queryByRole("radio", { name: "Archived" })).toBeNull();
@@ -887,7 +894,7 @@ test("shows the 20 newest finished sessions with no paging or archive controls",
   }
 });
 
-test("lists ongoing sessions first and separates finished ones with an unlabeled divider", async () => {
+test("groups rows under Needs you, Working, and Finished separators", async () => {
   mockWorkspaceNeedsAttention = true;
   mockWorkingCount = 3;
   const queryClient = new QueryClient({
@@ -904,16 +911,23 @@ test("lists ongoing sessions first and separates finished ones with an unlabeled
   try {
     await screen.findByText("Session 0");
     expect(sessionKeys(view)).toEqual([
+      "group:needs-you",
       "ses_0",
+      "group:working",
       "ses_1",
       "ses_2",
-      "divider",
+      "group:finished",
       ...Array.from({ length: 17 }, (_, index) => `ses_${index + 3}`),
     ]);
-    const divider = screen.getByRole("header", { name: "Finished" });
-    expect(divider).toBe(screen.getByTestId("session-list-finished-divider"));
-    expect(screen.queryByText("Finished")).toBeNull();
-    expect(screen.queryByText("Working")).toBeNull();
+    for (const [name, testID] of [
+      ["Needs you, 1 session", "session-list-group-needs-you"],
+      ["Working, 2 sessions", "session-list-group-working"],
+      ["Finished, 17 sessions", "session-list-group-finished"],
+    ] as const) {
+      const separator = screen.getByRole("button", { name });
+      expect(separator).toBe(screen.getByTestId(testID));
+      expect(separator).toBeExpanded();
+    }
     expect(
       screen.getByRole("button", { name: /^Open session Session 1\. Workspace\. Working\./ }),
     ).toBeOnTheScreen();
@@ -923,7 +937,7 @@ test("lists ongoing sessions first and separates finished ones with an unlabeled
   }
 });
 
-test("keeps every ongoing session past the limit and drops the divider without finished rows", async () => {
+test("keeps every ongoing session past the limit and hides the empty Finished group", async () => {
   mockWorkspaceActive = true;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
@@ -938,8 +952,10 @@ test("keeps every ongoing session past the limit and drops the divider without f
   );
   try {
     await screen.findByText("Session 0");
-    expect(sessionKeys(view)).toHaveLength(120);
-    expect(sessionKeys(view)).not.toContain("divider");
+    expect(sessionKeys(view)).toHaveLength(121);
+    expect(sessionKeys(view)[0]).toBe("group:working");
+    expect(sessionKeys(view)).not.toContain("group:finished");
+    expect(sessionKeys(view)).not.toContain("group:needs-you");
   } finally {
     view.unmount();
     queryClient.clear();
@@ -1016,9 +1032,10 @@ test("search shows a flat list and pages with Load more results", async () => {
   );
   try {
     await screen.findByText("Session 0");
-    fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+    openSearch("Session");
     await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
     expect(sessionKeys(view)).toEqual(Array.from({ length: 120 }, (_, index) => `ses_${index}`));
+    expect(screen.queryByTestId(/^session-list-group-/)).toBeNull();
     fireEvent.press(screen.getByRole("button", { name: "Load more results" }));
     expect(mockFetchNextSessionPage).toHaveBeenCalledTimes(1);
   } finally {
@@ -1178,9 +1195,10 @@ test("keeps connection management and new-session controls out of the phone list
   expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(
     20,
   );
+  expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
   expect(screen.queryByText("20")).toBeNull();
   expect(screen.queryByRole("button", { name: "Load older sessions" })).toBeNull();
-  fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+  openSearch("Session");
   await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
   expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(
     120,
@@ -1197,7 +1215,7 @@ test("keeps connection management and new-session controls out of the phone list
   queryClient.clear();
 });
 
-test("retains the in-content Sessions title in the tablet shell", async () => {
+test("shows the connection header and new-session action in the tablet shell", async () => {
   const navigate = jest.fn();
   const originalScreen = Dimensions.get("screen");
   const originalWindow = Dimensions.get("window");
@@ -1225,13 +1243,176 @@ test("retains the in-content Sessions title in the tablet shell", async () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("header", { name: "Sessions" })).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("button", { name: "Connection Test server, connected" }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByRole("header", { name: "Sessions" })).toBeNull();
     fireEvent.press(screen.getByRole("button", { name: "New session" }));
     expect(navigate).toHaveBeenCalledWith("NewSession");
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    expect(screen.getByLabelText("Search sessions")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
   } finally {
     view?.unmount();
     queryClient.clear();
     Dimensions.set({ screen: originalScreen, window: originalWindow });
+  }
+});
+
+test("the header names the connection with its status and opens Connections", async () => {
+  const navigate = jest.fn();
+  const view = renderWorkspace(navigate);
+  try {
+    const connection = await screen.findByRole("button", {
+      name: "Connection Test server, connected",
+    });
+    expect(connection).toHaveProp("accessibilityHint", "Opens connections");
+    expect(within(connection).getByText("Test server")).toHaveProp("numberOfLines", 1);
+    expect(
+      screen.getByTestId("workspace-connection-status", { includeHiddenElements: true }),
+    ).toHaveStyle({ backgroundColor: palette.success });
+    fireEvent.press(connection);
+    expect(navigate).toHaveBeenCalledWith("Connections");
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("search expands over the header, and Close search clears and collapses it", async () => {
+  const dismiss = jest.spyOn(Keyboard, "dismiss");
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    const field = screen.getByPlaceholderText("Search all sessions");
+    expect(field).toHaveProp("autoFocus", true);
+    expect(screen.queryByRole("button", { name: /^Connection / })).toBeNull();
+    fireEvent.changeText(field, "Session 4");
+    await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
+    fireEvent.press(screen.getByRole("button", { name: "Close search" }));
+    expect(dismiss).toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+    expect(screen.getByRole("button", { name: "Connection Test server, connected" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText("Search results")).toBeNull());
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    expect(screen.getByPlaceholderText("Search all sessions")).toHaveProp("value", "");
+  } finally {
+    dismiss.mockRestore();
+    view.cleanup();
+  }
+});
+
+test("Android back collapses an open search instead of leaving", async () => {
+  const handlers: Array<() => boolean | null | undefined> = [];
+  const add = jest.spyOn(BackHandler, "addEventListener").mockImplementation((_event, handler) => {
+    handlers.push(handler);
+    return {
+      remove: () => {
+        handlers.splice(handlers.indexOf(handler), 1);
+      },
+    };
+  });
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(handlers).toHaveLength(0);
+    openSearch("Session");
+    expect(handlers).toHaveLength(1);
+    let handled: boolean | null | undefined;
+    act(() => {
+      handled = handlers[0]?.();
+    });
+    expect(handled).toBe(true);
+    expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+    expect(handlers).toHaveLength(0);
+  } finally {
+    add.mockRestore();
+    view.cleanup();
+  }
+});
+
+test("rows lead with the project avatar and show work or time on the trailing side", async () => {
+  mockWorkspaceNeedsAttention = true;
+  mockWorkingCount = 2;
+  const view = renderWorkspace();
+  try {
+    const blocked = within(
+      await screen.findByRole("button", { name: /^Open session Session 0\./ }),
+    );
+    const working = within(screen.getByRole("button", { name: /^Open session Session 1\./ }));
+    const finished = within(screen.getByRole("button", { name: /^Open session Session 2\./ }));
+    for (const row of [blocked, working, finished]) {
+      expect(row.getByTestId("project-avatar", { includeHiddenElements: true })).toBeTruthy();
+      expect(row.getByText("W", { includeHiddenElements: true })).toBeTruthy();
+    }
+
+    const blockedTrailing = blocked.getByTestId("session-row-trailing");
+    expect(
+      within(blockedTrailing).getByTestId("session-row-attention-marker", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
+    expect(within(blockedTrailing).getByText("Permission required")).toBeOnTheScreen();
+
+    const workingTrailing = within(working.getByTestId("session-row-trailing"));
+    expect(workingTrailing.UNSAFE_queryAllByType(WorkingIndicator)).toHaveLength(1);
+    expect(workingTrailing.queryByText("Now")).toBeNull();
+
+    const finishedTrailing = within(finished.getByTestId("session-row-trailing"));
+    expect(finishedTrailing.UNSAFE_queryAllByType(WorkingIndicator)).toHaveLength(0);
+    expect(finishedTrailing.getByText("Now")).toBeOnTheScreen();
+    expect(finished.getByText("Workspace")).toBeOnTheScreen();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("group separators collapse and expand their rows and announce it on iOS", async () => {
+  mockWorkingCount = 2;
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const content = () => (
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>
+  );
+  const view = render(content());
+  try {
+    await screen.findByText("Session 0");
+    const working = screen.getByRole("button", { name: "Working, 2 sessions" });
+    expect(working).toHaveProp("accessibilityHint", "Collapses the group");
+    fireEvent.press(working);
+    expect(sessionKeys(view).slice(0, 3)).toEqual(["group:working", "group:finished", "ses_2"]);
+    expect(screen.queryByText("Session 0")).toBeNull();
+    const collapsed = screen.getByRole("button", { name: "Working, 2 sessions" });
+    expect(collapsed).toBeCollapsed();
+    expect(collapsed).toHaveProp("accessibilityHint", "Expands the group");
+    expect(
+      within(collapsed)
+        .UNSAFE_getAllByType(Feather)
+        .map((icon) => icon.props.name),
+    ).toEqual(["chevron-down"]);
+    expect(announce).toHaveBeenCalledWith("Working collapsed");
+
+    // Collapse state survives the screen remounting for the same connection.
+    view.unmount();
+    const remounted = render(content());
+    await screen.findByText("Session 2");
+    expect(screen.queryByText("Session 0")).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Working, 2 sessions" }));
+    expect(await screen.findByText("Session 0")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Working, 2 sessions" })).toBeExpanded();
+    expect(announce).toHaveBeenCalledWith("Working expanded");
+    remounted.unmount();
+  } finally {
+    announce.mockRestore();
+    queryClient.clear();
   }
 });
 

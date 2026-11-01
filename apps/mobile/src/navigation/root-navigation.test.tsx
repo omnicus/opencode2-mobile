@@ -123,6 +123,12 @@ test("keeps duplicate actions out of the workspace header and preserves manageme
     </NavigationContainer>,
   );
   expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
+  // The Sessions screen draws its own header, so the native one stays hidden.
+  const nativeHeader = screen.UNSAFE_root.findAll(
+    (node: HostNode) => typeof node.type === "string" && node.props.title === "Sessions",
+  );
+  expect(nativeHeader.every((node: HostNode) => node.props.hidden)).toBe(true);
+  expect(screen.queryByRole("header", { name: "Sessions" })).toBeNull();
 
   expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
   act(() => navigation.navigate("NewSession"));

@@ -51,35 +51,56 @@ export function projectDirectories(
   ];
 }
 
+export type WorkspaceGroup = "finished" | "needs-you" | "working";
+
+export const workspaceGroupLabels: Record<WorkspaceGroup, string> = {
+  finished: "Finished",
+  "needs-you": "Needs you",
+  working: "Working",
+};
+
 export type WorkspaceInboxItem =
-  | { key: string; type: "divider" }
+  | { collapsed: boolean; count: number; group: WorkspaceGroup; key: string; type: "group" }
   | { key: string; row: FollowedInboxRow; type: "session" };
 
 function sessionItem(row: FollowedInboxRow): WorkspaceInboxItem {
   return { key: row.session.id, row, type: "session" };
 }
 
-// Every ongoing row, then the newest finished rows up to the limit. Rows keep the stabilized
-// order from the inbox so they do not jump while sessions stream.
+// Every ongoing row, then the newest finished rows up to the limit, each group under its own
+// separator. Rows keep the stabilized order from the inbox so they do not jump while sessions
+// stream.
 export function workspaceInboxItems(
   inbox: FollowedInboxSections,
   limit: number,
+  collapsed: ReadonlySet<WorkspaceGroup> = new Set(),
 ): WorkspaceInboxItem[] {
-  const ongoing = [...inbox.needsYou, ...inbox.working];
+  const ongoingCount = inbox.needsYou.length + inbox.working.length;
   const finishedIDs = new Set(
     [...inbox.recent]
       .sort((first, second) => second.session.time.updated - first.session.time.updated)
-      .slice(0, Math.max(0, limit - ongoing.length))
+      .slice(0, Math.max(0, limit - ongoingCount))
       .map((row) => row.session.id),
   );
-  const finished = inbox.recent.filter((row) => finishedIDs.has(row.session.id));
-  return [
-    ...ongoing.map(sessionItem),
-    ...(ongoing.length > 0 && finished.length > 0
-      ? [{ key: "divider:finished", type: "divider" as const }]
-      : []),
-    ...finished.map(sessionItem),
+  const groups: [WorkspaceGroup, FollowedInboxRow[]][] = [
+    ["needs-you", inbox.needsYou],
+    ["working", inbox.working],
+    ["finished", inbox.recent.filter((row) => finishedIDs.has(row.session.id))],
   ];
+  return groups.flatMap(([group, rows]) => {
+    if (rows.length === 0) return [];
+    const groupCollapsed = collapsed.has(group);
+    return [
+      {
+        collapsed: groupCollapsed,
+        count: rows.length,
+        group,
+        key: `group:${group}`,
+        type: "group" as const,
+      },
+      ...(groupCollapsed ? [] : rows.map(sessionItem)),
+    ];
+  });
 }
 
 export function searchResultItems(inbox: FollowedInboxSections) {

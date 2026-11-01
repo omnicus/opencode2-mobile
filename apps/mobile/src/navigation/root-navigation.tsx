@@ -107,14 +107,8 @@ export function RootNavigation() {
       <Stack.Screen
         component={WorkspaceScreen}
         name="Workspace"
-        options={() => ({
-          ...(customWorkspaceHeader
-            ? {
-                header: () => <WorkspaceHeader title="Sessions" />,
-              }
-            : {}),
-          title: "Sessions",
-        })}
+        // The screen draws its own header with the connection name and search.
+        options={{ headerShown: false, title: "Sessions" }}
       />
       <Stack.Screen
         component={SessionScreen}
