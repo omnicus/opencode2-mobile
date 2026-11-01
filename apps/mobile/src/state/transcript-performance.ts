@@ -10,6 +10,7 @@ export type TranscriptProjectionFrameSample = {
 export type TranscriptPerformanceMetrics = {
   explicitLatestJumps: number;
   followCorrections: number;
+  liveEdgeFallbacks: number;
   maxProjectionDurationMs: number;
   maxProjectionEventsPerFrame: number;
   maxResidentMessages: number;
@@ -26,6 +27,7 @@ export type TranscriptPerformanceMetrics = {
 const emptyMetrics = (): TranscriptPerformanceMetrics => ({
   explicitLatestJumps: 0,
   followCorrections: 0,
+  liveEdgeFallbacks: 0,
   maxProjectionDurationMs: 0,
   maxProjectionEventsPerFrame: 0,
   maxResidentMessages: 0,
@@ -96,6 +98,11 @@ export function recordTranscriptFollowCorrection() {
   metrics.followCorrections += 1;
 }
 
+// The UI-thread glide did not move a compensated transcript, so JavaScript scrolled it.
+export function recordTranscriptLiveEdgeFallback() {
+  metrics.liveEdgeFallbacks += 1;
+}
+
 export function recordTranscriptLatestJump() {
   metrics.explicitLatestJumps += 1;
 }
@@ -120,6 +127,7 @@ export function formatTranscriptPerformanceDiagnostics(snapshot: TranscriptPerfo
     `max_resident_pages=${snapshot.maxResidentPages}`,
     `max_resident_messages=${snapshot.maxResidentMessages}`,
     `follow_corrections=${snapshot.followCorrections}`,
+    `live_edge_fallbacks=${snapshot.liveEdgeFallbacks}`,
     `explicit_latest_jumps=${snapshot.explicitLatestJumps}`,
   ].join("\n");
 }

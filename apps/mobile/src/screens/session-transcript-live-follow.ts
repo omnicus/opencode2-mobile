@@ -33,6 +33,7 @@ export function resolveTranscriptLiveFollow(current: boolean, event: TranscriptL
 export const liveEdgeGlideRate = 17;
 
 export function liveEdgeGlideStep(offset: number, velocity: number, elapsedMs: number) {
+  "worklet";
   const t = Math.max(0, elapsedMs) / 1000;
   const decay = Math.exp(-liveEdgeGlideRate * t);
   const drive = velocity + liveEdgeGlideRate * offset;

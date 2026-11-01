@@ -21,19 +21,23 @@ the visible edge. A first version returned to the edge with the native
 starting a fresh ease-in-out scroll from rest, with a scroll moving at about 24
 points per frame stopping within one frame when the next line arrived.
 
-A Reanimated frame callback replaced it, but a later recording could not
-confirm that it ran. The glide now runs as a critically damped spring stepped
-once per display frame in JavaScript. It uses the same scroll events and
-`scrollToOffset` calls that live follow and Scroll to latest already depend on.
-Its rate was first set from a side-by-side recording of the OpenCode iOS app
-(one 22-point line peaking near 160 points per second). On device it felt
-slightly faster than OpenCode, so the rate is now 17: one line peaks near 140
-points per second and settles in about 0.33 seconds.
-A line arriving mid-glide keeps the current velocity. Late scroll events from
-earlier glide frames are ignored unless they show newly compensated growth.
-Dragging and Scroll to latest stop the glide, and Reduce Motion keeps
-corrections instant. Unit tests cover the spring and the rendered glide. Motion
-quality under heavy JavaScript load, and Android, still need checking on devices.
+A first Reanimated frame callback could not be confirmed on device, and a
+JavaScript-driven spring replaced it. A later side-by-side recording measured
+the difference from OpenCode. OpenCode moves at a near-constant 2.7 points per
+frame during steady streaming and ramps smoothly to about 9 points per frame for
+large blocks. The JavaScript spring jumped 6 to 7 points on the first frame of
+each line, because the JavaScript thread skipped frames while re-rendering the
+streaming message.
+
+The spring (rate 17: one 22-point line peaks near 140 points per second and
+settles in about 0.33 seconds) now steps on the UI thread through a Reanimated
+frame callback with `scrollTo`. JavaScript only adds the distance the list
+compensated for, keeping the current velocity. If the glide shows no progress
+within 500 ms, JavaScript scrolls to the live edge and counts it as
+`live_edge_fallbacks` in the transcript diagnostics, so a device report shows
+whether the UI-thread path works. Dragging stops the glide, Scroll to latest
+cancels it, and Reduce Motion keeps corrections instant. Unit and rendered tests
+cover the spring, compensation hand-off, fallback, and counter.
 
 That recording also showed the app returning to the foreground mid-stream and
 not showing the missed reply until the session was reopened. A redacted

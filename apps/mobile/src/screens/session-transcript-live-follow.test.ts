@@ -74,7 +74,7 @@ function glide(offset: number, velocity = 0, frames = 120) {
 test("one line glides like the OpenCode app: eased start, about 140 pt/s, 0.33 s settle", () => {
   const { positions } = glide(22);
   const speeds = positions.map(
-    (position, index) => (index === 0 ? 22 : positions[index - 1]!) - position,
+    (position, index) => (index === 0 ? 22 : (positions[index - 1] ?? 22)) - position,
   );
   // Settles exactly on the edge without overshooting.
   expect(positions.at(-1)).toBe(0);

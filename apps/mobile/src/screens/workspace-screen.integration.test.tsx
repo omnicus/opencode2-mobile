@@ -1660,21 +1660,22 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   const transcriptPosition = () =>
     screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
       .maintainVisibleContentPosition;
-  // Following: growth lands below the anchored row. The list reports that compensation as a
-  // scroll away from the edge, and the glide steps back one frame at a time.
+  // Following: growth lands below the anchored row, and the list reports that compensation
+  // as a scroll away from the edge. The UI-thread glide takes it from there; JavaScript only
+  // scrolls if the glide shows no progress.
   expect(transcriptPosition()).toEqual({ minIndexForVisible: 1 });
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_100);
   fireEvent.scroll(transcript, scrollEvent(25));
-  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
-  const glideOffsets = scrollToOffset.mock.calls.map(
-    ([options]) => (options as { offset: number }).offset,
-  );
-  expect(glideOffsets.length).toBeGreaterThan(5);
-  expect(
-    glideOffsets.every((offset, index) => index === 0 || offset <= glideOffsets[index - 1]!),
-  ).toBe(true);
-  expect(scrollToOffset).not.toHaveBeenCalledWith(expect.objectContaining({ animated: true }));
+  fireEvent.scroll(transcript, scrollEvent(18));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  });
+  expect(scrollToOffset).not.toHaveBeenCalled();
+  fireEvent.scroll(transcript, scrollEvent(0));
+  fireEvent.scroll(transcript, scrollEvent(25));
+  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 }));
+  fireEvent.scroll(transcript, liveEdgeEvent);
   // Programmatic glide frames never turn live follow off.
   expect(screen.queryByRole("button", { name: "Scroll to latest" })).toBeNull();
 

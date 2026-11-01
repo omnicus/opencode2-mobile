@@ -5,6 +5,7 @@ import {
   getTranscriptPerformanceMetrics,
   recordTranscriptFollowCorrection,
   recordTranscriptLatestJump,
+  recordTranscriptLiveEdgeFallback,
   recordTranscriptProjectionFrame,
   recordTranscriptResidentSet,
   recordTranscriptRowCommit,
@@ -31,6 +32,7 @@ test("collects bounded content-free transcript performance counters", () => {
   recordTranscriptResidentSet(2, 70);
   recordTranscriptResidentSet(1, 40);
   recordTranscriptFollowCorrection();
+  recordTranscriptLiveEdgeFallback();
   recordTranscriptLatestJump();
   expect(scheduled).toHaveLength(1);
   scheduled[0]?.();
@@ -39,6 +41,7 @@ test("collects bounded content-free transcript performance counters", () => {
   expect(snapshot).toMatchObject({
     explicitLatestJumps: 1,
     followCorrections: 1,
+    liveEdgeFallbacks: 1,
     maxProjectionDurationMs: 2.125,
     maxProjectionEventsPerFrame: 40,
     maxResidentMessages: 70,
@@ -55,6 +58,7 @@ test("collects bounded content-free transcript performance counters", () => {
     "max_projection_duration_ms=2.125",
   );
   expect(formatTranscriptPerformanceDiagnostics(snapshot)).toContain("content_included=false");
+  expect(formatTranscriptPerformanceDiagnostics(snapshot)).toContain("live_edge_fallbacks=1");
 });
 
 test("discards row-frame work queued before a connection reset", () => {
