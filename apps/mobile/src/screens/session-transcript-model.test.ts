@@ -110,7 +110,7 @@ test("counts only background subagents whose latest protocol state is running", 
 
   expect(countRunningBackgroundSubagents([toolMessage])).toBe(1);
   expect(runningBackgroundSubagents([toolMessage, toolMessage])).toEqual([
-    { key: "ses_child", childSessionID: "ses_child" },
+    { key: "ses_child", childSessionID: "ses_child", title: "Inspect code" },
   ]);
   expect(countRunningBackgroundSubagents([completionMessage, toolMessage])).toBe(0);
   expect(runningBackgroundSubagents([completionMessage, toolMessage])).toEqual([]);
@@ -172,7 +172,7 @@ test("a background launch stays running until its child reports a result", () =>
     state: "running",
   });
   expect(runningBackgroundSubagents([launch])).toEqual([
-    { key: "ses_child", childSessionID: "ses_child" },
+    { key: "ses_child", childSessionID: "ses_child", title: "Restyle" },
   ]);
 
   const completed = subagentStates([subagentNotification("ses_child", "completed"), launch]);
@@ -181,6 +181,12 @@ test("a background launch stays running until its child reports a result", () =>
   expect(
     countRunningBackgroundSubagents([subagentNotification("ses_child", "completed"), launch]),
   ).toBe(0);
+
+  // The result notice arrives first in newest-first order; the launch still supplies the title.
+  expect(
+    subagentStates([subagentNotification("ses_child", "completed"), launch]).get("ses_child")
+      ?.title,
+  ).toBe("Restyle");
 
   const cancelled = subagentStates([subagentNotification("ses_child", "cancelled"), launch]);
   expect(getSubagentPresentation(tool, cancelled)?.state).toBe("error");
@@ -195,7 +201,7 @@ test("live session activity decides background subagents without a result", () =
   // The parent turn is still running, so a child that has not reported busy yet stays running.
   expect(runningBackgroundSubagents(messages, { ses_parent: {} }, "ses_parent")).toHaveLength(2);
   expect(runningBackgroundSubagents(messages, { ses_a: {} }, "ses_parent")).toEqual([
-    { key: "ses_a", childSessionID: "ses_a" },
+    { key: "ses_a", childSessionID: "ses_a", title: "Restyle" },
   ]);
   expect(subagentStates(messages, { ses_a: {} }, "ses_parent").get("ses_b")?.state).toBe(
     "completed",

@@ -214,8 +214,8 @@ function Blocks({
           >
             <View style={styles.codeHeader}>
               {language ? (
-                <Text dynamicTypeRamp={typeRamp.caption} style={styles.codeLanguage}>
-                  {language.toLocaleUpperCase()}
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.codeLanguage}>
+                  {language}
                 </Text>
               ) : null}
               <CopyTextButton text={token.content} label="Copy code" />
@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: space.xs,
   },
-  codeLanguage: { ...typography.label, color: palette.dim },
+  codeLanguage: { ...typography.footnote, color: palette.dim },
   codeHeader: {
     flexDirection: "row",
     flexWrap: "wrap",

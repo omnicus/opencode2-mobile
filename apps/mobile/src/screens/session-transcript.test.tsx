@@ -2,7 +2,7 @@ import { afterEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
-import { Alert, Linking, View } from "react-native";
+import { AccessibilityInfo, Alert, Linking, StyleSheet, View } from "react-native";
 
 import { resetTranscriptPerformanceMetrics } from "../state/transcript-performance";
 import { markdownPalette, palette, typography } from "../theme";
@@ -11,6 +11,7 @@ import {
   activitySummary,
   buildTranscriptPresentation,
   groupTranscriptMessages,
+  PendingPromptRow,
   SessionSubagentStates,
   SessionTranscriptRow,
   TranscriptActivityGroup,
@@ -897,7 +898,7 @@ test("renders fenced assistant code without markdown fence markers", () => {
   );
 
   expect(screen.getByText("Verify afterward:")).toBeOnTheScreen();
-  expect(screen.getByText("GDB")).toBeOnTheScreen();
+  expect(screen.getByText("gdb")).toBeOnTheScreen();
   expect(screen.getByText("info sharedlibrary\nx/16i $pc-32")).toBeOnTheScreen();
   expect(screen.getByText("Then inspect the stack.")).toBeOnTheScreen();
   expect(screen.queryByText(/```/)).toBeNull();
@@ -921,7 +922,7 @@ test("renders an unfinished code fence while assistant text streams", () => {
     />,
   );
 
-  expect(screen.getByText("SH")).toBeOnTheScreen();
+  expect(screen.getByText("sh")).toBeOnTheScreen();
   expect(screen.getByText("pnpm test")).toBeOnTheScreen();
   expect(screen.queryByText(/```/)).toBeNull();
 });
@@ -946,8 +947,8 @@ test("renders finished short reasoning inline with bold markdown", () => {
     />,
   );
 
-  expect(screen.getByText("THOUGHT")).toBeOnTheScreen();
-  expect(screen.queryByText("THINKING")).toBeNull();
+  expect(screen.getByText("Thought")).toBeOnTheScreen();
+  expect(screen.queryByText("Thinking")).toBeNull();
   expect(screen.getByText("Adding mocks to repository tests")).toHaveStyle({ fontWeight: "700" });
   expect(screen.queryByText(/\*\*/)).toBeNull();
   expect(screen.queryByRole("button", { name: /Thought/ })).toBeNull();
@@ -967,8 +968,8 @@ test("labels reasoning as thinking until the part completes", () => {
     />,
   );
 
-  expect(screen.getByText("THINKING")).toBeOnTheScreen();
-  expect(screen.queryByText("THOUGHT")).toBeNull();
+  expect(screen.getByText("Thinking")).toBeOnTheScreen();
+  expect(screen.queryByText("Thought")).toBeNull();
 
   rerender(
     <SessionTranscriptRow
@@ -989,8 +990,8 @@ test("labels reasoning as thinking until the part completes", () => {
     />,
   );
 
-  expect(screen.getByText("THOUGHT")).toBeOnTheScreen();
-  expect(screen.queryByText("THINKING")).toBeNull();
+  expect(screen.getByText("Thought")).toBeOnTheScreen();
+  expect(screen.queryByText("Thinking")).toBeNull();
 });
 
 test("settles reasoning when the message completes without a part completion time", () => {
@@ -1329,16 +1330,37 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
 
   expect(screen.getByText("Background subagent")).toBeOnTheScreen();
   expect(screen.getByText("Inspect event handling")).toBeOnTheScreen();
-  expect(screen.getByText("@explore")).toBeOnTheScreen();
+  expect(screen.getByText("@explore", { includeHiddenElements: true })).toBeOnTheScreen();
   expect(screen.getByText("Running")).toBeOnTheScreen();
   expect(screen.queryByText("subagent / Completed")).toBeNull();
   expect(screen.queryByText(/<task/)).toBeNull();
+  expect(screen.getByTestId("subagent-card")).toHaveStyle({
+    borderColor: palette.activity,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+  });
+  expect(screen.getByText("Inspect event handling")).toHaveStyle(typography.headline);
 
-  fireEvent.press(screen.getByRole("button", { name: "Open child" }));
+  const card = screen.getByRole("button", {
+    name: "Background subagent, Inspect event handling, @explore, Running",
+  });
+  expect(card.props.accessibilityHint).toBe("Opens the subagent session");
+  fireEvent.press(card);
   expect(openSubagent).toHaveBeenCalledWith("ses_child");
-  fireEvent.press(screen.getByRole("button", { name: "Show result" }));
+  fireEvent.press(screen.getByText("@explore", { includeHiddenElements: true }));
+  expect(openSubagent).toHaveBeenCalledTimes(2);
+
+  const toggle = screen.getByRole("button", { name: "Show result" });
+  expect(toggle).toHaveStyle({ minHeight: 36 });
+  expect(toggle.props.hitSlop).toBe(6);
+  fireEvent.press(toggle);
+  expect(screen.getByRole("button", { name: "Hide result" })).toHaveProp("accessibilityState", {
+    expanded: true,
+  });
   expect(screen.getByText("Working")).toBeOnTheScreen();
   expect(screen.queryByText(/task_result/)).toBeNull();
+  expect(openSubagent).toHaveBeenCalledTimes(2);
 });
 
 test("background subagent launches stay running until the child reports a result", () => {
@@ -1385,8 +1407,12 @@ test("background subagent launches stay running until the child reports a result
   expect(screen.getByText("Background subagent")).toBeOnTheScreen();
   expect(screen.getByText("Running")).toBeOnTheScreen();
 
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
   view.rerender(row([notification, launch]));
   expect(screen.getByText("Completed")).toBeOnTheScreen();
+  expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.border });
+  expect(announce).toHaveBeenCalledWith("Background subagent Restyle Sessions list completed");
+  announce.mockRestore();
 });
 
 test("projects injected background results into subagent cards", () => {
@@ -1410,10 +1436,14 @@ test("projects injected background results into subagent cards", () => {
 
   expect(screen.getByText("Background task completed: inspect code")).toBeOnTheScreen();
   expect(screen.getByText("Completed")).toBeOnTheScreen();
-  expect(screen.getByLabelText(/Subagent Background task completed/)).toHaveStyle({
-    backgroundColor: "transparent",
-    borderRadius: 0,
-    paddingHorizontal: 0,
+  expect(
+    screen.getByLabelText(/^Background subagent, Background task completed/),
+  ).toBeOnTheScreen();
+  expect(screen.getByTestId("subagent-card")).toHaveStyle({
+    backgroundColor: palette.card,
+    borderColor: palette.border,
+    borderRadius: 12,
+    padding: 12,
   });
   expect(screen.queryByText(/<task/)).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Show result" }));
@@ -1464,4 +1494,129 @@ test("caps child rows within one projected message", () => {
   expect(screen.getByText("Part 63")).toBeOnTheScreen();
   expect(screen.queryByText("Part 64")).toBeNull();
   expect(screen.getByText("Additional message parts omitted on this device.")).toBeOnTheScreen();
+});
+
+test("running shell output follows new lines until the user scrolls up", () => {
+  const shell = (output: string, status: "running" | "exited"): SessionMessageInfo => ({
+    command: "pnpm test",
+    id: "msg_shell_follow",
+    output: { cursor: output.length, output, size: output.length, truncated: false },
+    shellID: "shell-follow",
+    status,
+    time: { created: 8 },
+    type: "shell",
+  });
+  const view = render(<SessionTranscriptRow message={shell("line 1", "running")} />);
+  fireEvent.press(screen.getByRole("button", { name: /Running.*Show/ }));
+  const scroll = () => screen.UNSAFE_getByProps({ accessibilityLabel: "Shell output" });
+  const scrollToEnd = jest.fn();
+  scroll().instance.scrollToEnd = scrollToEnd;
+
+  fireEvent(scroll(), "contentSizeChange", 320, 400);
+  expect(scrollToEnd).toHaveBeenCalledTimes(1);
+
+  fireEvent.scroll(scroll(), {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 40 },
+      contentSize: { height: 400, width: 320 },
+      layoutMeasurement: { height: 240, width: 320 },
+    },
+  });
+  view.rerender(<SessionTranscriptRow message={shell("line 1\nline 2", "running")} />);
+  fireEvent(scroll(), "contentSizeChange", 320, 420);
+  expect(scrollToEnd).toHaveBeenCalledTimes(1);
+
+  fireEvent.scroll(scroll(), {
+    nativeEvent: {
+      contentOffset: { x: 0, y: 170 },
+      contentSize: { height: 420, width: 320 },
+      layoutMeasurement: { height: 240, width: 320 },
+    },
+  });
+  fireEvent(scroll(), "contentSizeChange", 320, 440);
+  expect(scrollToEnd).toHaveBeenCalledTimes(2);
+
+  view.rerender(<SessionTranscriptRow message={shell("line 1\nline 2", "exited")} />);
+  fireEvent(scroll(), "contentSizeChange", 320, 460);
+  expect(scrollToEnd).toHaveBeenCalledTimes(2);
+});
+
+test("the shell copy button sits beside the command instead of over the output", () => {
+  render(
+    <SessionTranscriptRow
+      message={{
+        command: "pnpm test",
+        id: "msg_shell_copy",
+        output: { cursor: 1, output: "shell output", size: 1, truncated: false },
+        shellID: "shell-copy",
+        status: "exited",
+        time: { created: 8 },
+        type: "shell",
+      }}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: /Ran.*Show/ }));
+  const copy = screen.getByRole("button", { name: "Copy shell output" });
+  let header = copy.parent;
+  while (header && StyleSheet.flatten(header.props.style)?.flexDirection !== "row") {
+    header = header.parent;
+  }
+  expect(header).toContainElement(screen.getAllByText("pnpm test").at(-1) ?? null);
+  expect(screen.getByLabelText("Shell output")).not.toContainElement(copy);
+});
+
+test("pending prompt status is announced on iOS as it changes", () => {
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  const preview = {
+    createdAtMs: 1,
+    id: "pending",
+    status: "sending" as const,
+    text: "Fix the build",
+    type: "pending-prompt" as const,
+  };
+  const view = render(<PendingPromptRow preview={preview} />);
+  expect(announce).toHaveBeenLastCalledWith("Sending");
+  view.rerender(<PendingPromptRow preview={{ ...preview, status: "queued" }} />);
+  expect(announce).toHaveBeenLastCalledWith("Queued");
+  expect(screen.getByText("Queued").props.accessibilityLiveRegion).toBe("polite");
+  announce.mockRestore();
+});
+
+test("transcript notices and disclosure labels match the chat activity size", () => {
+  render(
+    <View>
+      <SessionTranscriptRow
+        message={{ agent: "build", id: "msg_agent", time: { created: 1 }, type: "agent-switched" }}
+      />
+      <SessionTranscriptRow
+        detailed
+        message={{
+          id: "msg_model",
+          model: { id: "model-2", providerID: "provider" },
+          time: { created: 2 },
+          type: "model-switched",
+        }}
+      />
+      <SessionTranscriptRow
+        message={{
+          agent: "build",
+          content: [
+            { text: "Line one\nLine two", time: { completed: 2, created: 1 }, type: "reasoning" },
+          ],
+          id: "msg_reasoning",
+          model: { id: "model-1", providerID: "provider" },
+          time: { completed: 2, created: 1 },
+          type: "assistant",
+        }}
+      />
+    </View>,
+  );
+  expect(screen.getByText("Model changed")).toHaveStyle({
+    fontSize: typography.chatActivity.fontSize,
+  });
+  expect(screen.getByText(/Agent changed to/)).toHaveStyle({
+    fontSize: typography.chatActivity.fontSize,
+  });
+  expect(screen.getByText("Thought")).toHaveStyle({ fontSize: typography.chatActivity.fontSize });
+  expect(screen.getByRole("button", { name: /Thought/ })).toHaveStyle({ minHeight: 48 });
 });
