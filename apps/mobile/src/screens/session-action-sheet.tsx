@@ -1,10 +1,11 @@
 import {
+  type OpenCodeClient,
   removeOpenCodeSession,
   renameOpenCodeSession,
   type SessionInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import { useQueryClient } from "@tanstack/react-query";
-import { useSQLiteContext } from "expo-sqlite";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { type SQLiteDatabase, useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, TextInput } from "react-native";
 import { Button } from "../components/button";
@@ -15,6 +16,15 @@ import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import { minTouchTarget, palette, radius, space, typeRamp, typography } from "../theme";
+import {
+  canSaveSessionName,
+  type SessionAction,
+  type SessionSheetPage,
+  sessionActionReady,
+  sessionArchiveLabel,
+  sessionSheetSize,
+  sessionSheetTitles,
+} from "./session-action-sheet-model";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionDevTools } from "./session-location-options";
 
@@ -34,12 +44,111 @@ export function SessionActionSheet({
   branchStale?: boolean;
 }) {
   const runtime = useConnectionRuntime();
+  const archived = session.time.archived !== undefined;
+  const [page, setPage] = useState<SessionSheetPage>("menu");
+  const [title, setTitle] = useState(session.title ?? "");
+  const sameConnection = runtime.connectionId === connectionId;
+  const connected = sameConnection && runtime.status === "connected" && Boolean(runtime.restClient);
+  const { busy, controllerRef, error, perform, setError } = useSessionActionRunner({
+    archived,
+    connected,
+    connectionId,
+    onClose,
+    onDeleted,
+    runtime,
+    session,
+    title,
+  });
+
+  return (
+    <ModalSheet
+      title={sessionSheetTitles[page]}
+      subtitle={session.title || "Untitled session"}
+      visible
+      onClose={() => {
+        if (!controllerRef.current) onClose();
+      }}
+      size={sessionSheetSize(page)}
+      closeLabel={page === "delete" ? "Cancel" : "Close"}
+    >
+      {page !== "menu" ? (
+        <Button
+          accessibilityLabel="Back to session actions"
+          disabled={busy}
+          icon="chevron-left"
+          label="Session actions"
+          onPress={() => {
+            setPage("menu");
+            setError(undefined);
+          }}
+          variant="text"
+        />
+      ) : null}
+      {page === "menu" ? (
+        <SessionMenuPage
+          archived={archived}
+          busy={busy}
+          connected={connected}
+          onArchive={() => void perform("archive")}
+          onPage={setPage}
+          sameConnection={sameConnection}
+        />
+      ) : null}
+      {page === "rename" ? (
+        <SessionRenamePage
+          busy={busy}
+          canSave={canSaveSessionName(connected, title, session.title)}
+          onChangeTitle={setTitle}
+          onSave={() => void perform("rename")}
+          title={title}
+        />
+      ) : null}
+      {page === "delete" ? (
+        <SessionDeletePage
+          busy={busy}
+          connected={connected}
+          onConfirm={() => void perform("delete")}
+        />
+      ) : null}
+      <SessionDevTools
+        connectionId={connectionId}
+        location={session.location}
+        ready={sameConnection}
+        visible={page === "devtools"}
+        branch={branch}
+        branchStale={branchStale}
+      />
+      {error ? (
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
+          {error}
+        </Text>
+      ) : null}
+    </ModalSheet>
+  );
+}
+
+function useSessionActionRunner({
+  archived,
+  connected,
+  connectionId,
+  onClose,
+  onDeleted,
+  runtime,
+  session,
+  title,
+}: {
+  archived: boolean;
+  connected: boolean;
+  connectionId: string;
+  onClose: () => void;
+  onDeleted: () => void;
+  runtime: ReturnType<typeof useConnectionRuntime>;
+  session: SessionInfo;
+  title: string;
+}) {
   const queryClient = useQueryClient();
   const db = useSQLiteContext();
   const workspaceSelection = useWorkspaceSelection();
-  const archived = session.time.archived !== undefined;
-  const [page, setPage] = useState<"menu" | "rename" | "delete" | "devtools">("menu");
-  const [title, setTitle] = useState(session.title ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const controllerRef = useRef<AbortController | null>(null);
@@ -53,56 +162,27 @@ export function SessionActionSheet({
       controllerRef.current?.abort();
     };
   }, [connectionId, runtime.connectionId]);
-  const connected =
-    runtime.connectionId === connectionId &&
-    runtime.status === "connected" &&
-    Boolean(runtime.restClient);
 
-  const canSaveName = connected && Boolean(title.trim()) && title.trim() !== session.title;
-
-  async function perform(action: "archive" | "rename" | "delete") {
+  async function perform(action: SessionAction) {
+    const client = runtime.restClient;
     if (controllerRef.current || runtime.connectionId !== connectionId) return;
-    if (!connected || !runtime.restClient) return;
-    if (action === "rename" && !title.trim()) return;
+    if (!client || !sessionActionReady(action, { connected, title })) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     setBusy(true);
     setError(undefined);
-    let cleanupIncomplete = false;
     try {
-      // Archive state is shared with every client, including OpenCode desktop.
-      if (action === "archive") await workspaceSelection.archiveSession(session, !archived);
-      if (action === "rename" && runtime.restClient)
-        await renameOpenCodeSession(runtime.restClient, session.id, title.trim(), {
-          signal: controller.signal,
-        });
-      if (action === "delete" && runtime.restClient) {
-        const ids = await loadOpenCodeSessionTreeIds(
-          runtime.restClient,
-          session.location,
-          session.id,
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        await removeOpenCodeSession(runtime.restClient, session.id, { signal: controller.signal });
-        await deleteSessionLocalState(db, connectionId, ids).catch(() => {
-          cleanupIncomplete = true;
-        });
-        for (const id of ids) {
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.session(connectionId, session.location, id),
-          });
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.messageRoot(connectionId, session.location, id),
-          });
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.inbox(connectionId, session.location, id),
-          });
-          queryClient.removeQueries({
-            queryKey: openCodeQueryKeys.promptAdmissions(connectionId, session.location, id),
-          });
-        }
-      }
+      const cleanupIncomplete = await applySessionAction(action, {
+        archiveSession: workspaceSelection.archiveSession,
+        archived,
+        client,
+        connectionId,
+        db,
+        queryClient,
+        session,
+        signal: controller.signal,
+        title,
+      });
       if (controller.signal.aborted) return;
       await queryClient.invalidateQueries({ queryKey: openCodeQueryKeys.connection(connectionId) });
       if (controller.signal.aborted) return;
@@ -128,134 +208,182 @@ export function SessionActionSheet({
     }
   }
 
+  return { busy, controllerRef, error, perform, setError };
+}
+
+type SessionActionContext = {
+  archiveSession: ReturnType<typeof useWorkspaceSelection>["archiveSession"];
+  archived: boolean;
+  client: OpenCodeClient;
+  connectionId: string;
+  db: SQLiteDatabase;
+  queryClient: QueryClient;
+  session: SessionInfo;
+  signal: AbortSignal;
+  title: string;
+};
+
+// Resolves whether local cleanup was incomplete after a deletion.
+async function applySessionAction(action: SessionAction, context: SessionActionContext) {
+  const { client, session, signal } = context;
+  if (action === "delete") return deleteSessionTree(context);
+  // Archive state is shared with every client, including OpenCode desktop.
+  if (action === "archive") {
+    await context.archiveSession(session, !context.archived);
+    return false;
+  }
+  await renameOpenCodeSession(client, session.id, context.title.trim(), { signal });
+  return false;
+}
+
+async function deleteSessionTree(context: SessionActionContext) {
+  const { client, connectionId, db, queryClient, session, signal } = context;
+  const ids = await loadOpenCodeSessionTreeIds(client, session.location, session.id, signal);
+  if (signal.aborted) return false;
+  await removeOpenCodeSession(client, session.id, { signal });
+  let cleanupIncomplete = false;
+  await deleteSessionLocalState(db, connectionId, ids).catch(() => {
+    cleanupIncomplete = true;
+  });
+  for (const id of ids) {
+    queryClient.removeQueries({
+      queryKey: openCodeQueryKeys.session(connectionId, session.location, id),
+    });
+    queryClient.removeQueries({
+      queryKey: openCodeQueryKeys.messageRoot(connectionId, session.location, id),
+    });
+    queryClient.removeQueries({
+      queryKey: openCodeQueryKeys.inbox(connectionId, session.location, id),
+    });
+    queryClient.removeQueries({
+      queryKey: openCodeQueryKeys.promptAdmissions(connectionId, session.location, id),
+    });
+  }
+  return cleanupIncomplete;
+}
+
+function SessionMenuPage({
+  archived,
+  busy,
+  connected,
+  onArchive,
+  onPage,
+  sameConnection,
+}: {
+  archived: boolean;
+  busy: boolean;
+  connected: boolean;
+  onArchive: () => void;
+  onPage: (page: SessionSheetPage) => void;
+  sameConnection: boolean;
+}) {
   return (
-    <ModalSheet
-      title={
-        page === "rename"
-          ? "Rename session"
-          : page === "devtools"
-            ? "Dev tools"
-            : page === "delete"
-              ? "Delete session?"
-              : "Session actions"
-      }
-      subtitle={session.title || "Untitled session"}
-      visible
-      onClose={() => {
-        if (!controllerRef.current) onClose();
-      }}
-      size={page === "menu" || page === "delete" ? "compact" : "page"}
-      closeLabel={page === "delete" ? "Cancel" : "Close"}
-    >
-      {page !== "menu" ? (
-        <Button
-          accessibilityLabel="Back to session actions"
-          disabled={busy}
-          icon="chevron-left"
-          label="Session actions"
-          onPress={() => {
-            setPage("menu");
-            setError(undefined);
-          }}
-          variant="text"
+    <>
+      <MenuGroup>
+        <MenuRow
+          icon="edit-2"
+          label="Rename"
+          disabled={busy || !connected}
+          onPress={() => onPage("rename")}
         />
-      ) : null}
-      {page === "menu" ? (
-        <>
-          <MenuGroup>
-            <MenuRow
-              icon="edit-2"
-              label="Rename"
-              disabled={busy || !connected}
-              onPress={() => setPage("rename")}
-            />
-            <MenuRow
-              icon="archive"
-              last
-              disclosure={false}
-              label={archived ? "Unarchive" : "Archive"}
-              description="Applies on every device"
-              disabled={busy || !connected}
-              onPress={() => void perform("archive")}
-            />
-          </MenuGroup>
-          <MenuGroup>
-            <MenuRow
-              icon="tool"
-              last
-              label="Dev tools"
-              description="Branch and MCP servers for this location"
-              disabled={busy || runtime.connectionId !== connectionId}
-              onPress={() => setPage("devtools")}
-            />
-          </MenuGroup>
-          <MenuGroup>
-            <MenuRow
-              icon="trash-2"
-              last
-              label="Delete"
-              danger
-              disabled={busy || !connected}
-              onPress={() => setPage("delete")}
-            />
-          </MenuGroup>
-        </>
-      ) : null}
-      {page === "rename" ? (
-        <>
-          <TextInput
-            accessibilityLabel="Session name"
-            autoFocus
-            value={title}
-            onChangeText={setTitle}
-            editable={!busy}
-            keyboardAppearance="dark"
-            maxLength={512}
-            onSubmitEditing={() => {
-              if (canSaveName) void perform("rename");
-            }}
-            returnKeyType="done"
-            style={styles.input}
-          />
-          <Button
-            busy={busy}
-            disabled={!canSaveName}
-            fullWidth
-            label={busy ? "Saving" : "Save name"}
-            onPress={() => void perform("rename")}
-            variant="primary"
-          />
-        </>
-      ) : null}
-      {page === "delete" ? (
-        <>
-          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-            This deletes the remote session and its child sessions. It cannot be undone.
-          </Text>
-          <Button
-            busy={busy}
-            disabled={!connected}
-            fullWidth
-            label={busy ? "Deleting" : "Confirm delete"}
-            onPress={() => void perform("delete")}
-            variant="danger"
-          />
-        </>
-      ) : null}
-      <SessionDevTools
-        connectionId={connectionId}
-        location={session.location}
-        ready={runtime.connectionId === connectionId}
-        visible={page === "devtools"}
-        branch={branch}
-        branchStale={branchStale}
+        <MenuRow
+          icon="archive"
+          last
+          disclosure={false}
+          label={sessionArchiveLabel(archived)}
+          description="Applies on every device"
+          disabled={busy || !connected}
+          onPress={onArchive}
+        />
+      </MenuGroup>
+      <MenuGroup>
+        <MenuRow
+          icon="tool"
+          last
+          label="Dev tools"
+          description="Branch and MCP servers for this location"
+          disabled={busy || !sameConnection}
+          onPress={() => onPage("devtools")}
+        />
+      </MenuGroup>
+      <MenuGroup>
+        <MenuRow
+          icon="trash-2"
+          last
+          label="Delete"
+          danger
+          disabled={busy || !connected}
+          onPress={() => onPage("delete")}
+        />
+      </MenuGroup>
+    </>
+  );
+}
+
+function SessionRenamePage({
+  busy,
+  canSave,
+  onChangeTitle,
+  onSave,
+  title,
+}: {
+  busy: boolean;
+  canSave: boolean;
+  onChangeTitle: (title: string) => void;
+  onSave: () => void;
+  title: string;
+}) {
+  return (
+    <>
+      <TextInput
+        accessibilityLabel="Session name"
+        autoFocus
+        value={title}
+        onChangeText={onChangeTitle}
+        editable={!busy}
+        keyboardAppearance="dark"
+        maxLength={512}
+        onSubmitEditing={() => {
+          if (canSave) onSave();
+        }}
+        returnKeyType="done"
+        style={styles.input}
       />
-      {error ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
-    </ModalSheet>
+      <Button
+        busy={busy}
+        disabled={!canSave}
+        fullWidth
+        label={busy ? "Saving" : "Save name"}
+        onPress={onSave}
+        variant="primary"
+      />
+    </>
+  );
+}
+
+function SessionDeletePage({
+  busy,
+  connected,
+  onConfirm,
+}: {
+  busy: boolean;
+  connected: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
+        This deletes the remote session and its child sessions. It cannot be undone.
+      </Text>
+      <Button
+        busy={busy}
+        disabled={!connected}
+        fullWidth
+        label={busy ? "Deleting" : "Confirm delete"}
+        onPress={onConfirm}
+        variant="danger"
+      />
+    </>
   );
 }
 
