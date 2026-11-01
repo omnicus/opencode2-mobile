@@ -1270,7 +1270,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         onBackground={execution.background}
         onReplyPermission={workspaceSelection.replyPermission}
         onSteerInbox={execution.steerInbox}
-        permissionReplyError={workspaceSelection.permissionReplyError}
+        failedPermissionReplyId={workspaceSelection.failedPermissionReplyId}
         permissions={sessionPermissions}
         projectedMessageIds={execution.projectedMessageIds}
         replyingPermissionId={workspaceSelection.replyingPermissionId}

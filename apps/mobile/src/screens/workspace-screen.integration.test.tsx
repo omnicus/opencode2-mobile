@@ -322,7 +322,6 @@ jest.mock("../state/workspace-selection-context", () => ({
     interactionsError: false,
     interactionsLoading: false,
     pendingCount: mockWorkspaceNeedsAttention ? 1 : mockWorkspacePermissions.length,
-    permissionReplyError: false,
     permissions: mockWorkspacePermissions,
     preferencesLoading: false,
     preferencesSaving: false,
@@ -2134,7 +2133,9 @@ test("shows running background subagents and opens their child sessions", async 
   );
 
   expect(await screen.findByText("Inspect event handling")).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Open child" }));
+  fireEvent.press(
+    screen.getByRole("button", { name: /^Background subagent, Inspect event handling/ }),
+  );
   expect(push).toHaveBeenCalledWith("Session", {
     connectionId: "connection-1",
     location: { directory: "/workspace" },

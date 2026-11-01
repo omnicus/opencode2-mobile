@@ -48,17 +48,17 @@ test.each([
   },
 );
 
-test("workspace gear sits at the left edge and New session at the right edge", () => {
+test("Settings gear sits at the left edge and New session at the right edge", () => {
   render(
     <WorkspaceNewSessionAction eligible showSettings onNavigate={jest.fn()} onPress={jest.fn()} />,
   );
   const [first, second] = screen.getAllByRole("button");
-  expect(first).toHaveAccessibleName("Workspace options");
+  expect(first).toHaveAccessibleName("Settings");
   expect(second).toHaveAccessibleName("New session");
   expect(second).toHaveStyle({ marginLeft: "auto" });
 });
 
-test("floating workspace gear remains available without an eligible new session pill", () => {
+test("floating Settings gear remains available without an eligible new session pill", () => {
   const navigate = jest.fn();
   render(
     <WorkspaceNewSessionAction
@@ -69,7 +69,6 @@ test("floating workspace gear remains available without an eligible new session 
     />,
   );
   expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
   fireEvent.press(screen.getByRole("button", { name: "Settings" }));
   expect(navigate).toHaveBeenCalledWith("Settings");
 });

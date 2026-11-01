@@ -301,7 +301,6 @@ test("allows a permission owned by a background child session from Pending", () 
     interactionsLoading: false,
     location: { directory: "/workspace" },
     pendingCount: 1,
-    permissionReplyError: false,
     permissions: [
       {
         action: "shell",

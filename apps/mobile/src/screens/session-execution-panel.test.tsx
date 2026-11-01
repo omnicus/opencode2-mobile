@@ -34,7 +34,6 @@ test("composer-owned Stop removes the duplicate panel control", () => {
       admissions={[]}
       inbox={[]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set()}
       {...callbacks}
     />,
@@ -53,7 +52,6 @@ test("a transcript-pinned status leaves the panel empty while only working", () 
       admissions={[]}
       inbox={[]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set()}
       {...callbacks}
     />,
@@ -91,7 +89,6 @@ test.each(["admitted", "queued", "steered", "promoted", "executing"] as const)(
         ]}
         inbox={[]}
         permissions={[]}
-        permissionReplyError={false}
         projectedMessageIds={new Set()}
         {...callbacks}
       />,
@@ -111,7 +108,6 @@ test("a brief steering inbox snapshot without a local admission never flashes co
       active: false,
       admissions: [],
       permissions: [],
-      permissionReplyError: false,
       projectedMessageIds: new Set<string>(),
       ...callbacks,
     };
@@ -158,7 +154,6 @@ test("a prompt promoted within 200ms never flashes admission or inbox action car
       admissions: [admission],
       inbox: [] as SessionInboxInfo[],
       permissions: [],
-      permissionReplyError: false,
       projectedMessageIds: new Set<string>(),
       ...callbacks,
     };
@@ -227,7 +222,6 @@ test.each(["submitting", "queued"] as const)(
               ] satisfies SessionInboxInfo[])
             : [],
         permissions: [],
-        permissionReplyError: false,
         projectedMessageIds: new Set<string>(),
         ...callbacks,
       };
@@ -268,7 +262,6 @@ test("a projected prompt never retains stale inbox action cards", () => {
         },
       ]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set(["msg_projected"])}
       {...callbacks}
     />,
@@ -292,7 +285,6 @@ test("unknown delivery bypasses the grace period", () => {
       ]}
       inbox={[]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set()}
       {...callbacks}
     />,
@@ -308,7 +300,6 @@ test("ordinary active execution does not advertise a background action", () => {
       admissions={[]}
       inbox={[]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set()}
       {...callbacks}
     />,
@@ -334,7 +325,6 @@ test("renders active execution and mutable queued inbox work", async () => {
       canBackground
       admissions={[]}
       inbox={inbox}
-      permissionReplyError={false}
       permissions={[]}
       {...callbacks}
       projectedMessageIds={new Set()}
@@ -385,7 +375,6 @@ test("cancelling a queued prompt waits for confirmation", async () => {
           type: "user",
         },
       ]}
-      permissionReplyError={false}
       permissions={[]}
       {...callbacks}
       projectedMessageIds={new Set()}
@@ -408,7 +397,6 @@ test("agent-switch reminders do not become actionable steering cards", () => {
       active={false}
       admissions={[]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set()}
       {...callbacks}
       inbox={[
@@ -435,7 +423,6 @@ test("steering never offers Queue next, even when it remains pending", () => {
       active={false}
       admissions={[]}
       permissions={[]}
-      permissionReplyError={false}
       projectedMessageIds={new Set()}
       {...callbacks}
       inbox={[
@@ -483,7 +470,6 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
       active={false}
       admissions={[admission]}
       inbox={[]}
-      permissionReplyError={false}
       permissions={[]}
       {...callbacks}
       projectedMessageIds={new Set()}
@@ -503,7 +489,6 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
       active={false}
       admissions={[admission]}
       inbox={[]}
-      permissionReplyError={false}
       permissions={[]}
       {...callbacks}
       projectedMessageIds={new Set(["msg_unknown"])}
@@ -526,7 +511,6 @@ test("only offers a duplicate-risk retry after an explicit empty reconciliation"
       active={false}
       admissions={[admission]}
       inbox={[]}
-      permissionReplyError={false}
       permissions={[]}
       {...callbacks}
       projectedMessageIds={new Set()}
@@ -552,7 +536,6 @@ test("explains that command recovery cannot identify delivery", () => {
         },
       ]}
       inbox={[]}
-      permissionReplyError={false}
       permissions={[]}
       {...callbacks}
       projectedMessageIds={new Set()}
@@ -568,7 +551,6 @@ test("shows and replies to a permission blocking the current session", () => {
       active
       admissions={[]}
       inbox={[]}
-      permissionReplyError={false}
       permissions={[
         {
           action: "shell",
@@ -606,12 +588,7 @@ test("a failed permission reply only marks the request that sent it", () => {
     projectedMessageIds: new Set<string>(),
     ...callbacks,
   };
-  const view = render(<SessionExecutionPanel {...props} permissionReplyError={false} />);
-  const secondReject = screen.getAllByRole("button", { name: "Reject" })[1];
-  if (!secondReject) throw new Error("Missing second Reject action");
-  fireEvent.press(secondReject);
-  expect(callbacks.onReplyPermission).toHaveBeenLastCalledWith("per_second", "ses_test", "reject");
-  view.rerender(<SessionExecutionPanel {...props} permissionReplyError />);
+  render(<SessionExecutionPanel {...props} failedPermissionReplyId="per_second" />);
   expect(screen.getAllByRole("alert")).toHaveLength(1);
   expect(screen.getAllByText(/^The server did not accept that reply/)).toHaveLength(1);
 });

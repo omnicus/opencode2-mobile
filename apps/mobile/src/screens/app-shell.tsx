@@ -250,7 +250,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 key={`permission:${request.id}`}
                 request={request}
                 replying={selection.replyingPermissionId === request.id}
-                error={selection.permissionReplyError}
+                error={selection.failedPermissionReplyId === request.id}
                 onReply={selection.replyPermission}
               />
             ))}

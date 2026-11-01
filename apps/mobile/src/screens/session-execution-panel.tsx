@@ -33,7 +33,7 @@ export function SessionExecutionPanel({
   onBackground,
   onReplyPermission,
   onSteerInbox,
-  permissionReplyError,
+  failedPermissionReplyId,
   permissions,
   projectedMessageIds,
   replyingPermissionId,
@@ -54,7 +54,7 @@ export function SessionExecutionPanel({
   onBackground?: () => void;
   onReplyPermission: (requestID: string, sessionID: string, reply: PermissionReply) => void;
   onSteerInbox: (inboxID: string) => void;
-  permissionReplyError: boolean;
+  failedPermissionReplyId?: string | undefined;
   permissions: PermissionRequest[];
   projectedMessageIds: Set<string>;
   replyingPermissionId?: string | undefined;
@@ -62,8 +62,6 @@ export function SessionExecutionPanel({
   const { height } = useWindowDimensions();
   const [, refreshDisplay] = useState(0);
   const [inboxDeadlines, setInboxDeadlines] = useState<Map<string, number>>(() => new Map());
-  // The reply error is shared across requests, so only the card that sent the reply shows it.
-  const [lastReplyId, setLastReplyId] = useState<string>();
   const now = Date.now();
 
   useEffect(() => {
@@ -168,11 +166,8 @@ export function SessionExecutionPanel({
           key={request.id}
           request={request}
           replying={replyingPermissionId === request.id}
-          error={permissionReplyError && lastReplyId === request.id}
-          onReply={(requestID, sessionID, reply) => {
-            setLastReplyId(requestID);
-            onReplyPermission(requestID, sessionID, reply);
-          }}
+          error={failedPermissionReplyId === request.id}
+          onReply={onReplyPermission}
         />
       ))}
 

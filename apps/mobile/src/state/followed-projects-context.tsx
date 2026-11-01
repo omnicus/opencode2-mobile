@@ -94,7 +94,7 @@ type FollowedProjectsContextValue = {
   interactionsLoading: boolean;
   location?: LocationRef;
   pendingCount: number;
-  permissionReplyError: boolean;
+  failedPermissionReplyId?: string;
   permissions: PermissionRequest[];
   preferencesLoading: boolean;
   preferencesError: boolean;
@@ -929,7 +929,9 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         interactionsLoading: reconciling,
         ...(location ? { location } : {}),
         pendingCount: permissions.length + forms.length,
-        permissionReplyError: permissionReplyMutation.isError,
+        ...(permissionReplyMutation.isError && permissionReplyMutation.variables
+          ? { failedPermissionReplyId: permissionReplyMutation.variables.requestID }
+          : {}),
         permissions,
         preferencesError: Boolean(preferenceState?.loadFailed),
         preferencesLoading: !preferenceReady,
