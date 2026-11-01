@@ -1,17 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { LocationRef } from "@opencode2-mobile/opencode-adapter";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { type ReactNode, useEffect, useState } from "react";
-import {
-  AccessibilityInfo,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { type ReactNode, useState } from "react";
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useReducedMotion } from "../components/use-reduced-motion";
 
 import { useConnections } from "../connections/connections-context";
 import {
@@ -248,29 +241,6 @@ function SessionBackButton({ onPress }: { onPress: () => void }) {
       <SessionAttentionMarker />
     </Pressable>
   );
-}
-
-function useReducedMotion() {
-  const [reducedMotion, setReducedMotion] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((enabled) => {
-        if (active) setReducedMotion(enabled);
-      })
-      .catch(() => undefined);
-    const subscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReducedMotion,
-    );
-    return () => {
-      active = false;
-      subscription.remove();
-    };
-  }, []);
-
-  return reducedMotion;
 }
 
 const styles = StyleSheet.create({

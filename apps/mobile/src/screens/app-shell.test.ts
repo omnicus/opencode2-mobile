@@ -13,6 +13,7 @@ import {
   isTabletShell,
   PendingInteractionsScreen,
   ShellFrame,
+  showsConnectionIssue,
 } from "./app-shell";
 
 jest.mock("../connections/connections-context", () => ({ useConnections: jest.fn() }));
@@ -31,6 +32,21 @@ test("communicates every transport status without relying on color", () => {
   expect(getConnectionPresentation("unauthorized", 0).label).toBe("AUTH BLOCKED");
   expect(getConnectionPresentation("incompatible", 0).label).toBe("INCOMPATIBLE");
   expect(getConnectionPresentation("idle", 0).label).toBe("NO CONNECTION");
+});
+
+test("does not flag the background stale state as a connection problem", () => {
+  expect(showsConnectionIssue("stale")).toBe(false);
+  expect(showsConnectionIssue("connected")).toBe(false);
+  expect(showsConnectionIssue("connecting")).toBe(false);
+  for (const status of [
+    "reconnecting",
+    "offline",
+    "unauthorized",
+    "incompatible",
+    "idle",
+  ] as const) {
+    expect(showsConnectionIssue(status)).toBe(true);
+  }
 });
 
 test("uses cache metadata only for disconnected partial-shell states", () => {

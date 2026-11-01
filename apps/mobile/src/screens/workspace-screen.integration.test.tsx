@@ -14,7 +14,14 @@ import {
 import { type InfiniteData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import type { ReactElement, ReactNode } from "react";
-import { Alert, Dimensions, FlatList, Platform, RefreshControl } from "react-native";
+import {
+  AccessibilityInfo,
+  Alert,
+  Dimensions,
+  FlatList,
+  Platform,
+  RefreshControl,
+} from "react-native";
 import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
@@ -1650,6 +1657,16 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   expect(screen.getByRole("button", { name: "Scroll to latest" })).toBeOnTheScreen();
   fireEvent(transcript, "momentumScrollEnd", liveEdgeEvent);
   expect(screen.queryByRole("button", { name: "Scroll to latest" })).toBeNull();
+  const transcriptPosition = () =>
+    screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
+      .maintainVisibleContentPosition;
+  const transcriptRowTransition = () =>
+    screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
+      .itemLayoutAnimation;
+  // Following: rows ease to their new layout as the newest row grows, and the list stays
+  // anchored on that row so no frame shows a scroll correction.
+  expect(transcriptPosition()).toEqual({ minIndexForVisible: 0 });
+  expect(transcriptRowTransition()).toBeDefined();
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_100);
   await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
@@ -1668,7 +1685,10 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
     nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 500 } },
   });
   expect(scrollToOffset).not.toHaveBeenCalled();
+  // Reading older text: no row animation competes with the position the list keeps.
+  expect(transcriptRowTransition()).toBeUndefined();
   fireEvent.press(screen.getByRole("button", { name: "Scroll to latest" }));
+  expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 });
   fireEvent.scroll(transcript, scrollEvent(120));
   expect(screen.getByRole("button", { name: "Scroll to latest" })).toBeOnTheScreen();
   fireEvent(transcript, "momentumScrollEnd", liveEdgeEvent);
@@ -1677,6 +1697,58 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   view.unmount();
   queryClient.clear();
   scrollToOffset.mockRestore();
+});
+
+test("Reduce Motion keeps live-edge follow instant", async () => {
+  // React Native's Jest setup already mocks this; set its value instead of restoring a spy.
+  const reduceMotion = jest.mocked(AccessibilityInfo.isReduceMotionEnabled);
+  reduceMotion.mockResolvedValue(true);
+  const scrollToOffset = jest
+    .spyOn(FlatList.prototype, "scrollToOffset")
+    .mockImplementation(() => undefined);
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "session",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findByText("Current question");
+    const transcript = screen.getByLabelText("Session transcript");
+    await waitFor(() =>
+      expect(
+        screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
+          .itemLayoutAnimation,
+      ).toBeUndefined(),
+    );
+    expect(
+      screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
+        .maintainVisibleContentPosition,
+    ).toEqual({ minIndexForVisible: 0 });
+    scrollToOffset.mockClear();
+    fireEvent(transcript, "contentSizeChange", 320, 1_100);
+    await waitFor(() =>
+      expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }),
+    );
+  } finally {
+    view.unmount();
+    queryClient.clear();
+    scrollToOffset.mockRestore();
+    reduceMotion.mockResolvedValue(false);
+  }
 });
 
 test("waits for and adopts a moved session's authoritative location", async () => {

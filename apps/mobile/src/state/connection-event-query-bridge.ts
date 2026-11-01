@@ -12,7 +12,9 @@ import { openCodeQueryKeys } from "./open-code-query-keys";
 import {
   isTranscriptReductionEventType,
   reduceTranscriptEvents,
+  textPartKey,
   transcriptEventSessionID,
+  trimSnapshotTextDeltas,
 } from "./transcript-event-reducer";
 import type { TranscriptProjectionFrameSample } from "./transcript-performance";
 
@@ -27,6 +29,13 @@ type InvalidationRoot =
   | "shell"
   | "vcs";
 type InvalidationTarget = { location?: LocationRef; root: InvalidationRoot; sessionId?: string };
+type HeldTranscript = {
+  events: OpenCodeEvent[];
+  location?: LocationRef;
+  overflowed: boolean;
+  query: Query;
+  sessionId: string;
+};
 type PendingTranscript = {
   eventIds: Set<string>;
   events: OpenCodeEvent[];
@@ -40,6 +49,13 @@ const maxEventsPerTranscriptFrame = 4096;
 export class ConnectionEventQueryBridge {
   private readonly pending = new Map<string, InvalidationTarget>();
   private readonly pendingTranscripts = new Map<string, PendingTranscript>();
+  // Transcript events that arrived while their query was refetching, keyed by query hash.
+  private readonly heldTranscripts = new Map<string, HeldTranscript>();
+  private stopWatchingRefetches: (() => void) | undefined;
+  // Text deltas carry no offset, so they only extend a part this event stream saw start, or
+  // one a refetch proved continuous. Others wait for the part's authoritative ended text.
+  private readonly liveTextParts = new Set<string>();
+  private readonly gappedTextParts = new Set<string>();
   private scheduled = false;
 
   constructor(
@@ -91,6 +107,39 @@ export class ConnectionEventQueryBridge {
     }
   }
 
+  // A new event stream starts after a gap: deltas for parts already open cannot be placed.
+  streamRestarted() {
+    if (this.scheduled) this.flush();
+    this.liveTextParts.clear();
+    this.gappedTextParts.clear();
+  }
+
+  private keepContinuousText(events: OpenCodeEvent[], continued?: Set<string>) {
+    for (const key of continued ?? []) this.liveTextParts.add(key);
+    let gapped = false;
+    const kept = events.filter((event) => {
+      const key = textPartKey(event);
+      if (!key) return true;
+      if (event.type === "session.text.started" || event.type === "session.reasoning.started") {
+        this.liveTextParts.add(key);
+        return true;
+      }
+      if (event.type === "session.text.ended" || event.type === "session.reasoning.ended") {
+        this.liveTextParts.delete(key);
+        this.gappedTextParts.delete(key);
+        return true;
+      }
+      if (this.liveTextParts.has(key)) return true;
+      // Ask once whether the server's transcript already has the text this stream missed.
+      if (!this.gappedTextParts.has(key)) {
+        this.gappedTextParts.add(key);
+        gapped = true;
+      }
+      return false;
+    });
+    return { events: kept, gapped };
+  }
+
   uncertain(event?: OpenCodeEvent) {
     const root = event ? (eventInvalidationRoot(event) ?? "connection") : "connection";
     this.queue(root, root === "connection" ? undefined : event?.location);
@@ -115,6 +164,13 @@ export class ConnectionEventQueryBridge {
     let transcriptCacheWrites = 0;
     let transcriptEventCount = 0;
     let transcriptReconciliations = 0;
+    for (const released of this.releaseHeldTranscripts()) {
+      transcriptCacheWrites += released.cacheWrites;
+      if (released.needsReconciliation) {
+        transcriptReconciliations += 1;
+        setInvalidationTarget(targets, "messages", released.location, released.sessionId);
+      }
+    }
     for (const transcript of transcripts) {
       transcriptEventCount += transcript.events.length;
       const result = this.reduceTranscript(transcript);
@@ -182,6 +238,14 @@ export class ConnectionEventQueryBridge {
   private reduceTranscript(transcript: PendingTranscript) {
     let needsReconciliation = transcript.overflowed;
     let cacheWrites = 0;
+    let continuous: OpenCodeEvent[] | undefined;
+    const continuousEvents = () => {
+      if (continuous) return continuous;
+      const result = this.keepContinuousText(transcript.events);
+      needsReconciliation ||= result.gapped;
+      continuous = result.events;
+      return continuous;
+    };
     const queries = this.queryClient.getQueryCache().findAll({
       predicate: (query) =>
         matchesRoot(
@@ -193,13 +257,19 @@ export class ConnectionEventQueryBridge {
         ),
     });
     for (const query of queries) {
+      // A refetch in flight will replace this data. Appending deltas now would lose any
+      // that the refetch does not include, so hold them until it settles.
+      if (query.state.fetchStatus === "fetching") {
+        this.holdTranscript(query, transcript);
+        continue;
+      }
       const current = query.state.data as
         | InfiniteData<SessionMessagesResponse, string | undefined>
         | undefined;
       if (current === undefined) continue;
       const result = reduceTranscriptEvents(
         current,
-        transcript.events,
+        continuousEvents(),
         isDescendingMessageQuery(query.queryKey),
       );
       needsReconciliation ||= result.needsReconciliation;
@@ -208,7 +278,85 @@ export class ConnectionEventQueryBridge {
         this.queryClient.setQueryData(query.queryKey, result.data);
       }
     }
+    // Track part starts and ends even when no transcript query is cached.
+    if (!queries.some((query) => query.state.fetchStatus === "fetching")) continuousEvents();
     return { cacheWrites, needsReconciliation };
+  }
+
+  private holdTranscript(query: Query, transcript: PendingTranscript) {
+    const held = this.heldTranscripts.get(query.queryHash) ?? {
+      events: [],
+      ...(transcript.location ? { location: transcript.location } : {}),
+      overflowed: false,
+      query,
+      sessionId: transcript.sessionId,
+    };
+    held.overflowed ||= transcript.overflowed;
+    for (const event of transcript.events) {
+      if (held.events.length >= maxEventsPerTranscriptFrame) {
+        held.overflowed = true;
+        break;
+      }
+      held.events.push(event);
+    }
+    this.heldTranscripts.set(query.queryHash, held);
+    this.stopWatchingRefetches ??= this.queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        this.heldTranscripts.has(event.query.queryHash) &&
+        event.query.state.fetchStatus !== "fetching"
+      ) {
+        this.ensureScheduled();
+      }
+    });
+  }
+
+  private releaseHeldTranscripts() {
+    const released: Array<{
+      cacheWrites: number;
+      location?: LocationRef;
+      needsReconciliation: boolean;
+      sessionId: string;
+    }> = [];
+    for (const [hash, held] of this.heldTranscripts) {
+      if (held.query.state.fetchStatus === "fetching") continue;
+      this.heldTranscripts.delete(hash);
+      const current = held.query.state.data as
+        | InfiniteData<SessionMessagesResponse, string | undefined>
+        | undefined;
+      let cacheWrites = 0;
+      let needsReconciliation = held.overflowed;
+      if (current !== undefined) {
+        const continued = new Set<string>();
+        const trimmed =
+          held.query.state.status === "success"
+            ? trimSnapshotTextDeltas(current, held.events, continued)
+            : held.events;
+        const continuity = this.keepContinuousText(trimmed, continued);
+        needsReconciliation ||= continuity.gapped;
+        const result = reduceTranscriptEvents(
+          current,
+          continuity.events,
+          isDescendingMessageQuery(held.query.queryKey),
+        );
+        needsReconciliation ||= result.needsReconciliation;
+        if (result.data !== current) {
+          cacheWrites = 1;
+          this.queryClient.setQueryData(held.query.queryKey, result.data);
+        }
+      }
+      released.push({
+        cacheWrites,
+        ...(held.location ? { location: held.location } : {}),
+        needsReconciliation,
+        sessionId: held.sessionId,
+      });
+    }
+    if (this.heldTranscripts.size === 0) {
+      this.stopWatchingRefetches?.();
+      this.stopWatchingRefetches = undefined;
+    }
+    return released;
   }
 
   private ensureScheduled() {

@@ -12,6 +12,138 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: code block syntax highlighting, pending device verification
+
+Fenced code blocks are now colored like the OpenCode iOS app. Keywords and
+function names are pink, types lavender, numbers and booleans cyan, and
+punctuation dim. Strings and comments, absent from the reference screenshot, use
+green and italic grey. `prism-react-renderer` 2.4.1, plain JavaScript with no
+native code, tokenizes TypeScript, TSX, JavaScript, JSON, YAML, Python, Rust, Go,
+Swift, Kotlin, SQL, Markdown, C, C++, CSS, and markup. Shell, diff, and other
+languages stay plain. Tokens render as nested spans inside one selectable `Text`,
+so selection and Copy code are unchanged. Blocks over 20,000 characters stay
+plain because streaming re-tokenizes each update. Tests cover token colors,
+lossless tokenizing including empty lines, fence aliases, the size limit, and
+selection. Hermes runtime behavior still needs checking on a device.
+
+## 2026-11-01: row layout transitions replace the live-edge glide, pending device verification
+
+An iPhone recording showed the transcript flickering as each line streamed in.
+Frame-by-frame motion showed the same pair roughly every 150 ms: the
+transcript rose a full line (about 22 points) for one frame, dropped back about
+20 points the next, then glided up. The glide depended on
+`maintainVisibleContentPosition` anchoring the row above the newest one. iOS
+applied that compensation one frame after drawing the new layout, so each line
+showed uncompensated for a frame. Tuning the glide cannot remove a frame drawn
+before it runs.
+
+The transcript is anchored on the newest row again (`minIndexForVisible: 0`),
+so streaming growth needs no scroll compensation. While following with Reduce
+Motion off, Reanimated's `Animated.FlatList` applies a `LinearTransition` to
+each row. That spring is critically damped at the earlier glide rate (mass 1,
+stiffness 289, damping 34). Rows animate from their previous frame to the new
+one in the commit that changes them: older text slides up, and the growing row
+eases to its new height while its new line rises in from the bottom edge.
+Reading older text, or Reduce Motion, removes the transition. The UI-thread
+glide, its JavaScript fallback, and the `live_edge_fallbacks` counter are
+removed. Rendered tests cover the anchor, the transition while following, its
+removal when reading or under Reduce Motion, and instant live-edge corrections.
+Motion quality, the appearance of newly inserted rows, and Android still need
+checking on devices.
+
+## 2026-11-01: background stale banner, pending device verification
+
+A 4-frames-per-second review of an app-switching recording found streamed text
+in order around each reply start and return. It also found the session header's
+"STALE. Check connection settings." banner flashing on every switch. The
+transport reports `stale` only while the app is in the background, and it
+reconnects in about 0.15 seconds on return, so the banner no longer shows for
+that status. Reconnecting, offline, unauthorized, incompatible, and idle states
+still show it. The same recording showed the OpenCode iOS app resuming with a
+paragraph cut mid-word.
+
+## 2026-11-01: streamed text lost across transcript refetches, pending device verification
+
+Two iPhone recordings showed a table and the following paragraphs rendered inside
+a code block while a reply streamed after the app returned to the foreground.
+They were correct once the reply finished. Text deltas carry no offset, so the
+bridge appended them to whatever text was cached. A transcript refetch in flight
+then replaced that text with the server's copy from when the request was served,
+which dropped any deltas applied in between. A gap that swallowed a closing code
+fence pushed the rest of the reply into the code block until `text.ended`
+restored the authoritative text. The same race applies to the refetches after
+`session.step.streamed` during normal streaming.
+
+While a transcript query is fetching, the bridge now holds its transcript
+events, including during the first fetch, which previously dropped them. When the
+fetch settles, held text and reasoning deltas that the refetched text already
+ends with are dropped, matching only on whole-delta boundaries, and the rest are
+applied. A failed fetch applies the held events as before. Reducer and bridge
+tests cover full, partial, and no overlap, whole-delta matching, and a missed
+closing fence.
+
+A follow-up recording and transport report showed that this was not enough. On
+return, the transcript still ended where it had when the app left, and new
+deltas were appended to it, skipping the text streamed meanwhile. The message
+list returns projected messages built from durable events, and text deltas are
+not durable, so a refetch of an in-progress part cannot supply the missing text.
+The report also showed about ten `durable_gap` reconnects within ten seconds in
+the foreground. Each new stream missed events sent while it connected, then
+compared the next durable sequence with the previous stream's and reconnected
+again.
+
+Each event stream generation now starts its own durable sequence tracking; its
+snapshot covers anything sent between streams. Gaps within one stream are still
+detected. Text and reasoning deltas only extend a part whose start this stream
+delivered, or one that a refetch proves continuous by ending exactly where held
+deltas begin. Other deltas are dropped and the transcript is refetched once, and
+the part keeps its last known text until its authoritative `ended` text arrives.
+After returning mid-reply, text can therefore pause, but no longer shows holes.
+Coordinator and bridge tests cover the reconnect chain, the dropped deltas, the
+single refetch, and restored continuity.
+
+## 2026-11-01: live-edge glide for streamed text, pending device verification
+
+The transcript anchors `maintainVisibleContentPosition` on the row above the
+newest one, so growth of the newest row and newly inserted rows land just below
+the visible edge. A first version returned to the edge with the native
+`autoscrollToTopThreshold`. An iPhone screen recording showed each new line
+starting a fresh ease-in-out scroll from rest, with a scroll moving at about 24
+points per frame stopping within one frame when the next line arrived.
+
+A first Reanimated frame callback could not be confirmed on device, and a
+JavaScript-driven spring replaced it. A later side-by-side recording measured
+the difference from OpenCode. OpenCode moves at a near-constant 2.7 points per
+frame during steady streaming and ramps smoothly to about 9 points per frame for
+large blocks. The JavaScript spring jumped 6 to 7 points on the first frame of
+each line, because the JavaScript thread skipped frames while re-rendering the
+streaming message.
+
+The spring (rate 17: one 22-point line peaks near 140 points per second and
+settles in about 0.33 seconds) now steps on the UI thread through a Reanimated
+frame callback with `scrollTo`. JavaScript only adds the distance the list
+compensated for, keeping the current velocity. If the glide shows no progress
+within 500 ms, JavaScript scrolls to the live edge and counts it as
+`live_edge_fallbacks` in the transcript diagnostics, so a device report shows
+whether the UI-thread path works. Dragging stops the glide, Scroll to latest
+cancels it, and Reduce Motion keeps corrections instant. Unit and rendered tests
+cover the spring, compensation hand-off, fallback, and counter.
+
+That recording also showed the app returning to the foreground mid-stream and
+not showing the missed reply until the session was reopened. A redacted
+transport report from a later foreground test showed each return reconnecting
+in about 0.15 seconds with a snapshot installed every time. Durable-gap
+reconnects resynchronized events missed in the background, and the full reply
+appeared on return without reopening the session. The earlier symptom matches
+the Reanimated glide leaving compensated rows below the visible edge.
+
+The same recording showed a fenced code block rendering as an empty box during
+and after streaming. Code blocks were the only use of the native selection
+view's unwrapped mode, which sizes its width from a native measurement event.
+Code blocks now use React Native's selectable `Text` inside the horizontal
+scroll view, with Copy code unchanged. The native root cause is unconfirmed, and
+the fix needs checking on a device.
+
 ## 2026-11-01: transcript images, streaming motion, and compact composer, pending device verification
 
 Tool image results and image attachments render inline from bounded `data:`

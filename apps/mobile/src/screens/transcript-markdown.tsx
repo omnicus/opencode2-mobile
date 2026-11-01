@@ -13,6 +13,7 @@ import {
 import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
+import { HighlightedCode } from "./transcript-code";
 import { parseTranscriptLink, TranscriptLinkCard } from "./transcript-link-card";
 
 // Parse Markdown only. HTML stays literal and images never make network requests.
@@ -219,14 +220,14 @@ function Blocks({
               ) : null}
               <CopyTextButton text={token.content} label="Copy code" />
             </View>
+            {/* The native selection view's unwrapped mode left code blocks blank on
+                iPhone; the standard text view lays out without a width callback. */}
             <ScrollView horizontal>
-              <SelectableTranscriptText
-                unwrapped
-                dynamicTypeRamp={typeRamp.body}
+              <HighlightedCode
+                code={token.content.replace(/\n$/, "")}
+                info={token.info}
                 style={styles.codeText}
-              >
-                {token.content.replace(/\n$/, "")}
-              </SelectableTranscriptText>
+              />
             </ScrollView>
           </View>
         );

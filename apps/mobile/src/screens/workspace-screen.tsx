@@ -45,7 +45,9 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
+import Animated, { LinearTransition } from "react-native-reanimated";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
+import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
@@ -116,6 +118,12 @@ const recentSessionLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
+// While following, rows ease to their new layout when the newest row grows: older text slides
+// up and new lines rise in from the bottom edge. Reanimated animates each row's frame in the
+// commit that changes it, so no frame shows the jump. A critically damped spring at this rate
+// moves one 22-point line at up to about 140 pt/s and settles in about 0.33 s, close to the
+// OpenCode iOS app.
+const liveEdgeRowTransition = LinearTransition.springify().mass(1).stiffness(289).damping(34);
 const userScrollSettleMs = 160;
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
@@ -751,6 +759,12 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       ? sessionQueryScope.location
       : location;
   const [liveFollowEnabled, setLiveFollowEnabled] = useState(true);
+  const reducedMotion = useReducedMotion();
+  // New rows and lines land below the anchored row, then the native list scrolls
+  // them into view, so streamed text slides up instead of popping in.
+  const smoothLiveEdge = liveFollowEnabled && !reducedMotion;
+  const smoothLiveEdgeRef = useRef(smoothLiveEdge);
+  smoothLiveEdgeRef.current = smoothLiveEdge;
   const [transcriptSize, setTranscriptSize] = useState({ scope: "", viewport: 0, content: 0 });
   const [latestJumpPending, setLatestJumpPending] = useState(false);
   const [composerDockHeight, setComposerDockHeight] = useState(66);
@@ -1319,7 +1333,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             ),
           }}
         >
-          <FlatList
+          <Animated.FlatList
             accessibilityLabel="Session transcript"
             contentContainerStyle={[
               styles.detailContent,
@@ -1402,6 +1416,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                 </View>
               ) : null
             }
+            {...(smoothLiveEdge ? { itemLayoutAnimation: liveEdgeRowTransition } : {})}
             maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             maxToRenderPerBatch={12}
             onContentSizeChange={(_width, height) => {

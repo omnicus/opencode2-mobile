@@ -613,6 +613,12 @@ export function getConnectionPresentation(
   return { color: palette.dim, label: "NO CONNECTION" };
 }
 
+// The app only marks its connection stale while it is in the background, and it reconnects
+// on return, so a stale banner would flash on every app switch without anything to fix.
+export function showsConnectionIssue(status: ConnectionTransportStatus) {
+  return status !== "connected" && status !== "connecting" && status !== "stale";
+}
+
 export function getWorkspaceState(status: ConnectionTransportStatus, hasCache: boolean) {
   if (status === "connected") return "empty" as const;
   if ((status === "reconnecting" || status === "stale" || status === "offline") && hasCache) {
@@ -849,7 +855,7 @@ export function ShellFrame({
               ) : null}
             </View>
           ) : null}
-          {sessionTabs && runtime.status !== "connected" && runtime.status !== "connecting" ? (
+          {sessionTabs && showsConnectionIssue(runtime.status) ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Connection problem: ${connection.label}. Open connection settings`}
