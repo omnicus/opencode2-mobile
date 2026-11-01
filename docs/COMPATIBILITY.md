@@ -12,6 +12,17 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: background stale banner, pending device verification
+
+A 4-frames-per-second review of an app-switching recording found streamed text
+in order around each reply start and return. It also found the session header's
+"STALE. Check connection settings." banner flashing on every switch. The
+transport reports `stale` only while the app is in the background, and it
+reconnects in about 0.15 seconds on return, so the banner no longer shows for
+that status. Reconnecting, offline, unauthorized, incompatible, and idle states
+still show it. The same recording showed the OpenCode iOS app resuming with a
+paragraph cut mid-word.
+
 ## 2026-11-01: streamed text lost across transcript refetches, pending device verification
 
 Two iPhone recordings showed a table and the following paragraphs rendered inside
