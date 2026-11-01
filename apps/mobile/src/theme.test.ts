@@ -9,7 +9,8 @@ test("switches to accessibility layouts at the shared font-scale threshold", () 
 });
 
 test("chat text is larger without changing general UI typography", () => {
-  expect(typography.chatBody).toEqual({ fontSize: 16, lineHeight: 24 });
+  expect(typography.chatBody).toEqual({ fontSize: 17, lineHeight: 25 });
+  expect(typography.chatActivity.fontSize).toBe(typography.chatBody.fontSize);
   expect(typography.body).toEqual({ fontSize: 15, lineHeight: 22 });
   expect(typography.caption.fontSize).toBe(12);
 });

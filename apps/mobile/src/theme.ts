@@ -71,7 +71,9 @@ export const typography = {
   sheetTitle: { fontSize: 20, lineHeight: 26, fontWeight: "600" },
   heading: { fontSize: 16, lineHeight: 22, fontWeight: "600" },
   body: { fontSize: 15, lineHeight: 22 },
-  chatBody: { fontSize: 16, lineHeight: 24 },
+  // Chat sizes match the OpenCode iOS app: prose and tool summaries share one size.
+  chatBody: { fontSize: 17, lineHeight: 25 },
+  chatActivity: { fontSize: 17, lineHeight: 24 },
   control: { fontSize: 14, lineHeight: 20, fontWeight: "600" },
   compactControl: { fontSize: 12, lineHeight: 18, fontWeight: "500" },
   caption: { fontSize: 12, lineHeight: 18 },

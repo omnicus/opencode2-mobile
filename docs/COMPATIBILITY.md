@@ -12,6 +12,28 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: transcript images, streaming motion, and compact composer, pending device verification
+
+Tool image results and image attachments render inline from bounded `data:`
+URIs, with no network requests. Chat
+text is 17/25, and tool summaries use the same size. The collapsed composer is a
+single pill and shows model, variant, and agent chips once it expands for input.
+The working status is the last transcript row, the subagent pill floats above
+the composer, and one dot spinner marks working state across the app.
+
+The full lint, typecheck, test, and build sequence passed, including 544 mobile
+tests and both Hermes exports. Expo Doctor passed all 18 checks. The public-tree
+check and secret scan passed. Both native fingerprints and runtime matched the
+installed baseline under the preview EAS environment, and local EAS Update
+publication succeeded for iOS and Android on preview, runtime 0.1.5. Image
+decoding, nested option sheets, and the server's inline image format still need
+checking on a physical device.
+
+That update also eased height changes of the newest transcript rows with a
+Reanimated height animation. On iPhone, streamed assistant text then stayed
+hidden until the session was refreshed. The animation was removed; streamed rows
+again appear through the existing live-edge scroll.
+
 ## 2026-11-01: session list flicker during reconciliation, pending device verification
 
 An iPhone screen recording showed the Sessions inbox briefly replaced by the
@@ -601,7 +623,8 @@ verification.
 | Omit `order` from cursor requests and preserve the original order | Pass |
 | Validate every current message variant and all four assistant tool states | Pass |
 | Reject malformed and unknown projected message shapes with a redacted error | Pass |
-| Keep inline attachment data and file URIs out of rendered transcript rows | Pass |
+| Keep inline attachment data and file URIs out of rendered transcript rows | Superseded |
+| Render bounded inline PNG, JPEG, GIF, and WebP data as images without network requests; keep other file URIs as labels | Unit tests pass; device check pending |
 | Strip ANSI controls and bound progressively revealed text and tool output | Pass |
 | Coalesce text, reasoning, and tool event projection to one cache write per frame | Pass |
 | Replace volatile fragments with terminal event values and refetch projection gaps | Pass |

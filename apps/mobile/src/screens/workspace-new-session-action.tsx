@@ -28,6 +28,9 @@ export function WorkspaceNewSessionAction({
   if ((!eligible && !showSettings) || keyboardVisible) return null;
   return (
     <View pointerEvents="box-none" style={styles.dock}>
+      {showSettings && onNavigate ? (
+        <WorkspaceHeaderActions floating navigate={onNavigate} />
+      ) : null}
       {eligible ? (
         <Pressable
           accessibilityRole="button"
@@ -42,9 +45,6 @@ export function WorkspaceNewSessionAction({
           </Text>
         </Pressable>
       ) : null}
-      {showSettings && onNavigate ? (
-        <WorkspaceHeaderActions floating navigate={onNavigate} />
-      ) : null}
     </View>
   );
 }
@@ -57,11 +57,12 @@ const styles = StyleSheet.create({
     left: space.md,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
     gap: space.sm,
   },
   button: {
     flexShrink: 1,
+    // Settings stays at the far left; New session takes the right edge.
+    marginLeft: "auto",
     minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
