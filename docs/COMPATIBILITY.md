@@ -12,6 +12,26 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: session list flicker during reconciliation, pending device verification
+
+An iPhone screen recording showed the Sessions inbox briefly replaced by the
+loading indicator, then shown with recent sessions only, before working sessions
+and child rows returned in a different order. Each stream snapshot starts a new
+reconciliation revision, and the followed-session and ancestry queries are keyed
+by that revision, so each snapshot restarted them without data.
+
+These queries now keep the previous snapshot as placeholder data within the same
+connection and key scope while the new revision loads. Placeholder data still
+counts as reconciling for attention coverage, retirement probes, and event
+location resolution. A regression test that holds the refetch open failed before
+the change and passed after it.
+
+The full lint, typecheck, test, and build sequence passed, including 537 mobile
+tests and both Hermes exports. Expo Doctor passed all 18 checks. Both native
+fingerprints and runtime matched the installed baseline under the preview EAS
+environment, and local EAS Update publication succeeded for iOS and Android on
+preview, runtime 0.1.5. Physical-device verification remains pending.
+
 ## 2026-10-25: removed external worktrees, pending device verification
 
 An iPhone screenshot showed failed permission and form checks for historical

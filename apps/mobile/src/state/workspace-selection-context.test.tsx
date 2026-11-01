@@ -322,6 +322,48 @@ test("starts a fresh reconciliation revision and includes event locations", asyn
   queryClient.clear();
 });
 
+test("keeps the inbox populated while a new reconciliation revision loads", async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { networkMode: "always" },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const renderTree = () => (
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>
+  );
+  const view = render(renderTree());
+  await waitFor(() => expect(screen.getByText("complete:2:2:0")).toBeOnTheScreen());
+  expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
+
+  let releaseSessions: () => void = () => undefined;
+  const sessionsBlocked = new Promise<void>((resolve) => {
+    releaseSessions = resolve;
+  });
+  mockListProjectSessions.mockImplementation(async (...args) => {
+    await sessionsBlocked;
+    return defaultListProjectSessions(...args);
+  });
+  mockRevision += 1;
+  view.rerender(renderTree());
+
+  await waitFor(() => expect(mockListProjectSessions).toHaveBeenCalledTimes(4));
+  expect(screen.getByText("freshness:reconciling")).toBeOnTheScreen();
+  expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
+  expect(screen.getByText("Alpha:ses_child:1:1")).toBeOnTheScreen();
+
+  releaseSessions();
+  await waitFor(() => expect(screen.getByText("complete:2:2:0")).toBeOnTheScreen());
+  expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
+
+  view.unmount();
+  queryClient.clear();
+});
+
 test("keeps a notification-owned global form visible outside followed projects", async () => {
   mockAttentionLocations = [{ directory: "/outside" }];
   mockListPermissions.mockImplementation(async (_client, location) => ({
