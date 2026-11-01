@@ -248,6 +248,14 @@ from the command palette. Pausing discards pushes that have not yet been sent an
 does not replay requests after notifications are enabled again. A push already
 submitted to Expo, APNs, or FCM cannot be recalled.
 
+Every push expires 15 minutes after the OpenCode event that produced it. The
+broker retries rate-limited, unavailable, and failed sends with backoff until
+then, but never sends or resends a push after that point and records it as
+`EXPIRED`. Each push also carries that expiry time to Expo, so APNs and FCM drop
+it if the phone stays offline past it, and a retry does not extend it. The broker
+still checks receipts for pushes it already sent, so a device that APNs or FCM
+reports as unregistered is disabled even after the push expired.
+
 OpenCode2 Mobile does not present a banner, notification-list entry, badge, or
 sound when a push arrives while the app is in the foreground. Background and
 locked-device presentation remains controlled by the operating system.

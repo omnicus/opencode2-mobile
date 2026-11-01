@@ -7,6 +7,8 @@ import { ExpoPushWorker, notificationBody } from "./expo-push.js";
 
 const originalFetch = globalThis.fetch;
 const startMs = 1_800_000_000_000;
+const expiresAtMs = startMs + 15 * 60_000;
+const expirationSeconds = 1_800_000_900;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -37,6 +39,7 @@ describe("notificationBody", () => {
 });
 
 it("does not send later rows from a batch after delivery is paused", async () => {
+  vi.useFakeTimers({ now: 600, toFake: ["Date"] });
   const database = pairedDatabase();
   database.enqueueTest("binding-1", 502);
   const fetch = vi.fn(async () => {
@@ -93,12 +96,12 @@ describe("sending queued notifications", () => {
       channelId: "opencode-attention",
       collapseId: queued?.collapse_id,
       data: JSON.parse(String(queued?.push_data_json)),
+      expiration: expirationSeconds,
       priority: "high",
       sound: "default",
       tag: queued?.collapse_id,
       title: "OpenCode",
       to: "ExponentPushToken[test-token]",
-      ttl: 604_800,
     });
     expect(outboxRows(database)).toEqual([
       {
@@ -233,6 +236,71 @@ describe("sending queued notifications", () => {
   });
 });
 
+describe("notification lifetime", () => {
+  it("sends a row just inside the lifetime", async () => {
+    const database = queuedDatabase();
+    vi.setSystemTime(expiresAtMs - 1);
+    const fetch = stubFetch(() => Response.json({ data: { id: "ticket-1", status: "ok" } }));
+
+    await new ExpoPushWorker(database, undefined, "expo").tick();
+
+    expect(sentExpirations(fetch)).toEqual([expirationSeconds]);
+    expect(outboxRows(database)).toMatchObject([{ state: "ticketed", ticket_id: "ticket-1" }]);
+    database.close();
+  });
+
+  it.each([
+    ["at", expiresAtMs],
+    ["past", expiresAtMs + 60 * 60_000],
+  ])("expires a row %s the lifetime without calling Expo", async (_name, nowMs) => {
+    const database = queuedDatabase();
+    vi.setSystemTime(nowMs);
+    const fetch = stubFetch(() => Response.json({ data: { id: "ticket-1", status: "ok" } }));
+
+    await new ExpoPushWorker(database, undefined, "expo").tick();
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(outboxRows(database)).toEqual([failed("EXPIRED")]);
+    expect(pushData(database)).toEqual(["{}"]);
+    database.close();
+  });
+
+  it("keeps the original expiration when a send is retried", async () => {
+    const database = queuedDatabase();
+    const worker = new ExpoPushWorker(database, undefined, "expo");
+    stubFetch(() => new Response(null, { status: 503 }));
+    await worker.tick();
+
+    vi.setSystemTime(startMs + 2_000);
+    const fetch = stubFetch(() => Response.json({ data: { id: "ticket-1", status: "ok" } }));
+    await worker.tick();
+
+    expect(sentExpirations(fetch)).toEqual([expirationSeconds]);
+    database.close();
+  });
+
+  it.each([
+    ["a rate-limited ticket", () => Response.json({ data: expoError("MessageRateExceeded") })],
+    ["HTTP 429", () => new Response(null, { status: 429 })],
+    ["HTTP 503", () => new Response(null, { status: 503 })],
+    ["a network error", () => Promise.reject(new Error("offline"))],
+  ])("never resends after %s when the retry would pass the lifetime", async (_name, respond) => {
+    const database = queuedDatabase();
+    const worker = new ExpoPushWorker(database, undefined, "expo");
+    vi.setSystemTime(expiresAtMs - 1_000);
+    const fetch = stubFetch(respond);
+    await worker.tick();
+
+    vi.setSystemTime(expiresAtMs + 60 * 60_000);
+    await worker.tick();
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(outboxRows(database)).toEqual([failed("EXPIRED")]);
+    expect(pushData(database)).toEqual(["{}"]);
+    database.close();
+  });
+});
+
 describe("checking receipts", () => {
   it("leaves ticketed rows alone in fake mode", async () => {
     const database = await ticketedDatabase();
@@ -279,50 +347,76 @@ describe("checking receipts", () => {
     database.close();
   });
 
-  it("requeues rate-limited receipts with the ticket backoff", async () => {
-    const database = await ticketedDatabase();
+  it("requeues rate-limited receipts inside the lifetime with the ticket backoff", async () => {
+    const database = await ticketedDatabase(startMs + 60_000);
     stubFetch(() => Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }));
 
     await new ExpoPushWorker(database, undefined, "expo").tick();
 
     expect(outboxRows(database)).toEqual([queuedRetry("MESSAGE_RATE_EXCEEDED")]);
-    expect(nextAttemptAtMs(database)).toBe(startMs + 15 * 60_000 + 2_000);
+    expect(nextAttemptAtMs(database)).toBe(startMs + 62_000);
     expect(deviceState(database)).toEqual({ disabled_at_ms: null, disabled_reason: null });
     database.close();
   });
 
-  it("resends rate-limited receipts after the backoff and backs off again", async () => {
-    const database = await ticketedDatabase();
+  it("resends rate-limited receipts with the original expiration after the backoff", async () => {
+    const database = await ticketedDatabase(startMs + 60_000);
     const worker = new ExpoPushWorker(database, undefined, "expo");
     stubFetch(() => Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }));
     await worker.tick();
 
-    vi.setSystemTime(startMs + 15 * 60_000 + 1_999);
+    vi.setSystemTime(startMs + 61_999);
     const early = stubFetch(() => Response.json({ data: { id: "ticket-2", status: "ok" } }));
     await worker.tick();
     expect(early).not.toHaveBeenCalled();
 
-    vi.setSystemTime(startMs + 15 * 60_000 + 2_000);
+    vi.setSystemTime(startMs + 62_000);
     const resend = stubFetch(() => Response.json({ data: { id: "ticket-2", status: "ok" } }));
     await worker.tick();
     expect(resend.mock.calls.map(([url]) => url)).toEqual(["https://exp.host/--/api/v2/push/send"]);
+    expect(sentExpirations(resend)).toEqual([expirationSeconds]);
     expect(outboxRows(database)).toEqual([
       {
         attempts: 2,
         last_error_code: "MESSAGE_RATE_EXCEEDED",
-        receipt_due_at_ms: startMs + 30 * 60_000 + 2_000,
+        receipt_due_at_ms: startMs + 62_000 + 15 * 60_000,
         state: "ticketed",
         ticket_id: "ticket-2",
       },
     ]);
+    database.close();
+  });
 
-    vi.setSystemTime(startMs + 30 * 60_000 + 2_000);
-    stubFetch(() => Response.json({ data: { "ticket-2": expoError("MessageRateExceeded") } }));
+  it("expires rate-limited receipts past the lifetime without resending", async () => {
+    const database = await ticketedDatabase();
+    const worker = new ExpoPushWorker(database, undefined, "expo");
+    const receipt = stubFetch(() =>
+      Response.json({ data: { "ticket-1": expoError("MessageRateExceeded") } }),
+    );
     await worker.tick();
-    expect(outboxRows(database)).toEqual([
-      { ...queuedRetry("MESSAGE_RATE_EXCEEDED"), attempts: 2 },
+
+    vi.setSystemTime(expiresAtMs + 60 * 60_000);
+    await worker.tick();
+
+    expect(receipt).toHaveBeenCalledTimes(1);
+    expect(outboxRows(database)).toEqual([receiptFailed("EXPIRED")]);
+    expect(pushData(database)).toEqual(["{}"]);
+    database.close();
+  });
+
+  it("disables unregistered devices from receipts checked long after the lifetime", async () => {
+    const database = await ticketedDatabase(startMs + 2 * 60 * 60_000);
+    stubFetch(() => Response.json({ data: { "ticket-1": expoError("DeviceNotRegistered") } }));
+
+    await new ExpoPushWorker(database, undefined, "expo").tick();
+
+    expect(outboxRows(database)).toMatchObject([
+      { last_error_code: "DEVICE_NOT_REGISTERED", state: "failed", ticket_id: "ticket-1" },
     ]);
-    expect(nextAttemptAtMs(database)).toBe(startMs + 30 * 60_000 + 6_000);
+    expect(deviceState(database)).toEqual({
+      disabled_at_ms: startMs + 2 * 60 * 60_000,
+      disabled_reason: "provider-unregistered",
+    });
     database.close();
   });
 
@@ -470,11 +564,12 @@ function queuedDatabase() {
   return database;
 }
 
-async function ticketedDatabase() {
+async function ticketedDatabase(receiptDueAtMs = startMs + 15 * 60_000) {
   const database = queuedDatabase();
   stubFetch(() => Response.json({ data: { id: "ticket-1", status: "ok" } }));
   await new ExpoPushWorker(database, undefined, "expo").tick();
-  vi.setSystemTime(startMs + 15 * 60_000);
+  database.database.prepare("UPDATE outbox SET receipt_due_at_ms = ?").run(receiptDueAtMs);
+  vi.setSystemTime(receiptDueAtMs);
   return database;
 }
 
@@ -534,6 +629,17 @@ function outboxRows(database: BrokerDatabase) {
        FROM outbox ORDER BY created_at_ms`,
     )
     .all();
+}
+
+function sentExpirations(fetch: ReturnType<typeof stubFetch>) {
+  return fetch.mock.calls.map(([, init]) => JSON.parse(String(init?.body)).expiration);
+}
+
+function pushData(database: BrokerDatabase) {
+  return database.database
+    .prepare("SELECT push_data_json FROM outbox")
+    .all()
+    .map((row) => row.push_data_json);
 }
 
 function nextAttemptAtMs(database: BrokerDatabase) {
