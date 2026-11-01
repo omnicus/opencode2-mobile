@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "coverage": "vitest run src --coverage --coverage.reporter=lcovonly --coverage.reportsDirectory=../../coverage/packages/opencode-adapter",
     "test": "vitest run src",
     "test:integration": "tsc -p tsconfig.integration.json && vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.json"
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@opencode2-mobile/test-fixtures": "workspace:*",
     "@types/node": "26.0.0",
+    "@vitest/coverage-v8": "4.1.10",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }
