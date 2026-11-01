@@ -16,7 +16,15 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -46,12 +54,11 @@ import { ProjectAvatar } from "../components/project-avatar";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
-import { WorkingIndicator } from "../components/working-indicator";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { WorkspaceHeaderActions } from "../navigation/workspace-header-actions";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
-import type { FollowedInboxRow } from "../state/followed-project-inbox";
+import { type FollowedInboxRow, locationKey, workingSince } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import {
   recordTranscriptFollowCorrection,
@@ -103,27 +110,28 @@ import {
   type TranscriptLiveFollowEvent,
 } from "./session-transcript-live-follow";
 import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
+import { useInboxBranches } from "./use-inbox-branches";
+import { useMarkSessionViewed } from "./use-mark-session-viewed";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
 import { WorkspaceBottomMenu, type WorkspaceTab } from "./workspace-bottom-menu";
 import { WorkspaceListHeader } from "./workspace-list-header";
 import {
-  formatSessionTime,
+  formatElapsed,
   getComposerDockKeyboardOffset,
+  inboxStatusLabels,
   needsComposerDockMeasurement,
   searchResultItems,
   sessionTimeDescription,
-  type WorkspaceGroup,
   type WorkspaceInboxItem,
-  workspaceGroupLabels,
   workspaceInboxItems,
+  workspaceSectionLabels,
 } from "./workspace-screen-model";
 
 type WorkspaceProps = NativeStackScreenProps<RootStackParamList, "Workspace">;
 type SessionProps = NativeStackScreenProps<RootStackParamList, "Session">;
 
 const messagePageSize = 40;
-const sessionListLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
@@ -141,9 +149,6 @@ const borderlessRipple =
   Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
 // Keeps the last rows of the Approvals tab clear of the floating bottom menu.
 const bottomMenuInset = 96;
-const noCollapsedGroups: ReadonlySet<WorkspaceGroup> = new Set();
-// Collapsed groups last for the app session, per connection, and are never persisted.
-const collapsedGroupsByConnection = new Map<string, ReadonlySet<WorkspaceGroup>>();
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const db = useSQLiteContext();
@@ -166,9 +171,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [actionSession, setActionSession] = useState<SessionInfo>();
   const [tab, setTab] = useState<WorkspaceTab>("chat");
   const presentationScope = connectionId ?? "unselected";
-  const [collapsedGroups, setCollapsedGroups] = useState(
-    () => collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups,
-  );
   const showAttentionNotice = useDelayedVisibility(
     workspaceSelection.attentionCoverage.freshness === "stale" ||
       (workspaceSelection.attentionCoverage.freshness === "current" &&
@@ -195,10 +197,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     refreshGenerationRef.current += 1;
     setRefreshing(false);
   }, [connectionId]);
-
-  useEffect(() => {
-    setCollapsedGroups(collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups);
-  }, [presentationScope]);
 
   useEffect(() => {
     const focus = navigation.addListener?.("focus", () => setScreenFocused(true));
@@ -311,8 +309,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const inbox = workspaceSelection.inbox;
   const inboxItems: WorkspaceInboxItem[] = deferredSessionSearch
     ? searchResultItems(inbox)
-    : workspaceInboxItems(inbox, sessionListLimit, collapsedGroups);
-  const sessionCount = inbox.needsYou.length + inbox.working.length + inbox.recent.length;
+    : workspaceInboxItems(inbox);
+  const showWorkingSection = !deferredSessionSearch && inbox.working.length > 0;
+  const sessionCount =
+    inbox.needsYou.length + inbox.working.length + inbox.recent.length + inbox.archived.length;
+  const branches = useInboxBranches(
+    [...inbox.needsYou, ...inbox.working, ...inbox.recent, ...inbox.archived],
+    workspaceSelection.projects,
+  );
   const selectedConnection = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
@@ -327,15 +331,40 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     Keyboard.dismiss();
   }
 
-  function toggleGroup(group: WorkspaceGroup) {
-    const collapsing = !collapsedGroups.has(group);
-    const next = new Set(collapsedGroups);
-    if (collapsing) next.add(group);
-    else next.delete(group);
-    collapsedGroupsByConnection.set(presentationScope, next);
+  function toggleWorkingSection() {
+    const expanding = !workspaceSelection.workingExpanded;
     if (!reducedMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setCollapsedGroups(next);
-    announceOnIOS(`${workspaceGroupLabels[group]} ${collapsing ? "collapsed" : "expanded"}`);
+    workspaceSelection.setWorkingExpanded(expanding);
+    announceOnIOS(`${workspaceSectionLabels.working} ${expanding ? "expanded" : "collapsed"}`);
+  }
+
+  function setArchived(session: SessionInfo, archived: boolean) {
+    void workspaceSelection.archiveSession(session, archived).then(
+      () => {
+        void Haptics.selectionAsync().catch(() => undefined);
+        announceOnIOS(archived ? "Session archived" : "Session unarchived");
+      },
+      () =>
+        Alert.alert(
+          archived ? "Archive failed" : "Unarchive failed",
+          "The session did not change. Refresh and try again.",
+        ),
+    );
+  }
+
+  function renderRow(row: FollowedInboxRow) {
+    return (
+      <SessionRow
+        branch={branches.get(locationKey(row.session.location))}
+        key={row.session.id}
+        largeText={largeText}
+        onActions={() => setActionSession(row.session)}
+        onArchive={() => setArchived(row.session, !row.archived)}
+        onDelete={() => confirmDelete(row.session, row.projectLabel)}
+        onPress={() => openSession(row)}
+        row={row}
+      />
+    );
   }
 
   const removeMutation = useMutation({
@@ -553,6 +582,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             <SessionEmptyState
               error={workspaceSelection.sessionsError}
               hasLocation={workspaceSelection.followedProjectIds.length > 0}
+              hasWorking={showWorkingSection}
               loading={workspaceSelection.sessionsLoading}
               search={deferredSessionSearch}
               onChooseProjects={() => navigation.navigate("FollowedProjects")}
@@ -561,7 +591,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             />
           }
           ListFooterComponent={
-            deferredSessionSearch && workspaceSelection.hasNextPage ? (
+            showWorkingSection ? (
+              <WorkingSection
+                expanded={workspaceSelection.workingExpanded}
+                onToggle={toggleWorkingSection}
+              >
+                {inbox.working.map(renderRow)}
+              </WorkingSection>
+            ) : deferredSessionSearch && workspaceSelection.hasNextPage ? (
               <View style={styles.listFooter}>
                 <ActionButton
                   busy={workspaceSelection.sessionsFetchingNextPage}
@@ -572,8 +609,11 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
               </View>
             ) : null
           }
+          // Working sits at the bottom of a short list and follows the last row of a long
+          // one, so the whole inbox scrolls as one list.
+          ListFooterComponentStyle={showWorkingSection ? styles.workingFooter : undefined}
           ListHeaderComponent={header}
-          contentContainerStyle={styles.listContent}
+          contentContainerStyle={[styles.listContent, showWorkingSection && styles.listContentFill]}
           data={inboxItems}
           extraData={fontScale}
           keyboardShouldPersistTaps="handled"
@@ -589,16 +629,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             />
           }
           renderItem={({ item }) =>
-            item.type === "group" ? (
-              <GroupSeparator item={item} onPress={() => toggleGroup(item.group)} />
-            ) : (
-              <SessionRow
-                onActions={() => setActionSession(item.row.session)}
-                largeText={largeText}
-                onDelete={() => confirmDelete(item.row.session, item.row.projectLabel)}
-                onPress={() => openSession(item.row)}
-                row={item.row}
+            item.type === "header" ? (
+              <InboxSectionHeader
+                count={item.count}
+                label={workspaceSectionLabels[item.section]}
+                spaced={item.section !== "needs-you"}
               />
+            ) : (
+              renderRow(item.row)
             )
           }
           updateCellsBatchingPeriod={40}
@@ -704,6 +742,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     ),
   });
   const session = sessionQuery.data;
+  useMarkSessionViewed({
+    client: connectionId === routeConnectionId ? (client ?? undefined) : undefined,
+    enabled: screenFocused,
+    session,
+  });
   const sessionTitle = connectionId === routeConnectionId ? session?.title?.trim() : undefined;
   useEffect(() => {
     navigation.setOptions({ title: sessionTitle || "Untitled session" });
@@ -1492,22 +1535,29 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 }
 
 function SessionRow({
+  branch,
   largeText,
-  onDelete,
   onActions,
+  onArchive,
+  onDelete,
   onPress,
   row,
 }: {
+  branch: string | undefined;
   largeText: boolean;
-  onDelete: () => void;
   onActions: () => void;
+  onArchive: () => void;
+  onDelete: () => void;
   onPress: () => void;
   row: FollowedInboxRow;
 }) {
   const { session } = row;
   const { fontScale } = useWindowDimensions();
-  const blocked = row.attentionCount > 0;
   const title = session.title || "Untitled session";
+  // Rows recede once read so unread results stand out, as on OpenCode desktop.
+  const unread = row.status !== "ready" && row.status !== "working";
+  const archiveLabel = row.archived ? "Unarchive" : "Archive";
+  const detail = branch ?? row.worktreeLabel;
   return (
     <ReanimatedSwipeable
       containerStyle={styles.swipeContainer}
@@ -1518,20 +1568,20 @@ function SessionRow({
       overshootRight={false}
       renderRightActions={(_progress, _translation, swipeable) => (
         <Pressable
-          accessibilityLabel={`Delete ${title}`}
+          accessibilityLabel={`${archiveLabel} ${title}`}
           accessibilityRole="button"
           android_ripple={rowRipple}
           onPress={() => {
             swipeable.close();
-            onDelete();
+            onArchive();
           }}
           style={({ pressed }) => [
-            styles.swipeDelete,
+            styles.swipeArchive,
             pressed && Platform.OS === "ios" && styles.pressed,
           ]}
         >
-          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeDeleteLabel}>
-            Delete
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeArchiveLabel}>
+            {archiveLabel}
           </Text>
         </Pressable>
       )}
@@ -1539,15 +1589,17 @@ function SessionRow({
       <Pressable
         accessibilityActions={[
           { name: "activate" },
+          { label: `${archiveLabel} session`, name: "archive" },
           { label: "Delete session", name: "delete" },
           { label: "Session actions", name: "options" },
         ]}
-        accessibilityHint="Opens the session. Long press for rename or delete"
-        accessibilityLabel={sessionAccessibilityLabel(row)}
+        accessibilityHint="Opens the session. Long press for more actions"
+        accessibilityLabel={sessionAccessibilityLabel(row, branch)}
         accessibilityRole="button"
         android_ripple={rowRipple}
         onAccessibilityAction={({ nativeEvent }) => {
           if (nativeEvent.actionName === "activate") onPress();
+          if (nativeEvent.actionName === "archive") onArchive();
           if (nativeEvent.actionName === "delete") onDelete();
           if (nativeEvent.actionName === "options") onActions();
         }}
@@ -1558,98 +1610,193 @@ function SessionRow({
           pressed && Platform.OS === "ios" && styles.pressed,
         ]}
       >
-        <ProjectAvatar
-          icon={row.projectIcon}
-          lineHeight={typography.body.lineHeight * fontScale}
-          name={row.projectLabel}
-        />
-        <View style={styles.sessionCopy}>
-          <View style={styles.sessionTitleRow}>
+        <View
+          style={[
+            styles.sessionCopy,
+            row.status === "working" && styles.sessionWorking,
+            row.archived && styles.sessionArchived,
+          ]}
+          testID="session-row-copy"
+        >
+          {/* The project and status line, then the title, then the branch. */}
+          <View style={styles.sessionMeta}>
+            <ProjectAvatar
+              icon={row.projectIcon}
+              lineHeight={typography.footnote.lineHeight * fontScale}
+              name={row.projectLabel}
+              size={16}
+            />
             <Text
-              dynamicTypeRamp={typeRamp.body}
-              numberOfLines={largeText ? 3 : 1}
-              style={styles.sessionTitle}
+              dynamicTypeRamp={typeRamp.footnote}
+              numberOfLines={1}
+              style={styles.sessionProject}
             >
-              {title}
+              {row.projectLabel}
             </Text>
-            {/* One body line tall, so the trailing status centers on the title's first line. */}
-            <View
-              style={[styles.sessionTrailing, { height: typography.body.lineHeight * fontScale }]}
-              testID="session-row-trailing"
-            >
-              {blocked ? (
-                <>
-                  <View
-                    accessibilityElementsHidden
-                    importantForAccessibility="no-hide-descendants"
-                    style={styles.sessionAttentionMarker}
-                    testID="session-row-attention-marker"
-                  />
-                  <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sessionStatusBlocked}>
-                    {row.attentionLabel || "Needs input"}
-                  </Text>
-                </>
-              ) : row.active ? (
-                <WorkingIndicator />
-              ) : (
-                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
-                  {formatSessionTime(session.time.updated)}
-                </Text>
-              )}
+            <View style={styles.sessionTrailing} testID="session-row-trailing">
+              <SessionStatus row={row} />
             </View>
           </View>
           <Text
-            dynamicTypeRamp={typeRamp.footnote}
-            numberOfLines={largeText ? 2 : 1}
-            style={styles.sessionProject}
+            dynamicTypeRamp={typeRamp.body}
+            numberOfLines={largeText ? 3 : 1}
+            style={[
+              styles.sessionTitle,
+              unread ? styles.sessionTitleUnread : styles.sessionTitleRead,
+            ]}
           >
-            {row.worktreeLabel ? `${row.projectLabel} · ${row.worktreeLabel}` : row.projectLabel}
+            {title}
           </Text>
+          {detail ? (
+            <View style={styles.sessionDetail} testID="session-row-branch">
+              <Feather
+                accessible={false}
+                color={palette.dim}
+                name="git-branch"
+                size={13 * Math.min(fontScale, 2)}
+              />
+              <Text
+                dynamicTypeRamp={typeRamp.footnote}
+                numberOfLines={largeText ? 2 : 1}
+                style={styles.sessionDetailText}
+              >
+                {detail}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </Pressable>
     </ReanimatedSwipeable>
   );
 }
 
-function GroupSeparator({
-  item,
-  onPress,
-}: {
-  item: Extract<WorkspaceInboxItem, { type: "group" }>;
-  onPress: () => void;
-}) {
-  const label = workspaceGroupLabels[item.group];
+// Waiting rows name what they wait for, working rows how long the run has taken, and finished
+// rows whether their last run was read.
+function SessionStatus({ row }: { row: FollowedInboxRow }) {
+  if (row.status === "working") return <WorkingStatus since={workingSince(row.session)} />;
+  if (row.status === "ready") {
+    return (
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
+        {formatElapsed(Date.now() - (row.session.time.idle ?? row.session.time.updated), false)}
+      </Text>
+    );
+  }
   return (
-    <Pressable
-      accessibilityHint={item.collapsed ? "Expands the group" : "Collapses the group"}
-      accessibilityLabel={`${label}, ${item.count} ${item.count === 1 ? "session" : "sessions"}`}
-      accessibilityRole="button"
-      accessibilityState={{ expanded: !item.collapsed }}
-      android_ripple={rowRipple}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.groupSeparator,
-        pressed && Platform.OS === "ios" && styles.pressed,
-      ]}
-      testID={`session-list-group-${item.group}`}
+    <Text
+      dynamicTypeRamp={typeRamp.footnote}
+      style={[styles.sessionStatus, statusStyles[row.status]]}
+      testID={`session-row-status-${row.status}`}
     >
-      <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.groupLabel}>
+      {inboxStatusLabels[row.status]}
+    </Text>
+  );
+}
+
+// Ticks once a second. Screen readers hear only "Working", not every new duration.
+function WorkingStatus({ since }: { since: number | undefined }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (since === undefined) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [since]);
+  return (
+    <Text
+      accessibilityLabel={inboxStatusLabels.working}
+      dynamicTypeRamp={typeRamp.footnote}
+      style={[styles.sessionStatus, statusStyles.working]}
+      testID="session-row-status-working"
+    >
+      {since === undefined
+        ? inboxStatusLabels.working
+        : `${inboxStatusLabels.working} ${formatElapsed(now - since, true)}`}
+    </Text>
+  );
+}
+
+function InboxSectionHeader({
+  count,
+  label,
+  spaced,
+}: {
+  count: number | undefined;
+  label: string;
+  spaced: boolean;
+}) {
+  return (
+    <View
+      accessibilityLabel={count === undefined ? label : `${label}, ${count}`}
+      accessibilityRole="header"
+      accessible
+      style={[styles.inboxSectionHeader, spaced && styles.inboxSectionHeaderSpaced]}
+    >
+      <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.inboxSectionLabel}>
         {label}
       </Text>
-      <View style={styles.groupRule} />
-      <Feather
-        accessible={false}
-        color={palette.dim}
-        name={item.collapsed ? "chevron-down" : "chevron-up"}
-        size={16}
-      />
-    </Pressable>
+      {count === undefined ? null : (
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.inboxSectionCount}>
+          {count}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+// Working sessions close the list, below everything else, as on OpenCode desktop.
+function WorkingSection({
+  children,
+  expanded,
+  onToggle,
+}: {
+  children: ReactNode[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const label = workspaceSectionLabels.working;
+  return (
+    <View style={styles.workingSection} testID="working-section">
+      <Pressable
+        accessibilityHint={expanded ? "Hides working sessions" : "Shows working sessions"}
+        accessibilityLabel={`${label}, ${children.length} ${children.length === 1 ? "session" : "sessions"}`}
+        accessibilityRole="button"
+        accessibilityState={{ expanded }}
+        android_ripple={rowRipple}
+        onPress={onToggle}
+        style={({ pressed }) => [
+          styles.workingSectionHeader,
+          pressed && Platform.OS === "ios" && styles.pressed,
+        ]}
+        testID="working-section-toggle"
+      >
+        <Text
+          dynamicTypeRamp={typeRamp.footnote}
+          numberOfLines={1}
+          style={styles.inboxSectionLabel}
+        >
+          {label}
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.inboxSectionCount}>
+          {children.length}
+        </Text>
+        <View style={styles.workingSectionChevron}>
+          <Feather
+            accessible={false}
+            color={palette.dim}
+            name={expanded ? "chevron-down" : "chevron-right"}
+            size={16}
+          />
+        </View>
+      </Pressable>
+      {expanded ? children : null}
+    </View>
   );
 }
 
 function SessionEmptyState({
   error,
   hasLocation,
+  hasWorking,
   loading,
   onChooseProjects,
   onRetry,
@@ -1658,6 +1805,7 @@ function SessionEmptyState({
 }: {
   error: boolean;
   hasLocation: boolean;
+  hasWorking: boolean;
   loading: boolean;
   onChooseProjects: () => void;
   onRetry: () => void;
@@ -1704,10 +1852,30 @@ function SessionEmptyState({
       </View>
     );
   }
+  if (search) {
+    return (
+      <View style={styles.emptyState}>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.emptyTitle}>
+          No sessions match this search.
+        </Text>
+      </View>
+    );
+  }
+  // Recent starts empty and fills as runs finish, so say what will arrive and when.
   return (
-    <View style={styles.emptyState}>
-      <Text dynamicTypeRamp={typeRamp.headline} style={styles.emptyTitle}>
-        {search ? "No sessions match this search." : "No sessions yet."}
+    <View style={styles.emptyState} testID="inbox-idle">
+      <Feather accessible={false} color={palette.dim} name="inbox" size={36} />
+      <Text
+        accessibilityRole="header"
+        dynamicTypeRamp={typeRamp.headline}
+        style={styles.emptyTitle}
+      >
+        Nothing needs you right now
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+        {hasWorking
+          ? "Sessions show up here when they need your answer or finish a run. Running sessions are under Working."
+          : "Sessions show up here when they need your answer or finish a run. Start one with New session."}
       </Text>
     </View>
   );
@@ -1785,22 +1953,17 @@ function locationsEqual(first: LocationRef, second: LocationRef) {
   );
 }
 
-function sessionAccessibilityLabel(row: FollowedInboxRow) {
+function sessionAccessibilityLabel(row: FollowedInboxRow, branch: string | undefined) {
   const { session } = row;
   const states = [
     row.projectLabel,
-    row.worktreeLabel ? `Worktree ${row.worktreeLabel}` : undefined,
-    row.active ? "Working" : undefined,
-    row.attentionCount > 0 ? row.attentionLabel || "Needs input" : undefined,
-    session.time.archived ? "Archived" : undefined,
-    session.outcome ? sentenceCase(session.outcome) : undefined,
-    sessionTimeDescription(session.time.updated),
+    branch ? `Branch ${branch}` : row.worktreeLabel ? `Worktree ${row.worktreeLabel}` : undefined,
+    row.status === "ready" ? undefined : inboxStatusLabels[row.status],
+    row.status === "done" || row.status === "failed" ? "Unread" : undefined,
+    row.archived ? "Archived" : undefined,
+    sessionTimeDescription(session.time.idle ?? session.time.updated),
   ].filter(Boolean);
   return `Open session ${session.title || "Untitled session"}${states.length > 0 ? `. ${states.join(". ")}` : ""}`;
-}
-
-function sentenceCase(value: string) {
-  return value ? `${value[0]?.toLocaleUpperCase()}${value.slice(1).toLocaleLowerCase()}` : value;
 }
 
 const styles = StyleSheet.create({
@@ -1841,16 +2004,18 @@ const styles = StyleSheet.create({
   headerActionAttention: { borderColor: palette.warm },
   headerActionLabel: { ...typography.control, color: palette.ink },
   headerActionLabelAttention: { color: palette.warm },
-  groupLabel: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
-  groupRule: { backgroundColor: palette.border, flex: 1, height: StyleSheet.hairlineWidth },
-  groupSeparator: {
+  hiddenPanel: { display: "none" },
+  inboxSectionCount: { ...typography.footnote, color: palette.dim, opacity: 0.7 },
+  inboxSectionHeader: {
     alignItems: "center",
     flexDirection: "row",
-    gap: space.sm,
-    minHeight: minTouchTarget,
+    gap: space.xs,
+    paddingBottom: space.xs / 2,
     paddingHorizontal: space.md,
+    paddingTop: space.sm,
   },
-  hiddenPanel: { display: "none" },
+  inboxSectionHeaderSpaced: { paddingTop: space.lg },
+  inboxSectionLabel: { ...typography.sectionLabel, color: palette.dim, flexShrink: 1 },
   homeHeader: { paddingHorizontal: space.md },
   latestButton: {
     alignItems: "center",
@@ -1871,6 +2036,7 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
     width: "100%",
   },
+  listContentFill: { flexGrow: 1 },
   listFooter: { alignItems: "center", padding: space.lg },
   listSectionHeader: {
     alignItems: "center",
@@ -1887,46 +2053,58 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: minTouchTarget,
   },
+  sessionArchived: { opacity: 0.5 },
+  sessionCopy: { flex: 1, gap: 2, minWidth: 0 },
+  sessionDetail: { alignItems: "center", flexDirection: "row", gap: space.xs / 2 },
+  sessionDetailText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
+  sessionMeta: { alignItems: "center", flexDirection: "row", gap: space.xs },
   sessionProject: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
-  sessionAttentionMarker: {
-    backgroundColor: palette.warm,
-    borderRadius: radius.pill,
-    height: 7,
-    width: 7,
-  },
-  sessionCopy: { flex: 1, gap: space.xs / 2, minWidth: 0 },
   sessionRow: {
-    alignItems: "flex-start",
     backgroundColor: palette.background,
     flexDirection: "row",
-    gap: space.sm,
     minHeight: minTouchTarget,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
-  sessionStatusBlocked: { ...typography.sectionLabel, color: palette.warm },
+  sessionStatus: { ...typography.footnote },
   sessionTime: { ...typography.footnote, color: palette.dim },
+  sessionTitle: { ...typography.body, minWidth: 0 },
+  sessionTitleRead: { color: palette.dim },
+  // Headline is the body size at semibold.
+  sessionTitleUnread: { ...typography.headline, color: palette.ink },
   sessionTrailing: {
     alignItems: "center",
     flexDirection: "row",
     flexShrink: 0,
-    gap: space.xs,
     justifyContent: "flex-end",
+    marginLeft: "auto",
   },
-  sessionTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
-  sessionTitle: { ...typography.body, color: palette.ink, flex: 1, minWidth: 0 },
+  sessionWorking: { opacity: 0.7 },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
   swipeContainer: { backgroundColor: palette.background },
   tabPanel: { flex: 1 },
-  workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
-  swipeDelete: {
+  workingFooter: { flexGrow: 1, justifyContent: "flex-end", paddingTop: space.sm },
+  workingSection: {
+    borderColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
+  workingSectionChevron: { marginLeft: "auto" },
+  workingSectionHeader: {
     alignItems: "center",
-    backgroundColor: palette.danger,
+    flexDirection: "row",
+    gap: space.xs,
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
+  },
+  workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  swipeArchive: {
+    alignItems: "center",
+    backgroundColor: palette.accent,
     justifyContent: "center",
-    minWidth: 82,
+    minWidth: 96,
     paddingHorizontal: space.sm,
   },
-  swipeDeleteLabel: { ...typography.sectionLabel, color: palette.background },
+  swipeArchiveLabel: { ...typography.sectionLabel, color: palette.background },
   transcriptContainer: { flex: 1 },
   transcriptList: { flex: 1 },
   transcriptState: { alignItems: "center", minHeight: 140, padding: space.lg },
@@ -1936,4 +2114,12 @@ const styles = StyleSheet.create({
     paddingBottom: space.sm,
     textAlign: "right",
   },
+});
+
+const statusStyles = StyleSheet.create({
+  approval: { color: palette.warm },
+  done: { color: palette.success },
+  failed: { color: palette.danger },
+  input: { color: palette.warm },
+  working: { color: palette.info },
 });

@@ -116,6 +116,28 @@ test("scopes followed project pages by ordered projects and reconciliation revis
     "desc",
     null,
     "parent:root",
+    "active",
+    null,
+    4,
+  ]);
+  expect(
+    openCodeQueryKeys.followedProjectSessions(
+      "connection-1",
+      ["project-a"],
+      { archived: true, limit: 50, order: "desc", parentID: null, since: 1_000 },
+      4,
+    ),
+  ).toEqual([
+    "opencode",
+    "connection-1",
+    "followed-project-sessions",
+    ["project-a"],
+    50,
+    "desc",
+    null,
+    "parent:root",
+    "archived",
+    1_000,
     4,
   ]);
 });

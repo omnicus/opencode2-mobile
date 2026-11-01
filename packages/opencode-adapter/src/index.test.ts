@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { OpenCodeEvent, SessionsResponse } from "./index";
 import {
+  archiveOpenCodeSession,
   backgroundOpenCodeSession,
   cancelOpenCodeForm,
   cancelOpenCodeSessionInboxItem,
@@ -43,6 +44,7 @@ import {
   listOpenCodeSessionInbox,
   listOpenCodeSessions,
   listOpenCodeSkills,
+  markOpenCodeSessionViewed,
   maxShellOutputBytes,
   normalizeOpenCodeBaseUrl,
   openCodeDirectoryExists,
@@ -1250,6 +1252,33 @@ it("forwards explicit locations and request cancellation through session CRUD", 
   );
 });
 
+it("archives, unarchives, and marks sessions viewed on the server", async () => {
+  const update = vi.fn(async () => undefined);
+  const view = vi.fn(async () => undefined);
+  const client = { session: { update, view } } as unknown as ReturnType<
+    typeof createOpenCodeClient
+  >;
+  const options = { signal: new AbortController().signal };
+
+  await archiveOpenCodeSession(client, "ses_existing", true, options);
+  await archiveOpenCodeSession(client, "ses_existing", false);
+  await markOpenCodeSessionViewed(client, "ses_existing", 1_700_000_000_000, options);
+
+  expect(update).toHaveBeenNthCalledWith(1, { archived: true, sessionID: "ses_existing" }, options);
+  expect(update).toHaveBeenNthCalledWith(
+    2,
+    { archived: false, sessionID: "ses_existing" },
+    undefined,
+  );
+  expect(view).toHaveBeenCalledWith(
+    { idle: 1_700_000_000_000, sessionID: "ses_existing" },
+    options,
+  );
+  expect(() => markOpenCodeSessionViewed(client, "ses_existing", Number.NaN)).toThrow(
+    "INVALID_SESSION_IDLE",
+  );
+});
+
 it("rejects an empty explicit location", async () => {
   const client = {} as ReturnType<typeof createOpenCodeClient>;
   await expect(listOpenCodeSessions(client, { directory: "" })).rejects.toThrow(
@@ -1547,6 +1576,18 @@ it("runs paginated search and session lifecycle against the deterministic fake A
   await expect(getOpenCodeSession(client, created.id)).resolves.toMatchObject({ title: "Created" });
   await renameOpenCodeSession(client, created.id, "Renamed");
   await expect(getOpenCodeSession(client, created.id)).resolves.toMatchObject({ title: "Renamed" });
+  await archiveOpenCodeSession(client, "ses_other", true);
+  await expect(listOpenCodeSessions(client, location, { search: "other" })).resolves.toMatchObject({
+    data: [],
+  });
+  await expect(
+    listOpenCodeSessions(client, location, { archived: true, search: "other" }),
+  ).resolves.toMatchObject({ data: [{ id: "ses_other", time: { archived: expect.any(Number) } }] });
+  await archiveOpenCodeSession(client, "ses_other", false);
+  await markOpenCodeSessionViewed(client, "ses_other", 42);
+  const restored = await getOpenCodeSession(client, "ses_other");
+  expect(restored.time.archived).toBeUndefined();
+  expect(restored.time.viewed).toBe(42);
   await removeOpenCodeSession(client, "ses_root");
   expect(api.sessions.map((item) => item.id)).not.toContain("ses_root");
   expect(api.sessions.map((item) => item.id)).not.toContain("ses_child");

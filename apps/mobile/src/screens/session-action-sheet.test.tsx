@@ -7,6 +7,7 @@ import { SessionActionSheet } from "./session-action-sheet";
 const mockRename = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockRemove = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockCleanup = jest.fn<(...args: unknown[]) => Promise<void>>();
+const mockArchive = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockMcpList = jest.fn(async () => ({ data: [] }));
 jest.mock("./app-shell", () => {
   const { Pressable, Text } = jest.requireActual<typeof import("react-native")>("react-native");
@@ -48,10 +49,14 @@ jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => ({}) }));
 jest.mock("../state/connection-runtime-context", () => ({
   useConnectionRuntime: () => mockRuntime,
 }));
+jest.mock("../state/workspace-selection-context", () => ({
+  useWorkspaceSelection: () => ({ archiveSession: mockArchive }),
+}));
 const session = {
   id: "ses_one",
   title: "Original",
   location: { directory: "/workspace" },
+  time: { created: 1, updated: 1 },
 } as SessionInfo;
 
 beforeEach(() => {
@@ -59,10 +64,11 @@ beforeEach(() => {
   mockRename.mockReset().mockResolvedValue(undefined);
   mockRemove.mockReset().mockResolvedValue(undefined);
   mockCleanup.mockReset().mockResolvedValue(undefined);
+  mockArchive.mockReset().mockResolvedValue(undefined);
   mockMcpList.mockClear();
 });
 
-function mount() {
+function mount(target: SessionInfo = session) {
   const client = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
   });
@@ -72,7 +78,7 @@ function mount() {
     <QueryClientProvider client={client}>
       <SessionActionSheet
         connectionId="first"
-        session={session}
+        session={target}
         onClose={onClose}
         onDeleted={onDeleted}
       />
@@ -163,14 +169,41 @@ test("failed rename retains the entered name and does not close", async () => {
   }
 });
 
-test("the menu offers rename, dev tools and delete, with no archive", () => {
+test("the menu offers rename, archive, dev tools and delete", () => {
   const view = mount();
   try {
-    for (const name of ["Rename", "Dev tools", "Delete"])
+    for (const name of ["Rename", "Archive", "Dev tools", "Delete"])
       expect(screen.getByRole("button", { name })).toBeOnTheScreen();
-    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
-    expect(screen.queryByText(/Archive/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Unarchive" })).toBeNull();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("archives on the server and closes once it succeeds", async () => {
+  const view = mount();
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(view.onClose).toHaveBeenCalled());
+    expect(mockArchive).toHaveBeenCalledWith(session, true);
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("an archived session offers Unarchive, and a failure keeps the sheet open", async () => {
+  mockArchive.mockRejectedValueOnce(new Error("offline"));
+  const archived = { ...session, time: { ...session.time, archived: 5 } } as SessionInfo;
+  const view = mount(archived);
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Unarchive" }));
+    expect(
+      await screen.findByText(
+        "Could not confirm the change. Refresh the session before trying again.",
+      ),
+    ).toBeOnTheScreen();
+    expect(mockArchive).toHaveBeenCalledWith(archived, false);
+    expect(view.onClose).not.toHaveBeenCalled();
   } finally {
     view.cleanup();
   }

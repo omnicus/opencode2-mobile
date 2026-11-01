@@ -778,6 +778,46 @@ test("limits location events to matching location queries", () => {
   queryClient.clear();
 });
 
+test.each([
+  "session.archived",
+  "session.unarchived",
+  "session.viewed",
+  // A new run's start time shows as the working duration.
+  "session.execution.started",
+])("%s refreshes only the session lists", (type) => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const followedKey = openCodeQueryKeys.followedProjectSessions(
+    "connection-1",
+    ["project-1"],
+    { archived: true, limit: 50, order: "desc", parentID: null },
+    0,
+  );
+  const permissionsKey = openCodeQueryKeys.permissions("connection-1", { directory: "/first" });
+  queryClient.setQueryData(followedKey, { cursors: {}, failures: [], responses: {} });
+  queryClient.setQueryData(permissionsKey, { data: [], location: { directory: "/first" } });
+
+  bridge.apply({
+    created: 1,
+    data: { sessionID: "session-1", ...(type === "session.viewed" ? { idle: 2 } : {}) },
+    durable: { aggregateID: "session-1", seq: 1, version: 1 as const },
+    id: `event-${type}`,
+    location: { directory: "/first" },
+    type,
+  } as unknown as OpenCodeEvent);
+
+  expect(invalidate).toHaveBeenCalledTimes(1);
+  const predicate = invalidate.mock.calls[0]?.[0]?.predicate;
+  const followed = queryClient.getQueryCache().find({ queryKey: followedKey });
+  const permissions = queryClient.getQueryCache().find({ queryKey: permissionsKey });
+  expect(followed && predicate?.(followed)).toBe(true);
+  expect(permissions && predicate?.(permissions)).toBe(false);
+  queryClient.clear();
+});
+
 test.each(["catalog.updated", "plugin.added", "mcp.resources.changed"])(
   "%s does not restart a healthy event generation",
   (type) => {

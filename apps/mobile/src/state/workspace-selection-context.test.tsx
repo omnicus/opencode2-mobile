@@ -49,7 +49,7 @@ const mockGetOpenCodeLocation = jest.fn(async (_client: unknown, location: { dir
 type ListProjectSessionsCall = (
   client: unknown,
   projectID: string,
-  input: { search?: string },
+  input: { archived?: boolean; search?: string },
   options?: { signal?: AbortSignal },
 ) => Promise<{ cursor: { next?: string }; data: ReturnType<typeof mockSession>[] }>;
 const defaultListProjectSessions: ListProjectSessionsCall = async (_client, projectID) => ({
@@ -62,6 +62,7 @@ const defaultListProjectSessions: ListProjectSessionsCall = async (_client, proj
 });
 const mockListProjectSessions = jest.fn<ListProjectSessionsCall>(defaultListProjectSessions);
 const mockReplyPermission = jest.fn<ReplyPermissionCall>();
+const mockArchiveSession = jest.fn(async (..._args: unknown[]) => undefined);
 let mockEventLocations: LocationRef[] = [];
 let mockAttentionLocations: LocationRef[] = [];
 let mockSandboxes: string[] = [];
@@ -83,7 +84,13 @@ const mockDb = {
 };
 
 jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => mockDb }));
+// The inbox started before every fixture session finished.
+jest.mock("../storage/session-inbox-repository", () => ({
+  startSessionInbox: jest.fn(async () => ({ sinceMs: 0, workingExpanded: true })),
+  writeWorkingShelfExpanded: jest.fn(async () => undefined),
+}));
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
+  archiveOpenCodeSession: (...args: unknown[]) => mockArchiveSession(...args),
   openCodeDirectoryExists: (...args: Parameters<typeof mockDirectoryExists>) =>
     mockDirectoryExists(...args),
   getDefaultOpenCodeLocation: jest.fn(async () => mockResolvedLocation("/a", "project-a")),
@@ -305,13 +312,15 @@ test("starts a fresh reconciliation revision and includes event locations", asyn
   );
   const view = render(renderTree());
   await waitFor(() => expect(screen.getByText("complete:2:2:0")).toBeOnTheScreen());
-  expect(mockListProjectSessions).toHaveBeenCalledTimes(2);
+  expect(activeListCalls()).toBe(2);
+  // Each followed project also loads its archived roots once per revision.
+  expect(mockListProjectSessions.mock.calls.filter((call) => call[2].archived)).toHaveLength(2);
 
   mockRevision = 2;
   mockEventLocations = [{ directory: "/a/event" }];
   view.rerender(renderTree());
 
-  await waitFor(() => expect(mockListProjectSessions).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(activeListCalls()).toBe(4));
   await waitFor(() =>
     expect(mockListPermissions.mock.calls.some((call) => call[1].directory === "/a/event")).toBe(
       true,
@@ -351,7 +360,7 @@ test("keeps the inbox populated while a new reconciliation revision loads", asyn
   mockRevision += 1;
   view.rerender(renderTree());
 
-  await waitFor(() => expect(mockListProjectSessions).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(activeListCalls()).toBe(4));
   expect(screen.getByText("freshness:reconciling")).toBeOnTheScreen();
   expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
   expect(screen.getByText("Alpha:ses_child:1:1")).toBeOnTheScreen();
@@ -922,6 +931,127 @@ test("an unavailable directory probe does not silently retire a valid session lo
   queryClient.clear();
 });
 
+test("lists archived roots under Archived and moves a row when it is archived", async () => {
+  const archivedAt = new Map<string, number>([["ses_old", 5]]);
+  mockListProjectSessions.mockImplementation(async (_client, projectID, input) => {
+    const sessions =
+      projectID === "project-a"
+        ? [
+            mockSession("ses_alpha", projectID, "/a", 3),
+            mockSession("ses_gamma", projectID, "/a", 2),
+          ]
+        : [mockSession("ses_old", projectID, "/b", 1)];
+    return {
+      cursor: {},
+      data: sessions
+        .map((session) =>
+          archivedAt.has(session.id)
+            ? { ...session, time: { ...session.time, archived: archivedAt.get(session.id) } }
+            : session,
+        )
+        .filter((session) => "archived" in session.time === Boolean(input.archived)),
+    };
+  });
+  mockArchiveSession.mockImplementation(async (_client, sessionID, archived) => {
+    if (archived) archivedAt.set(sessionID as string, 9);
+    else archivedAt.delete(sessionID as string);
+  });
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { networkMode: "always" },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <ArchiveCapture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(await screen.findByText("recent:ses_gamma")).toBeOnTheScreen();
+  expect(screen.getByText("archived:ses_old")).toBeOnTheScreen();
+  expect(
+    mockListProjectSessions.mock.calls.some(
+      (call) => call[2].archived === true && (call[2] as { limit?: number }).limit === 50,
+    ),
+  ).toBe(true);
+
+  fireEvent.press(screen.getByRole("button", { name: "Archive ses_gamma" }));
+  expect(await screen.findByText("archived:ses_gamma")).toBeOnTheScreen();
+  expect(screen.queryByText("recent:ses_gamma")).toBeNull();
+  expect(mockArchiveSession).toHaveBeenCalledWith({}, "ses_gamma", true);
+
+  fireEvent.press(screen.getByRole("button", { name: "Unarchive ses_old" }));
+  expect(await screen.findByText("recent:ses_old")).toBeOnTheScreen();
+  expect(mockArchiveSession).toHaveBeenLastCalledWith({}, "ses_old", false);
+
+  view.unmount();
+  queryClient.clear();
+});
+
+test("Recent lists only runs that finished since the inbox started", async () => {
+  const { startSessionInbox } = jest.requireMock<{
+    startSessionInbox: jest.Mock<() => Promise<{ sinceMs: number; workingExpanded: boolean }>>;
+  }>("../storage/session-inbox-repository");
+  startSessionInbox.mockResolvedValueOnce({ sinceMs: 3, workingExpanded: false });
+  mockListProjectSessions.mockImplementation(async (_client, projectID, input) => ({
+    cursor: {},
+    data:
+      projectID === "project-a" && !input.archived
+        ? [
+            mockSession("ses_new", projectID, "/a", 4),
+            mockSession("ses_before", projectID, "/a", 2),
+          ]
+        : [],
+  }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <ArchiveCapture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(await screen.findByText("recent:ses_new")).toBeOnTheScreen();
+  expect(screen.queryByText("recent:ses_before")).toBeNull();
+  expect(screen.getByText("working:collapsed")).toBeOnTheScreen();
+  // The session list pages back to the inbox start.
+  expect(startSessionInbox).toHaveBeenCalledWith(mockDb, "connection-1", 1, expect.any(Number));
+
+  view.unmount();
+  queryClient.clear();
+});
+
+function ArchiveCapture() {
+  const state = useFollowedProjects();
+  return (
+    <>
+      <Text>working:{state.workingExpanded ? "expanded" : "collapsed"}</Text>
+      {[...state.inbox.recent, ...state.inbox.archived].map((row) => (
+        <Pressable
+          accessibilityLabel={`${row.archived ? "Unarchive" : "Archive"} ${row.session.id}`}
+          accessibilityRole="button"
+          key={row.session.id}
+          onPress={() => void state.archiveSession(row.session, !row.archived)}
+        >
+          <Text>
+            {row.section}:{row.session.id}
+          </Text>
+        </Pressable>
+      ))}
+    </>
+  );
+}
+
+function activeListCalls() {
+  return mockListProjectSessions.mock.calls.filter((call) => !call[2].archived).length;
+}
+
 function Capture() {
   const state = useFollowedProjects();
   return (
@@ -1016,7 +1146,7 @@ function mockSession(id: string, projectID: string, directory: string, updated: 
     id,
     location: { directory },
     projectID,
-    time: { created: updated, updated },
+    time: { created: updated, idle: updated, updated },
     title: id,
     tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
   };

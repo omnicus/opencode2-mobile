@@ -50,7 +50,14 @@ export type FakeSession = {
   outcome?: "failed" | "interrupted" | "succeeded";
   parentID?: string;
   projectID: string;
-  time: { archived?: number; created: number; updated: number };
+  time: {
+    archived?: number;
+    busy?: number;
+    created: number;
+    idle?: number;
+    updated: number;
+    viewed?: number;
+  };
   title?: string;
   tokens: {
     cache: { read: number; write: number };
@@ -322,6 +329,7 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
       const directory = url.searchParams.get("directory");
       const project = url.searchParams.get("project");
       const parentID = url.searchParams.get("parentID");
+      const archived = url.searchParams.get("archived") === "true";
       const workspace = url.searchParams.get("workspace");
       const cursor = url.searchParams.get("cursor");
       const offset = cursor?.startsWith("fake:") ? Number(cursor.slice(5)) : 0;
@@ -335,6 +343,8 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
           return session.parentID === parentID;
         })
         .filter((session) => !workspace || session.location.workspaceID === workspace)
+        // Like the server, the list leaves archived sessions out unless asked for them.
+        .filter((session) => (session.time.archived !== undefined) === archived)
         .filter((session) => !search || (session.title ?? "").toLocaleLowerCase().includes(search))
         .sort((first, second) => second.time.updated - first.time.updated);
       const data = filtered.slice(offset, offset + limit);
@@ -411,6 +421,24 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
           time: { ...current.time, updated: Date.now() },
           title: jsonBody.title,
         };
+      }
+      const renamed = sessions[index];
+      if (renamed && isRecord(jsonBody) && typeof jsonBody.archived === "boolean") {
+        const { archived: _archived, ...time } = renamed.time;
+        sessions[index] = {
+          ...renamed,
+          time: jsonBody.archived ? { ...time, archived: Date.now() } : time,
+        };
+      }
+      return new Response(null, { status: 204 });
+    }
+    const viewMatch = url.pathname.match(/^\/api\/session\/([^/]+)\/view$/);
+    if (viewMatch && method === "POST") {
+      const index = sessions.findIndex((candidate) => candidate.id === viewMatch[1]);
+      const current = sessions[index];
+      if (!current) return json({ _tag: "SessionNotFoundError", message: "Not found" }, 404);
+      if (isRecord(jsonBody) && typeof jsonBody.idle === "number") {
+        sessions[index] = { ...current, time: { ...current.time, viewed: jsonBody.idle } };
       }
       return new Response(null, { status: 204 });
     }

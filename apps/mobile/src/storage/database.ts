@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
 export const mobileDatabaseName = "opencode-mobile.db";
-export const mobileDatabaseSchemaVersion = 16;
+export const mobileDatabaseSchemaVersion = 17;
 
 const maxDraftCiphertextBytes = 256 * 1024 + 16;
 
@@ -323,6 +323,23 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
           project_id TEXT CHECK (project_id IS NULL OR length(project_id) > 0)
         );
         PRAGMA user_version = 16;
+        COMMIT;
+      `);
+    } catch (caught) {
+      await db.execAsync("ROLLBACK;").catch(() => undefined);
+      throw caught;
+    }
+  }
+  if (version < 17) {
+    try {
+      await db.execAsync(`
+        BEGIN IMMEDIATE;
+        CREATE TABLE session_inbox_preferences (
+          connection_id TEXT PRIMARY KEY REFERENCES connection_profiles(id) ON DELETE CASCADE,
+          since_ms INTEGER NOT NULL CHECK (since_ms >= 0),
+          working_expanded INTEGER NOT NULL DEFAULT 1 CHECK (working_expanded IN (0, 1))
+        );
+        PRAGMA user_version = 17;
         COMMIT;
       `);
     } catch (caught) {

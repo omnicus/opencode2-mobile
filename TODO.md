@@ -196,7 +196,7 @@ until the version 1.0 split view is built.
 - [x] Add server-backed search and local filtering where appropriate.
 - [x] Display active, blocked, and outcome state where available. Queue state
       remains available only inside an open session. Device-local archiving was
-      removed in favour of a 20-row list with search for older sessions.
+      removed. Archive now uses the server's shared `time.archived`.
 - [x] Create a session with optional title, agent, model, and location.
 - [x] Open, rename, and delete sessions.
 - [x] Warn that deleting a parent also deletes child sessions.
@@ -307,6 +307,16 @@ including recovery from an unknown prompt-admission outcome.
 - [x] Build non-overlapping `Needs you`, `Working`, and `Finished` groups with
       collapsible separators, OpenCode project colours on every row, and stable
       ordering while work runs.
+- [x] Match the OpenCode 2.2.5 desktop Inbox sidebar: Needs attention, Recent,
+      Archived, and Working in one scrolling list, desktop status labels and
+      colours, and a branch line under the title.
+- [x] Archive and unarchive through the server so desktop and mobile share
+      archive state, and follow `session.archived`, `session.unarchived`, and
+      `session.viewed` events from other clients.
+- [x] Mark the open session's last finished run viewed on the server, and derive
+      unread rows from `time.idle` and `time.viewed`.
+- [x] Store a per-connection inbox start so Recent lists only runs finished
+      since then, as desktop does.
 - [x] Keep attention, execution, lifecycle, transport freshness, and prompt
       admission as separate state facts with deterministic display priority.
 - [x] Keep child sessions out of the list, bubble child-owned interactions to
@@ -321,8 +331,9 @@ including recovery from an unknown prompt-admission outcome.
       sandboxes, session metadata, active-session details, and event locations.
 - [x] Expose reconciling or incomplete attention coverage instead of presenting
       a location-scoped count as server-wide.
-- [x] Do not add global queued, background-working, unread, snoozed, or settled
-      states without authoritative OpenCode V2 summaries.
+- [x] Do not add global queued, background-working, snoozed, or settled states
+      without authoritative OpenCode V2 summaries. Unread comes from the
+      server's shared `time.viewed`.
 
 - [x] Load pending interactions on startup, reconnect, and foreground.
 - [x] Show blocked-work counts across reconciled followed-project locations and
@@ -346,7 +357,8 @@ including recovery from an unknown prompt-admission outcome.
 Followed-project preferences persist only connection/project IDs and local order.
 The merged inbox keeps one cursor per project, bubbles actionable children under
 their root, and labels stale, reconciling, incomplete, and current attention
-states without inventing queue or unread summaries. Permission and form state is
+states without inventing queue summaries. Archive and read state come from the
+server, so they match OpenCode desktop. Permission and form state is
 reconciled from exact locations discovered through projects, sessions, active
 ancestry, and events. Signed-build and physical-device validation remains in the
 foundation verification gate below.

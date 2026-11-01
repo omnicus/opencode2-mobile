@@ -3,6 +3,7 @@ import { expect, test } from "@jest/globals";
 import type { FollowedInboxRow, FollowedInboxSections } from "../state/followed-project-inbox";
 import {
   flattenSessionPages,
+  formatElapsed,
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
   projectDirectories,
@@ -65,63 +66,62 @@ test("keeps a large paginated list stable and accepts an empty response", () => 
   expect(flattenSessionPages([{ cursor: {}, data: [] }])).toEqual([]);
 });
 
-test("keeps stabilized order while picking the newest finished rows for the remaining slots", () => {
+test("lists Needs attention with its count, then Recent and Archived, without Working", () => {
   const inbox = sections({
+    archived: [row("ses_archived", 3)],
     needsYou: [row("ses_blocked", 1)],
-    // Stabilized order: ses_streaming moved to the newest timestamp without jumping to the top.
-    recent: [row("ses_a", 50), row("ses_streaming", 90), row("ses_b", 40), row("ses_old", 1)],
-    working: [row("ses_working", 2)],
-  });
-
-  expect(keys(workspaceInboxItems(inbox, 5))).toEqual([
-    "group:needs-you",
-    "ses_blocked",
-    "group:working",
-    "ses_working",
-    "group:finished",
-    "ses_a",
-    "ses_streaming",
-    "ses_b",
-  ]);
-  expect(keys(workspaceInboxItems(inbox, 2))).toEqual([
-    "group:needs-you",
-    "ses_blocked",
-    "group:working",
-    "ses_working",
-  ]);
-  expect(keys(workspaceInboxItems(sections({ recent: inbox.recent }), 2))).toEqual([
-    "group:finished",
-    "ses_a",
-    "ses_streaming",
-  ]);
-});
-
-test("collapsed groups keep their separator and count but hide their rows", () => {
-  const inbox = sections({
     recent: [row("ses_a", 50), row("ses_b", 40)],
     working: [row("ses_working", 2)],
   });
 
-  const items = workspaceInboxItems(inbox, 20, new Set(["finished"]));
-  expect(keys(items)).toEqual(["group:working", "ses_working", "group:finished"]);
-  expect(items.at(-1)).toEqual({
-    collapsed: true,
-    count: 2,
-    group: "finished",
-    key: "group:finished",
-    type: "group",
+  const items = workspaceInboxItems(inbox);
+  expect(keys(items)).toEqual([
+    "header:needs-you",
+    "ses_blocked",
+    "header:recent",
+    "ses_a",
+    "ses_b",
+    "header:archived",
+    "ses_archived",
+  ]);
+  expect(items[0]).toEqual({
+    count: 1,
+    key: "header:needs-you",
+    section: "needs-you",
+    type: "header",
   });
-  expect(items[0]).toMatchObject({ collapsed: false, count: 1, group: "working" });
+  expect(items[2]).not.toHaveProperty("count");
+});
+
+test("Recent has no header when nothing needs attention", () => {
+  expect(keys(workspaceInboxItems(sections({ recent: [row("ses_a", 50)] })))).toEqual(["ses_a"]);
+  expect(keys(workspaceInboxItems(sections({ working: [row("ses_working", 2)] })))).toEqual([]);
+});
+
+test("formats compact elapsed time like the desktop inbox", () => {
+  expect(formatElapsed(-5_000, true)).toBe("0s");
+  expect(formatElapsed(35_000, true)).toBe("35s");
+  expect(formatElapsed(35_000, false)).toBe("now");
+  expect(formatElapsed(5 * 60_000, false)).toBe("5m");
+  expect(formatElapsed(3 * 3_600_000, true)).toBe("3h");
+  expect(formatElapsed(2 * 86_400_000, false)).toBe("2d");
 });
 
 test("search results are one list ordered by recency", () => {
   const inbox = sections({
+    archived: [row("ses_archived", 70)],
     needsYou: [row("ses_blocked", 1)],
     recent: [row("ses_a", 50), row("ses_b", 90)],
     working: [row("ses_working", 60)],
   });
 
-  expect(keys(searchResultItems(inbox))).toEqual(["ses_b", "ses_working", "ses_a", "ses_blocked"]);
+  expect(keys(searchResultItems(inbox))).toEqual([
+    "ses_b",
+    "ses_archived",
+    "ses_working",
+    "ses_a",
+    "ses_blocked",
+  ]);
 });
 
 function keys(items: readonly { key: string }[]) {
@@ -129,17 +129,26 @@ function keys(items: readonly { key: string }[]) {
 }
 
 function sections(input: Partial<FollowedInboxSections>): FollowedInboxSections {
-  return { needsYou: [], recent: [], unmatchedSessionIDs: [], working: [], ...input };
+  return {
+    archived: [],
+    needsYou: [],
+    recent: [],
+    unmatchedSessionIDs: [],
+    working: [],
+    ...input,
+  };
 }
 
 function row(id: string, updated: number): FollowedInboxRow {
   const item = session(id, updated);
   return {
     active: false,
+    archived: false,
     attentionCount: 0,
     projectLabel: "Project",
     section: "recent",
     session: item,
+    status: "ready",
     targetLocation: item.location,
     targetSessionID: item.id,
   };
