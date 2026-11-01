@@ -11,7 +11,7 @@
     "build": "pnpm -r --if-present build",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "check:public": "node scripts/check-public-tree.mjs",
-    "coverage": "rm -rf coverage && mkdir coverage && node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info scripts/*.test.mjs && pnpm -r --if-present coverage",
+    "coverage": "rm -rf coverage && mkdir coverage && node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info scripts/*.test.mjs && pnpm -r --if-present coverage && pnpm --filter @opencode2-mobile/mobile exec jest --runInBand --coverage --coverageReporters=lcovonly --coverageDirectory=../../coverage/apps/mobile",
     "crap": "bash scripts/crap.sh",
     "dev": "pnpm go:tailscale",
     "dev:client": "pnpm --filter @opencode2-mobile/mobile start",

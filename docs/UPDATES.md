@@ -112,6 +112,9 @@ The baseline records compatibility with the installed native build. Do not
 replace it just to clear a failed publication check. A native dependency, config
 plugin, permission, or Expo SDK change requires a new app version and signed
 builds. Record new baselines after establishing that native build's configuration.
+The fingerprint also hashes the `scripts` in `apps/mobile/package.json`, so adding
+or editing one fails the check too. Put repository tooling in the root
+`package.json`.
 
 Once configured, run **Publish mobile update** from GitHub Actions with `main`
 to deliver the in-app updater to the existing compatible preview builds. The
