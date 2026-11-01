@@ -1,10 +1,8 @@
 import Feather from "@expo/vector-icons/Feather";
-import { useState } from "react";
 import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
-import { MenuGroup, MenuRow } from "../components/menu-row";
-import { ModalSheet } from "../components/modal-sheet";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { minTouchTarget, palette, radius } from "../theme";
+import { attentionAccessibilityValue } from "./attention-labels";
 
 const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 
@@ -20,39 +18,23 @@ export function WorkspaceHeaderActions({
   floating?: boolean;
 }) {
   const selection = useWorkspaceSelection();
-  const [menuOpen, setMenuOpen] = useState(false);
   const count = selection.pendingCount;
   const coverage = selection.attentionCoverage.completeness;
   const freshness = selection.attentionCoverage.freshness;
-  const visualCount = count > 99 ? "99+" : `${count}`;
-  const needsYouMenuLabel =
-    count > 0
-      ? `Needs you, ${visualCount}`
-      : freshness === "reconciling"
-        ? "Needs you, syncing"
-        : coverage === "incomplete"
-          ? "Needs you, coverage incomplete"
-          : "Needs you";
-
-  function open(destination: HeaderDestination) {
-    setMenuOpen(false);
-    Keyboard.dismiss();
-    navigate(destination);
-  }
 
   return (
     <View style={[styles.actions, floating && styles.floating]}>
       {onNewSession ? <NewSessionButton onPress={onNewSession} /> : null}
       <Pressable
-        accessibilityHint="Opens workspace options and pending requests"
-        accessibilityLabel="Workspace options"
+        accessibilityHint="Opens requests that need you, followed projects, connections, and device settings"
+        accessibilityLabel="Settings"
         accessibilityValue={{
-          text: `${count} known ${count === 1 ? "request" : "requests"}, ${freshness}${coverage === "incomplete" ? ", coverage incomplete" : ""}`,
+          text: attentionAccessibilityValue(count, selection.attentionCoverage),
         }}
         accessibilityRole="button"
         onPress={() => {
           Keyboard.dismiss();
-          setMenuOpen(true);
+          navigate("Settings");
         }}
         android_ripple={ripple}
         style={({ pressed }) => [
@@ -76,42 +58,6 @@ export function WorkspaceHeaderActions({
           />
         ) : null}
       </Pressable>
-      <ModalSheet
-        onClose={() => setMenuOpen(false)}
-        subtitle="Project, connection, and device settings"
-        title="Workspace options"
-        visible={menuOpen}
-        size="compact"
-        closeLabel="Close"
-      >
-        <MenuGroup>
-          <MenuRow
-            icon="inbox"
-            description="Permission and form requests"
-            label={needsYouMenuLabel}
-            onPress={() => open("Pending")}
-          />
-          <MenuRow
-            icon="folder"
-            description="Choose projects shown in Sessions"
-            label="Followed projects"
-            onPress={() => open("FollowedProjects")}
-          />
-          <MenuRow
-            icon="server"
-            description="Switch or edit OpenCode servers"
-            label="Connections"
-            onPress={() => open("Connections")}
-          />
-          <MenuRow
-            icon="settings"
-            description="Device security and diagnostics"
-            label="Settings"
-            last
-            onPress={() => open("Settings")}
-          />
-        </MenuGroup>
-      </ModalSheet>
     </View>
   );
 }

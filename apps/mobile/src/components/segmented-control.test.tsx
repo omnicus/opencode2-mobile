@@ -42,7 +42,7 @@ test("radio segments report the checked option and change on press", () => {
   const all = screen.getByRole("radio", { name: "All" });
   expect(all).toBeChecked();
   expect(screen.getByRole("radio", { name: "Active sessions" })).not.toBeChecked();
-  expect(all).toHaveStyle({ minHeight: 42, backgroundColor: palette.prompt });
+  expect(all).toHaveStyle({ minHeight: 48, backgroundColor: palette.prompt });
   expect(screen.getByText("All")).toHaveStyle({ color: palette.ink, fontSize: 14 });
   expect(screen.getByText("Active")).toHaveStyle({ color: palette.dim });
   fireEvent.press(screen.getByRole("radio", { name: "Active sessions" }));

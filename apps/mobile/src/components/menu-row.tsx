@@ -25,6 +25,8 @@ export function MenuRow({
   last = false,
   disclosure = true,
   expanded,
+  badge,
+  accessibilityValue,
 }: {
   label: string;
   description?: string;
@@ -36,6 +38,9 @@ export function MenuRow({
   disclosure?: boolean;
   // Makes the row a disclosure toggle with an up/down chevron.
   expanded?: boolean;
+  // A short count shown before the chevron; describe it to screen readers in accessibilityValue.
+  badge?: string | undefined;
+  accessibilityValue?: string | undefined;
 }) {
   const chevron =
     expanded === undefined ? "chevron-right" : expanded ? "chevron-up" : "chevron-down";
@@ -45,6 +50,7 @@ export function MenuRow({
       accessibilityLabel={label}
       accessibilityHint={description}
       accessibilityState={expanded === undefined ? { disabled } : { disabled, expanded }}
+      accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
       android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
       disabled={disabled}
       onPress={onPress}
@@ -71,6 +77,13 @@ export function MenuRow({
           </Text>
         ) : null}
       </View>
+      {badge ? (
+        <View style={styles.badge}>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.badgeText}>
+            {badge}
+          </Text>
+        </View>
+      ) : null}
       {disclosure ? (
         <Feather accessible={false} name={chevron} size={16} color={palette.dim} />
       ) : null}
@@ -99,6 +112,16 @@ const styles = StyleSheet.create({
   label: { ...typography.body, color: palette.ink },
   description: { ...typography.footnote, color: palette.dim },
   danger: { color: palette.danger },
+  badge: {
+    alignItems: "center",
+    backgroundColor: palette.warm,
+    borderRadius: radius.pill,
+    justifyContent: "center",
+    minHeight: 24,
+    minWidth: 24,
+    paddingHorizontal: space.xs,
+  },
+  badgeText: { ...typography.sectionLabel, color: palette.background },
   pressed: { opacity: pressedOpacity },
   disabled: { opacity: disabledOpacity },
 });

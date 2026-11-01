@@ -103,6 +103,15 @@ export function ModalSheet({
       <SafeAreaProvider
         style={[styles.frame, overlay && styles.overlay, compact && width < 700 && styles.bottom]}
       >
+        {compact ? (
+          <Pressable
+            accessible={false}
+            importantForAccessibility="no"
+            onPress={onClose}
+            style={StyleSheet.absoluteFill}
+            testID="modal-sheet-backdrop"
+          />
+        ) : null}
         <SafeAreaView
           edges={["top", "bottom"]}
           style={[styles.safeArea, overlay && styles.panel, compact && styles.compactPanel]}
@@ -130,8 +139,16 @@ export function ModalSheet({
               <Pressable
                 accessibilityLabel={`Close ${title}`}
                 accessibilityRole="button"
+                android_ripple={
+                  Platform.OS === "android"
+                    ? { color: "rgba(255,255,255,0.12)", borderless: true }
+                    : undefined
+                }
                 onPress={onClose}
-                style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && Platform.OS === "ios" && styles.pressed,
+                ]}
               >
                 <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.closeLabel}>
                   {closeLabel}

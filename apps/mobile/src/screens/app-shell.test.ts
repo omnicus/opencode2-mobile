@@ -1,8 +1,8 @@
 import { expect, jest, test } from "@jest/globals";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
 import { createElement } from "react";
-import { Dimensions, Pressable, Text } from "react-native";
+import { AccessibilityInfo, Dimensions, Platform, Pressable, Text } from "react-native";
 
 import { useConnections } from "../connections/connections-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -12,9 +12,13 @@ import {
   getConnectionPresentation,
   getWorkspaceState,
   isTabletShell,
+  navigateToSection,
   PendingInteractionsScreen,
+  pendingLabel,
+  pendingSummaryTitle,
   ShellFrame,
   showsConnectionIssue,
+  WorkspaceStateCard,
 } from "./app-shell";
 
 jest.mock("../connections/connections-context", () => ({ useConnections: jest.fn() }));
@@ -77,7 +81,7 @@ test("uses native navigation on phones and retains the tablet rail", () => {
     status: "connected",
   } as never);
   jest.mocked(useWorkspaceSelection).mockReturnValue({
-    attentionCoverage: { completeness: "complete" },
+    attentionCoverage: { completeness: "complete", freshness: "current" },
     pendingCount: 0,
   } as never);
 
@@ -100,14 +104,23 @@ test("uses native navigation on phones and retains the tablet rail", () => {
       screen: { ...originalScreen, width: 760 },
       window: { ...originalWindow, width: 760 },
     });
+    const navigate = jest.fn();
     const tablet = render(
       createElement(
         ShellFrame,
-        { active: "Workspace", navigate: jest.fn() },
+        { active: "Workspace", navigate },
         createElement(Text, null, "Tablet content"),
       ),
     );
-    expect(screen.getByLabelText("Primary navigation")).toBeOnTheScreen();
+    expect(screen.getByLabelText("Primary navigation")).toHaveProp("accessibilityRole", "tablist");
+    expect(screen.getByRole("tab", { name: "Needs you" })).toHaveProp("accessibilityValue", {
+      text: "0 requests need you, up to date",
+    });
+    const footer = screen.getByRole("button", { name: "Connection, Connected" });
+    expect(footer).toHaveProp("accessibilityHint", "Opens connections");
+    expect(footer).toHaveStyle({ minHeight: 48 });
+    fireEvent.press(footer);
+    expect(navigate).toHaveBeenCalledWith("Connections");
     tablet.unmount();
   } finally {
     Dimensions.set({ screen: originalScreen, window: originalWindow });
@@ -147,8 +160,11 @@ test("session tabs replace healthy connection and server labels but retain conne
     .mocked(useConnectionRuntime)
     .mockReturnValue({ reconnectAttempt: 0, status: "offline" } as never);
   view.rerender(element());
-  fireEvent.press(screen.getByRole("button", { name: /Connection problem: Offline/ }));
-  expect(navigate).toHaveBeenCalledWith("Settings");
+  const issue = screen.getByRole("button", { name: "Connection problem: Offline" });
+  expect(issue).toHaveProp("accessibilityHint", "Opens connections");
+  expect(issue).toHaveStyle({ minHeight: 48 });
+  fireEvent.press(issue);
+  expect(navigate).toHaveBeenCalledWith("Connections");
 });
 
 test("keeps branch and trailing location options together on narrow phones and large text", () => {
@@ -305,7 +321,7 @@ test("allows a permission owned by a background child session from Pending", () 
     } as never),
   );
 
-  expect(screen.getByLabelText("1 pending request")).toBeOnTheScreen();
+  expect(screen.getByText("1 request")).toBeOnTheScreen();
   expect(screen.getByText("redacted command")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(replyPermission).toHaveBeenCalledWith("per_test", "ses_child", "once");
@@ -342,14 +358,16 @@ test("summarizes an empty queue and routes unfollowed users to project selection
     createElement(PendingInteractionsScreen, { navigation: { navigate } } as never);
 
   const view = render(element());
-  expect(screen.getByText("No pending requests")).toHaveStyle(typography.headline);
+  expect(screen.getByText("Nothing needs you")).toHaveStyle(typography.headline);
   expect(screen.getByText("Checked 2 locations.")).toBeOnTheScreen();
 
   jest
     .mocked(useWorkspaceSelection)
     .mockReturnValue({ ...selection, followedProjectIds: [] } as never);
   view.rerender(element());
-  expect(screen.getByText("Follow a project to reconcile pending work.")).toBeOnTheScreen();
+  expect(
+    screen.getByText("Follow a project to see requests that need you here."),
+  ).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Choose projects" }));
   expect(navigate).toHaveBeenCalledWith("FollowedProjects");
   view.unmount();
@@ -358,7 +376,13 @@ test("summarizes an empty queue and routes unfollowed users to project selection
 test.each([0, 1])(
   "explains unavailable locations with %i known requests on a live connection",
   async (pendingCount) => {
-    const refetch = jest.fn(async () => undefined);
+    let finishRefetch = () => {};
+    const refetch = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRefetch = resolve;
+        }),
+    );
     const navigate = jest.fn();
     jest.mocked(useConnections).mockReturnValue({
       profiles: [{ id: "connection-1", name: "Test server" }],
@@ -418,8 +442,93 @@ test.each([0, 1])(
     fireEvent.press(screen.getByRole("button", { name: "Close Unavailable locations" }));
     fireEvent.press(screen.getByRole("button", { name: "Retry" }));
     await waitFor(() => expect(refetch).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Retry" })).toHaveProp("accessibilityState", {
+      busy: true,
+      disabled: true,
+    });
+    await act(async () => finishRefetch());
+    expect(screen.getByRole("button", { name: "Retry" })).toHaveProp("accessibilityState", {
+      busy: false,
+      disabled: false,
+    });
     expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
     expect(navigate).not.toHaveBeenCalled();
     view.unmount();
   },
 );
+
+test("names the attention section Needs you", () => {
+  const complete = { completeness: "complete", freshness: "current" } as const;
+  expect(pendingLabel(0, complete)).toBe("Needs you");
+  expect(pendingLabel(3, complete)).toBe("Needs you 3");
+  expect(pendingLabel(3, { completeness: "incomplete", freshness: "current" })).toBe(
+    "Needs you 3+",
+  );
+  expect(pendingLabel(0, { completeness: "complete", freshness: "reconciling" })).toBe(
+    "Needs you, checking",
+  );
+  expect(pendingLabel(0, { completeness: "incomplete", freshness: "stale" })).toBe("Needs you");
+  expect(pendingSummaryTitle(0, true)).toBe("Nothing needs you");
+  expect(pendingSummaryTitle(0, false)).toBe("Nothing found that needs you");
+  expect(pendingSummaryTitle(1, true)).toBe("1 request");
+  expect(pendingSummaryTitle(4, false)).toBe("At least 4 requests");
+});
+
+test("modal sections replace an open copy instead of stacking another", () => {
+  const navigation = { navigate: jest.fn(), popTo: jest.fn() };
+  navigateToSection(navigation as never, "Settings");
+  expect(navigation.navigate).toHaveBeenCalledWith("Settings", undefined, { pop: true });
+  navigateToSection(navigation as never, "Workspace");
+  expect(navigation.popTo).toHaveBeenCalledWith("Workspace");
+});
+
+test("announces connection status changes on iOS once per status", () => {
+  jest.replaceProperty(Platform, "OS", "ios");
+  const announce = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibility")
+    .mockImplementation(() => undefined);
+  announce.mockClear();
+  jest.mocked(useConnections).mockReturnValue({
+    profiles: [{ id: "connection-1", name: "Test server" }],
+    selectedProfileId: "connection-1",
+  } as never);
+  jest.mocked(useWorkspaceSelection).mockReturnValue({
+    attentionCoverage: { completeness: "complete", freshness: "current" },
+    pendingCount: 0,
+  } as never);
+  const runtime = (status: string, reconnectAttempt = 0) =>
+    jest.mocked(useConnectionRuntime).mockReturnValue({ reconnectAttempt, status } as never);
+  const element = () => createElement(ShellFrame, { active: "Workspace", navigate: jest.fn() });
+
+  runtime("connected");
+  const view = render(element());
+  expect(announce).not.toHaveBeenCalled();
+  runtime("reconnecting", 1);
+  view.rerender(element());
+  runtime("reconnecting", 2);
+  view.rerender(element());
+  runtime("connected");
+  view.rerender(element());
+  expect(announce.mock.calls).toEqual([["Reconnecting (1)"], ["Connected"]]);
+  view.unmount();
+  jest.restoreAllMocks();
+});
+
+test("workspace state cards speak their state on iOS in plain words", () => {
+  jest.replaceProperty(Platform, "OS", "ios");
+  const announce = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibility")
+    .mockImplementation(() => undefined);
+  announce.mockClear();
+  const view = render(createElement(WorkspaceStateCard, { state: "loading" }));
+  expect(screen.getByText("Waiting for the server to respond.")).toBeOnTheScreen();
+  view.rerender(createElement(WorkspaceStateCard, { state: "partial-cache" }));
+  view.rerender(createElement(WorkspaceStateCard, { state: "empty" }));
+  expect(screen.getByText("Up to date with the server.")).toBeOnTheScreen();
+  expect(announce.mock.calls).toEqual([
+    ["Loading server state"],
+    ["Server state may be out of date."],
+  ]);
+  view.unmount();
+  jest.restoreAllMocks();
+});

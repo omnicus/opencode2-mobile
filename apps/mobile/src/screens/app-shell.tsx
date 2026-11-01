@@ -1,10 +1,21 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { NotificationDeliveryState } from "@opencode2-mobile/notification-protocol";
-import type { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { NavigationContext } from "@react-navigation/native";
+import type {
+  NativeStackNavigationProp,
+  NativeStackScreenProps,
+} from "@react-navigation/native-stack";
 import * as Clipboard from "expo-clipboard";
 import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
-import { type ComponentProps, type ReactNode, useEffect, useState } from "react";
+import {
+  type ComponentProps,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -21,9 +32,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/button";
 import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
+import { MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { SegmentedControl } from "../components/segmented-control";
+import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useConnections } from "../connections/connections-context";
+import { attentionAccessibilityValue } from "../navigation/attention-labels";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { sendNotificationDeviceCommand } from "../notifications/notification-client";
 import {
@@ -38,6 +52,7 @@ import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import {
   cardSurface,
+  minTouchTarget,
   palette,
   pressedOpacity,
   radius,
@@ -52,7 +67,7 @@ import { FormRequestList } from "./form-request-list";
 import { PermissionRequestCard } from "./permission-request-card";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
-type Section = "Pending" | "Settings" | "Workspace";
+type Section = "Connections" | "Pending" | "Settings" | "Workspace";
 type SessionBranch = {
   name?: string;
   stale?: boolean;
@@ -65,8 +80,18 @@ type ScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreen
 
 const tabletBreakpoint = 760;
 
+// Modal routes replace an already open modal instead of stacking a second copy of it.
+export function navigateToSection(
+  navigation: Pick<NativeStackNavigationProp<RootStackParamList>, "navigate" | "popTo">,
+  section: Section,
+) {
+  if (section === "Workspace") navigation.popTo("Workspace");
+  else navigation.navigate(section, undefined, { pop: true });
+}
+
 export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">) {
   const [showLocations, setShowLocations] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const runtime = useConnectionRuntime();
   const selection = useWorkspaceSelection();
   const { width } = useWindowDimensions();
@@ -79,10 +104,19 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
   const allKnownLocationsFailed =
     selection.attentionCoverage.knownLocationCount > 0 &&
     selection.attentionCoverage.reconciledLocationCount === 0;
-  const navigate = (section: Section) =>
-    section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section);
+  const navigate = (section: Section) => navigateToSection(navigation, section);
+
+  async function retry() {
+    setRetrying(true);
+    try {
+      await selection.refetch();
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
-    <ShellFrame active="Pending" navigate={navigate}>
+    <ShellFrame active="Pending" hideConnectionBar={!tablet} navigate={navigate}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {tablet ? (
           <View style={styles.heading}>
@@ -113,7 +147,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
             <View style={styles.summaryRow}>
               <StatusIcon color={palette.dim} name="folder" />
               <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
-                Follow a project to reconcile pending work.
+                Follow a project to see requests that need you here.
               </Text>
             </View>
             <Button
@@ -123,9 +157,9 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
           </View>
         ) : selection.interactionsLoading && selection.pendingCount === 0 ? (
           <View style={styles.stateCard}>
-            <ActivityIndicator accessibilityLabel="Loading pending work" color={palette.signal} />
+            <ActivityIndicator accessibilityLabel="Checking for requests" color={palette.signal} />
             <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateCardTitle}>
-              Reconciling pending work
+              Checking followed projects for requests
             </Text>
           </View>
         ) : selection.interactionsError && selection.pendingCount === 0 ? (
@@ -141,7 +175,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
             </Text>
             <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
               {allKnownLocationsFailed
-                ? "Pending requests could not be checked."
+                ? "Requests that need you could not be checked."
                 : locationFailureTitle(failedLocationCount)}
             </Text>
             <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
@@ -157,11 +191,10 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 <ActionButton label="Review locations" onPress={() => setShowLocations(true)} />
               ) : null}
               <ActionButton
+                busy={retrying}
                 label="Retry"
                 secondary={failedLocations.length > 0}
-                onPress={async () => {
-                  await selection.refetch();
-                }}
+                onPress={retry}
               />
               {runtime.status !== "connected" ? (
                 <ActionButton
@@ -191,30 +224,13 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 {failedLocations.length > 0 ? (
                   <ActionButton label="Review locations" onPress={() => setShowLocations(true)} />
                 ) : null}
-                <ActionButton
-                  label="Retry"
-                  onPress={async () => {
-                    await selection.refetch();
-                  }}
-                  secondary
-                />
+                <ActionButton busy={retrying} label="Retry" onPress={retry} secondary />
               </View>
             ) : null}
             <View style={styles.summary}>
-              <View
-                accessible
-                accessibilityLabel={pendingSummaryLabel(
-                  selection.pendingCount,
-                  selection.attentionCoverage.completeness === "complete",
-                )}
-                style={styles.summaryRow}
-              >
+              <View style={styles.summaryRow}>
                 {selection.pendingCount > 0 ? (
-                  <View style={styles.countBadge}>
-                    <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.countBadgeText}>
-                      {selection.pendingCount}
-                    </Text>
-                  </View>
+                  <StatusIcon color={palette.warm} name="inbox" />
                 ) : (
                   <StatusIcon color={palette.success} name="check-circle" />
                 )}
@@ -256,7 +272,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
         onClose={() => setShowLocations(false)}
       >
         <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-          These checks failed. Pending work at these locations is still unknown. Session history is
+          These checks failed, so requests at these locations are still unknown. Session history is
           preserved.
         </Text>
         {failedLocations.some(
@@ -330,6 +346,9 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
 }
 
 export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
+  const { width } = useWindowDimensions();
+  const tablet = isTabletShell(width);
+  const selection = useWorkspaceSelection();
   const transcript = useTranscriptPreferences();
   const db = useSQLiteContext();
   const appLock = useAppLock();
@@ -343,8 +362,9 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   const [notificationLoading, setNotificationLoading] = useState(true);
   const [notificationBusy, setNotificationBusy] = useState(false);
   const [notificationError, setNotificationError] = useState(false);
-  const navigate = (section: Section) =>
-    section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section);
+  const navigate = (section: Section) => navigateToSection(navigation, section);
+  const pendingCount = selection.pendingCount;
+  useAnnouncement(notificationError && "Notification settings could not be loaded or saved.");
 
   async function shareDiagnostics() {
     await Share.share({ message: runtime.getDiagnosticsText() });
@@ -386,11 +406,14 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
     const subscription = AppState.addEventListener("change", (state) => {
       if (state === "active") void refresh();
     });
+    // Pairing opens over Settings, so read the pairing again when Settings returns.
+    const removeFocusListener = navigation.addListener("focus", () => void refresh());
     return () => {
       active = false;
       subscription.remove();
+      removeFocusListener();
     };
-  }, [connections.selectedProfileId, db]);
+  }, [connections.selectedProfileId, db, navigation]);
 
   async function setNotificationsEnabled(enabled: boolean) {
     if (!notificationPairing) return;
@@ -413,13 +436,34 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   }
 
   return (
-    <ShellFrame active="Settings" navigate={navigate}>
+    <ShellFrame active="Settings" hideConnectionBar={!tablet} navigate={navigate}>
       <ScrollView contentContainerStyle={managementStyles.content}>
-        <Text dynamicTypeRamp={typeRamp.footnote} style={managementStyles.description}>
-          Device and connection controls.
-        </Text>
-
-        <AppUpdateCard />
+        <SettingsGroup title="Workspace">
+          <MenuRow
+            accessibilityValue={attentionAccessibilityValue(
+              pendingCount,
+              selection.attentionCoverage,
+            )}
+            badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : `${pendingCount}`) : undefined}
+            description="Permission and form requests"
+            icon="inbox"
+            label="Needs you"
+            onPress={() => navigate("Pending")}
+          />
+          <MenuRow
+            description="Choose projects shown in Sessions and Needs you"
+            icon="folder"
+            label="Followed projects"
+            onPress={() => navigation.navigate("FollowedProjects")}
+          />
+          <MenuRow
+            description={selected?.name ?? "No connection selected"}
+            icon="server"
+            label="Connections"
+            last
+            onPress={() => navigate("Connections")}
+          />
+        </SettingsGroup>
 
         <SettingsGroup title="Transcript">
           <SettingsRow>
@@ -461,7 +505,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
               onValueChange={(detailed) => void transcript.update({ detailed })}
             />
           </SettingsRow>
-          <SettingsRow>
+          <SettingsRow last>
             <View style={styles.settingText}>
               <SettingText
                 description="Display model reasoning when provided by the server."
@@ -497,7 +541,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             </View>
             <Switch
               {...switchColors}
-              accessibilityLabel="Require device authentication"
+              accessibilityLabel="App lock"
               disabled={appLock.busy}
               onValueChange={(enabled) => void appLock.setEnabled(enabled)}
               value={appLock.enabled}
@@ -515,22 +559,32 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             </SettingsRow>
           ) : null}
 
-          <SettingsRow>
+          <SettingsRow last>
             <View style={styles.settingText}>
               <SettingText
                 description={
                   notificationLoading
-                    ? "Reading the shared broker setting."
-                    : !notificationPairing
-                      ? "Pair this connection for notifications before enabling delivery."
-                      : notificationState?.enabled
-                        ? "Enabled for every phone paired with this notification broker."
-                        : notificationState
-                          ? "Paused. New requests will not create mobile notifications."
-                          : "The shared broker setting is unavailable."
+                    ? "Checking notification status."
+                    : !connections.selectedProfileId
+                      ? "Choose a connection to set up notifications."
+                      : !notificationPairing
+                        ? "Pair this connection to get notifications for new requests."
+                        : notificationState?.enabled
+                          ? "On for every phone paired with this connection."
+                          : notificationState
+                            ? "Paused. New requests will not create mobile notifications."
+                            : "Notification status is unavailable."
                 }
                 title="Mobile notifications"
               />
+              {!notificationLoading && connections.selectedProfileId && !notificationPairing ? (
+                <Button
+                  label="Pair notifications"
+                  onPress={() => navigation.navigate("Pairing")}
+                  size="compact"
+                  style={styles.inlineAction}
+                />
+              ) : null}
             </View>
             {notificationLoading ? (
               <ActivityIndicator
@@ -540,7 +594,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             ) : (
               <Switch
                 {...switchColors}
-                accessibilityLabel="Send mobile notifications"
+                accessibilityLabel="Mobile notifications"
                 disabled={!notificationPairing || !notificationState || notificationBusy}
                 onValueChange={(enabled) => void setNotificationsEnabled(enabled)}
                 value={notificationState?.enabled ?? false}
@@ -554,42 +608,17 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
             dynamicTypeRamp={typeRamp.footnote}
             style={styles.errorText}
           >
-            The notification broker setting could not be read or updated.
+            Notification settings could not be loaded or saved.
           </Text>
         ) : null}
 
-        <SettingsGroup title="Workspace">
-          <View style={styles.managementAction}>
-            <SettingText
-              description="Choose which server projects are merged into Sessions and attention reconciliation."
-              title="Followed projects"
-            />
-            <ActionButton
-              label="Manage followed projects"
-              onPress={() => navigation.navigate("FollowedProjects")}
-            />
-          </View>
-
-          <View style={styles.managementAction}>
-            <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.cardLabel}>
-              Selected connection
-            </Text>
-            <SettingText
-              description={selected?.baseUrl ?? "Choose a saved server profile."}
-              title={selected?.name ?? "No connection selected"}
-            />
-            <ActionButton
-              label="Manage connections"
-              onPress={() => navigation.navigate("Connections")}
-            />
-          </View>
-        </SettingsGroup>
+        <AppUpdateCard />
 
         <SettingsGroup title="Support">
           <View style={styles.managementAction}>
             <SettingText
-              description="Includes status transitions, event types, and numeric transcript performance counters. It excludes credentials, server addresses, paths, titles, prompts, and content."
-              title="Redacted transport and transcript report"
+              description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
+              title="Diagnostics report"
             />
             <ActionButton
               label="Share diagnostics"
@@ -626,10 +655,10 @@ export function ConnectionStorageLoadingScreen() {
         dynamicTypeRamp={typeRamp.largeTitle}
         style={styles.stateTitle}
       >
-        Opening the local shell
+        Loading saved connections
       </Text>
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
-        Reading non-secret profiles and secure credential references.
+        Reading the servers saved on this device.
       </Text>
     </SafeAreaView>
   );
@@ -737,6 +766,7 @@ export function ShellFrame({
   const [copyState, setCopyState] = useState<"copied" | "error" | "idle">("idle");
   const serverName = selected?.name ?? "No server selected";
   const detailName = openDetail === "branch" ? branch?.name : serverName;
+  useConnectionAnnouncement(runtime.status, connection.label, tablet || !hideConnectionBar);
 
   function showDetail(detail: "branch" | "server") {
     setCopyState("idle");
@@ -766,7 +796,7 @@ export function ShellFrame({
       <StatusBar style="light" />
       <View style={[styles.shell, tablet && styles.tabletShell]}>
         {tablet ? (
-          <View accessibilityLabel="Primary navigation" style={styles.rail}>
+          <View style={styles.rail}>
             <View>
               <Text dynamicTypeRamp={typeRamp.headline} style={styles.brand}>
                 OpenCode
@@ -781,7 +811,11 @@ export function ShellFrame({
                 </Text>
               ) : null}
             </View>
-            <View style={styles.railNavigation}>
+            <View
+              accessibilityLabel="Primary navigation"
+              accessibilityRole="tablist"
+              style={styles.railNavigation}
+            >
               <NavigationItem
                 active={active === "Workspace"}
                 label="Sessions"
@@ -789,10 +823,15 @@ export function ShellFrame({
                 onPress={() => navigate("Workspace")}
               />
               <NavigationItem
+                accessibilityLabel="Needs you"
+                accessibilityValue={attentionAccessibilityValue(
+                  workspaceSelection.pendingCount,
+                  workspaceSelection.attentionCoverage,
+                )}
                 active={active === "Pending"}
                 label={pendingLabel(
                   workspaceSelection.pendingCount,
-                  workspaceSelection.attentionCoverage.completeness === "complete",
+                  workspaceSelection.attentionCoverage,
                 )}
                 largeText={largeText}
                 onPress={() => navigate("Pending")}
@@ -806,9 +845,11 @@ export function ShellFrame({
             </View>
             {!sessionTabs ? (
               <Pressable
+                accessibilityHint="Opens connections"
+                accessibilityLabel={`Connection, ${connection.label}`}
                 accessibilityRole="button"
-                onPress={() => navigate("Settings")}
-                style={styles.railFooter}
+                onPress={() => navigate("Connections")}
+                style={({ pressed }) => [styles.railFooter, pressed && styles.branchControlPressed]}
               >
                 <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
                 <Text
@@ -934,17 +975,21 @@ export function ShellFrame({
           ) : null}
           {sessionTabs && showsConnectionIssue(runtime.status) ? (
             <Pressable
+              accessibilityHint="Opens connections"
               accessibilityRole="button"
-              accessibilityLabel={`Connection problem: ${connection.label}. Open connection settings`}
-              onPress={() => navigate("Settings")}
-              style={styles.sessionConnectionIssue}
+              accessibilityLabel={`Connection problem: ${connection.label}`}
+              onPress={() => navigate("Connections")}
+              style={({ pressed }) => [
+                styles.sessionConnectionIssue,
+                pressed && styles.branchControlPressed,
+              ]}
             >
               <Text
                 accessibilityLiveRegion="polite"
                 dynamicTypeRamp={typeRamp.footnote}
                 style={[styles.connectionIssue, { color: connection.color }]}
               >
-                {connection.label}. Check connection settings.
+                {connection.label}. Check connections.
               </Text>
             </Pressable>
           ) : null}
@@ -988,20 +1033,37 @@ export function ShellFrame({
   );
 }
 
-function pendingLabel(count: number | undefined, complete: boolean) {
-  if (!complete) return count && count > 0 ? `Pending ${count}+` : "Pending, syncing";
-  return count && count > 0 ? `Pending ${count}` : "Pending";
+// Only a status change is announced, so each reconnect attempt does not repeat it, and only
+// the focused screen speaks because the stack keeps earlier screens mounted.
+function useConnectionAnnouncement(
+  status: ConnectionTransportStatus,
+  label: string,
+  visible: boolean,
+) {
+  const navigation = useContext(NavigationContext);
+  const previous = useRef(status);
+  useEffect(() => {
+    if (previous.current === status) return;
+    previous.current = status;
+    if (visible && (navigation?.isFocused() ?? true)) announceOnIOS(label);
+  }, [label, navigation, status, visible]);
 }
 
-function pendingSummaryTitle(count: number, complete: boolean) {
-  if (count === 0) return complete ? "No pending requests" : "No known pending requests";
-  if (complete) return count === 1 ? "Pending request" : "Pending requests";
-  return count === 1 ? "Known pending request" : "Known pending requests";
+export function pendingLabel(
+  count: number,
+  coverage: Pick<
+    ReturnType<typeof useWorkspaceSelection>["attentionCoverage"],
+    "completeness" | "freshness"
+  >,
+) {
+  if (count > 0) return `Needs you ${count}${coverage.completeness === "complete" ? "" : "+"}`;
+  return coverage.freshness === "reconciling" ? "Needs you, checking" : "Needs you";
 }
 
-function pendingSummaryLabel(count: number, complete: boolean) {
-  const title = pendingSummaryTitle(count, complete);
-  return count === 0 ? title : `${count} ${title.toLowerCase()}`;
+export function pendingSummaryTitle(count: number, complete: boolean) {
+  if (count === 0) return complete ? "Nothing needs you" : "Nothing found that needs you";
+  const requests = `${count} ${count === 1 ? "request" : "requests"}`;
+  return complete ? requests : `At least ${requests}`;
 }
 
 function pendingCoverageLabel(
@@ -1033,11 +1095,15 @@ const deliveryOptions = [
 ] as const;
 
 function NavigationItem({
+  accessibilityLabel,
+  accessibilityValue,
   active,
   label,
   largeText,
   onPress,
 }: {
+  accessibilityLabel?: string;
+  accessibilityValue?: string;
   active: boolean;
   label: string;
   largeText: boolean;
@@ -1045,7 +1111,9 @@ function NavigationItem({
 }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       accessibilityRole="tab"
+      accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
       accessibilityState={{ selected: active }}
       onPress={onPress}
       style={({ pressed }) => [
@@ -1084,17 +1152,26 @@ function StatusIcon({
   );
 }
 
+const workspaceStateAnnouncements = {
+  empty: undefined,
+  failure: "Sessions could not be loaded. Check the connection, credentials, and network.",
+  incompatible: "Server not supported. This server version does not work with the app.",
+  loading: "Loading server state",
+  "partial-cache": "Server state may be out of date.",
+} as const;
+
 export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWorkspaceState> }) {
+  useAnnouncement(workspaceStateAnnouncements[state]);
   if (state === "loading") {
     return (
       <View accessibilityLiveRegion="polite" style={styles.stateCard}>
-        <ActivityIndicator color={palette.dim} />
+        <ActivityIndicator color={palette.signal} />
         <View style={styles.stateCardText}>
           <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
             Loading server state
           </Text>
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-            Waiting for the first authoritative snapshot.
+            Waiting for the server to respond.
           </Text>
         </View>
       </View>
@@ -1110,8 +1187,8 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
           Server state may be out of date.
         </Text>
         <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-          Counts below came from the last bounded snapshot. The app will replace them after
-          reconnect.
+          Counts below are from the last time the app reached the server. They update when it
+          reconnects.
         </Text>
       </View>
     );
@@ -1123,7 +1200,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
           Blocked
         </Text>
         <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
-          Required V2 behavior is incompatible.
+          This server version does not work with the app.
         </Text>
         <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
           Edit this connection or choose another server.
@@ -1139,7 +1216,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
           Unavailable
         </Text>
         <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
-          No current workspace snapshot.
+          Sessions could not be loaded from this server.
         </Text>
         <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
           Check the connection, credentials, and network.
@@ -1152,7 +1229,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
     <View style={styles.summaryRow}>
       <StatusIcon color={palette.success} name="check-circle" />
       <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
-        The server snapshot is current.
+        Up to date with the server.
       </Text>
     </View>
   );
@@ -1160,6 +1237,7 @@ export function WorkspaceStateCard({ state }: { state: ReturnType<typeof getWork
 
 export function ActionButton({
   accessibilityLabel,
+  busy,
   disabled,
   fullWidth,
   label,
@@ -1167,6 +1245,7 @@ export function ActionButton({
   secondary,
 }: {
   accessibilityLabel?: string;
+  busy?: boolean;
   disabled?: boolean;
   fullWidth?: boolean;
   label: string;
@@ -1176,6 +1255,7 @@ export function ActionButton({
   return (
     <Button
       {...(accessibilityLabel ? { accessibilityLabel } : {})}
+      busy={Boolean(busy)}
       disabled={Boolean(disabled)}
       fullWidth={Boolean(fullWidth)}
       label={label}
@@ -1195,7 +1275,7 @@ const styles = StyleSheet.create({
     gap: space.xs,
     justifyContent: "center",
     marginHorizontal: space.sm,
-    minHeight: 44,
+    minHeight: minTouchTarget,
     minWidth: 0,
   },
   branchControlLargeText: {
@@ -1212,7 +1292,6 @@ const styles = StyleSheet.create({
   cacheCard: { ...cardSurface, borderColor: palette.warm, gap: space.xs },
   cacheLabel: { ...typography.sectionLabel, color: palette.warm },
   cardCopy: { ...typography.subheadline, color: palette.dim },
-  cardLabel: { ...typography.sectionLabel, color: palette.dim },
   cardTitle: { ...typography.headline, color: palette.ink },
   centeredState: {
     alignItems: "flex-start",
@@ -1241,7 +1320,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     marginLeft: space.sm,
-    minHeight: 44,
+    minHeight: minTouchTarget,
     minWidth: 0,
   },
   connectionNameControlLargeText: {
@@ -1259,21 +1338,12 @@ const styles = StyleSheet.create({
   connectionState: { alignItems: "center", flexDirection: "row" },
   connectionStatus: { ...typography.footnote, color: palette.dim },
   content: { flex: 1 },
-  countBadge: {
-    alignItems: "center",
-    backgroundColor: palette.warm,
-    borderRadius: radius.pill,
-    justifyContent: "center",
-    minHeight: 24,
-    minWidth: 24,
-    paddingHorizontal: space.xs,
-  },
-  countBadgeText: { ...typography.sectionLabel, color: palette.background },
   deliveryOptions: { marginTop: space.sm },
   errorText: { ...typography.footnote, color: palette.danger },
   failureCard: { ...cardSurface, borderColor: palette.danger, gap: space.xs },
   failureLabel: { ...typography.sectionLabel, color: palette.danger },
   heading: { gap: space.xs },
+  inlineAction: { marginTop: space.sm },
   lede: { ...typography.subheadline, color: palette.dim, maxWidth: 620 },
   locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   locationControlsLargeText: { flex: 0, width: "100%" },
@@ -1281,8 +1351,6 @@ const styles = StyleSheet.create({
   locationPath: { ...typography.code, color: palette.ink },
   main: { flex: 1, minWidth: 0 },
   managementAction: {
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 2,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
@@ -1310,7 +1378,7 @@ const styles = StyleSheet.create({
     width: 228,
   },
   railConnection: { ...typography.headline, color: palette.ink, marginTop: space.sm },
-  railFooter: { alignItems: "center", flexDirection: "row", minHeight: 44 },
+  railFooter: { alignItems: "center", flexDirection: "row", minHeight: minTouchTarget },
   railNavigation: { gap: space.sm },
   railStatus: { ...typography.footnote, color: palette.dim, flex: 1 },
   safeArea: { backgroundColor: palette.background, flex: 1 },
@@ -1322,7 +1390,11 @@ const styles = StyleSheet.create({
     paddingBottom: space.xl,
     width: "100%",
   },
-  sessionConnectionIssue: { minHeight: 44, justifyContent: "center", paddingHorizontal: space.md },
+  sessionConnectionIssue: {
+    justifyContent: "center",
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
+  },
   // Fixed width keeps both compact segments legible beside the branch name.
   sessionTabs: { width: 176 },
   sessionTabsLargeText: { width: "100%" },
