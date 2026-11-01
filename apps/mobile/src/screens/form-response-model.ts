@@ -56,65 +56,80 @@ export function validateFormDraft(form: FormInfo, draft: FormDraft) {
   const visibleKeys = visibleFormFieldKeys(form, draft);
   for (const field of form.fields) {
     if (field.type === "external" || !visibleKeys.has(field.key)) continue;
-    const answered = Object.hasOwn(draft, field.key);
-    const value = draft[field.key];
-
-    if (field.type === "boolean") {
-      if (!answered && field.required) errors[field.key] = "Choose Yes or No.";
-      else if (typeof value === "boolean") answer[field.key] = value;
-      continue;
-    }
-    if (field.type === "multiselect") {
-      const selected = Array.isArray(value) ? [...new Set(value)] : [];
-      if (!answered && field.required) {
-        errors[field.key] = "Choose at least one option.";
-        continue;
-      }
-      if (!answered) continue;
-      const minimum = Math.max(field.required ? 1 : 0, field.minItems ?? 0);
-      if (selected.length < minimum) errors[field.key] = `Choose at least ${minimum}.`;
-      else if (field.maxItems !== undefined && selected.length > field.maxItems) {
-        errors[field.key] = `Choose no more than ${field.maxItems}.`;
-      } else if (
-        !field.custom &&
-        selected.some((item) => !field.options.some((option) => option.value === item))
-      ) {
-        errors[field.key] = "Choose only listed options.";
-      } else {
-        answer[field.key] = selected;
-      }
-      continue;
-    }
-
-    const text = typeof value === "string" ? value : "";
-    if ((!answered || !text) && field.required) {
-      errors[field.key] = "This field is required.";
-      continue;
-    }
-    if (!answered || !text) continue;
-
-    if (field.type === "number" || field.type === "integer") {
-      const parsed = parseFormNumber(text);
-      if (parsed === undefined) errors[field.key] = "Enter a valid number.";
-      else if (
-        field.type === "integer" &&
-        typeof parsed === "number" &&
-        !Number.isInteger(parsed)
-      ) {
-        errors[field.key] = "Enter a whole number.";
-      } else if (isBelowMinimum(parsed, field.minimum)) {
-        errors[field.key] = `Enter ${String(field.minimum)} or more.`;
-      } else if (isAboveMaximum(parsed, field.maximum)) {
-        errors[field.key] = `Enter ${String(field.maximum)} or less.`;
-      } else answer[field.key] = parsed;
-      continue;
-    }
-
-    const stringError = validateStringField(field, text);
-    if (stringError) errors[field.key] = stringError;
-    else answer[field.key] = text;
+    const result = validateFormField(field, Object.hasOwn(draft, field.key), draft[field.key]);
+    if (!result) continue;
+    if ("error" in result) errors[field.key] = result.error;
+    else answer[field.key] = result.value;
   }
   return { answer, errors, valid: Object.keys(errors).length === 0 };
+}
+
+type EditableFormField = Exclude<FormField, { type: "external" }>;
+type FieldValidation = { error: string } | { value: FormAnswer[string] } | undefined;
+
+function validateFormField(
+  field: EditableFormField,
+  answered: boolean,
+  value: FormDraftValue | undefined,
+): FieldValidation {
+  if (field.type === "boolean") return validateBooleanField(field, answered, value);
+  if (field.type === "multiselect") return validateMultiselectField(field, answered, value);
+
+  const text = typeof value === "string" ? value : "";
+  if ((!answered || !text) && field.required) return { error: "This field is required." };
+  if (!answered || !text) return undefined;
+  if (field.type === "number" || field.type === "integer") return validateNumberField(field, text);
+  const stringError = validateStringField(field, text);
+  return stringError ? { error: stringError } : { value: text };
+}
+
+function validateBooleanField(
+  field: Extract<FormField, { type: "boolean" }>,
+  answered: boolean,
+  value: FormDraftValue | undefined,
+): FieldValidation {
+  if (!answered && field.required) return { error: "Choose Yes or No." };
+  return typeof value === "boolean" ? { value } : undefined;
+}
+
+function validateMultiselectField(
+  field: Extract<FormField, { type: "multiselect" }>,
+  answered: boolean,
+  value: FormDraftValue | undefined,
+): FieldValidation {
+  if (!answered && field.required) return { error: "Choose at least one option." };
+  if (!answered) return undefined;
+  const selected = Array.isArray(value) ? [...new Set(value)] : [];
+  const minimum = Math.max(field.required ? 1 : 0, field.minItems ?? 0);
+  if (selected.length < minimum) return { error: `Choose at least ${minimum}.` };
+  if (field.maxItems !== undefined && selected.length > field.maxItems) {
+    return { error: `Choose no more than ${field.maxItems}.` };
+  }
+  if (
+    !field.custom &&
+    selected.some((item) => !field.options.some((option) => option.value === item))
+  ) {
+    return { error: "Choose only listed options." };
+  }
+  return { value: selected };
+}
+
+function validateNumberField(
+  field: Extract<FormField, { type: "number" | "integer" }>,
+  text: string,
+): FieldValidation {
+  const parsed = parseFormNumber(text);
+  if (parsed === undefined) return { error: "Enter a valid number." };
+  if (field.type === "integer" && typeof parsed === "number" && !Number.isInteger(parsed)) {
+    return { error: "Enter a whole number." };
+  }
+  if (isBelowMinimum(parsed, field.minimum)) {
+    return { error: `Enter ${String(field.minimum)} or more.` };
+  }
+  if (isAboveMaximum(parsed, field.maximum)) {
+    return { error: `Enter ${String(field.maximum)} or less.` };
+  }
+  return { value: parsed };
 }
 
 function conditionComparableValue(value: FormDraftValue | undefined, expected: unknown) {

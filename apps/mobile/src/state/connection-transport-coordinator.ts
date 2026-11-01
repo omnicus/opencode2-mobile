@@ -323,37 +323,41 @@ function defaultUnschedule(handle: unknown) {
   clearTimeout(handle as ReturnType<typeof setTimeout>);
 }
 
-function isConnectionSnapshot(
+export function isConnectionSnapshot(
   health: unknown,
   projects: unknown,
   activeSessions: unknown,
 ): health is ServerStatus {
-  if (
-    !isRecord(health) ||
-    !Array.isArray(health.urls) ||
-    !health.urls.every((url) => typeof url === "string") ||
-    typeof health.version !== "string" ||
-    health.version.length === 0 ||
-    health.version.length > 128 ||
-    !Number.isSafeInteger(health.pid)
-  ) {
-    return false;
-  }
-  if (
-    !Array.isArray(projects) ||
-    !projects.every(
-      (project) =>
-        isRecord(project) &&
-        typeof project.id === "string" &&
-        typeof project.canonical === "string" &&
-        Array.isArray(project.sandboxes) &&
-        isRecord(project.time) &&
-        typeof project.time.created === "number" &&
-        typeof project.time.updated === "number",
-    )
-  ) {
-    return false;
-  }
+  return isServerStatus(health) && isProjectList(projects) && isActiveSessionMap(activeSessions);
+}
+
+function isServerStatus(health: unknown) {
+  return (
+    isRecord(health) &&
+    Array.isArray(health.urls) &&
+    health.urls.every((url) => typeof url === "string") &&
+    isBoundedString(health.version, 128) &&
+    Number.isSafeInteger(health.pid)
+  );
+}
+
+function isProjectList(projects: unknown) {
+  return Array.isArray(projects) && projects.every(isProjectSummary);
+}
+
+function isProjectSummary(project: unknown) {
+  return (
+    isRecord(project) &&
+    typeof project.id === "string" &&
+    typeof project.canonical === "string" &&
+    Array.isArray(project.sandboxes) &&
+    isRecord(project.time) &&
+    typeof project.time.created === "number" &&
+    typeof project.time.updated === "number"
+  );
+}
+
+function isActiveSessionMap(activeSessions: unknown) {
   return (
     isRecord(activeSessions) &&
     Object.entries(activeSessions).every(
@@ -363,59 +367,68 @@ function isConnectionSnapshot(
   );
 }
 
-function isOpenCodeEventEnvelope(event: unknown): event is OpenCodeEvent {
-  if (
-    !isRecord(event) ||
-    typeof event.id !== "string" ||
-    event.id.length === 0 ||
-    event.id.length > 256 ||
-    typeof event.type !== "string" ||
-    !/^[a-z][a-z0-9.-]{0,127}$/.test(event.type) ||
-    !isRecord(event.data)
-  ) {
-    return false;
-  }
-  if (
-    "location" in event &&
-    event.location !== undefined &&
-    (!isRecord(event.location) ||
-      typeof event.location.directory !== "string" ||
-      event.location.directory.length === 0 ||
-      event.location.directory.length > 4096 ||
-      (event.location.workspaceID !== undefined && typeof event.location.workspaceID !== "string"))
-  ) {
-    return false;
-  }
-  if (event.type === "session.status") {
-    if (
-      typeof event.data.sessionID !== "string" ||
-      !isRecord(event.data.status) ||
-      (event.data.status.type !== "idle" &&
-        event.data.status.type !== "busy" &&
-        event.data.status.type !== "retry")
-    ) {
-      return false;
-    }
-  } else if (
-    event.type === "session.execution.started" ||
-    event.type === "session.execution.succeeded" ||
-    event.type === "session.execution.failed" ||
-    event.type === "session.execution.interrupted" ||
-    event.type === "session.idle" ||
-    event.type === "session.deleted"
-  ) {
-    if (typeof event.data.sessionID !== "string") return false;
-  }
-  if (!("durable" in event)) return true;
-  const durable = event.durable;
+type EventData = Record<string, unknown>;
+type EventEnvelope = Record<string, unknown> & { data: EventData; id: string; type: string };
+
+const sessionStatusTypes = new Set<unknown>(["idle", "busy", "retry"]);
+
+const eventDataValidators = new Map<string, (data: EventData) => boolean>([
+  ["session.status", isSessionStatusData],
+  ["session.execution.started", hasSessionID],
+  ["session.execution.succeeded", hasSessionID],
+  ["session.execution.failed", hasSessionID],
+  ["session.execution.interrupted", hasSessionID],
+  ["session.idle", hasSessionID],
+  ["session.deleted", hasSessionID],
+]);
+
+export function isOpenCodeEventEnvelope(event: unknown): event is OpenCodeEvent {
+  if (!isEventEnvelope(event) || !isOptionalEventLocation(event)) return false;
+  if (eventDataValidators.get(event.type)?.(event.data) === false) return false;
+  return !("durable" in event) || isDurableRef(event.durable);
+}
+
+function isEventEnvelope(event: unknown): event is EventEnvelope {
+  return (
+    isRecord(event) &&
+    isBoundedString(event.id, 256) &&
+    typeof event.type === "string" &&
+    /^[a-z][a-z0-9.-]{0,127}$/.test(event.type) &&
+    isRecord(event.data)
+  );
+}
+
+function isOptionalEventLocation(event: EventEnvelope) {
+  return !("location" in event) || event.location === undefined || isEventLocation(event.location);
+}
+
+function isEventLocation(location: unknown) {
+  return (
+    isRecord(location) &&
+    isBoundedString(location.directory, 4096) &&
+    (location.workspaceID === undefined || typeof location.workspaceID === "string")
+  );
+}
+
+function isSessionStatusData(data: EventData) {
+  return hasSessionID(data) && isRecord(data.status) && sessionStatusTypes.has(data.status.type);
+}
+
+function hasSessionID(data: EventData) {
+  return typeof data.sessionID === "string";
+}
+
+function isDurableRef(durable: unknown) {
   return (
     isRecord(durable) &&
-    typeof durable.aggregateID === "string" &&
-    durable.aggregateID.length > 0 &&
-    durable.aggregateID.length <= 256 &&
+    isBoundedString(durable.aggregateID, 256) &&
     Number.isSafeInteger(durable.seq) &&
     typeof durable.version === "number"
   );
+}
+
+function isBoundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= maxLength;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

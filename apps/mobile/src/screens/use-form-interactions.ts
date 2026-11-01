@@ -9,7 +9,13 @@ import {
   type OpenCodeClient,
   replyOpenCodeForm,
 } from "@opencode2-mobile/opencode-adapter";
-import { type QueryKey, useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  type QueryKey,
+  useMutation,
+  useQueries,
+  useQueryClient,
+} from "@tanstack/react-query";
 
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 
@@ -38,58 +44,23 @@ export function useFormInteractions({
   const queryClient = useQueryClient();
   const orderedForms = orderFormRequests(forms);
   const stateQueries = useQueries({
-    queries: orderedForms.map((form) => {
-      const formLocation = formLocations?.get(form.id) ?? location;
-      return {
-        enabled: Boolean(client && connectionId && formLocation),
-        queryFn: ({ signal }: { signal: AbortSignal }) => {
-          if (!client) throw new Error("CONNECTION_NOT_READY");
-          return getOpenCodeFormState(client, form.sessionID, form.id, { signal });
-        },
-        queryKey: formStateQueryKey(connectionId ?? "unselected", formLocation, form),
-      };
-    }),
+    queries: orderedForms.map((form) =>
+      formStateQuery(client, connectionId, formLocations?.get(form.id) ?? location, form),
+    ),
   });
-  const pendingForms = orderedForms.filter((_, index) => {
-    const state = stateQueries[index]?.data as FormState | undefined;
-    return state?.status !== "answered" && state?.status !== "cancelled";
-  });
+  const pendingForms = orderedForms.filter(
+    (_, index) => !isSettledFormState(stateQueries[index]?.data as FormState | undefined),
+  );
 
   const mutation = useMutation({
-    mutationFn: async (variables: FormMutationVariables) => {
-      if (variables.action === "reply") {
-        await replyOpenCodeForm(
-          variables.client,
-          variables.form.sessionID,
-          variables.form.id,
-          variables.answer,
-        );
-      } else {
-        await cancelOpenCodeForm(variables.client, variables.form.sessionID, variables.form.id);
-      }
-    },
+    mutationFn: runFormMutation,
     onSettled: (_data, _error, variables) => {
       void Promise.all([
         queryClient.invalidateQueries({ exact: true, queryKey: variables.listKey }),
         queryClient.invalidateQueries({ exact: true, queryKey: variables.stateKey }),
       ]);
     },
-    onSuccess: (_data, variables) => {
-      queryClient.setQueryData<FormListOutput>(variables.listKey, (current) =>
-        current
-          ? {
-              ...current,
-              data: current.data.filter((form) => form.id !== variables.form.id),
-            }
-          : current,
-      );
-      queryClient.setQueryData<FormState>(
-        variables.stateKey,
-        variables.action === "reply"
-          ? { answer: variables.answer, status: "answered" }
-          : { status: "cancelled" },
-      );
-    },
+    onSuccess: (_data, variables) => applyFormMutation(queryClient, variables),
   });
 
   function mutate(form: FormInfo, action: FormMutationVariables["action"], answer?: FormAnswer) {
@@ -113,6 +84,56 @@ export function useFormInteractions({
     forms: pendingForms,
     replyForm: (form: FormInfo, answer: FormAnswer) => mutate(form, "reply", answer),
   };
+}
+
+function formStateQuery(
+  client: OpenCodeClient | undefined,
+  connectionId: string | undefined,
+  formLocation: LocationRef | undefined,
+  form: FormInfo,
+) {
+  return {
+    enabled: Boolean(client && connectionId && formLocation),
+    queryFn: ({ signal }: { signal: AbortSignal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return getOpenCodeFormState(client, form.sessionID, form.id, { signal });
+    },
+    queryKey: formStateQueryKey(connectionId ?? "unselected", formLocation, form),
+  };
+}
+
+function isSettledFormState(state: FormState | undefined) {
+  return state?.status === "answered" || state?.status === "cancelled";
+}
+
+async function runFormMutation(variables: FormMutationVariables) {
+  if (variables.action === "reply") {
+    await replyOpenCodeForm(
+      variables.client,
+      variables.form.sessionID,
+      variables.form.id,
+      variables.answer,
+    );
+  } else {
+    await cancelOpenCodeForm(variables.client, variables.form.sessionID, variables.form.id);
+  }
+}
+
+function applyFormMutation(queryClient: QueryClient, variables: FormMutationVariables) {
+  queryClient.setQueryData<FormListOutput>(variables.listKey, (current) =>
+    current
+      ? {
+          ...current,
+          data: current.data.filter((form) => form.id !== variables.form.id),
+        }
+      : current,
+  );
+  queryClient.setQueryData<FormState>(
+    variables.stateKey,
+    variables.action === "reply"
+      ? { answer: variables.answer, status: "answered" }
+      : { status: "cancelled" },
+  );
 }
 
 export function formStateQueryKey(

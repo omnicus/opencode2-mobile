@@ -6,11 +6,26 @@ import {
   markPromptCancelled,
   markPromptDeliveryUnknown,
   markPromptInterrupted,
+  type PromptAdmissionStatus,
   pendingPromptPreviews,
   promptAdmissionLabel,
   promptAdmissionNeedsOverlay,
   reconcilePromptAdmission,
 } from "./prompt-admission-model";
+
+test.each<[PromptAdmissionStatus, string]>([
+  ["submitting", "Sending"],
+  ["admitted", "Admitted"],
+  ["queued", "Queued"],
+  ["steered", "Steering"],
+  ["promoted", "Starting"],
+  ["executing", "Executing"],
+  ["cancelled", "Cancelled"],
+  ["completed", "Completed"],
+  ["unknown-delivery", "Delivery unknown"],
+])("labels %s admissions as %s", (status, label) => {
+  expect(promptAdmissionLabel(status)).toBe(label);
+});
 
 test("pending previews merge local sends with inbox state and disappear on projection", () => {
   const admission = {

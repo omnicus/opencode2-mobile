@@ -66,6 +66,63 @@ export async function selectConnectionProfile(db: SQLiteDatabase, profileId: str
 }
 
 export async function saveConnectionProfile(db: SQLiteDatabase, input: SaveConnectionProfileInput) {
+  const { baseUrl, name } = validateConnectionProfileInput(input);
+  const id = input.draft.id ?? Crypto.randomUUID();
+  const existing = await readExistingConnectionProfile(db, input.draft.id);
+  const now = Math.max(Date.now(), (existing?.updated_at_ms ?? -1) + 1);
+  const credentialRef = await stageConnectionCredential(db, input.credential);
+  const replacedCredentialRef =
+    existing?.credential_ref && existing.credential_ref !== credentialRef
+      ? existing.credential_ref
+      : undefined;
+  let notificationSecretRef: string | undefined;
+
+  try {
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      notificationSecretRef = await writeConnectionProfile(txn, {
+        baseUrl,
+        createdAtMs: existing?.created_at_ms ?? now,
+        credentialRef,
+        id,
+        input,
+        name,
+        now,
+        originChanged: existing ? existing.base_url !== baseUrl : false,
+        replacedCredentialRef,
+      });
+    });
+  } catch (error) {
+    if (credentialRef) await cleanupFailedCredentialWrite(db, credentialRef);
+    throw error;
+  }
+
+  if (replacedCredentialRef) {
+    await finishCredentialDeletion(db, replacedCredentialRef).catch(() => undefined);
+  }
+  if (notificationSecretRef) {
+    await finishNotificationSecretDeletion(db, notificationSecretRef).catch(() => undefined);
+  }
+  return id;
+}
+
+type ExistingConnectionProfile = Pick<
+  ConnectionProfileRow,
+  "base_url" | "created_at_ms" | "credential_ref" | "updated_at_ms"
+>;
+
+type ConnectionProfileWrite = {
+  baseUrl: string;
+  createdAtMs: number;
+  credentialRef: string | undefined;
+  id: string;
+  input: SaveConnectionProfileInput;
+  name: string;
+  now: number;
+  originChanged: boolean;
+  replacedCredentialRef: string | undefined;
+};
+
+function validateConnectionProfileInput(input: SaveConnectionProfileInput) {
   const name = normalizeConnectionName(input.draft.name);
   const baseUrl = normalizeOpenCodeBaseUrl(input.draft.baseUrl);
   if (baseUrl.startsWith("http:") && !input.draft.allowDevelopmentHttp) {
@@ -77,42 +134,42 @@ export async function saveConnectionProfile(db: SQLiteDatabase, input: SaveConne
   if (input.draft.authMode !== "none" && input.credential?.mode !== input.draft.authMode) {
     throw new Error("CONNECTION_CREDENTIAL_REQUIRED");
   }
+  return { baseUrl, name };
+}
 
-  const id = input.draft.id ?? Crypto.randomUUID();
-  const existing = input.draft.id
-    ? await db.getFirstAsync<
-        Pick<
-          ConnectionProfileRow,
-          "base_url" | "created_at_ms" | "credential_ref" | "updated_at_ms"
-        >
-      >(
-        `SELECT base_url, created_at_ms, credential_ref, updated_at_ms
+async function readExistingConnectionProfile(db: SQLiteDatabase, profileId: string | undefined) {
+  if (!profileId) return null;
+  const existing = await db.getFirstAsync<ExistingConnectionProfile>(
+    `SELECT base_url, created_at_ms, credential_ref, updated_at_ms
          FROM connection_profiles WHERE id = ?`,
-        id,
-      )
-    : null;
-  if (input.draft.id && !existing) throw new Error("CONNECTION_PROFILE_NOT_FOUND");
+    profileId,
+  );
+  if (!existing) throw new Error("CONNECTION_PROFILE_NOT_FOUND");
+  return existing;
+}
 
-  const now = Math.max(Date.now(), (existing?.updated_at_ms ?? -1) + 1);
-  const credentialRef = input.credential ? createCredentialReference() : undefined;
-  let notificationSecretRef: string | undefined;
-  if (credentialRef && input.credential) {
-    await db.runAsync(
-      "INSERT INTO pending_secure_store_writes(credential_ref) VALUES (?)",
-      credentialRef,
-    );
-    try {
-      await writeConnectionCredential(credentialRef, input.credential);
-    } catch (error) {
-      await cleanupFailedCredentialWrite(db, credentialRef);
-      throw error;
-    }
-  }
-
+async function stageConnectionCredential(
+  db: SQLiteDatabase,
+  credential: ConnectionCredential | undefined,
+) {
+  if (!credential) return undefined;
+  const credentialRef = createCredentialReference();
+  await db.runAsync(
+    "INSERT INTO pending_secure_store_writes(credential_ref) VALUES (?)",
+    credentialRef,
+  );
   try {
-    await db.withExclusiveTransactionAsync(async (txn) => {
-      await txn.runAsync(
-        `INSERT INTO connection_profiles (
+    await writeConnectionCredential(credentialRef, credential);
+  } catch (error) {
+    await cleanupFailedCredentialWrite(db, credentialRef);
+    throw error;
+  }
+  return credentialRef;
+}
+
+async function writeConnectionProfile(txn: SQLiteDatabase, profile: ConnectionProfileWrite) {
+  await txn.runAsync(
+    `INSERT INTO connection_profiles (
           id, schema_version, name, base_url, auth_mode, credential_ref,
           allow_development_http, last_health_at_ms, last_health_pid,
           last_server_version, last_used_at_ms, created_at_ms, updated_at_ms
@@ -129,57 +186,48 @@ export async function saveConnectionProfile(db: SQLiteDatabase, input: SaveConne
           last_server_version = excluded.last_server_version,
           last_used_at_ms = excluded.last_used_at_ms,
           updated_at_ms = excluded.updated_at_ms`,
-        id,
-        connectionProfileSchemaVersion,
-        name,
-        baseUrl,
-        input.draft.authMode,
-        credentialRef ?? null,
-        input.draft.allowDevelopmentHttp ? 1 : 0,
-        input.health.checkedAtMs,
-        input.health.pid,
-        input.health.version,
-        now,
-        existing?.created_at_ms ?? now,
-        now,
-      );
-      await txn.runAsync(
-        "UPDATE connection_selection SET selected_connection_id = ? WHERE singleton = 1",
-        id,
-      );
-      if (credentialRef) {
-        await txn.runAsync(
-          "DELETE FROM pending_secure_store_writes WHERE credential_ref = ?",
-          credentialRef,
-        );
-      }
-      if (existing?.credential_ref && existing.credential_ref !== credentialRef) {
-        await txn.runAsync(
-          "INSERT OR IGNORE INTO pending_secure_store_deletions(credential_ref) VALUES (?)",
-          existing.credential_ref,
-        );
-      }
-      if (existing && existing.base_url !== baseUrl) {
-        notificationSecretRef = await stageNotificationPairingRemoval(txn, id);
-        await txn.runAsync("DELETE FROM session_drafts WHERE connection_id = ?", id);
-        await txn.runAsync("DELETE FROM unresolved_prompt_admissions WHERE connection_id = ?", id);
-        await txn.runAsync("DELETE FROM followed_projects WHERE connection_id = ?", id);
-        await txn.runAsync("DELETE FROM model_favorites WHERE connection_id = ?", id);
-        await txn.runAsync("DELETE FROM followed_project_preferences WHERE connection_id = ?", id);
-      }
-    });
-  } catch (error) {
-    if (credentialRef) await cleanupFailedCredentialWrite(db, credentialRef);
-    throw error;
+    profile.id,
+    connectionProfileSchemaVersion,
+    profile.name,
+    profile.baseUrl,
+    profile.input.draft.authMode,
+    profile.credentialRef ?? null,
+    profile.input.draft.allowDevelopmentHttp ? 1 : 0,
+    profile.input.health.checkedAtMs,
+    profile.input.health.pid,
+    profile.input.health.version,
+    profile.now,
+    profile.createdAtMs,
+    profile.now,
+  );
+  await txn.runAsync(
+    "UPDATE connection_selection SET selected_connection_id = ? WHERE singleton = 1",
+    profile.id,
+  );
+  if (profile.credentialRef) {
+    await txn.runAsync(
+      "DELETE FROM pending_secure_store_writes WHERE credential_ref = ?",
+      profile.credentialRef,
+    );
   }
+  if (profile.replacedCredentialRef) {
+    await txn.runAsync(
+      "INSERT OR IGNORE INTO pending_secure_store_deletions(credential_ref) VALUES (?)",
+      profile.replacedCredentialRef,
+    );
+  }
+  if (profile.originChanged) return clearServerScopedState(txn, profile.id);
+  return undefined;
+}
 
-  if (existing?.credential_ref && existing.credential_ref !== credentialRef) {
-    await finishCredentialDeletion(db, existing.credential_ref).catch(() => undefined);
-  }
-  if (notificationSecretRef) {
-    await finishNotificationSecretDeletion(db, notificationSecretRef).catch(() => undefined);
-  }
-  return id;
+async function clearServerScopedState(txn: SQLiteDatabase, profileId: string) {
+  const notificationSecretRef = await stageNotificationPairingRemoval(txn, profileId);
+  await txn.runAsync("DELETE FROM session_drafts WHERE connection_id = ?", profileId);
+  await txn.runAsync("DELETE FROM unresolved_prompt_admissions WHERE connection_id = ?", profileId);
+  await txn.runAsync("DELETE FROM followed_projects WHERE connection_id = ?", profileId);
+  await txn.runAsync("DELETE FROM model_favorites WHERE connection_id = ?", profileId);
+  await txn.runAsync("DELETE FROM followed_project_preferences WHERE connection_id = ?", profileId);
+  return notificationSecretRef;
 }
 
 export async function removeConnectionProfile(db: SQLiteDatabase, profileId: string) {

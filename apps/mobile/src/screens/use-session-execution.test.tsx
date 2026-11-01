@@ -576,6 +576,217 @@ test("retains the saved delivery default and clears errors when the session scop
   expect(hook.result.current.busyAction).toBeUndefined();
 });
 
+test("confirms an unknown prompt from its projected message when the inbox no longer lists it", async () => {
+  mockPrompt.mockRejectedValueOnce(new TypeError("Network request failed"));
+  const clearDraft = jest.fn();
+  const refetchMessages = jest.fn(async () => undefined);
+  const hook = renderHook(
+    () => useSessionExecution({ ...executionOptions("ses_a", clearDraft), refetchMessages }),
+    { wrapper: queryWrapper(createQueryClient()) },
+  );
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+  act(() => hook.result.current.submit("Possibly admitted"));
+  await waitFor(() => expect(hook.result.current.error).toMatch(/prompt may have been admitted/i));
+  const admissionID = hook.result.current.admissions[0]?.id ?? "";
+  mockGetMessage.mockResolvedValueOnce({
+    id: admissionID,
+    time: { created: 3 },
+    type: "user",
+  } as unknown as SessionMessageInfo);
+  refetchMessages.mockClear();
+
+  act(() => hook.result.current.reconcileAdmission(admissionID));
+
+  await waitFor(() => expect(clearDraft).toHaveBeenCalledWith(0));
+  expect(hook.result.current.admissions[0]).toMatchObject({
+    confirmationHandled: true,
+    serverAdmittedAtMs: 3,
+    status: "promoted",
+  });
+  expect(hook.result.current.error).toBeUndefined();
+  await waitFor(() => expect(refetchMessages).toHaveBeenCalled());
+});
+
+test("keeps delivery unknown without offering a retry when the server cannot be read", async () => {
+  mockPrompt.mockRejectedValueOnce(new TypeError("Network request failed"));
+  const hook = renderExecutionHook();
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+  act(() => hook.result.current.submit("Possibly admitted"));
+  await waitFor(() => expect(hook.result.current.admissions[0]?.status).toBe("unknown-delivery"));
+  mockListInbox.mockRejectedValue(new TypeError("Network request failed"));
+  mockGetMessage.mockRejectedValueOnce(new TypeError("Network request failed"));
+
+  act(() => hook.result.current.reconcileAdmission(hook.result.current.admissions[0]?.id ?? ""));
+
+  await waitFor(() => expect(hook.result.current.error).toMatch(/still unknown/i));
+  expect(hook.result.current.admissions[0]?.retryOffered).toBeUndefined();
+});
+
+test("cancels a prompt the server rejects and forgets its recovery record", async () => {
+  mockPrompt.mockRejectedValueOnce({ _tag: "InvalidRequestError" });
+  const hook = renderExecutionHook();
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+
+  act(() => hook.result.current.submit("Rejected"));
+
+  await waitFor(() => expect(hook.result.current.error).toMatch(/rejected this prompt/i));
+  expect(hook.result.current.admissions[0]?.status).toBe("cancelled");
+  await waitFor(() =>
+    expect(
+      mockAdmissionDb.runAsync.mock.calls.some((args) => String(args[0]).includes("DELETE")),
+    ).toBe(true),
+  );
+});
+
+test("cancels a submission whose draft changed before transmission", async () => {
+  mockPersistDraft.mockRejectedValueOnce(new Error("DRAFT_CHANGED_BEFORE_SEND"));
+  const hook = renderExecutionHook();
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+
+  act(() => hook.result.current.submit("Changed"));
+
+  await waitFor(() => expect(hook.result.current.error).toMatch(/draft changed/i));
+  expect(hook.result.current.admissions[0]?.status).toBe("cancelled");
+  expect(mockPrompt).not.toHaveBeenCalled();
+});
+
+test("reloads the inbox when an inbox action fails", async () => {
+  mockListInbox.mockResolvedValue([userInbox("msg_queued", "queue")]);
+  mockSteer.mockRejectedValueOnce(new Error("gone"));
+  const hook = renderExecutionHook();
+  await waitFor(() => expect(hook.result.current.inbox).toHaveLength(1));
+  const inboxLoads = mockListInbox.mock.calls.length;
+
+  act(() => hook.result.current.steerInbox("msg_queued"));
+
+  await waitFor(() => expect(hook.result.current.error).toMatch(/inbox changed/i));
+  await waitFor(() => expect(mockListInbox.mock.calls.length).toBeGreaterThan(inboxLoads));
+});
+
+test("switches the session agent and model and reports failures", async () => {
+  const queryClient = createQueryClient();
+  const sessionKey = openCodeQueryKeys.session("connection-1", location, "ses_a");
+  queryClient.setQueryData(sessionKey, sessionInfo("ses_a"));
+  mockSwitchModel.mockRejectedValueOnce(new Error("failed"));
+  const hook = renderHook(() => useSessionExecution(executionOptions("ses_a")), {
+    wrapper: queryWrapper(queryClient),
+  });
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+  const model = { id: "model", providerID: "provider" };
+
+  act(() => hook.result.current.switchModel(model));
+  await waitFor(() => expect(hook.result.current.error).toMatch(/model could not be changed/i));
+  expect(mockSwitchModel.mock.calls[0]?.slice(1, 3)).toEqual(["ses_a", model]);
+
+  act(() => hook.result.current.switchModel(model));
+  await waitFor(() =>
+    expect(queryClient.getQueryData<SessionInfo>(sessionKey)?.model).toEqual(model),
+  );
+  expect(hook.result.current.error).toBeUndefined();
+
+  act(() => hook.result.current.switchAgent("plan"));
+  await waitFor(() =>
+    expect(queryClient.getQueryData<SessionInfo>(sessionKey)?.agent).toBe("plan"),
+  );
+  expect(mockSwitchAgent.mock.calls[0]?.slice(1, 3)).toEqual(["ses_a", "plan"]);
+});
+
+test("reports an execution control that fails", async () => {
+  mockWait.mockRejectedValueOnce(new Error("failed"));
+  const hook = renderExecutionHook();
+  await waitFor(() => expect(hook.result.current.submitDisabled).toBe(false));
+
+  act(() => hook.result.current.wait());
+
+  await waitFor(() => expect(hook.result.current.error).toMatch(/execution control/i));
+  await waitFor(() => expect(hook.result.current.busyAction).toBeUndefined());
+});
+
+test("keeps retry disabled when the recovery record cannot be removed", async () => {
+  const queryClient = createQueryClient();
+  queryClient.setQueryData(openCodeQueryKeys.promptAdmissions("connection-1", location, "ses_a"), [
+    {
+      durable: false,
+      id: "msg_retry",
+      kind: "prompt",
+      retryOffered: true,
+      status: "unknown-delivery",
+      submittedAtMs: 1,
+    },
+    { durable: false, id: "msg_other", kind: "prompt", status: "submitting", submittedAtMs: 1 },
+  ] satisfies PromptAdmission[]);
+  const hook = renderHook(() => useSessionExecution(executionOptions("ses_a")), {
+    wrapper: queryWrapper(queryClient),
+  });
+  await waitFor(() => expect(hook.result.current.admissions).toHaveLength(2));
+  mockAdmissionDb.runAsync.mockRejectedValueOnce(new Error("storage unavailable"));
+
+  act(() => hook.result.current.allowRetry("msg_retry"));
+  await waitFor(() => expect(hook.result.current.error).toMatch(/Retry cannot be enabled/i));
+
+  act(() => hook.result.current.allowRetry("msg_other"));
+  expect(hook.result.current.admissions).toHaveLength(2);
+});
+
+test("exposes the agent and model catalogs and retries them on request", async () => {
+  mockListAgents.mockResolvedValueOnce({
+    data: [
+      { hidden: false, id: "plan", mode: "primary", model: { id: "m", providerID: "p" } },
+      { hidden: false, id: "explore", mode: "subagent" },
+    ] as never,
+    location,
+  });
+  mockListModels.mockResolvedValueOnce({
+    data: [{ enabled: true, id: "m", providerID: "p", status: "active" }] as never,
+    location,
+  });
+  const hook = renderHook(
+    () => useSessionExecution({ ...executionOptions("ses_a"), session: undefined }),
+    { wrapper: queryWrapper(createQueryClient()) },
+  );
+
+  await waitFor(() => expect(hook.result.current.selectedAgent).toBe("plan"));
+  expect(hook.result.current.agents.map((agent) => agent.id)).toEqual(["plan"]);
+  expect(hook.result.current.mentionAgents.map((agent) => agent.id)).toEqual(["explore"]);
+  expect(hook.result.current.selectedModel).toEqual({ id: "m", providerID: "p" });
+  await waitFor(() => expect(hook.result.current.models).toHaveLength(1));
+
+  const agentLoads = mockListAgents.mock.calls.length;
+  const modelLoads = mockListModels.mock.calls.length;
+  act(() => {
+    hook.result.current.agentCatalog.retry();
+    hook.result.current.modelCatalog.retry();
+  });
+  await waitFor(() => expect(mockListAgents.mock.calls.length).toBeGreaterThan(agentLoads));
+  await waitFor(() => expect(mockListModels.mock.calls.length).toBeGreaterThan(modelLoads));
+});
+
+test("ignores session actions while no client is connected", async () => {
+  const hook = renderHook(
+    () => useSessionExecution({ ...executionOptions("ses_a"), client: undefined }),
+    { wrapper: queryWrapper(createQueryClient()) },
+  );
+
+  act(() => {
+    hook.result.current.submit("Nothing");
+    hook.result.current.switchAgent("plan");
+    hook.result.current.switchModel({ id: "model", providerID: "provider" });
+    hook.result.current.steerInbox("msg_queued");
+    hook.result.current.wait();
+    hook.result.current.reconcileAdmission("msg_missing");
+  });
+
+  expect(hook.result.current.submitDisabled).toBe(true);
+  expect(hook.result.current.activeSessions).toBeUndefined();
+  expect(hook.result.current.pendingPrompts).toEqual([]);
+  expect(mockPrompt).not.toHaveBeenCalled();
+  expect(mockSwitchAgent).not.toHaveBeenCalled();
+  expect(mockSwitchModel).not.toHaveBeenCalled();
+  expect(mockSteer).not.toHaveBeenCalled();
+  expect(mockWait).not.toHaveBeenCalled();
+  expect(mockListInbox).not.toHaveBeenCalled();
+});
+
 function renderExecutionHook(overrides?: { onAdmissionConfirmed?: () => void }) {
   const queryClient = createQueryClient();
   return renderHook(
