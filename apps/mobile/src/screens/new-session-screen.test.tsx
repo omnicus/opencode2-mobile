@@ -288,6 +288,92 @@ test("a location that moved to another project returns to Projects and reloads t
   expect(mockCreateSession).not.toHaveBeenCalled();
 });
 
+test("cancels a pending creation without showing an error", async () => {
+  mockGetLocation.mockImplementationOnce(
+    (_client, _requested, options) =>
+      new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+  );
+  const navigation = mockNavigation();
+  renderScreen(navigation);
+  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
+  expect(
+    await screen.findByRole("button", { name: /Alpha, followed.*creating session$/ }),
+  ).toBeOnTheScreen();
+
+  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(navigation.goBack).toHaveBeenCalledTimes(1);
+  expect(
+    await screen.findByRole("button", { name: "Alpha, followed, /projects/alpha" }),
+  ).toBeOnTheScreen();
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(mockCreateSession).not.toHaveBeenCalled();
+});
+
+test("offers the server's working directory and returns to the project list", async () => {
+  mockGetDefaultLocation.mockResolvedValue(betaLocation);
+  mockSelection.followedProjectIds = [alpha.id, beta.id];
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: /Beta, followed/ }));
+
+  expect(await screen.findByText("Choose location")).toBeOnTheScreen();
+  expect(screen.queryByText(/will add this project to Sessions/)).toBeNull();
+  expect(screen.getByRole("button", { name: /^Main directory,/ })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: /^Server's working directory,/ })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: /^beta-feature,/ })).toBeNull();
+
+  fireEvent.press(screen.getByRole("button", { name: "Back to projects" }));
+  expect(await screen.findByText("New session")).toBeOnTheScreen();
+  expect(screen.getByText("Followed projects")).toBeOnTheScreen();
+});
+
+test("ignores project presses while preferences are saving", async () => {
+  mockSelection.preferencesSaving = true;
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
+
+  expect(mockGetLocation).not.toHaveBeenCalled();
+  expect(screen.queryByText("Choose location")).toBeNull();
+});
+
+test("explains empty followed and search results", async () => {
+  mockSelection.followedProjectIds = [];
+  renderScreen();
+
+  expect(await screen.findByText("No followed projects")).toBeOnTheScreen();
+  expect(screen.getByText("Browse server projects to start a session.")).toBeOnTheScreen();
+  fireEvent.changeText(screen.getByLabelText("Search projects"), " Gamma ");
+  expect(await screen.findByText('No projects match "Gamma"')).toBeOnTheScreen();
+  expect(screen.getByText("Try a project name or path.")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Browse all projects" })).toBeNull();
+});
+
+test("retries when project locations fail to load", async () => {
+  mockSelection.projectsError = true;
+  renderScreen();
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Project locations could not be loaded from this connection.",
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+
+  expect(mockRefetch).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(mockGetDefaultLocation).toHaveBeenCalledTimes(2));
+});
+
+test("retries when the server returns no projects", async () => {
+  mockSelection.projects = [];
+  renderScreen();
+
+  expect(await screen.findByText("No server projects found")).toBeOnTheScreen();
+  expect(screen.getByText("OpenCode did not return any known projects.")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+
+  expect(mockRefetch).toHaveBeenCalledTimes(1);
+});
+
 type BeforeRemoveEvent = {
   data: { action: { type: string } };
   preventDefault: jest.Mock;

@@ -48,12 +48,7 @@ export function ConnectionsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
-      cleanupPendingCredentialOperations(db),
-      cleanupPendingDraftKeyDeletions(db),
-      cleanupPendingNotificationSecretOperations(db),
-    ])
-      .then(() => retryPendingNotificationRevocations(db))
+    cleanupPendingConnectionOperations(db)
       .then(() => load())
       .catch(() => {
         if (active) setError("Saved connections could not be loaded securely.");
@@ -63,10 +58,7 @@ export function ConnectionsProvider({ children }: { children: ReactNode }) {
       });
 
     async function load() {
-      const [nextProfiles, nextSelectedId] = await Promise.all([
-        listConnectionProfiles(db),
-        getSelectedConnectionId(db),
-      ]);
+      const [nextProfiles, nextSelectedId] = await readConnectionState(db);
       if (!active) return;
       setProfiles(nextProfiles);
       setSelectedProfileId(nextSelectedId);
@@ -78,35 +70,13 @@ export function ConnectionsProvider({ children }: { children: ReactNode }) {
   }, [db]);
 
   async function refresh() {
-    const [nextProfiles, nextSelectedId] = await Promise.all([
-      listConnectionProfiles(db),
-      getSelectedConnectionId(db),
-    ]);
+    const [nextProfiles, nextSelectedId] = await readConnectionState(db);
     setProfiles(nextProfiles);
     setSelectedProfileId(nextSelectedId);
   }
 
   async function save(input: SaveConnectionProfileInput) {
-    const existingProfile = input.draft.id
-      ? profiles.find((profile) => profile.id === input.draft.id)
-      : undefined;
-    const originChanged =
-      existingProfile !== undefined &&
-      existingProfile.baseUrl !== validatedOriginRoot(input.draft.baseUrl);
-    const previousPairing = originChanged
-      ? (await listNotificationPairings(db)).find(
-          (pairing) => pairing.connectionId === input.draft.id,
-        )
-      : undefined;
-    if (previousPairing) {
-      const previousSecret = await readNotificationPairingSecret(previousPairing);
-      await sendNotificationDeviceCommand({
-        bindingID: previousPairing.bindingID,
-        brokerOrigin: previousPairing.brokerOrigin,
-        deviceKey: previousSecret.deviceKey,
-        operation: "revoke",
-      });
-    }
+    await revokePairingForOriginChange(db, profiles, input);
     const id = await saveConnectionProfile(db, input);
     if (input.draft.id) {
       queryClient.removeQueries({ queryKey: openCodeQueryKeys.connection(id) });
@@ -119,12 +89,7 @@ export function ConnectionsProvider({ children }: { children: ReactNode }) {
   async function reload() {
     setError(undefined);
     try {
-      await Promise.all([
-        cleanupPendingCredentialOperations(db),
-        cleanupPendingDraftKeyDeletions(db),
-        cleanupPendingNotificationSecretOperations(db),
-      ]);
-      await retryPendingNotificationRevocations(db);
+      await cleanupPendingConnectionOperations(db);
       await refresh();
     } catch {
       setError("Saved connections could not be loaded securely.");
@@ -137,18 +102,7 @@ export function ConnectionsProvider({ children }: { children: ReactNode }) {
   }
 
   async function remove(profileId: string) {
-    const pairing = (await listNotificationPairings(db)).find(
-      (candidate) => candidate.connectionId === profileId,
-    );
-    if (pairing) {
-      const secret = await readNotificationPairingSecret(pairing);
-      await sendNotificationDeviceCommand({
-        bindingID: pairing.bindingID,
-        brokerOrigin: pairing.brokerOrigin,
-        deviceKey: secret.deviceKey,
-        operation: "revoke",
-      });
-    }
+    await revokeConnectionPairing(db, profileId);
     await removeConnectionProfile(db, profileId);
     queryClient.removeQueries({ queryKey: openCodeQueryKeys.connection(profileId) });
     await deleteConnectionCacheMetadata(profileId).catch(() => undefined);
@@ -179,7 +133,51 @@ export function ConnectionsProvider({ children }: { children: ReactNode }) {
   );
 }
 
-async function retryPendingNotificationRevocations(db: ReturnType<typeof useSQLiteContext>) {
+type ConnectionsDatabase = ReturnType<typeof useSQLiteContext>;
+
+function readConnectionState(db: ConnectionsDatabase) {
+  return Promise.all([listConnectionProfiles(db), getSelectedConnectionId(db)]);
+}
+
+async function cleanupPendingConnectionOperations(db: ConnectionsDatabase) {
+  await Promise.all([
+    cleanupPendingCredentialOperations(db),
+    cleanupPendingDraftKeyDeletions(db),
+    cleanupPendingNotificationSecretOperations(db),
+  ]);
+  await retryPendingNotificationRevocations(db);
+}
+
+async function revokePairingForOriginChange(
+  db: ConnectionsDatabase,
+  profiles: ConnectionProfile[],
+  input: SaveConnectionProfileInput,
+) {
+  const profileId = input.draft.id;
+  const existingProfile = profileId
+    ? profiles.find((profile) => profile.id === profileId)
+    : undefined;
+  if (!existingProfile || existingProfile.baseUrl === validatedOriginRoot(input.draft.baseUrl)) {
+    return;
+  }
+  await revokeConnectionPairing(db, existingProfile.id);
+}
+
+async function revokeConnectionPairing(db: ConnectionsDatabase, connectionId: string) {
+  const pairing = (await listNotificationPairings(db)).find(
+    (candidate) => candidate.connectionId === connectionId,
+  );
+  if (!pairing) return;
+  const secret = await readNotificationPairingSecret(pairing);
+  await sendNotificationDeviceCommand({
+    bindingID: pairing.bindingID,
+    brokerOrigin: pairing.brokerOrigin,
+    deviceKey: secret.deviceKey,
+    operation: "revoke",
+  });
+}
+
+async function retryPendingNotificationRevocations(db: ConnectionsDatabase) {
   const pendingRevocations = await listPendingNotificationRevocations(db);
   for (const pending of pendingRevocations) {
     try {

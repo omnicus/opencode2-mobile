@@ -71,40 +71,74 @@ export function getSubagentPresentation(
   tool: AssistantTool,
   states?: SubagentStates,
 ): SubagentPresentation | undefined {
-  const toolName = tool.name.trim().toLocaleLowerCase();
-  if (toolName !== "subagent" && toolName !== "task") return undefined;
+  if (!isSubagentTool(tool)) return undefined;
 
-  const input = toolInput(tool);
-  const metadata = toolMetadata(tool);
+  const input = toolInput(tool) ?? {};
+  const metadata = toolMetadata(tool) ?? {};
   const protocol = toolProtocolText(tool);
   const result = toolResultText(tool);
-  const agent = firstString(input?.subagent_type, input?.agent, metadata?.agent);
-  const childSessionID = firstSessionID(
-    metadata?.sessionId,
-    metadata?.sessionID,
-    metadata?.session_id,
-    metadata?.taskId,
-    metadata?.task_id,
-    protocol?.childSessionID,
-  );
-  const protocolState = protocol?.state;
-  const background =
-    input?.background === true ||
-    metadata?.background === true ||
-    (tool.state.status === "completed" && protocolState === "running");
-  // A background launch completes as soon as the child starts; that is not the child finishing.
-  const launchState =
-    protocolState ??
-    (background && tool.state.status === "completed" ? "running" : tool.state.status);
+  const agent = firstString(input.subagent_type, input.agent, metadata.agent);
+  const childSessionID = subagentChildSessionID(metadata, protocol);
+  const background = isBackgroundSubagent(tool, input, metadata, protocol?.state);
   const known = background && childSessionID ? states?.get(childSessionID) : undefined;
   return {
     ...(agent ? { agent } : {}),
     background,
     ...(childSessionID ? { childSessionID } : {}),
     ...(result ? { result } : {}),
-    state: known?.state ?? launchState,
-    title: firstString(input?.description, metadata?.title, protocol?.summary) ?? "Delegated task",
+    state: known?.state ?? subagentLaunchState(tool, background, protocol?.state),
+    title: subagentTitle(input, metadata, protocol),
   };
+}
+
+function isSubagentTool(tool: AssistantTool) {
+  const toolName = tool.name.trim().toLocaleLowerCase();
+  return toolName === "subagent" || toolName === "task";
+}
+
+function subagentChildSessionID(
+  metadata: Record<string, unknown>,
+  protocol: SubagentProtocolText | undefined,
+) {
+  return firstSessionID(
+    metadata.sessionId,
+    metadata.sessionID,
+    metadata.session_id,
+    metadata.taskId,
+    metadata.task_id,
+    protocol?.childSessionID,
+  );
+}
+
+function isBackgroundSubagent(
+  tool: AssistantTool,
+  input: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  protocolState: SubagentProtocolText["state"],
+) {
+  return (
+    input.background === true ||
+    metadata.background === true ||
+    (tool.state.status === "completed" && protocolState === "running")
+  );
+}
+
+// A background launch completes as soon as the child starts; that is not the child finishing.
+function subagentLaunchState(
+  tool: AssistantTool,
+  background: boolean,
+  protocolState: SubagentProtocolText["state"],
+): SubagentPresentation["state"] {
+  if (protocolState) return protocolState;
+  return background && tool.state.status === "completed" ? "running" : tool.state.status;
+}
+
+function subagentTitle(
+  input: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+  protocol: SubagentProtocolText | undefined,
+) {
+  return firstString(input.description, metadata.title, protocol?.summary) ?? "Delegated task";
 }
 
 // Messages arrive newest-first, so the first signal seen for a child is its latest.
@@ -245,61 +279,85 @@ export function sanitizeTranscriptText(
   for (let index = 0; index < inputLength; index += 1) {
     if (output.length >= maxOutputCharacters) break;
     const code = text.charCodeAt(index);
-    if (code === 27) {
-      const next = text.charCodeAt(index + 1);
-      if (next === 91) {
-        index += 2;
-        while (index < inputLength) {
-          const current = text.charCodeAt(index);
-          if (current >= 64 && current <= 126) break;
-          index += 1;
-        }
-      } else if (next === 93) {
-        index += 2;
-        while (index < inputLength) {
-          if (text.charCodeAt(index) === 7) break;
-          if (text.charCodeAt(index) === 27 && text.charCodeAt(index + 1) === 92) {
-            index += 1;
-            break;
-          }
-          index += 1;
-        }
-      }
-      continue;
-    }
-    if (code === 155) {
-      while (index + 1 < inputLength) {
-        index += 1;
-        const current = text.charCodeAt(index);
-        if (current >= 64 && current <= 126) break;
-      }
-      continue;
-    }
-    if (code === 157) {
-      while (index + 1 < inputLength) {
-        index += 1;
-        const current = text.charCodeAt(index);
-        if (current === 7 || current === 156) break;
-      }
+    const sequenceEnd = controlSequenceEnd(text, index, inputLength);
+    if (sequenceEnd !== undefined) {
+      index = sequenceEnd;
       continue;
     }
     if (code === 13) {
       if (text.charCodeAt(index + 1) !== 10) output += "\n";
       continue;
     }
-    if (
-      (code < 32 && code !== 9 && code !== 10) ||
-      (code >= 127 && code <= 159) ||
-      code === 8206 ||
-      code === 8207 ||
-      (code >= 8234 && code <= 8238) ||
-      (code >= 8294 && code <= 8297)
-    ) {
-      continue;
-    }
+    if (isUnsafeCharacter(code)) continue;
     output += text[index];
   }
   return output;
+}
+
+// Returns the index of the last character a control sequence at `index` consumes.
+function controlSequenceEnd(text: string, index: number, inputLength: number) {
+  const code = text.charCodeAt(index);
+  if (code === 27) {
+    const next = text.charCodeAt(index + 1);
+    if (next === 91) return escapeCsiEnd(text, index + 2, inputLength);
+    if (next === 93) return escapeOscEnd(text, index + 2, inputLength);
+    return index;
+  }
+  if (code === 155) return c1SequenceEnd(text, index, inputLength, isCsiFinalByte);
+  if (code === 157) return c1SequenceEnd(text, index, inputLength, isC1OscTerminator);
+  return undefined;
+}
+
+function escapeCsiEnd(text: string, start: number, inputLength: number) {
+  let index = start;
+  while (index < inputLength) {
+    if (isCsiFinalByte(text.charCodeAt(index))) break;
+    index += 1;
+  }
+  return index;
+}
+
+function escapeOscEnd(text: string, start: number, inputLength: number) {
+  let index = start;
+  while (index < inputLength) {
+    if (text.charCodeAt(index) === 7) break;
+    if (text.charCodeAt(index) === 27 && text.charCodeAt(index + 1) === 92) return index + 1;
+    index += 1;
+  }
+  return index;
+}
+
+function c1SequenceEnd(
+  text: string,
+  start: number,
+  inputLength: number,
+  isEnd: (code: number) => boolean,
+) {
+  let index = start;
+  while (index + 1 < inputLength) {
+    index += 1;
+    if (isEnd(text.charCodeAt(index))) break;
+  }
+  return index;
+}
+
+function isCsiFinalByte(code: number) {
+  return code >= 64 && code <= 126;
+}
+
+function isC1OscTerminator(code: number) {
+  return code === 7 || code === 156;
+}
+
+function isUnsafeCharacter(code: number) {
+  return (
+    (code < 32 && code !== 9 && code !== 10) ||
+    (code >= 127 && code <= 159) ||
+    code === 8206 ||
+    code === 8207 ||
+    (code >= 8234 && code <= 8238) ||
+    (code >= 8294 && code <= 8297)
+  );
 }
 
 function parseTaskWrapper(text: string): SubagentProtocolText | undefined {

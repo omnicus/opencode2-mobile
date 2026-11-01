@@ -357,3 +357,73 @@ test("the copied label returns to Copy branch name after two seconds", async () 
     jest.useRealTimers();
   }
 });
+
+function devTools(props: Partial<Parameters<typeof SessionDevTools>[0]> = {}) {
+  const client = new QueryClient({
+    defaultOptions: {
+      queries: { gcTime: Infinity, retry: false },
+      mutations: { gcTime: Infinity, retry: false },
+    },
+  });
+  return (
+    <QueryClientProvider client={client}>
+      <SessionDevTools connectionId="connection-1" location={location} ready visible {...props} />
+    </QueryClientProvider>
+  );
+}
+
+test("explains a missing or stale branch and offers a retry after a failed copy", async () => {
+  const view = render(devTools({ branchStale: true }));
+  expect(screen.getByText("Branch unavailable")).toBeOnTheScreen();
+  expect(screen.getByText(/This branch may be outdated/)).toBeOnTheScreen();
+  expect(screen.queryByText("Copy branch name")).toBeNull();
+  await screen.findByText("No MCP servers configured for this location.");
+  view.unmount();
+  jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error("denied"));
+  render(devTools({ branch: "main" }));
+  expect(screen.queryByText(/This branch may be outdated/)).toBeNull();
+  fireEvent.press(screen.getByText("Copy branch name"));
+  expect(await screen.findByText("Try copying again")).toBeOnTheScreen();
+  fireEvent.press(screen.getByText("Try copying again"));
+  expect(await screen.findByText("Copied")).toBeOnTheScreen();
+});
+
+test("asks to reconnect before loading servers for an unready location", () => {
+  render(devTools({ ready: false }));
+  expect(screen.getByRole("alert")).toHaveTextContent(/Reconnect to this session's server/);
+  expect(screen.queryByLabelText("Loading MCP servers")).toBeNull();
+  expect(mockList).not.toHaveBeenCalled();
+});
+
+test("shows progress while the server list loads and while refreshing", async () => {
+  let finish: ((value: { data: McpServer[] }) => void) | undefined;
+  mockList.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  render(devTools());
+  expect(screen.getByLabelText("Loading MCP servers")).toBeOnTheScreen();
+  await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
+  await act(async () => finish?.({ data: [] }));
+  fireEvent.press(await screen.findByText("Refresh MCP servers"));
+  expect(await screen.findByText("Refreshing MCP servers")).toBeOnTheScreen();
+  await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
+  await act(async () => finish?.({ data: [] }));
+  expect(await screen.findByText("Refresh MCP servers")).toBeOnTheScreen();
+});
+
+test("treats an incompatible MCP change as unsupported management", async () => {
+  mockList.mockResolvedValue({ data: [{ name: "docs", status: { status: "disabled" } }] });
+  mockConnect.mockRejectedValue(new Error("unsupported"));
+  render(devTools());
+  fireEvent(
+    await screen.findByRole("switch", { name: "MCP server docs for this location" }),
+    "valueChange",
+    true,
+  );
+  expect(await screen.findByText("This server does not expose MCP management.")).toBeOnTheScreen();
+  expect(screen.queryByText(/MCP change could not be confirmed/)).toBeNull();
+  expect(screen.queryByText("Refresh MCP servers")).toBeNull();
+});

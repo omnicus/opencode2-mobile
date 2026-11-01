@@ -1,8 +1,6 @@
 import {
-  createOpenCodeClient,
   type LocationRef,
   type OpenCodeClient,
-  type OpenCodeEvent,
   openCodeClientContractVersion,
 } from "@opencode2-mobile/opencode-adapter";
 import { focusManager, onlineManager, useQueryClient } from "@tanstack/react-query";
@@ -19,27 +17,21 @@ import {
 import { AppState } from "react-native";
 
 import { applicationBuild, applicationName, applicationVersion } from "../application-name";
-import { connectionAuthorizationHeader } from "../connections/connection-authorization";
+import type { ConnectionProfile } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
-import { boundedOpenCodeFetch, expoOpenCodeFetch } from "../expo-open-code-fetch";
 import {
   type ConnectionCacheMetadata,
   readConnectionCacheMetadata,
-  writeConnectionCacheMetadata,
 } from "./connection-cache-metadata";
-import {
-  ConnectionEventQueryBridge,
-  eventRequiresConnectionSnapshot,
-} from "./connection-event-query-bridge";
-import {
+import { appendEventLocation, startConnectionTransport } from "./connection-runtime-transport";
+import type {
   ConnectionTransportCoordinator,
-  type ConnectionTransportStatus,
+  ConnectionTransportStatus,
 } from "./connection-transport-coordinator";
 import { openCodeQueryKeys } from "./open-code-query-keys";
 import {
   formatTranscriptPerformanceDiagnostics,
   getTranscriptPerformanceMetrics,
-  recordTranscriptProjectionFrame,
   resetTranscriptPerformanceMetrics,
 } from "./transcript-performance";
 
@@ -64,6 +56,50 @@ const ConnectionRuntimeContext = createContext<ConnectionRuntimeContextValue | u
 
 export function ConnectionRuntimeProvider({ children }: { children: ReactNode }) {
   const connections = useConnections();
+  const selected = connections.profiles.find(
+    (profile) => profile.id === connections.selectedProfileId,
+  );
+  const runtime = useConnectionTransport(selected, connections.readCredential);
+  const { cacheMetadata, restClientState, serverVersion } = runtime;
+
+  return (
+    <ConnectionRuntimeContext
+      value={{
+        attentionLocations: runtime.attentionLocations,
+        ...(cacheMetadata ? { cacheMetadata } : {}),
+        ...(selected ? { connectionId: selected.id } : {}),
+        ...(selected ? { connectionUpdatedAtMs: selected.updatedAtMs } : {}),
+        eventLocations: runtime.eventLocations,
+        getDiagnosticsText: () =>
+          [
+            formatDiagnostics(runtime.statusRef.current, runtime.diagnosticsRef.current, {
+              appBuild: applicationBuild,
+              appVersion: applicationVersion,
+              clientContractVersion: openCodeClientContractVersion,
+              metrics: runtime.transportMetricsRef.current,
+              ...(serverVersion ? { serverVersion } : {}),
+            }),
+            formatTranscriptPerformanceDiagnostics(getTranscriptPerformanceMetrics()),
+          ].join("\n\n"),
+        includeAttentionLocation: runtime.includeAttentionLocation,
+        reconnectAttempt: runtime.reconnectAttempt,
+        reconciliationRevision: runtime.reconciliationRevision,
+        ...(selected && restClientState?.connectionId === selected.id
+          ? { restClient: restClientState.client }
+          : {}),
+        ...(serverVersion ? { serverVersion } : {}),
+        status: runtime.status,
+      }}
+    >
+      {children}
+    </ConnectionRuntimeContext>
+  );
+}
+
+function useConnectionTransport(
+  selected: ConnectionProfile | undefined,
+  readCredential: ReturnType<typeof useConnections>["readCredential"],
+) {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<ConnectionTransportStatus>("idle");
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
@@ -80,9 +116,6 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
   const diagnosticsRef = useRef<RuntimeDiagnosticEntry[]>([]);
   const transportMetricsRef = useRef<TransportDiagnosticMetrics>(emptyTransportDiagnosticMetrics());
   const selectedRevisionRef = useRef<{ id: string; updatedAtMs: number } | undefined>(undefined);
-  const selected = connections.profiles.find(
-    (profile) => profile.id === connections.selectedProfileId,
-  );
   const includeAttentionLocation = useCallback((location: LocationRef) => {
     setAttentionLocations((current) => appendEventLocation(current, location));
     setEventLocations((current) => appendEventLocation(current, location));
@@ -134,115 +167,26 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
       })
       .catch(() => undefined);
 
-    connections
-      .readCredential(selected)
+    readCredential(selected)
       .then((credential) => {
         if (!active) return;
-        const authorization = credential ? connectionAuthorizationHeader(credential) : undefined;
-        const restClient = createOpenCodeClient({
-          ...(authorization ? { authorization } : {}),
-          baseUrl: selected.baseUrl,
-          fetch: boundedOpenCodeFetch,
-        });
-        const eventClient = createOpenCodeClient({
-          ...(authorization ? { authorization } : {}),
-          baseUrl: selected.baseUrl,
-          fetch: expoOpenCodeFetch,
-        });
-        setRestClientState({ client: restClient, connectionId: selected.id });
-        const bridge = new ConnectionEventQueryBridge(
-          queryClient,
-          selected.id,
-          undefined,
-          recordTranscriptProjectionFrame,
-        );
-        coordinator = new ConnectionTransportCoordinator({
-          eventClient,
-          onEvent(event) {
-            bridge.apply(event);
-            const eventLocation = event.location;
-            if (eventLocation) {
-              setEventLocations((current) => {
-                const next = appendEventLocation(current, eventLocation);
-                // Reconsider retired locations when actual attention arrives,
-                // even if a generic event already introduced the location.
-                return event.type === "permission.asked" || event.type === "form.created"
-                  ? [...next]
-                  : next;
-              });
-            }
-            diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, {
-              atMs: Date.now(),
-              kind: "event",
-              value: redactedEventType(event),
-            });
+        coordinator = startConnectionTransport(selected, credential, queryClient, {
+          isActive: () => active,
+          metrics: () => transportMetricsRef.current,
+          recordDiagnostic(entry) {
+            diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, entry);
           },
-          onDurableGap() {
-            transportMetricsRef.current.durableSequenceGaps += 1;
-          },
-          onGeneration(reason) {
-            bridge.streamRestarted();
-            transportMetricsRef.current.generationStarts += 1;
-            transportMetricsRef.current.snapshotRequests += 1;
-            diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, {
-              atMs: Date.now(),
-              kind: "generation",
-              value: reason,
-            });
-          },
-          onSnapshot(snapshot) {
-            transportMetricsRef.current.snapshotsInstalled += 1;
-            setServerVersion(snapshot.health.version);
-            queryClient.setQueryData(openCodeQueryKeys.health(selected.id), snapshot.health);
-            queryClient.setQueryData(openCodeQueryKeys.projects(selected.id), snapshot.projects);
-            queryClient.setQueryData(
-              openCodeQueryKeys.activeSessions(selected.id),
-              snapshot.activeSessions,
-            );
-            setReconciliationRevision((current) => current + 1);
-            void queryClient.invalidateQueries({
-              predicate: (query) =>
-                query.queryKey[0] === "opencode" &&
-                query.queryKey[1] === selected.id &&
-                (query.queryKey[2] === "location" || query.queryKey[2] === "location-default"),
-              refetchType: "active",
-            });
-            void writeConnectionCacheMetadata(selected.id, selected.updatedAtMs, snapshot)
-              .then((metadata) => {
-                if (active) setCacheMetadata(metadata);
-              })
-              .catch(() => undefined);
-          },
-          onStatus(nextStatus, attempt) {
+          setCacheMetadata,
+          setEventLocations,
+          setReconciliationRevision,
+          setRestClientState,
+          setServerVersion,
+          setStatus(nextStatus, attempt) {
             statusRef.current = nextStatus;
             setStatus(nextStatus);
             setReconnectAttempt(attempt);
-            diagnosticsRef.current = appendDiagnostic(diagnosticsRef.current, {
-              atMs: Date.now(),
-              attempt,
-              kind: "status",
-              value: nextStatus,
-            });
           },
-          onUncertain(event) {
-            bridge.uncertain(event);
-          },
-          restClient,
-          shouldReconcileEvent: eventRequiresConnectionSnapshot,
         });
-
-        const foreground = AppState.currentState === "active";
-        coordinator.setForeground(foreground);
-        focusManager.setFocused(foreground);
-        void Network.getNetworkStateAsync()
-          .then((network) => {
-            if (!active || !coordinator) return;
-            const online = network.isConnected !== false;
-            onlineManager.setOnline(online);
-            coordinator.setOnline(online);
-            coordinator.start();
-          })
-          .catch(() => coordinator?.start());
       })
       .catch(() => {
         if (active) {
@@ -268,50 +212,28 @@ export function ConnectionRuntimeProvider({ children }: { children: ReactNode })
       networkSubscription.remove();
       coordinator?.stop();
     };
-  }, [connections.readCredential, queryClient, selected]);
+  }, [readCredential, queryClient, selected]);
 
-  return (
-    <ConnectionRuntimeContext
-      value={{
-        attentionLocations,
-        ...(cacheMetadata ? { cacheMetadata } : {}),
-        ...(selected ? { connectionId: selected.id } : {}),
-        ...(selected ? { connectionUpdatedAtMs: selected.updatedAtMs } : {}),
-        eventLocations,
-        getDiagnosticsText: () =>
-          [
-            formatDiagnostics(statusRef.current, diagnosticsRef.current, {
-              appBuild: applicationBuild,
-              appVersion: applicationVersion,
-              clientContractVersion: openCodeClientContractVersion,
-              metrics: transportMetricsRef.current,
-              ...(serverVersion ? { serverVersion } : {}),
-            }),
-            formatTranscriptPerformanceDiagnostics(getTranscriptPerformanceMetrics()),
-          ].join("\n\n"),
-        includeAttentionLocation,
-        reconnectAttempt,
-        reconciliationRevision,
-        ...(selected && restClientState?.connectionId === selected.id
-          ? { restClient: restClientState.client }
-          : {}),
-        ...(serverVersion ? { serverVersion } : {}),
-        status,
-      }}
-    >
-      {children}
-    </ConnectionRuntimeContext>
-  );
+  return {
+    attentionLocations,
+    cacheMetadata,
+    diagnosticsRef,
+    eventLocations,
+    includeAttentionLocation,
+    reconciliationRevision,
+    reconnectAttempt,
+    restClientState,
+    serverVersion,
+    status,
+    statusRef,
+    transportMetricsRef,
+  };
 }
 
 export function useConnectionRuntime() {
   const value = use(ConnectionRuntimeContext);
   if (!value) throw new Error("ConnectionRuntimeProvider is missing");
   return value;
-}
-
-function redactedEventType(event: OpenCodeEvent) {
-  return /^[a-z][a-z0-9.-]{0,127}$/.test(event.type) ? event.type : "unknown";
 }
 
 export type RuntimeDiagnosticEntry = {
@@ -428,17 +350,4 @@ export function formatDiagnosticTimestamp(atMs: number) {
 
 function padTimestamp(value: number) {
   return String(value).padStart(2, "0");
-}
-
-function appendEventLocation(current: LocationRef[], location: LocationRef) {
-  if (
-    current.some(
-      (candidate) =>
-        candidate.directory === location.directory &&
-        candidate.workspaceID === location.workspaceID,
-    )
-  ) {
-    return current;
-  }
-  return [...current, location].slice(-256);
 }

@@ -6,6 +6,7 @@ import type {
   SkillInfo,
 } from "@opencode2-mobile/opencode-adapter";
 import type { SessionDraftMention } from "../storage/draft-repository";
+import type { PromptDelivery } from "./prompt-admission-model";
 
 type MentionRange = { end: number; start: number; text: string };
 
@@ -227,6 +228,79 @@ export function resolveComposerSubmitIntent(
   };
 }
 
+export function resolveComposerSubmitState({
+  active,
+  completionLoading,
+  completionUnavailable,
+  delivery,
+  disabled,
+  draft,
+  interruptible,
+  justSent,
+  stopping,
+}: {
+  active: boolean;
+  completionLoading?: boolean | undefined;
+  completionUnavailable?: boolean | undefined;
+  delivery?: PromptDelivery | undefined;
+  disabled?: boolean | undefined;
+  draft: string;
+  interruptible: boolean;
+  justSent?: boolean | undefined;
+  stopping: boolean;
+}) {
+  const slashCatalogPending = completionLoading && draft.startsWith("/");
+  const slashCatalogUnavailable = completionUnavailable && draft.startsWith("/");
+  const submitHint = slashCatalogPending
+    ? "Wait for commands to load."
+    : slashCatalogUnavailable
+      ? "Commands are unavailable."
+      : undefined;
+  const canSubmit =
+    !disabled &&
+    !stopping &&
+    !slashCatalogPending &&
+    !slashCatalogUnavailable &&
+    draft.trim().length > 0 &&
+    (!active || delivery === "queue" || delivery === "steer");
+  const showStop = active && draft.trim().length === 0 && interruptible && !justSent;
+  return { canSubmit, showStop, submitHint };
+}
+
+export function commandCompletionStatus(loading?: boolean, unavailable?: boolean) {
+  if (loading) return "Loading commands";
+  if (unavailable) return "Commands are unavailable";
+  return "No matching commands";
+}
+
+export function mentionCompletionStatus(loading?: boolean, unavailable?: boolean) {
+  if (loading) return "Searching files, skills, and agents";
+  if (unavailable) return "Some mention results are unavailable";
+  return "No matching files, skills, or agents";
+}
+
+export function filterComposerAgents(agents: AgentInfo[], query: string) {
+  if (!query) return agents;
+  return agents.filter((candidate) =>
+    `${candidate.name}\n${candidate.id}\n${candidate.description ?? ""}`
+      .toLocaleLowerCase()
+      .includes(query),
+  );
+}
+
+export function agentPickerEmptyLabel(
+  catalog: { error: boolean; loading: boolean } | undefined,
+  search: string,
+) {
+  if (catalog?.loading) return "Loading agents";
+  if (catalog?.error) return "";
+  return search.trim() ? "No matching agents" : "No primary agents available";
+}
+
+export function mentionCompletionKey(completion: MentionCompletion) {
+  return `${completion.type}:${mentionValue(completion)}`;
+}
+
 export function serverFileUri(directory: string, path: string) {
   const normalizedDirectory = directory.replaceAll("\\", "/").replace(/\/+$/, "");
   const normalizedPath = path.replaceAll("\\", "/");
@@ -294,7 +368,7 @@ function mentionSearchText(option: MentionCompletion) {
   return `${mentionValue(option)}\n${option.label}\n${option.description ?? ""}`.toLocaleLowerCase();
 }
 
-function mentionValue(option: MentionCompletion) {
+export function mentionValue(option: MentionCompletion) {
   return option.type === "file" ? option.path : option.type === "agent" ? option.name : option.id;
 }
 

@@ -236,3 +236,51 @@ test.each(["connection", "location"])(
     view.unmount();
   },
 );
+
+test("rereads from the start when the server cursor moves backwards", async () => {
+  const view = setup();
+  await screen.findByText("one");
+  getOutput.mockResolvedValueOnce(page("", 2)).mockResolvedValueOnce(page("hi", 2));
+  await tick();
+  expect(screen.getByText("hi")).toBeOnTheScreen();
+  expect(screen.getByText("complete buffer")).toBeOnTheScreen();
+  expect(getOutput).toHaveBeenLastCalledWith(
+    expect.anything(),
+    location,
+    "sh_test",
+    expect.objectContaining({ cursor: 0 }),
+  );
+  view.unmount();
+});
+
+test("retry only fetches while enabled and fails until a client is connected", async () => {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  clients.push(queryClient);
+  let retry: (() => void) | undefined;
+  const tree = (enabled: boolean) => (
+    <QueryClientProvider client={queryClient}>
+      <SessionShellScope.Provider
+        value={{ connectionId: "connection-1", location, client: undefined, enabled }}
+      >
+        <ShellObservation shellID="sh_test">
+          {(result) => {
+            retry = result?.retry;
+            return <Text>{result?.statusLabel}</Text>;
+          }}
+        </ShellObservation>
+      </SessionShellScope.Provider>
+    </QueryClientProvider>
+  );
+  const view = render(tree(false));
+  act(() => retry?.());
+  await tick(3000);
+  expect(screen.getByText("Loading shell output…")).toBeOnTheScreen();
+  view.rerender(tree(true));
+  await tick(3000);
+  expect(screen.getByText("Loading shell output…")).toBeOnTheScreen();
+  act(() => retry?.());
+  await tick(3000);
+  expect(screen.getByText("Shell output could not be refreshed.")).toBeOnTheScreen();
+  expect(getShell).not.toHaveBeenCalled();
+  view.unmount();
+});

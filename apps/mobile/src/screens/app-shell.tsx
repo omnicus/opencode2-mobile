@@ -1,5 +1,4 @@
 import Feather from "@expo/vector-icons/Feather";
-import type { NotificationDeliveryState } from "@opencode2-mobile/notification-protocol";
 import { NavigationContext } from "@react-navigation/native";
 import type {
   NativeStackNavigationProp,
@@ -19,7 +18,6 @@ import {
 import {
   AccessibilityInfo,
   ActivityIndicator,
-  AppState,
   Pressable,
   ScrollView,
   Share,
@@ -39,15 +37,10 @@ import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useConnections } from "../connections/connections-context";
 import { attentionAccessibilityValue } from "../navigation/attention-labels";
 import type { RootStackParamList } from "../navigation/root-navigation";
-import { sendNotificationDeviceCommand } from "../notifications/notification-client";
-import {
-  getNotificationPairingByConnectionID,
-  type NotificationPairing,
-  readNotificationPairingSecret,
-} from "../notifications/notification-pairing-repository";
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
+import type { AttentionCoverage } from "../state/followed-projects-model";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import {
@@ -63,9 +56,31 @@ import {
   usesLargeTextLayout,
 } from "../theme";
 import { AppUpdateCard } from "../updates/app-updates";
+import {
+  affectedProjectsText,
+  allKnownLocationsFailed,
+  branchStatusLabel,
+  type CopyState,
+  detailCopyAnnouncement,
+  detailCopyLabel,
+  hasMovableLocationFailure,
+  locationFailureTitle,
+  locationSourceLabel,
+  notificationSettingDescription,
+  offersNotificationPairing,
+  pendingBadge,
+  pendingCoverageLabel,
+  pendingLabel,
+  pendingSummaryTitle,
+  respondedLocationsText,
+  type ShellDetail,
+} from "./app-shell-model";
+import { useNotificationSetting } from "./app-shell-notification-setting";
 import { FormRequestList } from "./form-request-list";
 import { PermissionRequestCard } from "./permission-request-card";
 import { sanitizeTranscriptText } from "./session-transcript-model";
+
+export { pendingLabel, pendingSummaryTitle } from "./app-shell-model";
 
 type Section = "Connections" | "Pending" | "Settings" | "Workspace";
 type SessionBranch = {
@@ -77,6 +92,14 @@ type ScreenProps<RouteName extends keyof RootStackParamList> = NativeStackScreen
   RootStackParamList,
   RouteName
 >;
+type SessionTabs = {
+  active: "session" | "changes";
+  onSelect: (tab: "session" | "changes") => void;
+};
+type PendingDestination = "Connections" | "FollowedProjects";
+type ConnectionPresentation = ReturnType<typeof getConnectionPresentation>;
+type WorkspaceSelection = ReturnType<typeof useWorkspaceSelection>;
+type LocationFailure = AttentionCoverage["failedLocations"][number];
 
 const tabletBreakpoint = 760;
 
@@ -112,20 +135,13 @@ export function PendingInteractions({
 }: {
   bottomInset?: number;
   heading: boolean;
-  onNavigate: (destination: "Connections" | "FollowedProjects") => void;
+  onNavigate: (destination: PendingDestination) => void;
 }) {
   const [showLocations, setShowLocations] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const runtime = useConnectionRuntime();
   const selection = useWorkspaceSelection();
-  const failedLocationCount = selection.attentionCoverage.failedLocationCount;
   const failedLocations = selection.attentionCoverage.failedLocations ?? [];
-  const failedProjectSummary = (selection.attentionCoverage.failedProjects ?? [])
-    .map((project) => project.label)
-    .join(", ");
-  const allKnownLocationsFailed =
-    selection.attentionCoverage.knownLocationCount > 0 &&
-    selection.attentionCoverage.reconciledLocationCount === 0;
 
   async function retry() {
     setRetrying(true);
@@ -159,213 +175,303 @@ export function PendingInteractions({
             </Text>
           </View>
         ) : null}
-        {selection.preferencesLoading ? (
-          <View style={styles.stateCard}>
-            <ActivityIndicator
-              accessibilityLabel="Loading followed projects"
-              color={palette.signal}
-            />
-            <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateCardTitle}>
-              Loading followed projects
-            </Text>
-          </View>
-        ) : selection.followedProjectIds.length === 0 ? (
-          <View style={styles.summary}>
-            <View style={styles.summaryRow}>
-              <StatusIcon color={palette.dim} name="folder" />
-              <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
-                Follow a project to see requests that need you here.
-              </Text>
-            </View>
-            <Button label="Choose projects" onPress={() => onNavigate("FollowedProjects")} />
-          </View>
-        ) : selection.interactionsLoading && selection.pendingCount === 0 ? (
-          <View style={styles.stateCard}>
-            <ActivityIndicator accessibilityLabel="Checking for requests" color={palette.signal} />
-            <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateCardTitle}>
-              Checking followed projects for requests
-            </Text>
-          </View>
-        ) : selection.interactionsError && selection.pendingCount === 0 ? (
-          <View
-            accessibilityRole="alert"
-            style={allKnownLocationsFailed ? styles.failureCard : styles.cacheCard}
-          >
-            <Text
-              dynamicTypeRamp={typeRamp.sectionLabel}
-              style={allKnownLocationsFailed ? styles.failureLabel : styles.cacheLabel}
-            >
-              {allKnownLocationsFailed ? "Unavailable" : "Partial results"}
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
-              {allKnownLocationsFailed
-                ? "Requests that need you could not be checked."
-                : locationFailureTitle(failedLocationCount)}
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-              {failedProjectSummary
-                ? `Affected ${selection.attentionCoverage.failedProjects.length === 1 ? "project" : "projects"}: ${failedProjectSummary}. `
-                : "The affected project could not be identified. "}
-              {allKnownLocationsFailed
-                ? "The server returned errors for every known location."
-                : `No requests were found at the ${selection.attentionCoverage.reconciledLocationCount} ${selection.attentionCoverage.reconciledLocationCount === 1 ? "location" : "locations"} that responded.`}
-            </Text>
-            <View style={styles.stateActions}>
-              {failedLocations.length > 0 ? (
-                <ActionButton label="Review locations" onPress={() => setShowLocations(true)} />
-              ) : null}
-              <ActionButton
-                busy={retrying}
-                label="Retry"
-                secondary={failedLocations.length > 0}
-                onPress={retry}
-              />
-              {runtime.status !== "connected" ? (
-                <ActionButton
-                  label="Connections"
-                  onPress={() => onNavigate("Connections")}
-                  secondary
-                />
-              ) : null}
-            </View>
-          </View>
-        ) : (
-          <>
-            {selection.interactionsError ? (
-              <View accessibilityRole="alert" style={styles.cacheCard}>
-                <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.cacheLabel}>
-                  Partial results
-                </Text>
-                <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
-                  {locationFailureTitle(failedLocationCount)}
-                </Text>
-                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-                  {failedProjectSummary
-                    ? `Affected ${selection.attentionCoverage.failedProjects.length === 1 ? "project" : "projects"}: ${failedProjectSummary}. `
-                    : "The affected project could not be identified. "}
-                  Showing requests found at the other locations.
-                </Text>
-                {failedLocations.length > 0 ? (
-                  <ActionButton label="Review locations" onPress={() => setShowLocations(true)} />
-                ) : null}
-                <ActionButton busy={retrying} label="Retry" onPress={retry} secondary />
-              </View>
-            ) : null}
-            <View style={styles.summary}>
-              <View style={styles.summaryRow}>
-                {selection.pendingCount > 0 ? (
-                  <StatusIcon color={palette.warm} name="inbox" />
-                ) : (
-                  <StatusIcon color={palette.success} name="check-circle" />
-                )}
-                <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
-                  {pendingSummaryTitle(
-                    selection.pendingCount,
-                    selection.attentionCoverage.completeness === "complete",
-                  )}
-                </Text>
-              </View>
-              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.summaryCopy}>
-                {pendingCoverageLabel(selection.attentionCoverage)}
-              </Text>
-            </View>
-            {selection.permissions.map((request) => (
-              <PermissionRequestCard
-                key={`permission:${request.id}`}
-                request={request}
-                replying={selection.replyingPermissionId === request.id}
-                error={selection.failedPermissionReplyId === request.id}
-                onReply={selection.replyPermission}
-              />
-            ))}
-            {selection.forms.length > 0 ? (
-              <FormRequestList
-                client={runtime.restClient}
-                connectionId={runtime.connectionId}
-                formLocations={selection.formLocations}
-                forms={selection.forms}
-                location={undefined}
-              />
-            ) : null}
-          </>
-        )}
-      </ScrollView>
-      <ModalSheet
-        title="Unavailable locations"
-        visible={showLocations}
-        onClose={() => setShowLocations(false)}
-      >
-        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-          These checks failed, so requests at these locations are still unknown. Session history is
-          preserved.
-        </Text>
-        {failedLocations.some(
-          (failure) => failure.source === "session-history" || failure.source === "worktree",
-        ) ? (
-          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-            A directory referenced by session history or a worktree may have been moved or removed.
-            A failed check alone does not confirm that it was deleted.
-          </Text>
-        ) : null}
-        {failedLocations.map((failure) => (
-          <View key={JSON.stringify(failure.location)} style={styles.locationFailure}>
-            <Text
-              accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.headline}
-              style={styles.cardTitle}
-            >
-              {sanitizeTranscriptText(failure.projectLabel, 256)}
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-              {failure.source === "project-root"
-                ? "Project root"
-                : failure.source === "worktree"
-                  ? "Registered worktree"
-                  : failure.source === "session-history"
-                    ? "Referenced by session history"
-                    : "Discovered location"}
-            </Text>
-            <Text selectable style={styles.locationPath}>
-              {sanitizeTranscriptText(
-                failure.location.directory,
-                failure.location.directory.length,
-              )}
-            </Text>
-            {failure.location.workspaceID ? (
-              <Text selectable style={styles.locationPath}>
-                Workspace:{" "}
-                {sanitizeTranscriptText(
-                  failure.location.workspaceID,
-                  failure.location.workspaceID.length,
-                )}
-              </Text>
-            ) : null}
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-              Could not check: {failure.failedChecks.join(" and ")}.
-            </Text>
-          </View>
-        ))}
-        {failedLocations.length === 0 ? (
-          <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
-            No location checks are currently failing.
-          </Text>
-        ) : (
-          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
-            Check these directories on the server. Restore a moved or removed worktree if you still
-            need it, then retry. If a whole project is retired, unfollow it on this device.
-            Unfollowing does not delete its sessions.
-          </Text>
-        )}
-        <ActionButton
-          label="Manage followed projects"
-          onPress={() => {
-            setShowLocations(false);
-            onNavigate("FollowedProjects");
-          }}
-          secondary
+        <PendingContent
+          failedLocations={failedLocations}
+          onNavigate={onNavigate}
+          onRetry={retry}
+          onReviewLocations={() => setShowLocations(true)}
+          retrying={retrying}
+          runtime={runtime}
+          selection={selection}
         />
-      </ModalSheet>
+      </ScrollView>
+      <UnavailableLocationsSheet
+        failedLocations={failedLocations}
+        onClose={() => setShowLocations(false)}
+        onManage={() => {
+          setShowLocations(false);
+          onNavigate("FollowedProjects");
+        }}
+        visible={showLocations}
+      />
     </>
+  );
+}
+
+function PendingContent({
+  failedLocations,
+  onNavigate,
+  onRetry,
+  onReviewLocations,
+  retrying,
+  runtime,
+  selection,
+}: {
+  failedLocations: LocationFailure[];
+  onNavigate: (destination: PendingDestination) => void;
+  onRetry: () => Promise<void>;
+  onReviewLocations: () => void;
+  retrying: boolean;
+  runtime: ReturnType<typeof useConnectionRuntime>;
+  selection: WorkspaceSelection;
+}) {
+  if (selection.preferencesLoading) {
+    return (
+      <PendingLoadingCard label="Loading followed projects" title="Loading followed projects" />
+    );
+  }
+  if (selection.followedProjectIds.length === 0) {
+    return (
+      <View style={styles.summary}>
+        <View style={styles.summaryRow}>
+          <StatusIcon color={palette.dim} name="folder" />
+          <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
+            Follow a project to see requests that need you here.
+          </Text>
+        </View>
+        <Button label="Choose projects" onPress={() => onNavigate("FollowedProjects")} />
+      </View>
+    );
+  }
+  if (selection.interactionsLoading && selection.pendingCount === 0) {
+    return (
+      <PendingLoadingCard
+        label="Checking for requests"
+        title="Checking followed projects for requests"
+      />
+    );
+  }
+  if (selection.interactionsError && selection.pendingCount === 0) {
+    return (
+      <PendingFailureCard
+        connected={runtime.status === "connected"}
+        coverage={selection.attentionCoverage}
+        failedLocations={failedLocations}
+        onConnections={() => onNavigate("Connections")}
+        onRetry={onRetry}
+        onReviewLocations={onReviewLocations}
+        retrying={retrying}
+      />
+    );
+  }
+  return (
+    <>
+      {selection.interactionsError ? (
+        <PartialResultsCard
+          coverage={selection.attentionCoverage}
+          failedLocations={failedLocations}
+          onRetry={onRetry}
+          onReviewLocations={onReviewLocations}
+          retrying={retrying}
+        />
+      ) : null}
+      <PendingSummary count={selection.pendingCount} coverage={selection.attentionCoverage} />
+      {selection.permissions.map((request) => (
+        <PermissionRequestCard
+          key={`permission:${request.id}`}
+          request={request}
+          replying={selection.replyingPermissionId === request.id}
+          error={selection.failedPermissionReplyId === request.id}
+          onReply={selection.replyPermission}
+        />
+      ))}
+      {selection.forms.length > 0 ? (
+        <FormRequestList
+          client={runtime.restClient}
+          connectionId={runtime.connectionId}
+          formLocations={selection.formLocations}
+          forms={selection.forms}
+          location={undefined}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function PendingLoadingCard({ label, title }: { label: string; title: string }) {
+  return (
+    <View style={styles.stateCard}>
+      <ActivityIndicator accessibilityLabel={label} color={palette.signal} />
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateCardTitle}>
+        {title}
+      </Text>
+    </View>
+  );
+}
+
+function PendingFailureCard({
+  connected,
+  coverage,
+  failedLocations,
+  onConnections,
+  onRetry,
+  onReviewLocations,
+  retrying,
+}: {
+  connected: boolean;
+  coverage: AttentionCoverage;
+  failedLocations: LocationFailure[];
+  onConnections: () => void;
+  onRetry: () => Promise<void>;
+  onReviewLocations: () => void;
+  retrying: boolean;
+}) {
+  const allFailed = allKnownLocationsFailed(coverage);
+  return (
+    <View accessibilityRole="alert" style={allFailed ? styles.failureCard : styles.cacheCard}>
+      <Text
+        dynamicTypeRamp={typeRamp.sectionLabel}
+        style={allFailed ? styles.failureLabel : styles.cacheLabel}
+      >
+        {allFailed ? "Unavailable" : "Partial results"}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+        {allFailed
+          ? "Requests that need you could not be checked."
+          : locationFailureTitle(coverage.failedLocationCount)}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+        {affectedProjectsText(coverage.failedProjects)}
+        {allFailed
+          ? "The server returned errors for every known location."
+          : respondedLocationsText(coverage.reconciledLocationCount)}
+      </Text>
+      <View style={styles.stateActions}>
+        {failedLocations.length > 0 ? (
+          <ActionButton label="Review locations" onPress={onReviewLocations} />
+        ) : null}
+        <ActionButton
+          busy={retrying}
+          label="Retry"
+          secondary={failedLocations.length > 0}
+          onPress={onRetry}
+        />
+        {!connected ? <ActionButton label="Connections" onPress={onConnections} secondary /> : null}
+      </View>
+    </View>
+  );
+}
+
+function PartialResultsCard({
+  coverage,
+  failedLocations,
+  onRetry,
+  onReviewLocations,
+  retrying,
+}: {
+  coverage: AttentionCoverage;
+  failedLocations: LocationFailure[];
+  onRetry: () => Promise<void>;
+  onReviewLocations: () => void;
+  retrying: boolean;
+}) {
+  return (
+    <View accessibilityRole="alert" style={styles.cacheCard}>
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.cacheLabel}>
+        Partial results
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+        {locationFailureTitle(coverage.failedLocationCount)}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+        {affectedProjectsText(coverage.failedProjects)}
+        Showing requests found at the other locations.
+      </Text>
+      {failedLocations.length > 0 ? (
+        <ActionButton label="Review locations" onPress={onReviewLocations} />
+      ) : null}
+      <ActionButton busy={retrying} label="Retry" onPress={onRetry} secondary />
+    </View>
+  );
+}
+
+function PendingSummary({ count, coverage }: { count: number; coverage: AttentionCoverage }) {
+  return (
+    <View style={styles.summary}>
+      <View style={styles.summaryRow}>
+        {count > 0 ? (
+          <StatusIcon color={palette.warm} name="inbox" />
+        ) : (
+          <StatusIcon color={palette.success} name="check-circle" />
+        )}
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
+          {pendingSummaryTitle(count, coverage.completeness === "complete")}
+        </Text>
+      </View>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.summaryCopy}>
+        {pendingCoverageLabel(coverage)}
+      </Text>
+    </View>
+  );
+}
+
+function UnavailableLocationsSheet({
+  failedLocations,
+  onClose,
+  onManage,
+  visible,
+}: {
+  failedLocations: LocationFailure[];
+  onClose: () => void;
+  onManage: () => void;
+  visible: boolean;
+}) {
+  return (
+    <ModalSheet title="Unavailable locations" visible={visible} onClose={onClose}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+        These checks failed, so requests at these locations are still unknown. Session history is
+        preserved.
+      </Text>
+      {hasMovableLocationFailure(failedLocations) ? (
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+          A directory referenced by session history or a worktree may have been moved or removed. A
+          failed check alone does not confirm that it was deleted.
+        </Text>
+      ) : null}
+      {failedLocations.map((failure) => (
+        <LocationFailureCard key={JSON.stringify(failure.location)} failure={failure} />
+      ))}
+      {failedLocations.length === 0 ? (
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+          No location checks are currently failing.
+        </Text>
+      ) : (
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+          Check these directories on the server. Restore a moved or removed worktree if you still
+          need it, then retry. If a whole project is retired, unfollow it on this device.
+          Unfollowing does not delete its sessions.
+        </Text>
+      )}
+      <ActionButton label="Manage followed projects" onPress={onManage} secondary />
+    </ModalSheet>
+  );
+}
+
+function LocationFailureCard({ failure }: { failure: LocationFailure }) {
+  return (
+    <View style={styles.locationFailure}>
+      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.cardTitle}>
+        {sanitizeTranscriptText(failure.projectLabel, 256)}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+        {locationSourceLabel(failure.source)}
+      </Text>
+      <Text selectable style={styles.locationPath}>
+        {sanitizeTranscriptText(failure.location.directory, failure.location.directory.length)}
+      </Text>
+      {failure.location.workspaceID ? (
+        <Text selectable style={styles.locationPath}>
+          Workspace:{" "}
+          {sanitizeTranscriptText(
+            failure.location.workspaceID,
+            failure.location.workspaceID.length,
+          )}
+        </Text>
+      ) : null}
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
+        Could not check: {failure.failedChecks.join(" and ")}.
+      </Text>
+    </View>
   );
 }
 
@@ -381,260 +487,32 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   const selected = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
-  const [notificationPairing, setNotificationPairing] = useState<NotificationPairing>();
-  const [notificationState, setNotificationState] = useState<NotificationDeliveryState>();
-  const [notificationLoading, setNotificationLoading] = useState(true);
-  const [notificationBusy, setNotificationBusy] = useState(false);
-  const [notificationError, setNotificationError] = useState(false);
+  const notifications = useNotificationSetting(db, connections.selectedProfileId, navigation);
   const navigate = (section: Section) => navigateToSection(navigation, section);
-  const pendingCount = selection.pendingCount;
-  useAnnouncement(notificationError && "Notification settings could not be loaded or saved.");
 
   async function shareDiagnostics() {
     await Share.share({ message: runtime.getDiagnosticsText() });
   }
 
-  useEffect(() => {
-    let active = true;
-    async function refresh() {
-      setNotificationLoading(true);
-      setNotificationError(false);
-      try {
-        const pairing = connections.selectedProfileId
-          ? await getNotificationPairingByConnectionID(db, connections.selectedProfileId)
-          : undefined;
-        if (!active) return;
-        setNotificationPairing(pairing);
-        if (!pairing) {
-          setNotificationState(undefined);
-          return;
-        }
-        const secret = await readNotificationPairingSecret(pairing);
-        const state = await sendNotificationDeviceCommand({
-          bindingID: pairing.bindingID,
-          brokerOrigin: pairing.brokerOrigin,
-          deviceKey: secret.deviceKey,
-          operation: "status",
-        });
-        if (active) setNotificationState(state);
-      } catch {
-        if (active) {
-          setNotificationState(undefined);
-          setNotificationError(true);
-        }
-      } finally {
-        if (active) setNotificationLoading(false);
-      }
-    }
-    void refresh();
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") void refresh();
-    });
-    // Pairing opens over Settings, so read the pairing again when Settings returns.
-    const removeFocusListener = navigation.addListener("focus", () => void refresh());
-    return () => {
-      active = false;
-      subscription.remove();
-      removeFocusListener();
-    };
-  }, [connections.selectedProfileId, db, navigation]);
-
-  async function setNotificationsEnabled(enabled: boolean) {
-    if (!notificationPairing) return;
-    setNotificationBusy(true);
-    setNotificationError(false);
-    try {
-      const secret = await readNotificationPairingSecret(notificationPairing);
-      const state = await sendNotificationDeviceCommand({
-        bindingID: notificationPairing.bindingID,
-        brokerOrigin: notificationPairing.brokerOrigin,
-        deviceKey: secret.deviceKey,
-        operation: enabled ? "enable" : "pause",
-      });
-      setNotificationState(state);
-    } catch {
-      setNotificationError(true);
-    } finally {
-      setNotificationBusy(false);
-    }
-  }
-
   return (
     <ShellFrame active="Settings" hideConnectionBar={!tablet} navigate={navigate}>
       <ScrollView contentContainerStyle={managementStyles.content}>
-        <SettingsGroup title="Workspace">
-          <MenuRow
-            accessibilityValue={attentionAccessibilityValue(
-              pendingCount,
-              selection.attentionCoverage,
-            )}
-            badge={pendingCount > 0 ? (pendingCount > 99 ? "99+" : `${pendingCount}`) : undefined}
-            description="Permission and form requests"
-            icon="inbox"
-            label="Needs you"
-            onPress={() => navigate("Pending")}
-          />
-          <MenuRow
-            description="Choose projects shown in Sessions and Needs you"
-            icon="folder"
-            label="Followed projects"
-            onPress={() => navigation.navigate("FollowedProjects")}
-          />
-          <MenuRow
-            description={selected?.name ?? "No connection selected"}
-            icon="server"
-            label="Connections"
-            last
-            onPress={() => navigate("Connections")}
-          />
-        </SettingsGroup>
+        <WorkspaceSettings
+          connectionName={selected?.name}
+          coverage={selection.attentionCoverage}
+          navigate={navigate}
+          onFollowedProjects={() => navigation.navigate("FollowedProjects")}
+          pendingCount={selection.pendingCount}
+        />
 
-        <SettingsGroup title="Transcript">
-          <SettingsRow>
-            <View style={styles.settingText}>
-              <SettingText
-                description="Steer updates the current work. Queue waits until it finishes."
-                title="Default follow-up delivery"
-              />
-              <View style={styles.deliveryOptions}>
-                <SegmentedControl
-                  accessibilityLabel="Default follow-up delivery"
-                  disabled={transcript.busy}
-                  onChange={(defaultDelivery) => {
-                    if (!transcript.busy) void transcript.update({ defaultDelivery });
-                  }}
-                  options={deliveryOptions}
-                  value={transcript.defaultDelivery}
-                />
-              </View>
-            </View>
-          </SettingsRow>
+        <TranscriptSettings transcript={transcript} />
 
-          <SettingsRow>
-            <View style={styles.settingText}>
-              <SettingText
-                description={
-                  transcript.detailed
-                    ? "Detailed: individual tool executions and system notices."
-                    : "Compact: group activity and collapse routine details."
-                }
-                title="Detailed transcript"
-              />
-            </View>
-            <Switch
-              {...switchColors}
-              accessibilityLabel="Detailed transcript"
-              disabled={transcript.busy}
-              value={transcript.detailed}
-              onValueChange={(detailed) => void transcript.update({ detailed })}
-            />
-          </SettingsRow>
-          <SettingsRow last>
-            <View style={styles.settingText}>
-              <SettingText
-                description="Display model reasoning when provided by the server."
-                title="Show reasoning"
-              />
-            </View>
-            <Switch
-              {...switchColors}
-              accessibilityLabel="Show reasoning"
-              disabled={transcript.busy}
-              value={transcript.reasoning}
-              onValueChange={(reasoning) => void transcript.update({ reasoning })}
-            />
-          </SettingsRow>
-        </SettingsGroup>
-        {transcript.error ? (
-          <Text
-            accessibilityRole="alert"
-            dynamicTypeRamp={typeRamp.footnote}
-            style={styles.errorText}
-          >
-            Message preferences could not be loaded or saved. Try changing the setting again.
-          </Text>
-        ) : null}
-
-        <SettingsGroup title="Security and notifications">
-          <SettingsRow>
-            <View style={styles.settingText}>
-              <SettingText
-                description="Require device authentication after the app leaves the foreground."
-                title="App lock"
-              />
-            </View>
-            <Switch
-              {...switchColors}
-              accessibilityLabel="App lock"
-              disabled={appLock.busy}
-              onValueChange={(enabled) => void appLock.setEnabled(enabled)}
-              value={appLock.enabled}
-            />
-          </SettingsRow>
-          {appLock.error ? (
-            <SettingsRow>
-              <Text
-                accessibilityRole="alert"
-                dynamicTypeRamp={typeRamp.footnote}
-                style={styles.errorText}
-              >
-                {appLock.error}
-              </Text>
-            </SettingsRow>
-          ) : null}
-
-          <SettingsRow last>
-            <View style={styles.settingText}>
-              <SettingText
-                description={
-                  notificationLoading
-                    ? "Checking notification status."
-                    : !connections.selectedProfileId
-                      ? "Choose a connection to set up notifications."
-                      : !notificationPairing
-                        ? "Pair this connection to get notifications for new requests."
-                        : notificationState?.enabled
-                          ? "On for every phone paired with this connection."
-                          : notificationState
-                            ? "Paused. New requests will not create mobile notifications."
-                            : "Notification status is unavailable."
-                }
-                title="Mobile notifications"
-              />
-              {!notificationLoading && connections.selectedProfileId && !notificationPairing ? (
-                <Button
-                  label="Pair notifications"
-                  onPress={() => navigation.navigate("Pairing")}
-                  size="compact"
-                  style={styles.inlineAction}
-                />
-              ) : null}
-            </View>
-            {notificationLoading ? (
-              <ActivityIndicator
-                accessibilityLabel="Loading mobile notification setting"
-                color={palette.signal}
-              />
-            ) : (
-              <Switch
-                {...switchColors}
-                accessibilityLabel="Mobile notifications"
-                disabled={!notificationPairing || !notificationState || notificationBusy}
-                onValueChange={(enabled) => void setNotificationsEnabled(enabled)}
-                value={notificationState?.enabled ?? false}
-              />
-            )}
-          </SettingsRow>
-        </SettingsGroup>
-        {notificationError ? (
-          <Text
-            accessibilityRole="alert"
-            dynamicTypeRamp={typeRamp.footnote}
-            style={styles.errorText}
-          >
-            Notification settings could not be loaded or saved.
-          </Text>
-        ) : null}
+        <SecuritySettings
+          appLock={appLock}
+          connectionID={connections.selectedProfileId}
+          notifications={notifications}
+          onPair={() => navigation.navigate("Pairing")}
+        />
 
         <AppUpdateCard />
 
@@ -653,6 +531,226 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         </SettingsGroup>
       </ScrollView>
     </ShellFrame>
+  );
+}
+
+function WorkspaceSettings({
+  connectionName,
+  coverage,
+  navigate,
+  onFollowedProjects,
+  pendingCount,
+}: {
+  connectionName: string | undefined;
+  coverage: AttentionCoverage;
+  navigate: (section: Section) => void;
+  onFollowedProjects: () => void;
+  pendingCount: number;
+}) {
+  return (
+    <SettingsGroup title="Workspace">
+      <MenuRow
+        accessibilityValue={attentionAccessibilityValue(pendingCount, coverage)}
+        badge={pendingBadge(pendingCount)}
+        description="Permission and form requests"
+        icon="inbox"
+        label="Needs you"
+        onPress={() => navigate("Pending")}
+      />
+      <MenuRow
+        description="Choose projects shown in Sessions and Needs you"
+        icon="folder"
+        label="Followed projects"
+        onPress={onFollowedProjects}
+      />
+      <MenuRow
+        description={connectionName ?? "No connection selected"}
+        icon="server"
+        label="Connections"
+        last
+        onPress={() => navigate("Connections")}
+      />
+    </SettingsGroup>
+  );
+}
+
+function TranscriptSettings({
+  transcript,
+}: {
+  transcript: ReturnType<typeof useTranscriptPreferences>;
+}) {
+  return (
+    <>
+      <SettingsGroup title="Transcript">
+        <SettingsRow>
+          <View style={styles.settingText}>
+            <SettingText
+              description="Steer updates the current work. Queue waits until it finishes."
+              title="Default follow-up delivery"
+            />
+            <View style={styles.deliveryOptions}>
+              <SegmentedControl
+                accessibilityLabel="Default follow-up delivery"
+                disabled={transcript.busy}
+                onChange={(defaultDelivery) => {
+                  if (!transcript.busy) void transcript.update({ defaultDelivery });
+                }}
+                options={deliveryOptions}
+                value={transcript.defaultDelivery}
+              />
+            </View>
+          </View>
+        </SettingsRow>
+
+        <SettingsRow>
+          <View style={styles.settingText}>
+            <SettingText
+              description={
+                transcript.detailed
+                  ? "Detailed: individual tool executions and system notices."
+                  : "Compact: group activity and collapse routine details."
+              }
+              title="Detailed transcript"
+            />
+          </View>
+          <Switch
+            {...switchColors}
+            accessibilityLabel="Detailed transcript"
+            disabled={transcript.busy}
+            value={transcript.detailed}
+            onValueChange={(detailed) => void transcript.update({ detailed })}
+          />
+        </SettingsRow>
+        <SettingsRow last>
+          <View style={styles.settingText}>
+            <SettingText
+              description="Display model reasoning when provided by the server."
+              title="Show reasoning"
+            />
+          </View>
+          <Switch
+            {...switchColors}
+            accessibilityLabel="Show reasoning"
+            disabled={transcript.busy}
+            value={transcript.reasoning}
+            onValueChange={(reasoning) => void transcript.update({ reasoning })}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+      {transcript.error ? (
+        <Text
+          accessibilityRole="alert"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.errorText}
+        >
+          Message preferences could not be loaded or saved. Try changing the setting again.
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
+function SecuritySettings({
+  appLock,
+  connectionID,
+  notifications,
+  onPair,
+}: {
+  appLock: ReturnType<typeof useAppLock>;
+  connectionID: string | undefined;
+  notifications: ReturnType<typeof useNotificationSetting>;
+  onPair: () => void;
+}) {
+  return (
+    <>
+      <SettingsGroup title="Security and notifications">
+        <SettingsRow>
+          <View style={styles.settingText}>
+            <SettingText
+              description="Require device authentication after the app leaves the foreground."
+              title="App lock"
+            />
+          </View>
+          <Switch
+            {...switchColors}
+            accessibilityLabel="App lock"
+            disabled={appLock.busy}
+            onValueChange={(enabled) => void appLock.setEnabled(enabled)}
+            value={appLock.enabled}
+          />
+        </SettingsRow>
+        {appLock.error ? (
+          <SettingsRow>
+            <Text
+              accessibilityRole="alert"
+              dynamicTypeRamp={typeRamp.footnote}
+              style={styles.errorText}
+            >
+              {appLock.error}
+            </Text>
+          </SettingsRow>
+        ) : null}
+
+        <NotificationSettingRow
+          connectionID={connectionID}
+          notifications={notifications}
+          onPair={onPair}
+        />
+      </SettingsGroup>
+      {notifications.error ? (
+        <Text
+          accessibilityRole="alert"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.errorText}
+        >
+          Notification settings could not be loaded or saved.
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
+function NotificationSettingRow({
+  connectionID,
+  notifications,
+  onPair,
+}: {
+  connectionID: string | undefined;
+  notifications: ReturnType<typeof useNotificationSetting>;
+  onPair: () => void;
+}) {
+  const setting = { ...notifications, connectionID };
+  return (
+    <SettingsRow last>
+      <View style={styles.settingText}>
+        <SettingText
+          description={notificationSettingDescription(setting)}
+          title="Mobile notifications"
+        />
+        {offersNotificationPairing(setting) ? (
+          <Button
+            label="Pair notifications"
+            onPress={onPair}
+            size="compact"
+            style={styles.inlineAction}
+          />
+        ) : null}
+      </View>
+      {notifications.loading ? (
+        <ActivityIndicator
+          accessibilityLabel="Loading mobile notification setting"
+          color={palette.signal}
+        />
+      ) : (
+        <Switch
+          {...switchColors}
+          accessibilityLabel="Mobile notifications"
+          disabled={!notifications.pairing || !notifications.state || notifications.busy}
+          onValueChange={(enabled) => void notifications.setEnabled(enabled)}
+          value={notifications.state?.enabled ?? false}
+        />
+      )}
+    </SettingsRow>
   );
 }
 
@@ -774,7 +872,7 @@ export function ShellFrame({
   hideConnectionBar?: boolean;
   navigate: (screen: Section) => void;
   sessionOptions?: ReactNode;
-  sessionTabs?: { active: "session" | "changes"; onSelect: (tab: "session" | "changes") => void };
+  sessionTabs?: SessionTabs;
 }) {
   const { fontScale, width } = useWindowDimensions();
   const tablet = isTabletShell(width);
@@ -786,13 +884,13 @@ export function ShellFrame({
     (profile) => profile.id === connections.selectedProfileId,
   );
   const connection = getConnectionPresentation(runtime.status, runtime.reconnectAttempt);
-  const [openDetail, setOpenDetail] = useState<"branch" | "server">();
-  const [copyState, setCopyState] = useState<"copied" | "error" | "idle">("idle");
+  const [openDetail, setOpenDetail] = useState<ShellDetail>();
+  const [copyState, setCopyState] = useState<CopyState>("idle");
   const serverName = selected?.name ?? "No server selected";
   const detailName = openDetail === "branch" ? branch?.name : serverName;
   useConnectionAnnouncement(runtime.status, connection.label, tablet || !hideConnectionBar);
 
-  function showDetail(detail: "branch" | "server") {
+  function showDetail(detail: ShellDetail) {
     setCopyState("idle");
     setOpenDetail(detail);
   }
@@ -802,16 +900,10 @@ export function ShellFrame({
     try {
       await Clipboard.setStringAsync(detailName);
       setCopyState("copied");
-      AccessibilityInfo.announceForAccessibility(
-        openDetail === "branch" ? "Branch name copied" : "Server name copied",
-      );
+      AccessibilityInfo.announceForAccessibility(detailCopyAnnouncement(openDetail, true));
     } catch {
       setCopyState("error");
-      AccessibilityInfo.announceForAccessibility(
-        openDetail === "branch"
-          ? "Branch name could not be copied"
-          : "Server name could not be copied",
-      );
+      AccessibilityInfo.announceForAccessibility(detailCopyAnnouncement(openDetail, false));
     }
   }
 
@@ -820,239 +912,50 @@ export function ShellFrame({
       <StatusBar style="light" />
       <View style={[styles.shell, tablet && styles.tabletShell]}>
         {tablet ? (
-          <View style={styles.rail}>
-            <View>
-              <Text dynamicTypeRamp={typeRamp.headline} style={styles.brand}>
-                OpenCode
-              </Text>
-              {!sessionTabs ? (
-                <Text
-                  dynamicTypeRamp={typeRamp.headline}
-                  numberOfLines={2}
-                  style={styles.railConnection}
-                >
-                  {selected?.name ?? "No server"}
-                </Text>
-              ) : null}
-            </View>
-            <View
-              accessibilityLabel="Primary navigation"
-              accessibilityRole="tablist"
-              style={styles.railNavigation}
-            >
-              <NavigationItem
-                active={active === "Workspace"}
-                label="Sessions"
-                largeText={largeText}
-                onPress={() => navigate("Workspace")}
-              />
-              <NavigationItem
-                accessibilityLabel="Needs you"
-                accessibilityValue={attentionAccessibilityValue(
-                  workspaceSelection.pendingCount,
-                  workspaceSelection.attentionCoverage,
-                )}
-                active={active === "Pending"}
-                label={pendingLabel(
-                  workspaceSelection.pendingCount,
-                  workspaceSelection.attentionCoverage,
-                )}
-                largeText={largeText}
-                onPress={() => navigate("Pending")}
-              />
-              <NavigationItem
-                active={active === "Settings"}
-                label="Settings"
-                largeText={largeText}
-                onPress={() => navigate("Settings")}
-              />
-            </View>
-            {!sessionTabs ? (
-              <Pressable
-                accessibilityHint="Opens connections"
-                accessibilityLabel={`Connection, ${connection.label}`}
-                accessibilityRole="button"
-                onPress={() => navigate("Connections")}
-                style={({ pressed }) => [styles.railFooter, pressed && styles.branchControlPressed]}
-              >
-                <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
-                <Text
-                  dynamicTypeRamp={typeRamp.footnote}
-                  numberOfLines={1}
-                  style={styles.railStatus}
-                >
-                  {connection.label}
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
+          <ShellRail
+            active={active}
+            connection={connection}
+            coverage={workspaceSelection.attentionCoverage}
+            largeText={largeText}
+            navigate={navigate}
+            pendingCount={workspaceSelection.pendingCount}
+            serverName={selected?.name}
+            showConnection={!sessionTabs}
+          />
         ) : null}
 
         <View style={styles.main}>
           {!hideConnectionBar ? (
-            <View
-              accessibilityLiveRegion="polite"
-              style={[styles.connectionBar, largeText && styles.connectionBarLargeText]}
-            >
-              {sessionTabs ? (
-                <View style={[styles.sessionTabs, largeText && styles.sessionTabsLargeText]}>
-                  <SegmentedControl
-                    accessibilityLabel="Session view"
-                    onChange={sessionTabs.onSelect}
-                    options={sessionTabOptions}
-                    role="tablist"
-                    size="compact"
-                    value={sessionTabs.active}
-                  />
-                </View>
-              ) : (
-                <View style={styles.connectionState}>
-                  <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionStatus}>
-                    {connection.label}
-                  </Text>
-                </View>
-              )}
-              {branch || sessionOptions ? (
-                <View
-                  style={[styles.locationControls, largeText && styles.locationControlsLargeText]}
-                >
-                  {branch ? (
-                    branch.state === "known" && branch.name ? (
-                      <Pressable
-                        accessibilityHint="Opens details where you can copy the full branch name"
-                        accessibilityLabel={`Current branch, ${branch.name}${branch.stale ? ", may be outdated" : ""}`}
-                        accessibilityRole="button"
-                        onPress={() => showDetail("branch")}
-                        style={({ pressed }) => [
-                          styles.branchControl,
-                          largeText && !sessionOptions && styles.branchControlLargeText,
-                          pressed && styles.branchControlPressed,
-                        ]}
-                      >
-                        <Feather
-                          accessibilityElementsHidden
-                          color={palette.dim}
-                          importantForAccessibility="no-hide-descendants"
-                          name="git-branch"
-                          size={14}
-                        />
-                        <Text
-                          dynamicTypeRamp={typeRamp.subheadline}
-                          ellipsizeMode="middle"
-                          numberOfLines={1}
-                          style={styles.branchName}
-                        >
-                          {branch.name}
-                        </Text>
-                      </Pressable>
-                    ) : (
-                      <View
-                        style={[
-                          styles.branchControl,
-                          largeText && !sessionOptions && styles.branchControlLargeText,
-                        ]}
-                      >
-                        <Feather
-                          accessibilityElementsHidden
-                          color={palette.dim}
-                          importantForAccessibility="no-hide-descendants"
-                          name="git-branch"
-                          size={14}
-                        />
-                        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.branchName}>
-                          {branch.state === "loading"
-                            ? "Checking branch"
-                            : branch.state === "none"
-                              ? "No branch"
-                              : "Branch unavailable"}
-                        </Text>
-                      </View>
-                    )
-                  ) : null}
-                  {sessionOptions}
-                </View>
-              ) : null}
-              {!sessionTabs ? (
-                <Pressable
-                  accessibilityHint="Opens the full server name"
-                  accessibilityLabel={`Server, ${serverName}`}
-                  accessibilityRole="button"
-                  onPress={() => showDetail("server")}
-                  style={({ pressed }) => [
-                    styles.connectionNameControl,
-                    branch && styles.connectionNameControlWithBranch,
-                    largeText && styles.connectionNameControlLargeText,
-                    pressed && styles.branchControlPressed,
-                  ]}
-                >
-                  <Text
-                    dynamicTypeRamp={typeRamp.subheadline}
-                    numberOfLines={largeText ? undefined : 1}
-                    style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
-                  >
-                    {serverName}
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
+            <ConnectionBar
+              branch={branch}
+              connection={connection}
+              largeText={largeText}
+              onShowDetail={showDetail}
+              serverName={serverName}
+              sessionOptions={sessionOptions}
+              sessionTabs={sessionTabs}
+            />
           ) : null}
           {sessionTabs && showsConnectionIssue(runtime.status) ? (
-            <Pressable
-              accessibilityHint="Opens connections"
-              accessibilityRole="button"
-              accessibilityLabel={`Connection problem: ${connection.label}`}
+            <SessionConnectionIssue
+              connection={connection}
               onPress={() => navigate("Connections")}
-              style={({ pressed }) => [
-                styles.sessionConnectionIssue,
-                pressed && styles.branchControlPressed,
-              ]}
-            >
-              <Text
-                accessibilityLiveRegion="polite"
-                dynamicTypeRamp={typeRamp.footnote}
-                style={[styles.connectionIssue, { color: connection.color }]}
-              >
-                {connection.label}. Check connections.
-              </Text>
-            </Pressable>
+            />
           ) : null}
           <View style={styles.content}>{children}</View>
         </View>
       </View>
-      <ModalSheet
+      <ShellDetailSheet
+        copyState={copyState}
+        detail={openDetail}
+        detailName={detailName}
         onClose={() => {
           setOpenDetail(undefined);
           setCopyState("idle");
         }}
-        title={openDetail === "branch" ? "Current branch" : "Server name"}
-        visible={Boolean(openDetail && detailName)}
-      >
-        <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.branchDetailName}>
-          {detailName}
-        </Text>
-        {openDetail === "branch" && branch?.stale ? (
-          <Text
-            accessibilityRole="alert"
-            dynamicTypeRamp={typeRamp.subheadline}
-            style={styles.branchDetailNote}
-          >
-            This branch may be outdated while the server reconnects.
-          </Text>
-        ) : null}
-        <ActionButton
-          label={
-            copyState === "copied"
-              ? "Copied"
-              : copyState === "error"
-                ? "Try copying again"
-                : openDetail === "branch"
-                  ? "Copy branch name"
-                  : "Copy server name"
-          }
-          onPress={copyDetail}
-        />
-      </ModalSheet>
+        onCopy={copyDetail}
+        stale={branch?.stale}
+      />
     </SafeAreaView>
   );
 }
@@ -1073,39 +976,302 @@ function useConnectionAnnouncement(
   }, [label, navigation, status, visible]);
 }
 
-export function pendingLabel(
-  count: number,
-  coverage: Pick<
-    ReturnType<typeof useWorkspaceSelection>["attentionCoverage"],
-    "completeness" | "freshness"
-  >,
-) {
-  if (count > 0) return `Needs you ${count}${coverage.completeness === "complete" ? "" : "+"}`;
-  return coverage.freshness === "reconciling" ? "Needs you, checking" : "Needs you";
+function ShellRail({
+  active,
+  connection,
+  coverage,
+  largeText,
+  navigate,
+  pendingCount,
+  serverName,
+  showConnection,
+}: {
+  active: Section;
+  connection: ConnectionPresentation;
+  coverage: AttentionCoverage;
+  largeText: boolean;
+  navigate: (screen: Section) => void;
+  pendingCount: number;
+  serverName: string | undefined;
+  showConnection: boolean;
+}) {
+  return (
+    <View style={styles.rail}>
+      <View>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.brand}>
+          OpenCode
+        </Text>
+        {showConnection ? (
+          <Text dynamicTypeRamp={typeRamp.headline} numberOfLines={2} style={styles.railConnection}>
+            {serverName ?? "No server"}
+          </Text>
+        ) : null}
+      </View>
+      <View
+        accessibilityLabel="Primary navigation"
+        accessibilityRole="tablist"
+        style={styles.railNavigation}
+      >
+        <NavigationItem
+          active={active === "Workspace"}
+          label="Sessions"
+          largeText={largeText}
+          onPress={() => navigate("Workspace")}
+        />
+        <NavigationItem
+          accessibilityLabel="Needs you"
+          accessibilityValue={attentionAccessibilityValue(pendingCount, coverage)}
+          active={active === "Pending"}
+          label={pendingLabel(pendingCount, coverage)}
+          largeText={largeText}
+          onPress={() => navigate("Pending")}
+        />
+        <NavigationItem
+          active={active === "Settings"}
+          label="Settings"
+          largeText={largeText}
+          onPress={() => navigate("Settings")}
+        />
+      </View>
+      {showConnection ? (
+        <Pressable
+          accessibilityHint="Opens connections"
+          accessibilityLabel={`Connection, ${connection.label}`}
+          accessibilityRole="button"
+          onPress={() => navigate("Connections")}
+          style={({ pressed }) => [styles.railFooter, pressed && styles.branchControlPressed]}
+        >
+          <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
+          <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.railStatus}>
+            {connection.label}
+          </Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
-export function pendingSummaryTitle(count: number, complete: boolean) {
-  if (count === 0) return complete ? "Nothing needs you" : "Nothing found that needs you";
-  const requests = `${count} ${count === 1 ? "request" : "requests"}`;
-  return complete ? requests : `At least ${requests}`;
+function ConnectionBar({
+  branch,
+  connection,
+  largeText,
+  onShowDetail,
+  serverName,
+  sessionOptions,
+  sessionTabs,
+}: {
+  branch: SessionBranch | undefined;
+  connection: ConnectionPresentation;
+  largeText: boolean;
+  onShowDetail: (detail: ShellDetail) => void;
+  serverName: string;
+  sessionOptions: ReactNode;
+  sessionTabs: SessionTabs | undefined;
+}) {
+  return (
+    <View
+      accessibilityLiveRegion="polite"
+      style={[styles.connectionBar, largeText && styles.connectionBarLargeText]}
+    >
+      {sessionTabs ? (
+        <View style={[styles.sessionTabs, largeText && styles.sessionTabsLargeText]}>
+          <SegmentedControl
+            accessibilityLabel="Session view"
+            onChange={sessionTabs.onSelect}
+            options={sessionTabOptions}
+            role="tablist"
+            size="compact"
+            value={sessionTabs.active}
+          />
+        </View>
+      ) : (
+        <View style={styles.connectionState}>
+          <View style={[styles.statusDot, { backgroundColor: connection.color }]} />
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionStatus}>
+            {connection.label}
+          </Text>
+        </View>
+      )}
+      {branch || sessionOptions ? (
+        <View style={[styles.locationControls, largeText && styles.locationControlsLargeText]}>
+          {branch ? (
+            <BranchControl
+              branch={branch}
+              fullWidth={largeText && !sessionOptions}
+              onPress={() => onShowDetail("branch")}
+            />
+          ) : null}
+          {sessionOptions}
+        </View>
+      ) : null}
+      {!sessionTabs ? (
+        <ServerNameControl
+          branch={branch}
+          largeText={largeText}
+          onPress={() => onShowDetail("server")}
+          serverName={serverName}
+        />
+      ) : null}
+    </View>
+  );
 }
 
-function pendingCoverageLabel(
-  coverage: ReturnType<typeof useWorkspaceSelection>["attentionCoverage"],
-) {
-  if (coverage.freshness === "stale") {
-    return `Last checked across ${coverage.knownLocationCount} locations.`;
+function BranchControl({
+  branch,
+  fullWidth,
+  onPress,
+}: {
+  branch: SessionBranch;
+  fullWidth: boolean;
+  onPress: () => void;
+}) {
+  if (branch.state === "known" && branch.name) {
+    return (
+      <Pressable
+        accessibilityHint="Opens details where you can copy the full branch name"
+        accessibilityLabel={`Current branch, ${branch.name}${branch.stale ? ", may be outdated" : ""}`}
+        accessibilityRole="button"
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.branchControl,
+          fullWidth && styles.branchControlLargeText,
+          pressed && styles.branchControlPressed,
+        ]}
+      >
+        <BranchIcon />
+        <Text
+          dynamicTypeRamp={typeRamp.subheadline}
+          ellipsizeMode="middle"
+          numberOfLines={1}
+          style={styles.branchName}
+        >
+          {branch.name}
+        </Text>
+      </Pressable>
+    );
   }
-  if (coverage.freshness === "reconciling") {
-    return `Checking ${coverage.reconciledLocationCount} of ${coverage.knownLocationCount} locations.`;
-  }
-  return coverage.completeness === "complete"
-    ? `Checked ${coverage.reconciledLocationCount} locations.`
-    : `Checked ${coverage.reconciledLocationCount} of ${coverage.knownLocationCount} locations.`;
+  return (
+    <View style={[styles.branchControl, fullWidth && styles.branchControlLargeText]}>
+      <BranchIcon />
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.branchName}>
+        {branchStatusLabel(branch.state)}
+      </Text>
+    </View>
+  );
 }
 
-function locationFailureTitle(count: number) {
-  return `${count} ${count === 1 ? "location" : "locations"} could not be checked.`;
+function BranchIcon() {
+  return (
+    <Feather
+      accessibilityElementsHidden
+      color={palette.dim}
+      importantForAccessibility="no-hide-descendants"
+      name="git-branch"
+      size={14}
+    />
+  );
+}
+
+function ServerNameControl({
+  branch,
+  largeText,
+  onPress,
+  serverName,
+}: {
+  branch: SessionBranch | undefined;
+  largeText: boolean;
+  onPress: () => void;
+  serverName: string;
+}) {
+  return (
+    <Pressable
+      accessibilityHint="Opens the full server name"
+      accessibilityLabel={`Server, ${serverName}`}
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.connectionNameControl,
+        branch && styles.connectionNameControlWithBranch,
+        largeText && styles.connectionNameControlLargeText,
+        pressed && styles.branchControlPressed,
+      ]}
+    >
+      <Text
+        dynamicTypeRamp={typeRamp.subheadline}
+        numberOfLines={largeText ? undefined : 1}
+        style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
+      >
+        {serverName}
+      </Text>
+    </Pressable>
+  );
+}
+
+function SessionConnectionIssue({
+  connection,
+  onPress,
+}: {
+  connection: ConnectionPresentation;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityHint="Opens connections"
+      accessibilityRole="button"
+      accessibilityLabel={`Connection problem: ${connection.label}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.sessionConnectionIssue,
+        pressed && styles.branchControlPressed,
+      ]}
+    >
+      <Text
+        accessibilityLiveRegion="polite"
+        dynamicTypeRamp={typeRamp.footnote}
+        style={[styles.connectionIssue, { color: connection.color }]}
+      >
+        {connection.label}. Check connections.
+      </Text>
+    </Pressable>
+  );
+}
+
+function ShellDetailSheet({
+  copyState,
+  detail,
+  detailName,
+  onClose,
+  onCopy,
+  stale,
+}: {
+  copyState: CopyState;
+  detail: ShellDetail | undefined;
+  detailName: string | undefined;
+  onClose: () => void;
+  onCopy: () => Promise<void>;
+  stale: boolean | undefined;
+}) {
+  return (
+    <ModalSheet
+      onClose={onClose}
+      title={detail === "branch" ? "Current branch" : "Server name"}
+      visible={Boolean(detail && detailName)}
+    >
+      <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.branchDetailName}>
+        {detailName}
+      </Text>
+      {detail === "branch" && stale ? (
+        <Text
+          accessibilityRole="alert"
+          dynamicTypeRamp={typeRamp.subheadline}
+          style={styles.branchDetailNote}
+        >
+          This branch may be outdated while the server reconnects.
+        </Text>
+      ) : null}
+      <ActionButton label={detailCopyLabel(copyState, detail)} onPress={onCopy} />
+    </ModalSheet>
+  );
 }
 
 const sessionTabOptions = [

@@ -75,21 +75,10 @@ export function SessionChanges({
     files.length > 1 &&
     files.length <= 20 &&
     files.reduce((total, file) => total + file.patch.length, 0) <= 200_000;
-  const additions = files.reduce((total, file) => total + file.additions, 0);
-  const deletions = files.reduce((total, file) => total + file.deletions, 0);
   const [focus, setFocus] = useState<{ scope: string; file: string; open: boolean }>();
   const fileTriggerRef = useRef<View>(null);
   const focusedFile =
     focus?.scope === scope ? files.find((file) => file.file === focus.file) : undefined;
-  const focusedRows = useMemo(
-    () =>
-      focusedFile
-        ? buildDiffRows([focusedFile], new Set([focusedFile.file])).filter(
-            (row) => row.type === "line",
-          )
-        : [],
-    [focusedFile],
-  );
 
   return (
     <>
@@ -100,71 +89,29 @@ export function SessionChanges({
         initialNumToRender={40}
         keyExtractor={(row) => row.key}
         ListEmptyComponent={
-          !connectedToRoute ? (
-            <DiffState
-              detail="Return to the matching connection to review these changes."
-              title="Connection unavailable"
-            />
-          ) : query.isPending ? (
-            <ActivityIndicator
-              accessibilityLabel="Loading current changes"
-              color={palette.signal}
-            />
-          ) : query.isError ? (
-            <DiffState
-              action="Try again"
-              detail="The current working-tree diff could not be loaded."
-              onPress={() => void query.refetch()}
-              title="Changes unavailable"
-            />
-          ) : (
-            <DiffState detail="The working tree has no uncommitted changes." title="No changes" />
-          )
+          // A plain element, not a wrapper component, so the list can attach its layout handler.
+          renderDiffEmptyState({
+            connected: connectedToRoute,
+            isError: query.isError,
+            isPending: query.isPending,
+            onRetry: () => void query.refetch(),
+          })
         }
         ListHeaderComponent={
           rows.length > 0 ? (
-            <View style={styles.summary}>
-              <Text
-                accessibilityRole="header"
-                dynamicTypeRamp={typeRamp.headline}
-                style={styles.title}
-              >
-                {files.length} {files.length === 1 ? "file" : "files"}
-              </Text>
-              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
-                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
-                  +{additions}
-                </Text>
-                {"  "}
-                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
-                  -{deletions}
-                </Text>
-              </Text>
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.explanation}>
-                Current working tree. This may include changes made after the selected tool call.
-              </Text>
-              {query.isError ? (
-                <DiffState
-                  title="Refresh failed"
-                  detail="Showing the last loaded changes."
-                  action="Retry"
-                  onPress={() => void query.refetch()}
-                />
-              ) : null}
-              {expanded.size > 0 || canExpandAll ? (
-                <Button
-                  label={expanded.size > 0 ? "Collapse all" : "Expand all"}
-                  onPress={() =>
-                    setExpansion({
-                      scope,
-                      files:
-                        expanded.size > 0 ? new Set() : new Set(files.map((file) => file.file)),
-                    })
-                  }
-                  variant="text"
-                />
-              ) : null}
-            </View>
+            <DiffSummary
+              canExpandAll={canExpandAll}
+              expandedCount={expanded.size}
+              files={files}
+              isError={query.isError}
+              onRetry={() => void query.refetch()}
+              onToggleAll={() =>
+                setExpansion({
+                  scope,
+                  files: expanded.size > 0 ? new Set() : new Set(files.map((file) => file.file)),
+                })
+              }
+            />
           ) : null
         }
         maxToRenderPerBatch={60}
@@ -191,44 +138,158 @@ export function SessionChanges({
         updateCellsBatchingPeriod={40}
         windowSize={9}
       />
-      <ModalSheet
-        title="File changes"
-        subtitle={focusedFile ? sanitizeTranscriptText(focusedFile.file, 1024) : ""}
-        visible={Boolean(focus?.open && focusedFile)}
+      <FocusedFileSheet
+        file={focusedFile}
         onClose={() => setFocus((current) => (current ? { ...current, open: false } : current))}
-        size="full"
-        scrollable={false}
         returnFocusRef={fileTriggerRef}
-      >
-        {focusedFile ? (
-          <View style={styles.focusedSummary}>
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
-              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
-                +{focusedFile.additions}
-              </Text>
-              {"  "}
-              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
-                -{focusedFile.deletions}
-              </Text>
-              {" · "}
-              {focusedFile.status}
-            </Text>
-            {focusedFile.patch.trim() ? (
-              <CopyTextButton label="Copy patch" text={focusedFile.patch} />
-            ) : null}
-          </View>
-        ) : null}
-        <FlatList
-          accessibilityLabel="Focused file diff"
-          data={focusedRows}
-          keyExtractor={(row) => row.key}
-          initialNumToRender={40}
-          maxToRenderPerBatch={60}
-          windowSize={9}
-          renderItem={({ item }) => (item.type === "line" ? <DiffLine row={item} /> : null)}
-        />
-      </ModalSheet>
+        visible={Boolean(focus?.open && focusedFile)}
+      />
     </>
+  );
+}
+
+function renderDiffEmptyState({
+  connected,
+  isError,
+  isPending,
+  onRetry,
+}: {
+  connected: boolean;
+  isError: boolean;
+  isPending: boolean;
+  onRetry: () => void;
+}) {
+  if (!connected) {
+    return (
+      <DiffState
+        detail="Return to the matching connection to review these changes."
+        title="Connection unavailable"
+      />
+    );
+  }
+  if (isPending) {
+    return (
+      <ActivityIndicator accessibilityLabel="Loading current changes" color={palette.signal} />
+    );
+  }
+  if (isError) {
+    return (
+      <DiffState
+        action="Try again"
+        detail="The current working-tree diff could not be loaded."
+        onPress={onRetry}
+        title="Changes unavailable"
+      />
+    );
+  }
+  return <DiffState detail="The working tree has no uncommitted changes." title="No changes" />;
+}
+
+function DiffSummary({
+  canExpandAll,
+  expandedCount,
+  files,
+  isError,
+  onRetry,
+  onToggleAll,
+}: {
+  canExpandAll: boolean;
+  expandedCount: number;
+  files: FileDiffInfo[];
+  isError: boolean;
+  onRetry: () => void;
+  onToggleAll: () => void;
+}) {
+  const additions = files.reduce((total, file) => total + file.additions, 0);
+  const deletions = files.reduce((total, file) => total + file.deletions, 0);
+  return (
+    <View style={styles.summary}>
+      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.title}>
+        {files.length} {files.length === 1 ? "file" : "files"}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
+          +{additions}
+        </Text>
+        {"  "}
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
+          -{deletions}
+        </Text>
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.explanation}>
+        Current working tree. This may include changes made after the selected tool call.
+      </Text>
+      {isError ? (
+        <DiffState
+          title="Refresh failed"
+          detail="Showing the last loaded changes."
+          action="Retry"
+          onPress={onRetry}
+        />
+      ) : null}
+      {expandedCount > 0 || canExpandAll ? (
+        <Button
+          label={expandedCount > 0 ? "Collapse all" : "Expand all"}
+          onPress={onToggleAll}
+          variant="text"
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function FocusedFileSheet({
+  file,
+  onClose,
+  returnFocusRef,
+  visible,
+}: {
+  file: FileDiffInfo | undefined;
+  onClose: () => void;
+  returnFocusRef: RefObject<View | null>;
+  visible: boolean;
+}) {
+  const rows = useMemo(
+    () =>
+      file ? buildDiffRows([file], new Set([file.file])).filter((row) => row.type === "line") : [],
+    [file],
+  );
+  return (
+    <ModalSheet
+      title="File changes"
+      subtitle={file ? sanitizeTranscriptText(file.file, 1024) : ""}
+      visible={visible}
+      onClose={onClose}
+      size="full"
+      scrollable={false}
+      returnFocusRef={returnFocusRef}
+    >
+      {file ? (
+        <View style={styles.focusedSummary}>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
+              +{file.additions}
+            </Text>
+            {"  "}
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
+              -{file.deletions}
+            </Text>
+            {" · "}
+            {file.status}
+          </Text>
+          {file.patch.trim() ? <CopyTextButton label="Copy patch" text={file.patch} /> : null}
+        </View>
+      ) : null}
+      <FlatList
+        accessibilityLabel="Focused file diff"
+        data={rows}
+        keyExtractor={(row) => row.key}
+        initialNumToRender={40}
+        maxToRenderPerBatch={60}
+        windowSize={9}
+        renderItem={({ item }) => (item.type === "line" ? <DiffLine row={item} /> : null)}
+      />
+    </ModalSheet>
   );
 }
 

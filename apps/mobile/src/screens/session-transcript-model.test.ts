@@ -44,6 +44,38 @@ test("removes ANSI sequences and unsafe control characters without changing plai
   expect(sanitizeTranscriptText("abcdef", 3)).toBe("abc");
 });
 
+test.each([
+  ["an OSC title ended by BEL", "a\u001b]0;title\u0007b", "ab"],
+  ["an OSC hyperlink ended by ST", "a\u001b]8;;https://x.test\u001b\\link", "alink"],
+  ["an unterminated OSC", "a\u001b]0;title", "a"],
+  ["an unterminated CSI", "a\u001b[31", "a"],
+  ["a lone escape", "a\u001bcb", "acb"],
+  ["a trailing escape", "a\u001b", "a"],
+  ["a C1 CSI", "a\u009b1;2Hb", "ab"],
+  ["an unterminated C1 CSI", "a\u009b31", "a"],
+  ["a C1 OSC ended by ST", "a\u009dtitle\u009cb", "ab"],
+  ["a C1 OSC ended by BEL", "a\u009dtitle\u0007b", "ab"],
+  ["an unterminated C1 OSC", "a\u009dtitle", "a"],
+  ["a trailing carriage return", "a\r", "a\n"],
+  ["DEL and C1 controls", "a\u007fb\u0085c", "abc"],
+  ["C0 controls other than tab and newline", "a\u0000\u0008\u000b\u001fb", "ab"],
+  ["bidi marks, embeddings, and isolates", "‎A‏B‪C‮D⁦E⁩F", "ABCDEF"],
+  ["neighbours of the bidi ranges", "‍‐ ⁥⁪", "‍‐ ⁥⁪"],
+  ["non-ASCII text", "é 😀 日本", "é 😀 日本"],
+  ["an empty string", "", ""],
+])("sanitizes %s", (_name, text, expected) => {
+  expect(sanitizeTranscriptText(text)).toBe(expected);
+});
+
+test("bounds the scanned input by the output limit", () => {
+  const hidden = `${"\u0000".repeat(4_096)}visible`;
+  expect(sanitizeTranscriptText(hidden)).toBe("visible");
+  expect(sanitizeTranscriptText(hidden, 10)).toBe("");
+  expect(sanitizeTranscriptText(hidden, 300)).toBe("visible");
+  expect(sanitizeTranscriptText("a\u001b[31mb", 0)).toBe("");
+  expect(sanitizeTranscriptText("a\u001b[31mbc", 2)).toBe("ab");
+});
+
 test("projects task wrappers without exposing protocol markup", () => {
   expect(
     parseSubagentProtocolText(
@@ -242,4 +274,125 @@ test("foreground subagents keep the tool status", () => {
   expect(
     getSubagentPresentation(foreground, subagentStates([launch], { ses_child: {} }))?.state,
   ).toBe("completed");
+});
+
+type AssistantTool = Extract<
+  Extract<SessionMessageInfo, { type: "assistant" }>["content"][number],
+  { type: "tool" }
+>;
+
+function subagentTool(state: AssistantTool["state"], name = "subagent"): AssistantTool {
+  return { id: "tool-1", name, state, time: { created: 1 }, type: "tool" };
+}
+
+test("ignores tools that do not delegate", () => {
+  expect(
+    getSubagentPresentation(subagentTool({ input: {}, metadata: {}, status: "running" }, "shell")),
+  ).toBeUndefined();
+  expect(
+    getSubagentPresentation(subagentTool({ input: {}, metadata: {}, status: "running" }, " Task ")),
+  ).toEqual({ background: false, state: "running", title: "Delegated task" });
+});
+
+test.each([
+  [
+    "a parsed input",
+    JSON.stringify({ background: true, description: " Explore ", subagent_type: "explore" }),
+    { agent: "explore", background: true, state: "streaming", title: "Explore" },
+  ],
+  [
+    "invalid JSON",
+    '{"description":',
+    { background: false, state: "streaming", title: "Delegated task" },
+  ],
+  [
+    "a non-object input",
+    '"text"',
+    { background: false, state: "streaming", title: "Delegated task" },
+  ],
+  [
+    "an oversized input",
+    JSON.stringify({ description: "x".repeat(16_384) }),
+    { background: false, state: "streaming", title: "Delegated task" },
+  ],
+])("reads streaming subagent input from %s", (_name, input, expected) => {
+  expect(getSubagentPresentation(subagentTool({ input, status: "streaming" }))).toEqual(expected);
+});
+
+test("falls back across metadata session keys, titles, and agents", () => {
+  const running = (metadata: Record<string, string | boolean>) =>
+    getSubagentPresentation(subagentTool({ input: {}, metadata, status: "running" }));
+
+  expect(
+    running({ agent: " general ", sessionID: "bad id", task_id: "ses_task", title: "Meta" }),
+  ).toEqual({
+    agent: "general",
+    background: false,
+    childSessionID: "ses_task",
+    state: "running",
+    title: "Meta",
+  });
+  expect(running({ session_id: "ses_snake", taskId: "ses_camel" })?.childSessionID).toBe(
+    "ses_snake",
+  );
+  expect(running({ background: true, taskId: "ses_camel" })).toMatchObject({
+    background: true,
+    childSessionID: "ses_camel",
+  });
+});
+
+test("presents protocol results, summaries, and errors from finished tools", () => {
+  expect(
+    getSubagentPresentation(
+      subagentTool({
+        content: [
+          { mime: "text/plain", type: "file", uri: "file:///log" },
+          {
+            text: '<task id="ses_child" state="completed">\n<summary>Inspect</summary>\n<task_result>\nDone\n</task_result>\n</task>',
+            type: "text",
+          },
+          { text: "  ", type: "text" },
+          { text: " Extra ", type: "text" },
+        ],
+        input: {},
+        status: "completed",
+      }),
+    ),
+  ).toEqual({
+    background: false,
+    childSessionID: "ses_child",
+    result: "Done\n\nExtra",
+    state: "completed",
+    title: "Inspect",
+  });
+
+  const failed = subagentTool({
+    content: [
+      {
+        text: '<task id="ses_child" state="error">\n<task_error>\nBroke\n</task_error>\n</task>',
+        type: "text",
+      },
+    ],
+    error: { message: "failed", type: "tool" },
+    input: { background: true },
+    status: "error",
+  });
+  expect(getSubagentPresentation(failed)).toEqual({
+    background: true,
+    childSessionID: "ses_child",
+    result: "Broke",
+    state: "error",
+    title: "Delegated task",
+  });
+  expect(
+    getSubagentPresentation(
+      failed,
+      new Map([["ses_child", { background: true, state: "completed" as const }]]),
+    )?.state,
+  ).toBe("completed");
+  expect(
+    getSubagentPresentation(
+      subagentTool({ error: { message: "failed", type: "tool" }, input: {}, status: "error" }),
+    ),
+  ).toEqual({ background: false, state: "error", title: "Delegated task" });
 });

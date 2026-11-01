@@ -5,173 +5,23 @@ import type {
 } from "@opencode2-mobile/opencode-adapter";
 import type { InfiniteData } from "@tanstack/react-query";
 
+import {
+  isValidTranscriptReductionEvent,
+  maxStreamingInputCharacters,
+} from "./transcript-event-validation";
+
+export {
+  isTranscriptReductionEventType,
+  isValidTranscriptReductionEvent,
+  transcriptEventSessionID,
+} from "./transcript-event-validation";
+
 type AssistantMessage = Extract<SessionMessageInfo, { type: "assistant" }>;
 type AssistantPart = AssistantMessage["content"][number];
 type AssistantTool = Extract<AssistantPart, { type: "tool" }>;
 type ToolContent = Extract<AssistantTool["state"], { status: "completed" }>["content"][number];
 type RunningToolState = Extract<AssistantTool["state"], { status: "running" }>;
 type ToolInput = RunningToolState["input"];
-
-const maxStreamingInputCharacters = 128_000;
-
-const transcriptReductionEventTypes = new Set<string>([
-  "session.step.started",
-  "session.step.ended",
-  "session.step.failed",
-  "session.text.started",
-  "session.text.delta",
-  "session.text.ended",
-  "session.reasoning.started",
-  "session.reasoning.delta",
-  "session.reasoning.ended",
-  "session.tool.input.started",
-  "session.tool.input.delta",
-  "session.tool.input.ended",
-  "session.tool.called",
-  "session.tool.progress",
-  "session.tool.success",
-  "session.tool.failed",
-  "session.retry.scheduled",
-]);
-
-export function isTranscriptReductionEventType(type: string) {
-  return transcriptReductionEventTypes.has(type);
-}
-
-export function isValidTranscriptReductionEvent(event: OpenCodeEvent) {
-  if (!isTranscriptReductionEventType(event.type) || !isCommonEventData(event.data)) return false;
-  if (!isEventTime((event as unknown as Record<string, unknown>).created)) return false;
-  const data = event.data as unknown as Record<string, unknown>;
-  switch (event.type) {
-    case "session.step.started":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isBoundedString(data.agent) &&
-        isModelRef(data.model) &&
-        (data.snapshot === undefined || isBoundedString(data.snapshot, 4096))
-      );
-    case "session.step.ended":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        (data.finish === "stop" ||
-          data.finish === "length" ||
-          data.finish === "tool-calls" ||
-          data.finish === "content-filter" ||
-          data.finish === "error" ||
-          data.finish === "unknown") &&
-        isFiniteNumber(data.cost) &&
-        isTokenUsage(data.tokens) &&
-        (data.rawFinish === undefined || isBoundedString(data.rawFinish)) &&
-        (data.snapshot === undefined || isBoundedString(data.snapshot, 4096)) &&
-        isOptionalStringArray(data.files)
-      );
-    case "session.step.failed":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isStructuredError(data.error) &&
-        (data.finish === undefined || data.finish === "content-filter") &&
-        (data.rawFinish === undefined || isBoundedString(data.rawFinish)) &&
-        (data.cost === undefined || isFiniteNumber(data.cost)) &&
-        (data.tokens === undefined || isTokenUsage(data.tokens)) &&
-        (data.snapshot === undefined || isBoundedString(data.snapshot, 4096)) &&
-        isOptionalStringArray(data.files)
-      );
-    case "session.text.started":
-    case "session.reasoning.started":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isOrdinal(data.ordinal)
-      );
-    case "session.text.delta":
-    case "session.reasoning.delta":
-      return (
-        isMessageID(data.assistantMessageID) &&
-        isOrdinal(data.ordinal) &&
-        isBoundedString(data.delta)
-      );
-    case "session.text.ended":
-    case "session.reasoning.ended":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isOrdinal(data.ordinal) &&
-        isBoundedString(data.text)
-      );
-    case "session.tool.input.started":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isToolID(data.id) &&
-        isBoundedString(data.name)
-      );
-    case "session.tool.input.delta":
-      return (
-        isMessageID(data.assistantMessageID) && isToolID(data.id) && isBoundedString(data.delta)
-      );
-    case "session.tool.input.ended":
-      return (
-        isMessageID(data.assistantMessageID) && isToolID(data.id) && isBoundedString(data.text)
-      );
-    case "session.tool.called":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isToolID(data.id) &&
-        isJsonRecord(data.input) &&
-        typeof data.executed === "boolean"
-      );
-    case "session.tool.progress":
-      return (
-        isMessageID(data.assistantMessageID) && isToolID(data.id) && isJsonRecord(data.metadata)
-      );
-    case "session.tool.success":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isToolID(data.id) &&
-        typeof data.executed === "boolean" &&
-        Array.isArray(data.content) &&
-        data.content.length > 0 &&
-        data.content.length <= 256 &&
-        data.content.every(isToolContent) &&
-        (data.metadata === undefined || isJsonRecord(data.metadata))
-      );
-    case "session.tool.failed":
-      return (
-        isEventTime(event.created) &&
-        isMessageID(data.assistantMessageID) &&
-        isToolID(data.id) &&
-        typeof data.executed === "boolean" &&
-        isStructuredError(data.error) &&
-        (data.content === undefined ||
-          (Array.isArray(data.content) &&
-            data.content.length > 0 &&
-            data.content.length <= 256 &&
-            data.content.every(isToolContent))) &&
-        (data.metadata === undefined || isJsonRecord(data.metadata))
-      );
-    case "session.retry.scheduled":
-      return (
-        isMessageID(data.assistantMessageID) &&
-        typeof data.attempt === "number" &&
-        Number.isInteger(data.attempt) &&
-        data.attempt >= 0 &&
-        isEventTime(data.at) &&
-        isStructuredError(data.error)
-      );
-    default:
-      return false;
-  }
-}
-
-export function transcriptEventSessionID(event: OpenCodeEvent) {
-  const data: unknown = event.data;
-  return isCommonEventData(data) ? data.sessionID : undefined;
-}
 
 export function reduceTranscriptEvents(
   current: InfiniteData<SessionMessagesResponse, string | undefined> | undefined,
@@ -222,35 +72,52 @@ export function trimSnapshotTextDeltas(
   events: OpenCodeEvent[],
   continued?: Set<string>,
 ) {
+  const dropped = new Set<number>();
+  for (const [key, indexes] of heldTextDeltas(events)) {
+    const text = snapshotPartText(snapshot, key);
+    if (!text) continue;
+    const included = includedDeltaCount(text, events, indexes);
+    for (const index of indexes.slice(0, included)) dropped.add(index);
+    // The refetched text ends exactly where these deltas pick up, so the part is continuous.
+    if (included > 0) continued?.add(key);
+  }
+  return dropped.size === 0 ? events : events.filter((_, index) => !dropped.has(index));
+}
+
+function heldTextDeltas(events: OpenCodeEvent[]) {
   const deltas = new Map<string, number[]>();
   events.forEach((event, index) => {
     if (event.type !== "session.text.delta" && event.type !== "session.reasoning.delta") return;
     const key = textPartKey(event);
     if (key) deltas.set(key, [...(deltas.get(key) ?? []), index]);
   });
-  const dropped = new Set<number>();
-  for (const [key, indexes] of deltas) {
-    const [messageID = "", type, ordinal] = key.split("\u0000");
-    const message = findAssistantMessage(snapshot, messageID);
-    const part =
-      message && (type === "text" || type === "reasoning")
-        ? findTextPart(message, Number(ordinal), type)?.part
-        : undefined;
-    if (!part?.text) continue;
-    let prefix = "";
-    let included = 0;
-    for (const [count, index] of indexes.entries()) {
-      const event = events[index];
-      if (event?.type !== "session.text.delta" && event?.type !== "session.reasoning.delta") break;
-      prefix += event.data.delta;
-      if (prefix.length > part.text.length) break;
-      if (part.text.endsWith(prefix)) included = count + 1;
-    }
-    for (const index of indexes.slice(0, included)) dropped.add(index);
-    // The refetched text ends exactly where these deltas pick up, so the part is continuous.
-    if (included > 0) continued?.add(key);
+  return deltas;
+}
+
+function snapshotPartText(
+  snapshot: InfiniteData<SessionMessagesResponse, string | undefined>,
+  key: string,
+) {
+  const [messageID = "", type, ordinal] = key.split("\u0000");
+  const message = findAssistantMessage(snapshot, messageID);
+  const part =
+    message && (type === "text" || type === "reasoning")
+      ? findTextPart(message, Number(ordinal), type)?.part
+      : undefined;
+  return part?.text;
+}
+
+function includedDeltaCount(text: string, events: OpenCodeEvent[], indexes: number[]) {
+  let prefix = "";
+  let included = 0;
+  for (const [count, index] of indexes.entries()) {
+    const event = events[index];
+    if (event?.type !== "session.text.delta" && event?.type !== "session.reasoning.delta") break;
+    prefix += event.data.delta;
+    if (prefix.length > text.length) break;
+    if (text.endsWith(prefix)) included = count + 1;
   }
-  return dropped.size === 0 ? events : events.filter((_, index) => !dropped.has(index));
+  return included;
 }
 
 function reduceTranscriptEvent(
@@ -462,8 +329,10 @@ function canReduceTranscriptEvent(
   }
   if (!("assistantMessageID" in event.data)) return false;
   const message = findAssistantMessage(current, event.data.assistantMessageID);
-  if (!message) return false;
+  return message !== undefined && canReduceMessageEvent(message, event);
+}
 
+function canReduceMessageEvent(message: AssistantMessage, event: OpenCodeEvent) {
   switch (event.type) {
     case "session.text.started":
       return canStartTextPart(message, event.data.ordinal, "text");
@@ -757,93 +626,6 @@ function appendBounded(current: string, delta: string) {
   return `${current}${delta}`.slice(0, maxStreamingInputCharacters);
 }
 
-function isCommonEventData(
-  value: unknown,
-): value is Record<string, unknown> & { sessionID: string } {
-  return (
-    isRecord(value) &&
-    typeof value.sessionID === "string" &&
-    value.sessionID.length > 0 &&
-    value.sessionID.length <= 256
-  );
-}
-
-function isMessageID(value: unknown) {
-  return typeof value === "string" && /^msg_/.test(value) && value.length <= 256;
-}
-
-function isToolID(value: unknown) {
-  return typeof value === "string" && value.length > 0 && value.length <= 256;
-}
-
-function isOrdinal(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 10_000;
-}
-
-function isEventTime(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function isFiniteNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function isBoundedString(value: unknown, limit = maxStreamingInputCharacters) {
-  return typeof value === "string" && value.length <= limit;
-}
-
-function isOptionalStringArray(value: unknown) {
-  return (
-    value === undefined ||
-    (Array.isArray(value) &&
-      value.length <= 10_000 &&
-      value.every((item) => isBoundedString(item, 4096)))
-  );
-}
-
-function isTokenUsage(value: unknown) {
-  return (
-    isRecord(value) &&
-    isFiniteNumber(value.input) &&
-    isFiniteNumber(value.output) &&
-    isFiniteNumber(value.reasoning) &&
-    isRecord(value.cache) &&
-    isFiniteNumber(value.cache.read) &&
-    isFiniteNumber(value.cache.write)
-  );
-}
-
-function isModelRef(value: unknown) {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    Boolean(value.id) &&
-    typeof value.providerID === "string" &&
-    Boolean(value.providerID) &&
-    (value.variant === undefined || typeof value.variant === "string")
-  );
-}
-
-function isStructuredError(value: unknown) {
-  return (
-    isRecord(value) &&
-    isBoundedString(value.type, 256) &&
-    isBoundedString(value.message) &&
-    (value.status === undefined || isFiniteNumber(value.status))
-  );
-}
-
-function isToolContent(value: unknown): value is ToolContent {
-  return (
-    isRecord(value) &&
-    ((value.type === "text" && isBoundedString(value.text)) ||
-      (value.type === "file" &&
-        isBoundedString(value.uri, 4096) &&
-        isBoundedString(value.mime, 256) &&
-        (value.name === undefined || value.name === null || isBoundedString(value.name, 1024))))
-  );
-}
-
 function normalizeToolContent(
   content: Array<
     | { text: string; type: "text" }
@@ -859,28 +641,4 @@ function normalizeToolContent(
       uri: item.uri,
     };
   });
-}
-
-function isJsonRecord(value: unknown, depth = 0): value is ToolInput {
-  if (depth > 32 || !isRecord(value)) return false;
-  const values = Object.values(value);
-  return values.length <= 10_000 && values.every((item) => isJsonValue(item, depth + 1));
-}
-
-function isJsonValue(value: unknown, depth: number): boolean {
-  if (depth > 32) return false;
-  return (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    (typeof value === "number" && Number.isFinite(value)) ||
-    (Array.isArray(value) &&
-      value.length <= 10_000 &&
-      value.every((item) => isJsonValue(item, depth + 1))) ||
-    isJsonRecord(value, depth)
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -1,6 +1,23 @@
 import { useSQLiteContext } from "expo-sqlite";
-import { createContext, type ReactNode, use, useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, AppState, StyleSheet, Text } from "react-native";
+import {
+  createContext,
+  type Dispatch,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+  use,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  AppState,
+  type AppStateStatus,
+  StyleSheet,
+  Text,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { applicationName } from "../application-name";
@@ -17,7 +34,35 @@ type AppLockContextValue = {
 
 const AppLockContext = createContext<AppLockContextValue | undefined>(undefined);
 
+type UnlockRefs = {
+  autoPromptedRef: RefObject<boolean>;
+  pendingUnlockRef: RefObject<boolean>;
+  unlockBackgroundedRef: RefObject<boolean>;
+  unlockInProgressRef: RefObject<boolean>;
+};
+
+type AppStateSetters = {
+  setBusy: (busy: boolean) => void;
+  setForegroundVisit: Dispatch<SetStateAction<number>>;
+  setLocked: (locked: boolean) => void;
+};
+
+type AppLockController = ReturnType<typeof useAppLockController>;
+
 export function AppLockProvider({ children }: { children: ReactNode }) {
+  const lock = useAppLockController();
+
+  const value = {
+    busy: lock.busy,
+    enabled: lock.enabled,
+    ...(lock.error ? { error: lock.error } : {}),
+    setEnabled: lock.setEnabled,
+  };
+
+  return <AppLockContext value={value}>{renderAppLockContent(lock, children)}</AppLockContext>;
+}
+
+function useAppLockController() {
   const db = useSQLiteContext();
   const [ready, setReady] = useState(false);
   const [enabled, setEnabledState] = useState(false);
@@ -62,36 +107,17 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!enabled) return;
-    const subscription = AppState.addEventListener("change", (nextState) => {
-      if (nextState === "background") {
-        if (unlockInProgressRef.current) unlockBackgroundedRef.current = true;
-        else autoPromptedRef.current = false;
-        if (pendingUnlockRef.current) setBusy(false);
-        pendingUnlockRef.current = false;
-      }
-      if (nextState !== "active") {
-        setLocked(true);
-      } else if (pendingUnlockRef.current && !unlockBackgroundedRef.current) {
-        pendingUnlockRef.current = false;
-        setLocked(false);
-        setBusy(false);
-      } else {
-        setForegroundVisit((visit) => visit + 1);
-      }
-    });
+    const refs = { autoPromptedRef, pendingUnlockRef, unlockBackgroundedRef, unlockInProgressRef };
+    const setters = { setBusy, setForegroundVisit, setLocked };
+    const subscription = AppState.addEventListener("change", (nextState) =>
+      handleLockedAppStateChange(nextState, refs, setters),
+    );
     return () => subscription.remove();
   }, [enabled]);
 
   useEffect(() => {
-    if (!ready || preferenceLoadFailed || (enabled && locked)) {
-      AccessibilityInfo.announceForAccessibility(
-        preferenceLoadFailed
-          ? "App lock unavailable"
-          : enabled && locked
-            ? `${applicationName} is locked`
-            : "Loading app lock",
-      );
-    }
+    const announcement = appLockAnnouncement({ enabled, locked, preferenceLoadFailed, ready });
+    if (announcement) AccessibilityInfo.announceForAccessibility(announcement);
   }, [enabled, locked, preferenceLoadFailed, ready]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: unlock is recreated every render
@@ -105,30 +131,8 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     void unlock();
   }, [enabled, foregroundVisit, locked, preferenceLoadFailed, ready]);
 
-  async function authenticate() {
-    setBusy(true);
-    setError(undefined);
-    try {
-      const result = await authenticateDeviceOwner();
-      if (result === "UNAVAILABLE") {
-        setError("Set a passcode or screen lock on this device first.");
-        return false;
-      }
-      if (result === "CANCELLED") {
-        setError("Unlock was cancelled. Tap Unlock to try again.");
-        return false;
-      }
-      return true;
-    } catch {
-      setError("Device authentication is unavailable right now.");
-      return false;
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function setEnabled(nextEnabled: boolean) {
-    if (nextEnabled === enabled || !(await authenticate())) return;
+    if (nextEnabled === enabled || !(await authenticateWithFeedback(setBusy, setError))) return;
     try {
       await db.runAsync(
         "UPDATE app_preferences SET app_lock_enabled = ? WHERE singleton = 1",
@@ -146,7 +150,7 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     unlockInProgressRef.current = true;
     unlockBackgroundedRef.current = false;
     pendingUnlockRef.current = false;
-    const authenticated = await authenticate();
+    const authenticated = await authenticateWithFeedback(setBusy, setError);
     unlockInProgressRef.current = false;
     if (!authenticated || unlockBackgroundedRef.current || AppState.currentState === "background") {
       return;
@@ -165,82 +169,133 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     setLoadAttempt((attempt) => attempt + 1);
   }
 
-  const value = {
+  return {
     busy,
     enabled,
-    ...(error ? { error } : {}),
+    error,
+    locked,
+    preferenceLoadFailed,
+    ready,
+    retryPreferenceLoad,
     setEnabled,
+    unlock,
   };
+}
 
+function handleLockedAppStateChange(
+  nextState: AppStateStatus,
+  { autoPromptedRef, pendingUnlockRef, unlockBackgroundedRef, unlockInProgressRef }: UnlockRefs,
+  { setBusy, setForegroundVisit, setLocked }: AppStateSetters,
+) {
+  if (nextState === "background") {
+    if (unlockInProgressRef.current) unlockBackgroundedRef.current = true;
+    else autoPromptedRef.current = false;
+    if (pendingUnlockRef.current) setBusy(false);
+    pendingUnlockRef.current = false;
+  }
+  if (nextState !== "active") {
+    setLocked(true);
+  } else if (pendingUnlockRef.current && !unlockBackgroundedRef.current) {
+    pendingUnlockRef.current = false;
+    setLocked(false);
+    setBusy(false);
+  } else {
+    setForegroundVisit((visit) => visit + 1);
+  }
+}
+
+function appLockAnnouncement({
+  enabled,
+  locked,
+  preferenceLoadFailed,
+  ready,
+}: Pick<AppLockController, "enabled" | "locked" | "preferenceLoadFailed" | "ready">) {
+  if (preferenceLoadFailed) return "App lock unavailable";
+  if (enabled && locked) return `${applicationName} is locked`;
+  if (!ready) return "Loading app lock";
+  return undefined;
+}
+
+async function authenticateWithFeedback(
+  setBusy: (busy: boolean) => void,
+  setError: (error: string | undefined) => void,
+) {
+  setBusy(true);
+  setError(undefined);
+  try {
+    const result = await authenticateDeviceOwner();
+    if (result === "UNAVAILABLE") {
+      setError("Set a passcode or screen lock on this device first.");
+      return false;
+    }
+    if (result === "CANCELLED") {
+      setError("Unlock was cancelled. Tap Unlock to try again.");
+      return false;
+    }
+    return true;
+  } catch {
+    setError("Device authentication is unavailable right now.");
+    return false;
+  } finally {
+    setBusy(false);
+  }
+}
+
+function renderAppLockContent(lock: AppLockController, children: ReactNode) {
+  if (!lock.ready) {
+    return (
+      <SafeAreaView style={styles.shell}>
+        <ActivityIndicator accessibilityLabel="Loading app lock" color={palette.signal} />
+      </SafeAreaView>
+    );
+  }
+  if (lock.preferenceLoadFailed) return renderPreferenceLoadFailure(lock);
+  if (lock.enabled && lock.locked) return renderLockedScreen(lock);
+  return children;
+}
+
+function renderPreferenceLoadFailure({ error, retryPreferenceLoad }: AppLockController) {
   return (
-    <AppLockContext value={value}>
-      {!ready ? (
-        <SafeAreaView style={styles.shell}>
-          <ActivityIndicator accessibilityLabel="Loading app lock" color={palette.signal} />
-        </SafeAreaView>
-      ) : preferenceLoadFailed ? (
-        <SafeAreaView style={styles.shell}>
-          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
-            Device lock unavailable
-          </Text>
-          <Text
-            accessibilityRole="header"
-            dynamicTypeRamp={typeRamp.largeTitle}
-            style={styles.title}
-          >
-            Secure preferences could not be read.
-          </Text>
-          <Text
-            accessibilityRole="alert"
-            dynamicTypeRamp={typeRamp.subheadline}
-            style={styles.error}
-          >
-            {error}
-          </Text>
-          <Button
-            label="Retry"
-            onPress={retryPreferenceLoad}
-            style={styles.action}
-            variant="primary"
-          />
-        </SafeAreaView>
-      ) : enabled && locked ? (
-        <SafeAreaView style={styles.shell}>
-          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
-            Device lock
-          </Text>
-          <Text
-            accessibilityRole="header"
-            dynamicTypeRamp={typeRamp.largeTitle}
-            style={styles.title}
-          >
-            {applicationName} is locked.
-          </Text>
-          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-            Unlock with Face ID, fingerprint, or your device passcode to see your servers and
-            sessions.
-          </Text>
-          {error ? (
-            <Text
-              accessibilityRole="alert"
-              dynamicTypeRamp={typeRamp.subheadline}
-              style={styles.error}
-            >
-              {error}
-            </Text>
-          ) : null}
-          <Button
-            busy={busy}
-            label={busy ? "Authenticating…" : "Unlock"}
-            onPress={() => void unlock()}
-            style={styles.action}
-            variant="primary"
-          />
-        </SafeAreaView>
-      ) : (
-        children
-      )}
-    </AppLockContext>
+    <SafeAreaView style={styles.shell}>
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
+        Device lock unavailable
+      </Text>
+      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.largeTitle} style={styles.title}>
+        Secure preferences could not be read.
+      </Text>
+      <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
+        {error}
+      </Text>
+      <Button label="Retry" onPress={retryPreferenceLoad} style={styles.action} variant="primary" />
+    </SafeAreaView>
+  );
+}
+
+function renderLockedScreen({ busy, error, unlock }: AppLockController) {
+  return (
+    <SafeAreaView style={styles.shell}>
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
+        Device lock
+      </Text>
+      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.largeTitle} style={styles.title}>
+        {applicationName} is locked.
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
+        Unlock with Face ID, fingerprint, or your device passcode to see your servers and sessions.
+      </Text>
+      {error ? (
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
+          {error}
+        </Text>
+      ) : null}
+      <Button
+        busy={busy}
+        label={busy ? "Authenticating…" : "Unlock"}
+        onPress={() => void unlock()}
+        style={styles.action}
+        variant="primary"
+      />
+    </SafeAreaView>
   );
 }
 

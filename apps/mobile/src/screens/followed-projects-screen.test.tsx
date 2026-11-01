@@ -6,13 +6,24 @@ import { AccessibilityInfo, Platform, ScrollView } from "react-native";
 
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { palette, projectAvatarPalette, typography } from "../theme";
+import { navigateToSection } from "./app-shell";
 import { FollowedProjectsScreen } from "./followed-projects-screen";
 
 jest.mock("../state/workspace-selection-context", () => ({ useWorkspaceSelection: jest.fn() }));
+let mockShellNavigate: ((section: string) => void) | undefined;
 jest.mock("./app-shell", () => ({
   isTabletShell: () => false,
   navigateToSection: jest.fn(),
-  ShellFrame: ({ children }: { children: ReactNode }) => children,
+  ShellFrame: ({
+    children,
+    navigate,
+  }: {
+    children: ReactNode;
+    navigate: (section: string) => void;
+  }) => {
+    mockShellNavigate = navigate;
+    return children;
+  },
 }));
 
 const projects = [
@@ -253,4 +264,74 @@ test("shows save progress and puts save errors at the top of the list", async ()
     "The followed project selection could not be saved. Try again.",
   );
   jest.restoreAllMocks();
+});
+
+test.each(["preferencesLoading", "projectsLoading"])("shows a loading state while %s", (state) => {
+  mockSelection({
+    preferencesLoading: state === "preferencesLoading",
+    projectsError: true,
+    projectsLoading: state === "projectsLoading",
+  });
+  renderScreen();
+  expect(screen.getByLabelText("Loading projects")).toBeOnTheScreen();
+  expect(screen.getByText("Loading projects")).toBeOnTheScreen();
+  expect(screen.queryByRole("checkbox")).toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("bounds reordering at the ends and clears a failed save on the next attempt", async () => {
+  const setFollowedProjectIds = jest
+    .fn<(projectIDs: string[]) => Promise<void>>()
+    .mockRejectedValueOnce(new Error("storage full"))
+    .mockResolvedValue(undefined);
+  mockSelection({
+    followedProjectIds: ["project-a", "project-b"],
+    projects: projects.slice(0, 2),
+    setFollowedProjectIds,
+  });
+  renderScreen();
+
+  expect(screen.getByRole("button", { name: "Move Alpha earlier" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Move Beta later" })).toBeDisabled();
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Move Alpha later" }));
+  });
+  expect(setFollowedProjectIds).toHaveBeenLastCalledWith(["project-b", "project-a"]);
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "The followed project selection could not be saved. Try again.",
+  );
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("checkbox", { name: "Beta" }));
+  });
+  expect(setFollowedProjectIds).toHaveBeenLastCalledWith(["project-a"]);
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("disables every follow action while a save is in flight", () => {
+  mockSelection({
+    followedProjectIds: ["project-a", "project-b", "project-missing"],
+    preferencesSaving: true,
+    projects: projects.slice(0, 2),
+    unavailableProjectIds: ["project-missing"],
+  });
+  renderScreen();
+  expect(screen.getByRole("checkbox", { name: "Alpha" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Move Beta earlier" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Move Alpha later" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Unfollow unavailable project" })).toBeDisabled();
+});
+
+test("hands shell section changes to the shared section navigation", () => {
+  mockSelection({ preferencesLoading: true, projects: [] });
+  const navigation = { navigate: jest.fn() };
+  render(
+    <FollowedProjectsScreen
+      navigation={navigation as never}
+      route={{ key: "followed", name: "FollowedProjects" }}
+    />,
+  );
+  mockShellNavigate?.("Pending");
+  expect(navigateToSection).toHaveBeenCalledWith(navigation, "Pending");
 });

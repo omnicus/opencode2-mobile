@@ -1,6 +1,6 @@
 import { expect, jest, test } from "@jest/globals";
 import type { FormInfo } from "@opencode2-mobile/opencode-adapter";
-import { fireEvent, render, screen } from "@testing-library/react-native";
+import { fireEvent, render, screen, within } from "@testing-library/react-native";
 import { AccessibilityInfo, Alert, Linking, Platform } from "react-native";
 
 import { minTouchTarget, palette, radius, typography } from "../theme";
@@ -259,4 +259,280 @@ test("VoiceOver hears submit progress, failed validation, and server errors", ()
   view.rerender(<FormRequestCard {...props} error="The form response was not accepted." />);
   expect(announce).toHaveBeenLastCalledWith("The form response was not accepted.");
   jest.restoreAllMocks();
+});
+
+test("describes number and integer bounds and fills string keyboards from the format", () => {
+  jest.replaceProperty(Platform, "OS", "android");
+  render(
+    <FormRequestCard
+      form={{
+        ...form,
+        fields: [
+          { key: "ratio", maximum: 1, minimum: 0, type: "number" },
+          { key: "count", minimum: 1, type: "integer" },
+          { key: "limit", maximum: 10, type: "integer" },
+          { key: "weight", type: "number" },
+          { format: "email", key: "email", type: "string" },
+          { key: "note", placeholder: "Anything else", type: "string" },
+        ],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+
+  expect(screen.getByText("Number from 0 to 1")).toBeOnTheScreen();
+  expect(screen.getByText("Whole number, minimum 1")).toBeOnTheScreen();
+  expect(screen.getByText("Whole number, maximum 10")).toBeOnTheScreen();
+  expect(screen.getByText("Number")).toBeOnTheScreen();
+  expect(screen.getByLabelText("ratio").props.keyboardType).toBe("numeric");
+  expect(screen.getByLabelText("ratio").props.placeholder).toBeUndefined();
+  expect(screen.getByLabelText("email").props).toMatchObject({
+    autoCapitalize: "none",
+    autoCorrect: false,
+    keyboardType: "email-address",
+  });
+  expect(screen.getByLabelText("note").props).toMatchObject({
+    autoCapitalize: "sentences",
+    autoCorrect: true,
+    keyboardType: "default",
+    placeholder: "Anything else",
+  });
+  jest.restoreAllMocks();
+});
+
+test("offers single-choice options with an optional custom value", () => {
+  const onSubmit = jest.fn();
+  render(
+    <FormRequestCard
+      form={{
+        ...form,
+        fields: [
+          {
+            key: "region",
+            options: [
+              { description: "Oregon", label: "West", value: "us-west" },
+              { label: "East", value: "us-east" },
+            ],
+            type: "string",
+          },
+          {
+            custom: true,
+            key: "tier",
+            options: [{ label: "Free", value: "free" }],
+            title: "Tier",
+            type: "string",
+          },
+        ],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={onSubmit}
+    />,
+  );
+
+  expect(screen.getAllByText("Choose one")).toHaveLength(2);
+  expect(screen.getByText("Oregon")).toBeOnTheScreen();
+  expect(screen.queryByLabelText("region")).toBeNull();
+  fireEvent.press(screen.getByRole("radio", { name: /West/ }));
+  expect(screen.getByRole("radio", { name: /West/ })).toBeChecked();
+  expect(screen.getByRole("radio", { name: "East" })).not.toBeChecked();
+  fireEvent.press(screen.getByRole("radio", { name: "Free" }));
+  expect(screen.getByLabelText("Tier").props.value).toBe("free");
+  fireEvent.changeText(screen.getByLabelText("Tier"), "enterprise");
+  expect(screen.getByRole("radio", { name: "Free" })).not.toBeChecked();
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+
+  expect(onSubmit).toHaveBeenCalledWith({ region: "us-west", tier: "enterprise" });
+});
+
+test("multiselect options toggle off again and keep custom values", () => {
+  const onSubmit = jest.fn();
+  render(
+    <FormRequestCard
+      form={{
+        ...form,
+        fields: [
+          {
+            custom: true,
+            key: "targets",
+            options: [
+              { label: "Production", value: "production" },
+              { description: "Preview", label: "Staging", value: "staging" },
+            ],
+            title: "Targets",
+            type: "multiselect",
+          },
+        ],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={onSubmit}
+    />,
+  );
+
+  fireEvent.press(screen.getByRole("checkbox", { name: "Production" }));
+  fireEvent.press(screen.getByRole("checkbox", { name: /Staging/ }));
+  fireEvent.changeText(screen.getByLabelText("Targets custom values"), "canary");
+  fireEvent.press(screen.getByRole("checkbox", { name: "Production" }));
+  expect(screen.getByRole("checkbox", { name: "Production" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: /Staging/ })).toBeChecked();
+  expect(screen.getByText("Preview")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+
+  expect(onSubmit).toHaveBeenCalledWith({ targets: ["staging", "canary"] });
+});
+
+test("optional booleans can return to not set while required ones cannot", () => {
+  const onSubmit = jest.fn();
+  render(
+    <FormRequestCard
+      form={{
+        ...form,
+        fields: [
+          { key: "notify", title: "Notify", type: "boolean" },
+          { description: "Confirm the release", key: "confirm", required: true, type: "boolean" },
+        ],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={onSubmit}
+    />,
+  );
+
+  expect(screen.getAllByRole("radio", { name: "Not set" })).toHaveLength(1);
+  expect(screen.getByRole("radio", { name: "Not set" })).toBeChecked();
+  expect(screen.getByText("Confirm the release")).toBeOnTheScreen();
+  expect(screen.getByText("confirm *")).toBeOnTheScreen();
+  expect(screen.getByText("0 of 2 answered")).toBeOnTheScreen();
+  const notify = within(screen.getByLabelText("Notify"));
+  const confirm = within(screen.getByLabelText("confirm"));
+  fireEvent.press(notify.getByRole("radio", { name: "No" }));
+  expect(notify.getByRole("radio", { name: "No" })).toBeChecked();
+  expect(screen.getByRole("radio", { name: "Not set" })).not.toBeChecked();
+  expect(screen.getByText("1 of 2 answered")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("radio", { name: "Not set" }));
+  expect(screen.getByRole("radio", { name: "Not set" })).toBeChecked();
+  fireEvent.press(confirm.getByRole("radio", { name: "Yes" }));
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+
+  expect(onSubmit).toHaveBeenCalledWith({ confirm: true });
+});
+
+test("clearing an invalid optional answer removes its error", () => {
+  render(
+    <FormRequestCard
+      form={{
+        ...form,
+        fields: [
+          { key: "notify", title: "Notify", type: "boolean" },
+          { key: "count", minimum: 5, title: "Count", type: "integer" },
+        ],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+
+  fireEvent.press(screen.getByRole("radio", { name: "Not set" }));
+  fireEvent.changeText(screen.getByLabelText("Count"), "1");
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  expect(screen.getAllByRole("alert")).toHaveLength(1);
+  fireEvent.changeText(screen.getByLabelText("Count"), "");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("VoiceOver counts several answers that need attention", () => {
+  jest.replaceProperty(Platform, "OS", "ios");
+  const announce = jest
+    .spyOn(AccessibilityInfo, "announceForAccessibility")
+    .mockImplementation(jest.fn());
+  render(
+    <FormRequestCard
+      form={{
+        ...form,
+        fields: [
+          { key: "name", required: true, type: "string" },
+          { key: "role", required: true, type: "string" },
+        ],
+      }}
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  expect(announce).toHaveBeenLastCalledWith("2 answers need attention");
+  jest.restoreAllMocks();
+});
+
+test("busy forms show progress on submit and disable cancel", () => {
+  render(<FormRequestCard busy form={form} onCancel={jest.fn()} onSubmit={jest.fn()} />);
+  expect(screen.getByRole("button", { name: "Submitting" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Cancel form" })).toBeDisabled();
+});
+
+test("cancelling can be withdrawn to keep editing", () => {
+  const onCancel = jest.fn();
+  const alert = jest
+    .spyOn(Alert, "alert")
+    .mockImplementation((_title, _message, buttons) =>
+      buttons?.find((button) => button.text === "Keep editing")?.onPress?.(),
+    );
+  render(<FormRequestCard form={form} onCancel={onCancel} onSubmit={jest.fn()} />);
+  fireEvent.press(screen.getByRole("button", { name: "Cancel form" }));
+  expect(alert).toHaveBeenCalledWith(
+    "Cancel form?",
+    "This rejects the pending form without submitting the values entered here.",
+    expect.any(Array),
+  );
+  expect(onCancel).not.toHaveBeenCalled();
+  alert.mockRestore();
+});
+
+test("focusable forms show server errors on the card only while the sheet is closed", () => {
+  render(
+    <FormRequestCard
+      allowFocus
+      error="The form response was not accepted."
+      form={form}
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+  expect(screen.getAllByRole("alert")).toHaveLength(1);
+  fireEvent.press(screen.getByRole("button", { name: "Review input request" }));
+  expect(screen.getAllByText("The form response was not accepted.")).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Send answers" })).toBeOnTheScreen();
+});
+
+test("a single question has no progress count", () => {
+  render(
+    <FormRequestCard
+      form={{ ...form, fields: [{ key: "name", type: "string" }] }}
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+  expect(screen.queryByText(/answered$/)).toBeNull();
+});
+
+test("external form links must parse and confirm before opening", () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+  const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+
+  openExternalFormUrl("not a url");
+  expect(alert).toHaveBeenLastCalledWith(
+    "Invalid link",
+    "OpenCode supplied an invalid external form URL.",
+  );
+
+  alert.mockImplementation((_title, _message, buttons) =>
+    buttons?.find((button) => button.text === "Open")?.onPress?.(),
+  );
+  openExternalFormUrl("https://example.test/login");
+  expect(alert).toHaveBeenLastCalledWith(
+    "Open external form?",
+    expect.stringContaining("opens example.test."),
+    expect.any(Array),
+  );
+  expect(open).toHaveBeenCalledWith("https://example.test/login");
+  alert.mockRestore();
+  open.mockRestore();
 });

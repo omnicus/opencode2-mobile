@@ -296,3 +296,40 @@ test("closes from the Done action", async () => {
   await fireEvent.press(screen.getByRole("button", { name: "Done" }));
   expect(done).toHaveBeenCalledTimes(1);
 });
+
+test("scans a notification pairing code and offers only notification pairing", async () => {
+  await render(<NotificationPairingScreen onDone={jest.fn()} />);
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Scan QR code" }));
+  });
+  expect(screen.getByText("Center the terminal QR code in the frame.")).toBeOnTheScreen();
+  await act(async () => {
+    mockOnBarcodeScanned?.({
+      data: JSON.stringify({
+        allowDevelopmentHttp: false,
+        authMode: "bearer",
+        brokerOrigin: "https://broker.test",
+        challengeID: "challenge-1",
+        expiresAtMs: Date.now() + 60_000,
+        name: "Office server",
+        openCodeOrigin: "https://office.test",
+        pairingSecret: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        v: 1,
+      }),
+    });
+  });
+  expect(screen.queryByText("Center the terminal QR code in the frame.")).toBeNull();
+  expect(screen.getByText("Office server")).toBeOnTheScreen();
+  expect(screen.getByText("https://office.test")).toBeOnTheScreen();
+  expect(screen.getByText(/^Signs in with a token\. Expires in \d+ seconds\.$/)).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Pair and save" })).toBeEnabled();
+  expect(screen.queryByText("Pair without notifications")).toBeNull();
+});
+
+test("shows why a pasted code cannot be used", async () => {
+  await render(<NotificationPairingScreen onDone={jest.fn()} />);
+  await fireEvent.changeText(screen.getByPlaceholderText("Pairing code"), "not a code");
+  await fireEvent.press(screen.getByText("Check code"));
+  expect(screen.getByText("The pairing code is malformed or was altered.")).toBeOnTheScreen();
+  expect(screen.queryByText("Ready to pair")).toBeNull();
+});

@@ -3,12 +3,18 @@ import {
   getDefaultOpenCodeLocation,
   getOpenCodeLocation,
   type LocationRef,
-  type ProjectListOutput,
 } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { type ReactNode, useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -42,19 +48,34 @@ import {
   usesLargeTextLayout,
 } from "../theme";
 import { FormKeyboardAvoidingView } from "./form-keyboard-avoiding-view";
+import {
+  type CreateRequest,
+  createSessionFailure,
+  creatingLocationKey,
+  emptyProjectListCopy,
+  type LocationChoice,
+  matchingProjects,
+  orderProjects,
+  type Project,
+  type ProjectRow,
+  projectBrowserState,
+  projectLabel,
+  projectLocations,
+  projectRows,
+} from "./new-session-screen-model";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "NewSession">;
-type Project = ProjectListOutput[number];
-type LocationChoice = { key: string; label: string; location: LocationRef };
-type ProjectRow = { id: string; project?: Project; title?: string; type: "project" | "section" };
+type Navigation = Props["navigation"];
+type OpenCodeClient = ReturnType<typeof useConnectionRuntime>["restClient"];
+type WorkspaceSelection = ReturnType<typeof useWorkspaceSelection>;
+type DefaultLocationQuery = ReturnType<typeof useDefaultLocationQuery>;
 
 export function NewSessionScreen({ navigation }: Props) {
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
   const runtime = useConnectionRuntime();
   const selection = useWorkspaceSelection();
-  const queryClient = useQueryClient();
   const createAbortRef = useRef<AbortController>(null);
   const closedRef = useRef(false);
   const [browseAll, setBrowseAll] = useState(false);
@@ -64,40 +85,8 @@ export function NewSessionScreen({ navigation }: Props) {
   const deferredSearch = useDeferredValue(search.trim().toLocaleLowerCase());
   const connectionID = runtime.connectionId;
   const client = runtime.restClient;
-  const defaultLocationQuery = useQuery({
-    enabled: Boolean(client && connectionID),
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return getDefaultOpenCodeLocation(client, { signal });
-    },
-    queryKey: openCodeQueryKeys.defaultLocation(connectionID ?? "unselected"),
-  });
+  const defaultLocationQuery = useDefaultLocationQuery(client, connectionID);
   const followed = new Set(selection.followedProjectIds);
-  const followedOrder = new Map(
-    selection.followedProjectIds.map((projectID, index) => [projectID, index]),
-  );
-  const orderedProjects = selection.projects
-    .map((project, serverIndex) => ({ project, serverIndex }))
-    .sort((first, second) => {
-      const firstPosition = followedOrder.get(first.project.id);
-      const secondPosition = followedOrder.get(second.project.id);
-      if (firstPosition !== undefined && secondPosition !== undefined) {
-        return firstPosition - secondPosition;
-      }
-      if (firstPosition !== undefined) return -1;
-      if (secondPosition !== undefined) return 1;
-      return first.serverIndex - second.serverIndex;
-    })
-    .map(({ project }) => project);
-  const matchingProjects = deferredSearch
-    ? orderedProjects.filter((project) => projectSearchText(project).includes(deferredSearch))
-    : orderedProjects;
-  const showOtherProjects = browseAll || Boolean(deferredSearch);
-  const rows = projectRows(matchingProjects, followed, showOtherProjects);
-  const otherProjectCount = selection.projects.filter(
-    (project) => !followed.has(project.id),
-  ).length;
-  const selectedLocations = projectLocations(selectedProject, defaultLocationQuery.data);
 
   useEffect(() => {
     void connectionID;
@@ -110,27 +99,137 @@ export function NewSessionScreen({ navigation }: Props) {
     return () => createAbortRef.current?.abort();
   }, [connectionID]);
 
-  const createMutation = useMutation({
-    mutationFn: async ({ project, requested }: { project: Project; requested: LocationRef }) => {
+  const createMutation = useCreateSessionMutation({
+    client,
+    closedRef,
+    connectionID,
+    createAbortRef,
+    defaultLocationQuery,
+    navigation,
+    selection,
+    setError,
+    setSelectedProject,
+  });
+  const disabled = createMutation.isPending || selection.preferencesSaving;
+  const creating = createMutation.isPending ? createMutation.variables : undefined;
+
+  function chooseProject(project: Project) {
+    if (disabled) return;
+    Keyboard.dismiss();
+    const locations = projectLocations(project, defaultLocationQuery.data);
+    if (locations.length === 1 && locations[0]) {
+      createMutation.mutate({ project, requested: locations[0].location });
+      return;
+    }
+    setError(undefined);
+    setSelectedProject(project);
+  }
+
+  function close() {
+    closedRef.current = true;
+    createAbortRef.current?.abort();
+    navigation.goBack();
+  }
+
+  useAnnouncement(createMutation.isPending && "Creating session");
+  useAnnouncement(error);
+  useLocationStepBack({
+    closedRef,
+    createAbortRef,
+    navigation,
+    onLocationStep: Boolean(selectedProject),
+    pending: createMutation.isPending,
+    setError,
+    setSelectedProject,
+  });
+
+  return (
+    <SafeAreaView edges={["top", "bottom"]} style={styles.screen}>
+      <FormKeyboardAvoidingView style={styles.keyboardView}>
+        <NewSessionHeader largeText={largeText} onClose={close} selectedProject={selectedProject} />
+        {selectedProject ? (
+          <LocationPicker
+            busyKey={creatingLocationKey(creating, selectedProject)}
+            disabled={disabled}
+            followed={followed.has(selectedProject.id)}
+            locations={projectLocations(selectedProject, defaultLocationQuery.data)}
+            onBack={() => {
+              setError(undefined);
+              setSelectedProject(undefined);
+            }}
+            onChoose={(requested) => createMutation.mutate({ project: selectedProject, requested })}
+          />
+        ) : (
+          <ProjectBrowser
+            browseAll={browseAll}
+            creatingProjectID={creating?.project.id}
+            defaultLocationQuery={defaultLocationQuery}
+            deferredSearch={deferredSearch}
+            disabled={disabled}
+            followed={followed}
+            onBrowseAll={() => setBrowseAll(true)}
+            onChooseProject={chooseProject}
+            onRetry={() => setError(undefined)}
+            onSearch={setSearch}
+            search={search}
+            selection={selection}
+          />
+        )}
+        {error ? (
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.subheadline}
+            style={styles.footerError}
+          >
+            {error}
+          </Text>
+        ) : null}
+      </FormKeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+function useDefaultLocationQuery(client: OpenCodeClient, connectionID: string | undefined) {
+  return useQuery({
+    enabled: Boolean(client && connectionID),
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return getDefaultOpenCodeLocation(client, { signal });
+    },
+    queryKey: openCodeQueryKeys.defaultLocation(connectionID ?? "unselected"),
+  });
+}
+
+function useCreateSessionMutation({
+  client,
+  closedRef,
+  connectionID,
+  createAbortRef,
+  defaultLocationQuery,
+  navigation,
+  selection,
+  setError,
+  setSelectedProject,
+}: {
+  client: OpenCodeClient;
+  closedRef: RefObject<boolean>;
+  connectionID: string | undefined;
+  createAbortRef: RefObject<AbortController | null>;
+  defaultLocationQuery: DefaultLocationQuery;
+  navigation: Navigation;
+  selection: WorkspaceSelection;
+  setError: (error: string | undefined) => void;
+  setSelectedProject: (project: Project | undefined) => void;
+}) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ project, requested }: CreateRequest) => {
       if (!client || !connectionID) throw new Error("CONNECTION_NOT_READY");
       const controller = new AbortController();
       createAbortRef.current?.abort();
       createAbortRef.current = controller;
       try {
-        const location = await getOpenCodeLocation(client, requested, {
-          signal: controller.signal,
-        });
-        if (location.project.id !== project.id) throw new Error("LOCATION_PROJECT_MISMATCH");
-        if (!selection.followedProjectIds.includes(project.id)) {
-          await selection.setFollowedProjectIds([...selection.followedProjectIds, project.id]);
-        }
-        const session = await createOpenCodeSession(
-          client,
-          location,
-          {},
-          { signal: controller.signal },
-        );
-        return { location, session };
+        return await createSessionInProject(client, selection, project, requested, controller);
       } catch (caught) {
         if (controller.signal.aborted) throw new Error("REQUEST_ABORTED");
         throw caught;
@@ -139,8 +238,9 @@ export function NewSessionScreen({ navigation }: Props) {
       }
     },
     onError: (caught) => {
-      if (caught instanceof Error && caught.message === "REQUEST_ABORTED") return;
-      if (caught instanceof Error && caught.message === "LOCATION_PROJECT_MISMATCH") {
+      const failure = createSessionFailure(caught);
+      if (failure === "aborted") return;
+      if (failure === "project-changed") {
         setSelectedProject(undefined);
         setError("The project list changed. Choose the project again.");
         void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
@@ -170,42 +270,49 @@ export function NewSessionScreen({ navigation }: Props) {
       });
     },
   });
+}
 
-  function chooseProject(project: Project) {
-    if (createMutation.isPending || selection.preferencesSaving) return;
-    Keyboard.dismiss();
-    const locations = projectLocations(project, defaultLocationQuery.data);
-    if (locations.length === 1 && locations[0]) {
-      createMutation.mutate({ project, requested: locations[0].location });
-      return;
-    }
-    setError(undefined);
-    setSelectedProject(project);
+async function createSessionInProject(
+  client: NonNullable<OpenCodeClient>,
+  selection: WorkspaceSelection,
+  project: Project,
+  requested: LocationRef,
+  controller: AbortController,
+) {
+  const location = await getOpenCodeLocation(client, requested, {
+    signal: controller.signal,
+  });
+  if (location.project.id !== project.id) throw new Error("LOCATION_PROJECT_MISMATCH");
+  if (!selection.followedProjectIds.includes(project.id)) {
+    await selection.setFollowedProjectIds([...selection.followedProjectIds, project.id]);
   }
+  const session = await createOpenCodeSession(client, location, {}, { signal: controller.signal });
+  return { location, session };
+}
 
-  function showAllProjects() {
-    setBrowseAll(true);
-  }
-
-  function close() {
-    closedRef.current = true;
-    createAbortRef.current?.abort();
-    navigation.goBack();
-  }
-
-  const loading =
-    selection.preferencesLoading || selection.projectsLoading || defaultLocationQuery.isPending;
-  const disabled = createMutation.isPending || selection.preferencesSaving;
-  const creating = createMutation.isPending ? createMutation.variables : undefined;
-  const onLocationStep = Boolean(selectedProject);
+function useLocationStepBack({
+  closedRef,
+  createAbortRef,
+  navigation,
+  onLocationStep,
+  pending,
+  setError,
+  setSelectedProject,
+}: {
+  closedRef: RefObject<boolean>;
+  createAbortRef: RefObject<AbortController | null>;
+  navigation: Navigation;
+  onLocationStep: boolean;
+  pending: boolean;
+  setError: (error: string | undefined) => void;
+  setSelectedProject: (project: Project | undefined) => void;
+}) {
   const blockBackRef = useRef(false);
-  blockBackRef.current = onLocationStep && !createMutation.isPending;
-  useAnnouncement(createMutation.isPending && "Creating session");
-  useAnnouncement(error);
+  blockBackRef.current = onLocationStep && !pending;
 
   useEffect(() => {
-    navigation.setOptions({ gestureEnabled: !onLocationStep || createMutation.isPending });
-  }, [createMutation.isPending, navigation, onLocationStep]);
+    navigation.setOptions({ gestureEnabled: !onLocationStep || pending });
+  }, [pending, navigation, onLocationStep]);
 
   // Back and the iOS swipe-down return to Projects from the location step instead of closing.
   useEffect(
@@ -222,260 +329,300 @@ export function NewSessionScreen({ navigation }: Props) {
         closedRef.current = true;
         createAbortRef.current?.abort();
       }),
-    [navigation],
+    [closedRef, createAbortRef, navigation, setError, setSelectedProject],
   );
+}
 
+function NewSessionHeader({
+  largeText,
+  onClose,
+  selectedProject,
+}: {
+  largeText: boolean;
+  onClose: () => void;
+  selectedProject: Project | undefined;
+}) {
   return (
-    <SafeAreaView edges={["top", "bottom"]} style={styles.screen}>
-      <FormKeyboardAvoidingView style={styles.keyboardView}>
-        <View style={[styles.header, largeText && styles.headerLargeText]}>
-          <View style={[styles.headerSide, largeText && styles.headerSideLargeText]}>
-            <Pressable
-              accessibilityRole="button"
-              android_ripple={
-                Platform.OS === "android"
-                  ? { color: "rgba(255,255,255,0.12)", borderless: true }
-                  : undefined
-              }
-              onPress={close}
-              style={({ pressed }) => [
-                styles.cancelButton,
-                pressed && Platform.OS === "ios" && styles.pressed,
-              ]}
-            >
-              <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.cancelLabel}>
-                Cancel
-              </Text>
-            </Pressable>
-          </View>
-          <View style={[styles.heading, largeText && styles.headingLargeText]}>
-            <Text
-              accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.navTitle}
-              style={[styles.title, largeText && styles.headingTextLargeText]}
-            >
-              {selectedProject ? "Choose location" : "New session"}
-            </Text>
-            <Text
-              dynamicTypeRamp={typeRamp.footnote}
-              style={[styles.subtitle, largeText && styles.headingTextLargeText]}
-            >
-              {selectedProject
-                ? projectLabel(selectedProject)
-                : "Choose where this session should start."}
-            </Text>
-          </View>
-          {largeText ? null : <View style={styles.headerSide} />}
-        </View>
+    <View style={[styles.header, largeText && styles.headerLargeText]}>
+      <View style={[styles.headerSide, largeText && styles.headerSideLargeText]}>
+        <Pressable
+          accessibilityRole="button"
+          android_ripple={
+            Platform.OS === "android"
+              ? { color: "rgba(255,255,255,0.12)", borderless: true }
+              : undefined
+          }
+          onPress={onClose}
+          style={({ pressed }) => [
+            styles.cancelButton,
+            pressed && Platform.OS === "ios" && styles.pressed,
+          ]}
+        >
+          <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.cancelLabel}>
+            Cancel
+          </Text>
+        </Pressable>
+      </View>
+      <View style={[styles.heading, largeText && styles.headingLargeText]}>
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.navTitle}
+          style={[styles.title, largeText && styles.headingTextLargeText]}
+        >
+          {selectedProject ? "Choose location" : "New session"}
+        </Text>
+        <Text
+          dynamicTypeRamp={typeRamp.footnote}
+          style={[styles.subtitle, largeText && styles.headingTextLargeText]}
+        >
+          {selectedProject
+            ? projectLabel(selectedProject)
+            : "Choose where this session should start."}
+        </Text>
+      </View>
+      {largeText ? null : <View style={styles.headerSide} />}
+    </View>
+  );
+}
 
-        {selectedProject ? (
-          <View style={styles.body}>
-            {!followed.has(selectedProject.id) ? (
-              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.followingCopy}>
-                Starting here will add this project to Sessions on this device.
-              </Text>
-            ) : null}
-            <Button
-              accessibilityLabel="Back to projects"
-              disabled={disabled}
-              icon="chevron-left"
-              label="Projects"
-              onPress={() => {
-                setError(undefined);
-                setSelectedProject(undefined);
-              }}
-              variant="text"
-            />
-            <FlatList
-              contentContainerStyle={styles.listContent}
-              data={selectedLocations}
-              ItemSeparatorComponent={RowSeparator}
-              keyboardShouldPersistTaps="handled"
-              keyExtractor={(choice) => choice.key}
-              renderItem={({ item: choice }) => (
-                <LocationButton
-                  busy={
-                    creating?.project.id === selectedProject.id &&
-                    locationKey(creating.requested) === choice.key
-                  }
-                  disabled={disabled}
-                  directory={choice.location.directory}
-                  label={choice.label}
-                  onPress={() =>
-                    createMutation.mutate({ project: selectedProject, requested: choice.location })
-                  }
-                />
-              )}
-            />
-          </View>
-        ) : loading ? (
-          <StateMessage label="Loading projects" loading />
-        ) : selection.projectsError ||
-          selection.preferencesError ||
-          defaultLocationQuery.isError ? (
-          <View style={styles.state}>
-            <Text
-              accessibilityRole="alert"
-              dynamicTypeRamp={typeRamp.subheadline}
-              style={styles.error}
-            >
-              Project locations could not be loaded from this connection.
-            </Text>
-            <Button
-              align="center"
-              label="Retry"
-              onPress={() => {
-                setError(undefined);
-                void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
-              }}
-            />
-          </View>
-        ) : selection.projects.length === 0 ? (
-          <View style={styles.state}>
+function LocationPicker({
+  busyKey,
+  disabled,
+  followed,
+  locations,
+  onBack,
+  onChoose,
+}: {
+  busyKey: string | undefined;
+  disabled: boolean;
+  followed: boolean;
+  locations: LocationChoice[];
+  onBack: () => void;
+  onChoose: (location: LocationRef) => void;
+}) {
+  return (
+    <View style={styles.body}>
+      {!followed ? (
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.followingCopy}>
+          Starting here will add this project to Sessions on this device.
+        </Text>
+      ) : null}
+      <Button
+        accessibilityLabel="Back to projects"
+        disabled={disabled}
+        icon="chevron-left"
+        label="Projects"
+        onPress={onBack}
+        variant="text"
+      />
+      <FlatList
+        contentContainerStyle={styles.listContent}
+        data={locations}
+        ItemSeparatorComponent={RowSeparator}
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(choice) => choice.key}
+        renderItem={({ item: choice }) => (
+          <LocationButton
+            busy={busyKey === choice.key}
+            disabled={disabled}
+            directory={choice.location.directory}
+            label={choice.label}
+            onPress={() => onChoose(choice.location)}
+          />
+        )}
+      />
+    </View>
+  );
+}
+
+function ProjectBrowser({
+  defaultLocationQuery,
+  onRetry,
+  selection,
+  ...listProps
+}: {
+  browseAll: boolean;
+  creatingProjectID: string | undefined;
+  defaultLocationQuery: DefaultLocationQuery;
+  deferredSearch: string;
+  disabled: boolean;
+  followed: ReadonlySet<string>;
+  onBrowseAll: () => void;
+  onChooseProject: (project: Project) => void;
+  onRetry: () => void;
+  onSearch: (search: string) => void;
+  search: string;
+  selection: WorkspaceSelection;
+}) {
+  const state = projectBrowserState({
+    loadFailed: Boolean(
+      selection.projectsError || selection.preferencesError || defaultLocationQuery.isError,
+    ),
+    loading:
+      selection.preferencesLoading || selection.projectsLoading || defaultLocationQuery.isPending,
+    projectCount: selection.projects.length,
+  });
+  switch (state) {
+    case "loading":
+      return <StateMessage label="Loading projects" loading />;
+    case "error":
+      return (
+        <LoadErrorState
+          onRetry={() => {
+            onRetry();
+            void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
+          }}
+        />
+      );
+    case "empty":
+      return <NoProjectsState onRetry={() => void selection.refetch()} />;
+    case "projects":
+      return (
+        <ProjectList
+          {...listProps}
+          followedProjectIds={selection.followedProjectIds}
+          projects={selection.projects}
+        />
+      );
+  }
+}
+
+function LoadErrorState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <View style={styles.state}>
+      <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
+        Project locations could not be loaded from this connection.
+      </Text>
+      <Button align="center" label="Retry" onPress={onRetry} />
+    </View>
+  );
+}
+
+function NoProjectsState({ onRetry }: { onRetry: () => void }) {
+  return (
+    <View style={styles.state}>
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateTitle}>
+        No server projects found
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
+        OpenCode did not return any known projects.
+      </Text>
+      <Button align="center" label="Retry" onPress={onRetry} />
+    </View>
+  );
+}
+
+function ProjectList({
+  browseAll,
+  creatingProjectID,
+  deferredSearch,
+  disabled,
+  followed,
+  followedProjectIds,
+  onBrowseAll,
+  onChooseProject,
+  onSearch,
+  projects,
+  search,
+}: {
+  browseAll: boolean;
+  creatingProjectID: string | undefined;
+  deferredSearch: string;
+  disabled: boolean;
+  followed: ReadonlySet<string>;
+  followedProjectIds: string[];
+  onBrowseAll: () => void;
+  onChooseProject: (project: Project) => void;
+  onSearch: (search: string) => void;
+  projects: Project[];
+  search: string;
+}) {
+  const showOtherProjects = browseAll || Boolean(deferredSearch);
+  const rows = projectRows(
+    matchingProjects(orderProjects(projects, followedProjectIds), deferredSearch),
+    followed,
+    showOtherProjects,
+  );
+  const otherProjectCount = projects.filter((project) => !followed.has(project.id)).length;
+  const emptyCopy = emptyProjectListCopy(Boolean(deferredSearch), search);
+  return (
+    <View style={styles.body}>
+      <SearchField
+        clearAccessibilityLabel="Clear project search"
+        onChangeText={onSearch}
+        placeholder="Search projects"
+        returnKeyType="search"
+        value={search}
+      />
+      <FlatList
+        contentContainerStyle={styles.listContent}
+        data={rows}
+        ItemSeparatorComponent={RowSeparator}
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={(row) => row.id}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
             <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateTitle}>
-              No server projects found
+              {emptyCopy.title}
             </Text>
             <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
-              OpenCode did not return any known projects.
+              {emptyCopy.copy}
             </Text>
-            <Button align="center" label="Retry" onPress={() => void selection.refetch()} />
           </View>
-        ) : (
-          <View style={styles.body}>
-            <SearchField
-              clearAccessibilityLabel="Clear project search"
-              onChangeText={setSearch}
-              placeholder="Search projects"
-              returnKeyType="search"
-              value={search}
-            />
-            <FlatList
-              contentContainerStyle={styles.listContent}
-              data={rows}
-              ItemSeparatorComponent={RowSeparator}
-              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-              keyboardShouldPersistTaps="handled"
-              keyExtractor={(row) => row.id}
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateTitle}>
-                    {deferredSearch
-                      ? `No projects match "${search.trim()}"`
-                      : "No followed projects"}
-                  </Text>
-                  <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
-                    {deferredSearch
-                      ? "Try a project name or path."
-                      : "Browse server projects to start a session."}
-                  </Text>
-                </View>
-              }
-              renderItem={({ item }) =>
-                item.type === "section" ? (
-                  <Text
-                    accessibilityRole="header"
-                    dynamicTypeRamp={typeRamp.sectionLabel}
-                    style={styles.sectionTitle}
-                  >
-                    {item.title}
-                  </Text>
-                ) : item.project ? (
-                  <ProjectButton
-                    busy={creating?.project.id === item.project.id}
-                    disabled={disabled}
-                    followed={followed.has(item.project.id)}
-                    onPress={() => chooseProject(item.project as Project)}
-                    project={item.project}
-                  />
-                ) : null
-              }
-            />
-            {!showOtherProjects && otherProjectCount > 0 ? (
-              <Button fullWidth label="Browse all projects" onPress={showAllProjects} />
-            ) : null}
-          </View>
+        }
+        renderItem={({ item }) => (
+          <ProjectListRow
+            creatingProjectID={creatingProjectID}
+            disabled={disabled}
+            followed={followed}
+            onChooseProject={onChooseProject}
+            row={item}
+          />
         )}
-
-        {error ? (
-          <Text
-            accessibilityRole="alert"
-            dynamicTypeRamp={typeRamp.subheadline}
-            style={styles.footerError}
-          >
-            {error}
-          </Text>
-        ) : null}
-      </FormKeyboardAvoidingView>
-    </SafeAreaView>
+      />
+      {!showOtherProjects && otherProjectCount > 0 ? (
+        <Button fullWidth label="Browse all projects" onPress={onBrowseAll} />
+      ) : null}
+    </View>
   );
 }
 
-function projectLocations(
-  project: Project | undefined,
-  defaultLocation: Awaited<ReturnType<typeof getDefaultOpenCodeLocation>> | undefined,
-) {
-  if (!project) return [];
-  const isDefaultProject = defaultLocation?.project.id === project.id;
-  const defaultRef = defaultLocation
-    ? {
-        directory: defaultLocation.directory,
-      }
-    : undefined;
-  const mainLocation =
-    isDefaultProject && defaultRef?.directory === project.canonical
-      ? defaultRef
-      : { directory: project.canonical };
-  const choices: LocationChoice[] = [
-    { key: locationKey(mainLocation), label: "Main directory", location: mainLocation },
-  ];
-  if (isDefaultProject && defaultRef && defaultRef.directory !== project.canonical) {
-    choices.push({
-      key: locationKey(defaultRef),
-      label: "Server's working directory",
-      location: defaultRef,
-    });
-  }
-  for (const directory of project.sandboxes) {
-    if (choices.some((choice) => choice.location.directory === directory)) continue;
-    const location = { directory };
-    choices.push({
-      key: locationKey(location),
-      label: directory.split(/[\\/]/).filter(Boolean).at(-1) || directory,
-      location,
-    });
-  }
-  return choices;
-}
-
-function locationKey(location: LocationRef) {
-  return `${location.directory}\u0000${location.workspaceID ?? ""}`;
-}
-
-function projectRows(projects: Project[], followed: ReadonlySet<string>, showOther: boolean) {
-  const followedProjects = projects.filter((project) => followed.has(project.id));
-  const otherProjects = showOther ? projects.filter((project) => !followed.has(project.id)) : [];
-  const rows: ProjectRow[] = [];
-  if (followedProjects.length) {
-    rows.push({ id: "section-followed", title: "Followed projects", type: "section" });
-    rows.push(
-      ...followedProjects.map((project) => ({
-        id: `project-${project.id}`,
-        project,
-        type: "project" as const,
-      })),
+function ProjectListRow({
+  creatingProjectID,
+  disabled,
+  followed,
+  onChooseProject,
+  row,
+}: {
+  creatingProjectID: string | undefined;
+  disabled: boolean;
+  followed: ReadonlySet<string>;
+  onChooseProject: (project: Project) => void;
+  row: ProjectRow;
+}) {
+  const project = row.project;
+  if (row.type === "section") {
+    return (
+      <Text
+        accessibilityRole="header"
+        dynamicTypeRamp={typeRamp.sectionLabel}
+        style={styles.sectionTitle}
+      >
+        {row.title}
+      </Text>
     );
   }
-  if (otherProjects.length) {
-    rows.push({ id: "section-other", title: "Other projects", type: "section" });
-    rows.push(
-      ...otherProjects.map((project) => ({
-        id: `project-${project.id}`,
-        project,
-        type: "project" as const,
-      })),
-    );
-  }
-  return rows;
+  if (!project) return null;
+  return (
+    <ProjectButton
+      busy={creatingProjectID === project.id}
+      disabled={disabled}
+      followed={followed.has(project.id)}
+      onPress={() => onChooseProject(project)}
+      project={project}
+    />
+  );
 }
 
 function ProjectButton({
@@ -605,17 +752,6 @@ function StateMessage({ label, loading }: { label: string; loading?: boolean }) 
 function RowSeparator() {
   return <View style={styles.separator} />;
 }
-
-function projectLabel(project: { canonical: string; id: string; name?: string }) {
-  return (
-    project.name?.trim() || project.canonical.split(/[\\/]/).filter(Boolean).at(-1) || project.id
-  );
-}
-
-function projectSearchText(project: Project) {
-  return `${projectLabel(project)}\n${project.canonical}\n${project.sandboxes.join("\n")}\n${project.id}`.toLocaleLowerCase();
-}
-
 const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 
 const styles = StyleSheet.create({

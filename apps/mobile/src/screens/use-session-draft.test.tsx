@@ -1,5 +1,6 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import { act, renderHook, waitFor } from "@testing-library/react-native";
+import { AppState, type AppStateStatus } from "react-native";
 import { prepareAppReload } from "../updates/prepare-app-reload";
 
 import { useSessionDraft } from "./use-session-draft";
@@ -228,4 +229,150 @@ test("does not show an old scope write failure on the next session", async () =>
   });
 
   expect(hook.result.current.error).toBeUndefined();
+});
+
+test("debounces draft writes and flushes immediately when the app leaves the foreground", async () => {
+  jest.useFakeTimers();
+  try {
+    const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    act(() => hook.result.current.setDraft("First"));
+    act(() => hook.result.current.setDraft("Second"));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(399);
+    });
+    expect(mockWriteDraft).not.toHaveBeenCalled();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1);
+    });
+    expect(mockWriteDraft).toHaveBeenCalledTimes(1);
+    expect(mockWriteDraft).toHaveBeenLastCalledWith(
+      mockDatabase,
+      expect.objectContaining({ content: "Second", revision: 2 }),
+    );
+
+    act(() => hook.result.current.setDraft("Third"));
+    const onChange = jest.mocked(AppState.addEventListener).mock.calls.at(-1)?.[1] as
+      | ((state: AppStateStatus) => void)
+      | undefined;
+    await act(async () => {
+      onChange?.("active");
+    });
+    expect(mockWriteDraft).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      onChange?.("background");
+    });
+    expect(mockWriteDraft).toHaveBeenCalledTimes(2);
+    expect(mockWriteDraft).toHaveBeenLastCalledWith(
+      mockDatabase,
+      expect.objectContaining({ content: "Third", revision: 3 }),
+    );
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(1_000);
+    });
+    expect(mockWriteDraft).toHaveBeenCalledTimes(2);
+    hook.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("keeps text typed before the saved draft finishes loading", async () => {
+  let finishRead: ((value: undefined) => void) | undefined;
+  mockReadDraft.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  act(() => hook.result.current.setDraft("Typed early"));
+  await act(async () => {
+    finishRead?.(undefined);
+  });
+  expect(hook.result.current.loaded).toBe(true);
+  expect(hook.result.current.draft).toBe("Typed early");
+  expect(hook.result.current.revision).toBe(1);
+});
+
+test("ignores a draft read that settles after the hook unmounts", async () => {
+  let failRead: ((error: Error) => void) | undefined;
+  mockReadDraft.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        failRead = reject;
+      }),
+  );
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  hook.unmount();
+  await act(async () => {
+    failRead?.(new Error("late"));
+  });
+  expect(hook.result.current.error).toBeUndefined();
+  expect(hook.result.current.loaded).toBe(false);
+  expect(mockWriteDraft).not.toHaveBeenCalled();
+  expect(mockDeleteDraft).not.toHaveBeenCalled();
+});
+
+test("refuses to send a draft that changed after its revision was captured", async () => {
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  act(() => hook.result.current.setDraft("Submitted"));
+  const revision = hook.result.current.revision;
+
+  await expect(hook.result.current.persistDraft("Other text", revision)).rejects.toThrow(
+    "DRAFT_CHANGED_BEFORE_SEND",
+  );
+  await expect(hook.result.current.persistDraft("Submitted", revision - 1)).rejects.toThrow(
+    "DRAFT_CHANGED_BEFORE_SEND",
+  );
+  expect(mockWriteDraft).not.toHaveBeenCalled();
+});
+
+test("persists a draft whose debounced write already ran", async () => {
+  jest.useFakeTimers();
+  try {
+    const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+    await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+    act(() => hook.result.current.setDraft("Saved"));
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(400);
+    });
+    expect(mockWriteDraft).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await hook.result.current.persistDraft("Saved", hook.result.current.revision);
+    });
+    expect(mockWriteDraft).toHaveBeenCalledTimes(2);
+    expect(mockWriteDraft).toHaveBeenLastCalledWith(
+      mockDatabase,
+      expect.objectContaining({ content: "Saved", revision: 1 }),
+    );
+    hook.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test("blocks an app update when the draft changes while it is being saved", async () => {
+  const hook = renderHook(() => useSessionDraft("connection-1", "ses_a"));
+  await waitFor(() => expect(hook.result.current.loaded).toBe(true));
+  act(() => hook.result.current.setDraft("Before update"));
+  let finishWrite: (() => void) | undefined;
+  mockWriteDraft.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishWrite = resolve;
+      }),
+  );
+  let reload: Promise<void> | undefined;
+  act(() => {
+    reload = prepareAppReload();
+  });
+  await waitFor(() => expect(mockWriteDraft).toHaveBeenCalledTimes(1));
+  act(() => hook.result.current.setDraft("Edited during update"));
+  await act(async () => {
+    finishWrite?.();
+    await expect(reload).rejects.toThrow("DRAFT_CHANGED_BEFORE_RELOAD");
+  });
+  hook.unmount();
 });

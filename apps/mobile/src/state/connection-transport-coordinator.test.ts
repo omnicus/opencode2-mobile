@@ -7,6 +7,8 @@ import {
   ConnectionTransportCoordinator,
   type ConnectionTransportCoordinatorOptions,
   type ConnectionTransportStatus,
+  isConnectionSnapshot,
+  isOpenCodeEventEnvelope,
 } from "./connection-transport-coordinator";
 
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
@@ -399,6 +401,224 @@ test("records explicit reconciliation as a generation reason", async () => {
   expect(generationReasons).toEqual(["startup", "manual_reconcile"]);
   coordinator.stop();
 });
+
+test("accepts well-formed event envelopes", () => {
+  const accepted: unknown[] = [
+    serverConnected("event-1"),
+    durableEvent("event-2", 1),
+    { ...serverConnected("event-3"), location: undefined },
+    { ...serverConnected("event-4"), location: { directory: "/workspace" } },
+    {
+      ...serverConnected("event-5"),
+      location: { directory: "d".repeat(4096), workspaceID: "workspace-1" },
+    },
+    { data: {}, id: "i".repeat(256), type: `a${"b".repeat(127)}` },
+    { data: {}, id: "event-6", type: "constructor" },
+    { data: {}, id: "event-7", type: "future.event-type.2" },
+    ...["idle", "busy", "retry"].map((type) => ({
+      data: { sessionID: "session-1", status: { type } },
+      id: `event-status-${type}`,
+      type: "session.status",
+    })),
+    ...sessionLifecycleTypes.map((type) => ({
+      data: { sessionID: "session-1" },
+      id: `event-${type}`,
+      type,
+    })),
+    {
+      data: {},
+      durable: { aggregateID: "a".repeat(256), seq: 0, version: 1.5 },
+      id: "event-8",
+      type: "server.connected",
+    },
+  ];
+
+  for (const event of accepted) expect(isOpenCodeEventEnvelope(event)).toBe(true);
+});
+
+test("rejects event envelopes with malformed headers", () => {
+  const rejected: unknown[] = [
+    undefined,
+    null,
+    "event",
+    [],
+    { data: {}, type: "server.connected" },
+    { data: {}, id: 1, type: "server.connected" },
+    { data: {}, id: "", type: "server.connected" },
+    { data: {}, id: "i".repeat(257), type: "server.connected" },
+    { data: {}, id: "event-1" },
+    { data: {}, id: "event-1", type: 1 },
+    { data: {}, id: "event-1", type: "" },
+    { data: {}, id: "event-1", type: "Server.connected" },
+    { data: {}, id: "event-1", type: "1server" },
+    { data: {}, id: "event-1", type: "server_connected" },
+    { data: {}, id: "event-1", type: `a${"b".repeat(128)}` },
+    { id: "event-1", type: "server.connected" },
+    { data: null, id: "event-1", type: "server.connected" },
+    { data: [], id: "event-1", type: "server.connected" },
+    { data: "data", id: "event-1", type: "server.connected" },
+  ];
+
+  for (const event of rejected) expect(isOpenCodeEventEnvelope(event)).toBe(false);
+});
+
+test("rejects event envelopes with malformed locations", () => {
+  const locations: unknown[] = [
+    null,
+    "/workspace",
+    [],
+    {},
+    { directory: 1 },
+    { directory: "" },
+    { directory: "d".repeat(4097) },
+    { directory: "/workspace", workspaceID: 1 },
+    { directory: "/workspace", workspaceID: null },
+  ];
+
+  for (const location of locations) {
+    expect(isOpenCodeEventEnvelope({ ...serverConnected("event-1"), location })).toBe(false);
+  }
+});
+
+test("rejects session events without the data that drives active-session state", () => {
+  const statuses: unknown[] = [undefined, null, "busy", [], {}, { type: "running" }];
+  for (const status of statuses) {
+    expect(
+      isOpenCodeEventEnvelope({
+        data: { sessionID: "session-1", status },
+        id: "event-1",
+        type: "session.status",
+      }),
+    ).toBe(false);
+  }
+  expect(
+    isOpenCodeEventEnvelope({
+      data: { sessionID: 1, status: { type: "busy" } },
+      id: "event-1",
+      type: "session.status",
+    }),
+  ).toBe(false);
+  for (const type of sessionLifecycleTypes) {
+    expect(isOpenCodeEventEnvelope({ data: {}, id: "event-1", type })).toBe(false);
+    expect(isOpenCodeEventEnvelope({ data: { sessionID: 1 }, id: "event-1", type })).toBe(false);
+  }
+});
+
+test("rejects event envelopes with malformed durable references", () => {
+  const durables: unknown[] = [
+    undefined,
+    null,
+    [],
+    { seq: 1, version: 1 },
+    { aggregateID: 1, seq: 1, version: 1 },
+    { aggregateID: "", seq: 1, version: 1 },
+    { aggregateID: "a".repeat(257), seq: 1, version: 1 },
+    { aggregateID: "session-1", version: 1 },
+    { aggregateID: "session-1", seq: 1.5, version: 1 },
+    { aggregateID: "session-1", seq: Number.MAX_SAFE_INTEGER + 1, version: 1 },
+    { aggregateID: "session-1", seq: "1", version: 1 },
+    { aggregateID: "session-1", seq: 1 },
+    { aggregateID: "session-1", seq: 1, version: "1" },
+  ];
+
+  for (const durable of durables) {
+    expect(isOpenCodeEventEnvelope({ ...serverConnected("event-1"), durable })).toBe(false);
+  }
+});
+
+test("accepts well-formed connection snapshots", () => {
+  const health = { pid: 42, urls: ["http://127.0.0.1:4096"], version: "v".repeat(128) };
+  const project = {
+    canonical: "/workspace",
+    id: "project-1",
+    sandboxes: [],
+    time: { created: 1, updated: 2 },
+  };
+
+  expect(isConnectionSnapshot(health, [], {})).toBe(true);
+  expect(
+    isConnectionSnapshot(health, [project, project], {
+      ses_1: { type: "running" },
+      ses_2: { type: "running" },
+    }),
+  ).toBe(true);
+});
+
+test("rejects connection snapshots with malformed server status", () => {
+  const healths: unknown[] = [
+    undefined,
+    null,
+    [],
+    { pid: 42, version: "test" },
+    { pid: 42, urls: "http://127.0.0.1", version: "test" },
+    { pid: 42, urls: [1], version: "test" },
+    { pid: 42, urls: [] },
+    { pid: 42, urls: [], version: 1 },
+    { pid: 42, urls: [], version: "" },
+    { pid: 42, urls: [], version: "v".repeat(129) },
+    { urls: [], version: "test" },
+    { pid: 4.2, urls: [], version: "test" },
+    { pid: "42", urls: [], version: "test" },
+  ];
+
+  for (const health of healths) expect(isConnectionSnapshot(health, [], {})).toBe(false);
+});
+
+test("rejects connection snapshots with malformed projects", () => {
+  const health = { pid: 42, urls: [], version: "test" };
+  const project = {
+    canonical: "/workspace",
+    id: "project-1",
+    sandboxes: [],
+    time: { created: 1, updated: 2 },
+  };
+  const projectLists: unknown[] = [
+    undefined,
+    {},
+    [null],
+    [[]],
+    [{ ...project, id: 1 }],
+    [{ ...project, canonical: undefined }],
+    [{ ...project, sandboxes: {} }],
+    [{ ...project, time: undefined }],
+    [{ ...project, time: [] }],
+    [{ ...project, time: { updated: 2 } }],
+    [{ ...project, time: { created: "1", updated: 2 } }],
+    [{ ...project, time: { created: 1 } }],
+    [project, { ...project, time: { created: 1, updated: "2" } }],
+  ];
+
+  for (const projects of projectLists)
+    expect(isConnectionSnapshot(health, projects, {})).toBe(false);
+});
+
+test("rejects connection snapshots with malformed active sessions", () => {
+  const health = { pid: 42, urls: [], version: "test" };
+  const activeSessionMaps: unknown[] = [
+    undefined,
+    null,
+    [],
+    { "running-1": { type: "running" } },
+    { ses_1: null },
+    { ses_1: [] },
+    { ses_1: {} },
+    { ses_1: { type: "idle" } },
+    { ses_1: { type: "running" }, ses_2: { type: "busy" } },
+  ];
+
+  for (const activeSessions of activeSessionMaps) {
+    expect(isConnectionSnapshot(health, [], activeSessions)).toBe(false);
+  }
+});
+
+const sessionLifecycleTypes = [
+  "session.execution.started",
+  "session.execution.succeeded",
+  "session.execution.failed",
+  "session.execution.interrupted",
+  "session.idle",
+  "session.deleted",
+];
 
 function createCoordinator(overrides: Partial<ConnectionTransportCoordinatorOptions> = {}) {
   return new ConnectionTransportCoordinator({

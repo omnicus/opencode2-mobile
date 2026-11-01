@@ -30,7 +30,8 @@ import {
 import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
-import { palette, typography } from "../theme";
+import { disabledOpacity, palette, pressedOpacity, typography } from "../theme";
+import { ShellFrame } from "./app-shell";
 import { SessionScreen, WorkspaceScreen } from "./workspace-screen";
 
 jest.mock("../state/transcript-preferences", () => ({
@@ -2614,6 +2615,167 @@ test("remeasures the transcript when the system font scale changes", async () =>
     act(() => {
       Dimensions.set({ screen: originalScreen, window: originalWindow });
     });
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("measures the iOS composer dock and lifts it above the keyboard", async () => {
+  const addListener = jest.spyOn(Keyboard, "addListener");
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "session-ios-keyboard",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  const keyboardListener = (eventName: string) =>
+    addListener.mock.calls.filter(([name]) => name === eventName).at(-1)?.[1] as (
+      event: unknown,
+    ) => void;
+  const spacerHeight = () =>
+    screen
+      .UNSAFE_getAllByProps({ pointerEvents: "none" })
+      .map((element) => StyleSheet.flatten(element.props.style))
+      .find((style) => style?.flexShrink === 0)?.height;
+  try {
+    const dock = await screen.findByLabelText("Keyboard composer dock");
+    const measureInWindow = jest.mocked(
+      screen.UNSAFE_getByProps({ accessibilityLabel: "Keyboard composer dock" }).instance
+        .measureInWindow,
+    );
+    measureInWindow.mockImplementation(
+      (callback: (x: number, y: number, width: number, height: number) => void) =>
+        callback(0, 700, 390, 100),
+    );
+    const content = dock.children[0] as typeof dock;
+    fireEvent(content, "layout", { nativeEvent: { layout: { height: 120 } } });
+    fireEvent(content, "layout", { nativeEvent: { layout: { height: 120.4 } } });
+    expect(spacerHeight()).toBe(120);
+    fireEvent(dock, "layout", { nativeEvent: { layout: { height: 100 } } });
+    expect(measureInWindow).toHaveBeenCalledTimes(1);
+
+    act(() => keyboardListener("keyboardWillChangeFrame")({ endCoordinates: { screenY: 500 } }));
+    expect(dock).toHaveStyle({ bottom: 268 });
+    expect(spacerHeight()).toBe(388);
+    fireEvent(dock, "layout", { nativeEvent: { layout: { height: 100 } } });
+    expect(measureInWindow).toHaveBeenCalledTimes(1);
+
+    act(() => keyboardListener("keyboardWillHide")({}));
+    expect(dock).toHaveStyle({ bottom: 0 });
+    expect(spacerHeight()).toBe(120);
+  } finally {
+    addListener.mockRestore();
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("the session actions button stays disabled until the session location is confirmed", async () => {
+  const setOptions =
+    jest.fn<(options: { title?: string; headerRight?: () => ReactNode }) => void>();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions } as never}
+        route={{
+          key: "session-actions-button",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  const headerButtons = () =>
+    setOptions.mock.calls
+      .map(([options]) => options.headerRight)
+      .filter((headerRight) => headerRight !== undefined)
+      .map(
+        (headerRight) =>
+          headerRight() as ReactElement<{
+            disabled: boolean;
+            style: (state: { pressed: boolean }) => unknown;
+          }>,
+      );
+  try {
+    await waitFor(() => expect(setOptions).toHaveBeenCalledWith({ title: "Transcript session" }));
+    await waitFor(() => expect(headerButtons().at(-1)?.props.disabled).toBe(false));
+    const pending = headerButtons()[0];
+    const ready = headerButtons().at(-1);
+    expect(pending?.props.disabled).toBe(true);
+    expect(StyleSheet.flatten(pending?.props.style({ pressed: false }) as never)).toMatchObject({
+      opacity: disabledOpacity,
+    });
+    expect(StyleSheet.flatten(ready?.props.style({ pressed: false }) as never)).not.toHaveProperty(
+      "opacity",
+    );
+    expect(StyleSheet.flatten(ready?.props.style({ pressed: true }) as never)).toMatchObject({
+      opacity: pressedOpacity,
+    });
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("a session from another connection offers only the way back to the workspace", () => {
+  mockGetSession.mockClear();
+  const navigation = {
+    goBack: jest.fn(),
+    navigate: jest.fn(),
+    popTo: jest.fn(),
+    setOptions: jest.fn(),
+  };
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={navigation as never}
+        route={{
+          key: "stale-connection",
+          name: "Session",
+          params: {
+            connectionId: "connection-2",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    expect(screen.getByText("This session belongs to a different connection.")).toBeOnTheScreen();
+    expect(screen.queryByLabelText("Session transcript")).toBeNull();
+    expect(mockGetSession).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByRole("button", { name: "Back to workspace" }));
+    expect(navigation.popTo).toHaveBeenCalledWith("Workspace");
+    const shell = screen.UNSAFE_getByType(ShellFrame);
+    act(() => shell.props.navigate("Workspace"));
+    expect(navigation.popTo).toHaveBeenCalledTimes(2);
+    act(() => shell.props.navigate("Settings"));
+    expect(navigation.navigate).toHaveBeenCalledWith("Settings");
+  } finally {
     view.unmount();
     queryClient.clear();
   }

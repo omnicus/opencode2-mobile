@@ -1,96 +1,73 @@
-import {
-  archiveOpenCodeSession,
-  type FormInfo,
-  getDefaultOpenCodeLocation,
-  getOpenCodeLocation,
-  type LocationRef,
-  listActiveOpenCodeSessions,
-  listOpenCodeFormRequests,
-  listOpenCodePermissionRequests,
-  listOpenCodeProjects,
-  type OpenCodeClient,
-  openCodeDirectoryExists,
-  type PermissionReply,
-  type PermissionRequest,
-  replyOpenCodePermissionRequest,
-  type SessionInfo,
+import type {
+  FormInfo,
+  LocationRef,
+  PermissionReply,
+  PermissionRequest,
+  ProjectListOutput,
+  SessionInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import {
-  hashKey,
-  type InfiniteData,
-  type QueryKey,
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSQLiteContext } from "expo-sqlite";
-import {
-  createContext,
-  type ReactNode,
-  use,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createContext, type ReactNode, use, useRef } from "react";
 
-import {
-  hasFollowedProjectPreference,
-  readFollowedProjectIds,
-  replaceFollowedProjectIds,
-} from "../storage/followed-project-repository";
-import {
-  type SessionInboxPreferences,
-  startSessionInbox,
-  writeWorkingShelfExpanded,
-} from "../storage/session-inbox-repository";
 import { useConnectionRuntime } from "./connection-runtime-context";
 import {
   buildFollowedInboxSections,
   type FollowedInboxSections,
-  type FollowedSessionPage,
-  type FollowedSessionPageParam,
-  failedFollowedSessionProjects,
-  fetchFollowedSessionPage,
-  flattenFollowedSessionPages,
-  loadSessionAncestries,
   locationKey,
-  nextFollowedSessionPageParam,
-  setFollowedSessionArchived,
   stabilizeFollowedInboxSections,
   uniqueLocations,
 } from "./followed-project-inbox";
-import { openCodeQueryKeys } from "./open-code-query-keys";
+import {
+  type AttentionCoverage,
+  addLocationInteractions,
+  attentionCoverageReasons,
+  attentionFreshness,
+  attentionLocationFailures,
+  canCheckLocationInteractions,
+  createInteractionIndex,
+  directoryProbesByLocation,
+  discoverFollowedLocations,
+  failedInteractionLocations,
+  failedProjectSummaries,
+  followedActiveSessionIDs,
+  followedProjectAvailability,
+  followedProjectScopeKey,
+  historicalCandidate,
+  historicalCandidates,
+  interactionSessionIDs,
+  isAttentionReconciling,
+  knownCandidateLocations,
+  projectIDsByLocation,
+  protectedLocationKeys,
+  sortedInteractions,
+  supplementalInteractionLocations,
+  unresolvedConnectionID,
+} from "./followed-projects-model";
+import {
+  useFollowedProjectPreferences,
+  useInitialFollowedProject,
+  useSessionInboxPreferences,
+  useSetFollowedProjectIds,
+} from "./followed-projects-preferences";
+import {
+  cachedAttentionLookup,
+  type FollowedQueryScope,
+  refetchFollowedProjects,
+  useActiveSessionAncestries,
+  useArchiveSession,
+  useEventLocationsQuery,
+  useFollowedProjectCatalog,
+  useFollowedProjectSessions,
+  useHistoricalDirectoryQueries,
+  useLocationInteractionQueries,
+  usePermissionReply,
+  useSelectedLocationQuery,
+  useSessionAncestriesQuery,
+  visibleSessionState,
+} from "./followed-projects-queries";
 
-const sessionPageSize = 30;
-// The OpenCode desktop inbox also loads the newest 50 archived root sessions.
-const archivedPageSize = 50;
-const unresolvedConnectionID = "unselected";
-// ["opencode", connectionID, "session-ancestries", purpose]
-const ancestryScopeLength = 4;
-
-type SessionAncestries = Awaited<ReturnType<typeof loadSessionAncestries>>;
-
-export type AttentionLocationFailure = {
-  location: LocationRef;
-  projectLabel: string;
-  source: "project-root" | "worktree" | "session-history" | "discovered";
-  failedChecks: Array<"permissions" | "forms">;
-};
-
-export type AttentionCoverage = {
-  completeness: "complete" | "incomplete";
-  failedLocationCount: number;
-  failedLocations: AttentionLocationFailure[];
-  failedProjects: Array<{ label: string; locationCount: number; projectID?: string }>;
-  freshness: "current" | "reconciling" | "stale";
-  knownLocationCount: number;
-  reasons: string[];
-  reconciledLocationCount: number;
-  revision: number;
-};
+export type { AttentionCoverage, AttentionLocationFailure } from "./followed-projects-model";
 
 type FollowedProjectsContextValue = {
   archiveSession: (session: SessionInfo, archived: boolean) => Promise<void>;
@@ -112,7 +89,7 @@ type FollowedProjectsContextValue = {
   preferencesLoading: boolean;
   preferencesError: boolean;
   preferencesSaving: boolean;
-  projects: Awaited<ReturnType<typeof listOpenCodeProjects>>;
+  projects: ProjectListOutput;
   projectsError: boolean;
   projectsLoading: boolean;
   refetch: () => Promise<unknown>;
@@ -139,973 +116,267 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
   const connectionKey = connectionID
     ? `${connectionID}\u0000${runtime.connectionUpdatedAtMs ?? 0}`
     : undefined;
-  const latestConnectionKeyRef = useRef(connectionKey);
-  latestConnectionKeyRef.current = connectionKey;
   const client = runtime.restClient;
   const revision = runtime.reconciliationRevision;
-  const [preferenceState, setPreferenceState] = useState<{
-    connectionKey: string;
-    hasPreference: boolean;
-    loadFailed: boolean;
-    projectIDs: string[];
-  }>();
-  const [preferencesSaving, setPreferencesSaving] = useState(false);
-  const [inboxPreferenceState, setInboxPreferenceState] = useState<{
-    connectionKey: string;
-    preferences: SessionInboxPreferences;
-  }>();
-  const inboxOrderRef = useRef<{
-    connectionKey: string | undefined;
-    inbox: FollowedInboxSections;
-  }>(undefined);
-  const discoveredLocationsRef = useRef<{
-    scopeKey: string | undefined;
-    locations: LocationRef[];
-  }>({ scopeKey: undefined, locations: [] });
-  const [search, setSearch] = useState("");
-  const [selection, setSelection] = useState<{
-    connectionKey: string;
-    location: LocationRef;
-  }>();
-  const preferenceReady = Boolean(
-    connectionKey && preferenceState?.connectionKey === connectionKey,
-  );
-  const followedProjectIds = preferenceReady ? (preferenceState?.projectIDs ?? []) : [];
-  const location =
-    selection && selection.connectionKey === connectionKey ? selection.location : undefined;
-
-  useEffect(() => {
-    setPreferenceState(undefined);
-    setPreferencesSaving(false);
-    setSearch("");
-    setSelection(undefined);
-    if (!connectionID || !connectionKey) return;
-    let active = true;
-    Promise.all([
-      readFollowedProjectIds(db, connectionID),
-      hasFollowedProjectPreference(db, connectionID),
-    ])
-      .then(([projectIDs, hasPreference]) => {
-        if (active) {
-          setPreferenceState({ connectionKey, hasPreference, loadFailed: false, projectIDs });
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setPreferenceState({
-            connectionKey,
-            hasPreference: true,
-            loadFailed: true,
-            projectIDs: [],
-          });
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [connectionID, connectionKey, db]);
-
-  const connectionUpdatedAtMs = runtime.connectionUpdatedAtMs;
-  useEffect(() => {
-    setInboxPreferenceState(undefined);
-    if (!connectionID || !connectionKey || connectionUpdatedAtMs === undefined) return;
-    let active = true;
-    const nowMs = Date.now();
-    // A device that cannot store its inbox start still shows one, starting now.
-    void startSessionInbox(db, connectionID, connectionUpdatedAtMs, nowMs)
-      .catch(() => ({ sinceMs: nowMs, workingExpanded: true }))
-      .then((preferences) => {
-        if (active) setInboxPreferenceState({ connectionKey, preferences });
-      });
-    return () => {
-      active = false;
-    };
-  }, [connectionID, connectionKey, connectionUpdatedAtMs, db]);
-  const inboxPreferences =
-    inboxPreferenceState && inboxPreferenceState.connectionKey === connectionKey
-      ? inboxPreferenceState.preferences
-      : undefined;
-  const inboxSinceMs = inboxPreferences?.sinceMs;
-
-  const projectsQuery = useQuery({
-    enabled: Boolean(client && connectionID),
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return listOpenCodeProjects(client, { signal });
-    },
-    queryKey: openCodeQueryKeys.projects(connectionID ?? unresolvedConnectionID),
-  });
-  const defaultLocationQuery = useQuery({
-    enabled: Boolean(client && connectionID),
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return getDefaultOpenCodeLocation(client, { signal });
-    },
-    queryKey: openCodeQueryKeys.defaultLocation(connectionID ?? unresolvedConnectionID),
-  });
-  const projects = projectsQuery.data ?? [];
-
-  useEffect(() => {
-    if (
-      !connectionID ||
-      !connectionKey ||
-      !preferenceReady ||
-      preferenceState?.hasPreference !== false ||
-      projects.length === 0 ||
-      preferencesSaving
-    ) {
-      return;
-    }
-    const initialProjectID =
-      projects.find((project) => project.id === defaultLocationQuery.data?.project.id)?.id ??
-      projects[0]?.id;
-    if (!initialProjectID) return;
-    setPreferencesSaving(true);
-    void replaceFollowedProjectIds(
-      db,
-      connectionID,
-      [initialProjectID],
-      runtime.connectionUpdatedAtMs,
-    )
-      .then(() => {
-        if (latestConnectionKeyRef.current !== connectionKey) return;
-        setPreferenceState({
-          connectionKey,
-          hasPreference: true,
-          loadFailed: false,
-          projectIDs: [initialProjectID],
-        });
-      })
-      .catch(() => {
-        if (latestConnectionKeyRef.current !== connectionKey) return;
-        setPreferenceState({
-          connectionKey,
-          hasPreference: true,
-          loadFailed: true,
-          projectIDs: [],
-        });
-      })
-      .finally(() => {
-        if (latestConnectionKeyRef.current === connectionKey) setPreferencesSaving(false);
-      });
-  }, [
+  const scope: FollowedQueryScope = {
+    client,
+    connectionReady: Boolean(client && connectionID),
+    queryConnectionID: connectionID ?? unresolvedConnectionID,
+    revision,
+  };
+  const preferences = useFollowedProjectPreferences(
+    db,
     connectionID,
     connectionKey,
-    db,
-    defaultLocationQuery.data?.project.id,
-    preferenceReady,
-    preferenceState?.hasPreference,
-    preferencesSaving,
-    projects,
     runtime.connectionUpdatedAtMs,
-  ]);
+  );
+  const { location, preferenceReady } = preferences;
+  const inboxPreferences = useSessionInboxPreferences(
+    db,
+    connectionID,
+    connectionKey,
+    runtime.connectionUpdatedAtMs,
+  );
 
-  const projectByID = new Map(projects.map((project) => [project.id, project]));
-  const availableFollowedProjectIDs = followedProjectIds.filter((projectID) =>
-    projectByID.has(projectID),
-  );
-  const unavailableProjectIds = followedProjectIds.filter(
-    (projectID) => !projectByID.has(projectID),
-  );
-  const followedScopeKey = connectionKey
-    ? `${connectionKey}\u0000${[...availableFollowedProjectIDs].sort().join("\u0000")}`
-    : undefined;
-  const initialPageParam = Object.fromEntries(
-    availableFollowedProjectIDs.map((projectID) => [projectID, undefined]),
-  ) as FollowedSessionPageParam;
-  const sessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
-    connectionID ?? unresolvedConnectionID,
-    availableFollowedProjectIDs,
-    {
-      limit: sessionPageSize,
-      order: "desc",
-      parentID: null,
-      ...(inboxSinceMs === undefined ? {} : { since: inboxSinceMs }),
-    },
-    revision,
-  );
-  const sessionsQuery = useInfiniteQuery({
-    enabled: Boolean(
-      client &&
-        connectionID &&
-        preferenceReady &&
-        inboxSinceMs !== undefined &&
-        availableFollowedProjectIDs.length,
-    ),
-    getNextPageParam: nextFollowedSessionPageParam,
-    initialPageParam,
-    placeholderData: (previous, previousQuery) =>
-      sameRevisionScope(previousQuery?.queryKey, sessionsQueryKey, sessionsQueryKey.length - 1)
-        ? previous
-        : undefined,
-    queryFn: ({ pageParam, signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return fetchFollowedSessionPage(client, availableFollowedProjectIDs, pageParam, {
-        limit: sessionPageSize,
-        signal,
-        ...(inboxSinceMs === undefined ? {} : { until: inboxSinceMs }),
-      });
-    },
-    queryKey: sessionsQueryKey,
+  const catalog = useFollowedProjectCatalog(scope);
+  const { projects } = catalog;
+  useInitialFollowedProject(preferences.writer, {
+    defaultProjectID: catalog.defaultProjectID,
+    hasPreference: preferences.hasPreference,
+    preferenceReady,
+    projects,
   });
-  const archivedSessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
-    connectionID ?? unresolvedConnectionID,
-    availableFollowedProjectIDs,
-    { archived: true, limit: archivedPageSize, order: "desc", parentID: null },
-    revision,
-  );
-  const archivedSessionsQuery = useQuery({
-    enabled: Boolean(
-      client && connectionID && preferenceReady && availableFollowedProjectIDs.length,
-    ),
-    placeholderData: (previous: FollowedSessionPage | undefined, previousQuery) =>
-      sameRevisionScope(
-        previousQuery?.queryKey,
-        archivedSessionsQueryKey,
-        archivedSessionsQueryKey.length - 1,
-      )
-        ? previous
-        : undefined,
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return fetchFollowedSessionPage(
-        client,
-        availableFollowedProjectIDs,
-        Object.fromEntries(availableFollowedProjectIDs.map((projectID) => [projectID, undefined])),
-        { archived: true, limit: archivedPageSize, signal },
-      );
-    },
-    queryKey: archivedSessionsQueryKey,
-  });
-  const normalizedSearch = search.trim();
-  const searchSessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
-    connectionID ?? unresolvedConnectionID,
-    availableFollowedProjectIDs,
-    {
-      limit: sessionPageSize,
-      order: "desc",
-      parentID: null,
-      search: normalizedSearch,
-    },
-    revision,
-  );
-  const searchSessionsQuery = useInfiniteQuery({
-    enabled: Boolean(
-      client &&
-        connectionID &&
-        preferenceReady &&
-        availableFollowedProjectIDs.length &&
-        normalizedSearch,
-    ),
-    getNextPageParam: nextFollowedSessionPageParam,
-    initialPageParam,
-    placeholderData: (previous, previousQuery) =>
-      sameRevisionScope(
-        previousQuery?.queryKey,
-        searchSessionsQueryKey,
-        searchSessionsQueryKey.length - 1,
-      )
-        ? previous
-        : undefined,
-    queryFn: ({ pageParam, signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return fetchFollowedSessionPage(client, availableFollowedProjectIDs, pageParam, {
-        limit: sessionPageSize,
-        search: normalizedSearch,
-        signal,
-      });
-    },
-    queryKey: searchSessionsQueryKey,
-  });
-  const rootSessions = flattenFollowedSessionPages(sessionsQuery.data?.pages);
-  // Archived roots only add Archived rows. Location discovery keeps to the active list.
-  const visibleRootSessions = normalizedSearch
-    ? flattenFollowedSessionPages(searchSessionsQuery.data?.pages)
-    : flattenFollowedSessionPages([
-        ...(sessionsQuery.data?.pages ?? []),
-        ...(archivedSessionsQuery.data ? [archivedSessionsQuery.data] : []),
-      ]);
+  const setFollowedProjectIds = useSetFollowedProjectIds(preferences.writer);
 
-  const activeSessionsQuery = useQuery({
-    enabled: Boolean(client && connectionID),
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return listActiveOpenCodeSessions(client, { signal });
-    },
-    queryKey: openCodeQueryKeys.activeSessions(connectionID ?? unresolvedConnectionID),
+  const { availableFollowedProjectIDs, projectByID, unavailableProjectIds } =
+    followedProjectAvailability(projects, preferences.followedProjectIds);
+  const sessions = useFollowedProjectSessions(scope, {
+    inboxSinceMs: inboxPreferences.inboxSinceMs,
+    preferenceReady,
+    projectIDs: availableFollowedProjectIDs,
+    search: preferences.search,
   });
-  const activeSessionIDs = Object.keys(activeSessionsQuery.data ?? {}).sort();
-  const activeAncestryQueryKey = openCodeQueryKeys.sessionAncestries(
-    connectionID ?? unresolvedConnectionID,
-    "active",
-    activeSessionIDs,
-    revision,
-  );
-  const activeAncestryQuery = useQuery({
-    enabled: Boolean(client && connectionID && activeSessionIDs.length),
-    // Ancestry entries are looked up by session ID, so the previous snapshot
-    // stays valid for display while the active set or revision changes.
-    placeholderData: (previous: SessionAncestries | undefined, previousQuery) =>
-      sameRevisionScope(previousQuery?.queryKey, activeAncestryQueryKey, ancestryScopeLength)
-        ? previous
-        : undefined,
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return loadSessionAncestries(client, activeSessionIDs, signal);
-    },
-    queryKey: activeAncestryQueryKey,
-  });
+  const { rootSessions } = sessions;
+  const active = useActiveSessionAncestries(scope);
 
   const eventLocations = uniqueLocations(runtime.eventLocations);
-  const activeLocationsResolved =
-    activeSessionsQuery.isSuccess &&
-    (activeSessionIDs.length === 0 ||
-      (activeAncestryQuery.isSuccess &&
-        !activeAncestryQuery.isPlaceholderData &&
-        activeAncestryQuery.data.failures.length === 0));
-  const activeLocationsPending =
-    activeSessionsQuery.isPending ||
-    (activeSessionIDs.length > 0 &&
-      (activeAncestryQuery.isPending || activeAncestryQuery.isPlaceholderData));
-  const protectedLocationKeys = new Set(
-    [
-      ...availableFollowedProjectIDs.flatMap((projectID) => {
-        const project = projectByID.get(projectID);
-        return project ? [{ directory: project.canonical }] : [];
-      }),
-      ...runtime.attentionLocations,
-      ...Object.values(activeAncestryQuery.data?.sessions ?? {}).map((session) => session.location),
-      ...(location ? [location] : []),
-    ].map(locationKey),
-  );
-  function historicalCandidate(candidate: LocationRef) {
-    if (protectedLocationKeys.has(locationKey(candidate)) || candidate.workspaceID)
-      return undefined;
-    const session = rootSessions.find(
-      (item) => locationKey(item.location) === locationKey(candidate),
-    );
-    const projectID = session?.projectID ?? inferLocationProjectID(candidate, projects);
-    const project = projectID ? projectByID.get(projectID) : undefined;
-    if (!project) return undefined;
-    // Actual attention takes precedence over retirement; generic event locations
-    // are discovery hints, not evidence of outstanding work.
-    const permissionSnapshot = queryClient.getQueryData<{ data: PermissionRequest[] }>(
-      openCodeQueryKeys.permissions(connectionID ?? unresolvedConnectionID, candidate),
-    );
-    const formSnapshot = queryClient.getQueryData<{ data: FormInfo[] }>(
-      openCodeQueryKeys.forms(connectionID ?? unresolvedConnectionID, candidate),
-    );
-    if (permissionSnapshot?.data.length || formSnapshot?.data.length) return undefined;
-    return { location: candidate, root: { directory: project.canonical } };
-  }
-  const eventLocationsQuery = useQuery({
-    enabled: Boolean(
-      client &&
-        connectionID &&
-        eventLocations.length &&
-        preferenceReady &&
-        !projectsQuery.isPending &&
-        !activeLocationsPending,
-    ),
-    queryFn: async ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      const settled = await Promise.allSettled(
-        eventLocations.map(async (eventLocation) => {
-          const candidate = historicalCandidate(eventLocation);
-          // Resolving a location initializes it on the server. Check through the
-          // live project root before touching a retired historical directory.
-          if (candidate && activeLocationsResolved) {
-            let exists: boolean | undefined;
-            try {
-              exists = await openCodeDirectoryExists(
-                client,
-                candidate.root,
-                eventLocation.directory,
-                { signal },
-              );
-            } catch {
-              // An unavailable probe is not proof that the directory is gone.
-              if (signal.aborted) throw new Error("LOCATION_CHECK_ABORTED");
-            }
-            if (exists === false) return undefined;
-          }
-          return getOpenCodeLocation(client, eventLocation, { signal });
-        }),
-      );
-      return {
-        failures: settled.filter((result) => result.status === "rejected").length,
-        locations: settled.flatMap((result) =>
-          result.status === "fulfilled" && result.value ? [result.value] : [],
-        ),
-      };
-    },
-    queryKey: openCodeQueryKeys.eventLocations(
-      connectionID ?? unresolvedConnectionID,
-      eventLocations,
-      revision,
-    ),
-  });
-  const selectedLocationQuery = useQuery({
-    enabled: Boolean(client && connectionID && location),
-    queryFn: ({ signal }) => {
-      if (!client || !location) throw new Error("LOCATION_NOT_RESOLVED");
-      return getOpenCodeLocation(client, location, { signal });
-    },
-    queryKey: openCodeQueryKeys.resolvedLocation(
-      connectionID ?? unresolvedConnectionID,
-      location ?? { directory: "unselected" },
-    ),
-  });
-
-  const projectLocations = availableFollowedProjectIDs.flatMap((projectID) => {
-    const project = projectByID.get(projectID);
-    return project
-      ? [project.canonical, ...project.sandboxes].map((directory) => ({ directory }))
-      : [];
-  });
-  const discoveredLocations = uniqueLocations([
-    ...runtime.attentionLocations,
-    ...projectLocations,
-    ...rootSessions.map((session) => session.location),
-    ...Object.values(activeAncestryQuery.data?.sessions ?? {})
-      .filter((session) => availableFollowedProjectIDs.includes(session.projectID))
-      .map((session) => session.location),
-    ...(eventLocationsQuery.data?.locations ?? [])
-      .filter((resolved) => availableFollowedProjectIDs.includes(resolved.project.id))
-      .map((resolved) => ({
-        directory: resolved.directory,
-      })),
-    ...(selectedLocationQuery.data &&
-    availableFollowedProjectIDs.includes(selectedLocationQuery.data.project.id)
-      ? [
-          {
-            directory: selectedLocationQuery.data.directory,
-          },
-        ]
-      : []),
-  ]);
-  const previousLocations =
-    discoveredLocationsRef.current.scopeKey === followedScopeKey
-      ? discoveredLocationsRef.current.locations
-      : [];
-  const candidateLocations = uniqueLocations([...previousLocations, ...discoveredLocations]);
-  discoveredLocationsRef.current = { scopeKey: followedScopeKey, locations: candidateLocations };
-  const historicalCandidates = candidateLocations.flatMap((candidate) => {
-    const historical = historicalCandidate(candidate);
-    return historical ? [historical] : [];
-  });
-  const directoryQueries = useQueries({
-    queries: historicalCandidates.map((candidate) => ({
-      enabled: Boolean(client && connectionID),
-      queryKey: openCodeQueryKeys.historicalDirectory(
-        connectionID ?? unresolvedConnectionID,
-        candidate.root,
-        candidate.location.directory,
-        revision,
-      ),
-      queryFn: ({ signal }: { signal: AbortSignal }) => {
-        if (!client) throw new Error("CONNECTION_NOT_READY");
-        return openCodeDirectoryExists(client, candidate.root, candidate.location.directory, {
-          signal,
-        });
-      },
-    })),
-  });
-  const directoryQueryByLocation = new Map(
-    historicalCandidates.map((candidate, index) => [
-      locationKey(candidate.location),
-      directoryQueries[index],
-    ]),
-  );
-  const knownLocations = candidateLocations.filter((candidate) => {
-    const query = directoryQueryByLocation.get(locationKey(candidate));
-    return !activeLocationsResolved || !query?.isSuccess || query.data !== false;
-  });
-  const canCheckInteractions = (candidate: LocationRef) => {
-    const probe = directoryQueryByLocation.get(locationKey(candidate));
-    return (
-      !probe ||
-      (!probe.isPending &&
-        !activeLocationsPending &&
-        !(activeLocationsResolved && probe.data === false))
-    );
-  };
-  const interactionQueries = useQueries({
-    queries: knownLocations.flatMap((knownLocation) => [
-      {
-        enabled: Boolean(client && connectionID && canCheckInteractions(knownLocation)),
-        queryFn: ({ signal }: { signal: AbortSignal }) => {
-          if (!client) throw new Error("CONNECTION_NOT_READY");
-          return listOpenCodePermissionRequests(client, knownLocation, { signal });
-        },
-        queryKey: openCodeQueryKeys.permissions(
-          connectionID ?? unresolvedConnectionID,
-          knownLocation,
-        ),
-      },
-      {
-        enabled: Boolean(client && connectionID && canCheckInteractions(knownLocation)),
-        queryFn: ({ signal }: { signal: AbortSignal }) => {
-          if (!client) throw new Error("CONNECTION_NOT_READY");
-          return listOpenCodeFormRequests(client, knownLocation, { signal });
-        },
-        queryKey: openCodeQueryKeys.forms(connectionID ?? unresolvedConnectionID, knownLocation),
-      },
-    ]),
-  });
-  const permissionsByID = new Map<string, PermissionRequest>();
-  const formsByID = new Map<string, FormInfo>();
-  const formLocations = new Map<string, LocationRef>();
-  const permissionLocations = new Map<string, LocationRef>();
-  for (const [locationIndex, knownLocation] of knownLocations.entries()) {
-    const permissionResult = interactionQueries[locationIndex * 2]?.data as
-      | { data: PermissionRequest[] }
-      | undefined;
-    const formResult = interactionQueries[locationIndex * 2 + 1]?.data as
-      | { data: FormInfo[] }
-      | undefined;
-    for (const request of permissionResult?.data ?? []) {
-      permissionsByID.set(request.id, request);
-      permissionLocations.set(request.id, knownLocation);
-    }
-    for (const form of formResult?.data ?? []) {
-      formsByID.set(form.id, form);
-      formLocations.set(form.id, knownLocation);
-    }
-  }
-  const initialInteractions = [...permissionsByID.values(), ...formsByID.values()];
-  const interactionSessionIDs = [
-    ...new Set(
-      initialInteractions
-        .map((interaction) => interaction.sessionID)
-        .filter((sessionID) => sessionID !== "global"),
-    ),
-  ].sort();
-  const interactionAncestryQueryKey = openCodeQueryKeys.sessionAncestries(
-    connectionID ?? unresolvedConnectionID,
-    "interactions",
-    interactionSessionIDs,
-    revision,
-  );
-  const interactionAncestryQuery = useQuery({
-    enabled: Boolean(client && connectionID && interactionSessionIDs.length),
-    placeholderData: (previous: SessionAncestries | undefined, previousQuery) =>
-      sameRevisionScope(previousQuery?.queryKey, interactionAncestryQueryKey, ancestryScopeLength)
-        ? previous
-        : undefined,
-    queryFn: ({ signal }) => {
-      if (!client) throw new Error("CONNECTION_NOT_READY");
-      return loadSessionAncestries(client, interactionSessionIDs, signal);
-    },
-    queryKey: interactionAncestryQueryKey,
-  });
-  const knownLocationKeys = new Set(knownLocations.map(locationKey));
-  const supplementalLocations = uniqueLocations(
-    Object.values(interactionAncestryQuery.data?.sessions ?? {})
-      .filter((session) => availableFollowedProjectIDs.includes(session.projectID))
-      .map((session) => session.location),
-  ).filter((candidate) => !knownLocationKeys.has(locationKey(candidate)));
-  const supplementalInteractionQueries = useQueries({
-    queries: supplementalLocations.flatMap((supplementalLocation) => [
-      {
-        enabled: Boolean(client && connectionID),
-        queryFn: ({ signal }: { signal: AbortSignal }) => {
-          if (!client) throw new Error("CONNECTION_NOT_READY");
-          return listOpenCodePermissionRequests(client, supplementalLocation, { signal });
-        },
-        queryKey: openCodeQueryKeys.permissions(
-          connectionID ?? unresolvedConnectionID,
-          supplementalLocation,
-        ),
-      },
-      {
-        enabled: Boolean(client && connectionID),
-        queryFn: ({ signal }: { signal: AbortSignal }) => {
-          if (!client) throw new Error("CONNECTION_NOT_READY");
-          return listOpenCodeFormRequests(client, supplementalLocation, { signal });
-        },
-        queryKey: openCodeQueryKeys.forms(
-          connectionID ?? unresolvedConnectionID,
-          supplementalLocation,
-        ),
-      },
-    ]),
-  });
-  for (const [locationIndex, supplementalLocation] of supplementalLocations.entries()) {
-    const permissionResult = supplementalInteractionQueries[locationIndex * 2]?.data as
-      | { data: PermissionRequest[] }
-      | undefined;
-    const formResult = supplementalInteractionQueries[locationIndex * 2 + 1]?.data as
-      | { data: FormInfo[] }
-      | undefined;
-    for (const request of permissionResult?.data ?? []) {
-      permissionsByID.set(request.id, request);
-      permissionLocations.set(request.id, supplementalLocation);
-    }
-    for (const form of formResult?.data ?? []) {
-      formsByID.set(form.id, form);
-      formLocations.set(form.id, supplementalLocation);
-    }
-  }
-  const permissions = [...permissionsByID.values()].sort(compareInteractions);
-  const forms = [...formsByID.values()].sort(compareInteractions);
-
-  const ancestrySessions = {
-    ...(activeAncestryQuery.data?.sessions ?? {}),
-    ...(interactionAncestryQuery.data?.sessions ?? {}),
-  };
-  const followedActiveSessionIDs = activeSessionIDs.filter((sessionID) =>
-    availableFollowedProjectIDs.includes(ancestrySessions[sessionID]?.projectID ?? ""),
-  );
-  const nextInbox = buildFollowedInboxSections({
-    activeSessionIDs: followedActiveSessionIDs,
-    ancestrySessions,
-    forms,
-    permissions,
+  const historicalLookup = {
+    hasAttention: cachedAttentionLookup(queryClient, scope.queryConnectionID),
+    projectByID,
     projects,
-    recentSince: normalizedSearch ? "all" : inboxSinceMs,
-    rootSessions: visibleRootSessions,
+    protectedLocationKeys: protectedLocationKeys({
+      activeAncestrySessions: active.ancestry.sessions,
+      attentionLocations: runtime.attentionLocations,
+      location,
+      projectByID,
+      projectIDs: availableFollowedProjectIDs,
+    }),
+    rootSessions,
+  };
+  const findHistoricalCandidate = (candidate: LocationRef) =>
+    historicalCandidate(candidate, historicalLookup);
+  const eventLocationsQuery = useEventLocationsQuery(scope, {
+    activeLocationsPending: active.activeLocationsPending,
+    activeLocationsResolved: active.activeLocationsResolved,
+    eventLocations,
+    findCandidate: findHistoricalCandidate,
+    preferenceReady,
+    projectsQuery: catalog.projectsQuery,
   });
-  const previousInboxOrder = inboxOrderRef.current;
-  const inbox = stabilizeFollowedInboxSections(
-    nextInbox,
-    previousInboxOrder && previousInboxOrder.connectionKey === connectionKey
-      ? previousInboxOrder.inbox
-      : undefined,
-  );
-  inboxOrderRef.current = { connectionKey, inbox };
+  const selectedLocationQuery = useSelectedLocationQuery(scope, location);
 
-  const allInteractionQueries = [...interactionQueries, ...supplementalInteractionQueries];
-  const interactionPending = allInteractionQueries.some((query) => query.isPending);
-  const interactionFetching = allInteractionQueries.some((query) => query.isFetching);
-  const failedLocations = [
-    ...knownLocations.filter(
-      (_location, index) =>
-        interactionQueries[index * 2]?.isError || interactionQueries[index * 2 + 1]?.isError,
-    ),
-    ...supplementalLocations.filter(
-      (_location, index) =>
-        supplementalInteractionQueries[index * 2]?.isError ||
-        supplementalInteractionQueries[index * 2 + 1]?.isError,
-    ),
-  ];
-  const failedLocationCount = failedLocations.length;
-  const projectIDByLocation = new Map<string, string>();
-  for (const project of projects) {
-    for (const directory of [project.canonical, ...project.sandboxes]) {
-      projectIDByLocation.set(locationKey({ directory }), project.id);
-    }
-  }
-  for (const session of [...rootSessions, ...Object.values(ancestrySessions)]) {
-    projectIDByLocation.set(locationKey(session.location), session.projectID);
-  }
-  for (const resolved of eventLocationsQuery.data?.locations ?? []) {
-    projectIDByLocation.set(
-      locationKey({
-        directory: resolved.directory,
-      }),
-      resolved.project.id,
-    );
-  }
-  if (selectedLocationQuery.data) {
-    projectIDByLocation.set(
-      locationKey({
-        directory: selectedLocationQuery.data.directory,
-      }),
-      selectedLocationQuery.data.project.id,
-    );
-  }
-  const failedProjectCounts = new Map<string, number>();
-  // UI-only location details stay in memory. Never include paths or raw query
-  // errors in the redacted support report or device persistence.
-  const sessionLocationKeys = new Set(
-    [...rootSessions, ...Object.values(ancestrySessions)].map((session) =>
-      locationKey(session.location),
-    ),
+  const candidateLocations = useAccumulatedLocations(
+    followedProjectScopeKey(connectionKey, availableFollowedProjectIDs),
+    discoverFollowedLocations({
+      activeAncestrySessions: active.ancestry.sessions,
+      attentionLocations: runtime.attentionLocations,
+      eventLocations: eventLocationsQuery.data,
+      projectByID,
+      projectIDs: availableFollowedProjectIDs,
+      rootSessions,
+      selectedLocation: selectedLocationQuery.data,
+    }),
   );
-  const failedLocationDetails: AttentionLocationFailure[] = [
-    ...knownLocations,
-    ...supplementalLocations,
-  ].flatMap((failedLocation, index) => {
-    const failedChecks: AttentionLocationFailure["failedChecks"] = [];
-    if (allInteractionQueries[index * 2]?.isError) failedChecks.push("permissions");
-    if (allInteractionQueries[index * 2 + 1]?.isError) failedChecks.push("forms");
-    if (failedChecks.length === 0) return [];
-    const projectID =
-      projectIDByLocation.get(locationKey(failedLocation)) ??
-      inferLocationProjectID(failedLocation, projects);
-    const project = projectID ? projectByID.get(projectID) : undefined;
-    return [
-      {
-        location: failedLocation,
-        projectLabel: project ? labelProject(project) : "Unknown project",
-        source:
-          project?.canonical === failedLocation.directory
-            ? "project-root"
-            : project?.sandboxes.includes(failedLocation.directory)
-              ? "worktree"
-              : sessionLocationKeys.has(locationKey(failedLocation))
-                ? "session-history"
-                : "discovered",
-        failedChecks,
-      },
-    ];
+  const retirementCandidates = historicalCandidates(candidateLocations, findHistoricalCandidate);
+  const directoryQueries = useHistoricalDirectoryQueries(scope, retirementCandidates);
+  const directoryQueryByLocation = directoryProbesByLocation(
+    retirementCandidates,
+    directoryQueries,
+  );
+  const knownLocations = knownCandidateLocations(
+    candidateLocations,
+    directoryQueryByLocation,
+    active.activeLocationsResolved,
+  );
+  const canCheckInteractions = (candidate: LocationRef) =>
+    canCheckLocationInteractions(
+      directoryQueryByLocation.get(locationKey(candidate)),
+      active.activeLocationsPending,
+      active.activeLocationsResolved,
+    );
+  const interactionQueries = useLocationInteractionQueries(
+    scope,
+    knownLocations,
+    canCheckInteractions,
+  );
+  const interactions = createInteractionIndex();
+  addLocationInteractions(interactions, knownLocations, interactionQueries);
+  const blockedSessionIDs = interactionSessionIDs(interactions);
+  const interactionAncestry = useSessionAncestriesQuery(scope, "interactions", blockedSessionIDs);
+  const supplementalLocations = supplementalInteractionLocations(
+    interactionAncestry.sessions,
+    availableFollowedProjectIDs,
+    knownLocations,
+  );
+  const supplementalInteractionQueries = useLocationInteractionQueries(
+    scope,
+    supplementalLocations,
+    () => true,
+  );
+  addLocationInteractions(interactions, supplementalLocations, supplementalInteractionQueries);
+  const { forms, permissions } = sortedInteractions(interactions);
+
+  const ancestrySessions = { ...active.ancestry.sessions, ...interactionAncestry.sessions };
+  const inbox = useStableInbox(
+    connectionKey,
+    buildFollowedInboxSections({
+      activeSessionIDs: followedActiveSessionIDs(
+        active.activeSessionIDs,
+        ancestrySessions,
+        availableFollowedProjectIDs,
+      ),
+      ancestrySessions,
+      forms,
+      permissions,
+      projects,
+      recentSince: sessions.normalizedSearch ? "all" : inboxPreferences.inboxSinceMs,
+      rootSessions: sessions.visibleRootSessions,
+    }),
+  );
+
+  const allLocations = [...knownLocations, ...supplementalLocations];
+  const allInteractionQueries = [...interactionQueries, ...supplementalInteractionQueries];
+  const failedLocations = failedInteractionLocations(allLocations, allInteractionQueries);
+  const locatedSessions = [...rootSessions, ...Object.values(ancestrySessions)];
+  const failureLookup = {
+    projectByID,
+    projectIDByLocation: projectIDsByLocation({
+      eventLocations: eventLocationsQuery.data,
+      projects,
+      selectedLocation: selectedLocationQuery.data,
+      sessions: locatedSessions,
+    }),
+    projects,
+  };
+  const failedLocationDetails = attentionLocationFailures(allLocations, allInteractionQueries, {
+    ...failureLookup,
+    sessions: locatedSessions,
   });
-  for (const failedLocation of failedLocations) {
-    const projectID =
-      projectIDByLocation.get(locationKey(failedLocation)) ??
-      inferLocationProjectID(failedLocation, projects);
-    const key = projectID ?? "";
-    failedProjectCounts.set(key, (failedProjectCounts.get(key) ?? 0) + 1);
-  }
-  const failedProjects = [...failedProjectCounts.entries()]
-    .map(([projectID, locationCount]) => {
-      const project = projectByID.get(projectID);
-      return {
-        label: project ? labelProject(project) : "Unknown project",
-        locationCount,
-        ...(projectID ? { projectID } : {}),
-      };
-    })
-    .sort((first, second) => first.label.localeCompare(second.label));
-  const sessionProjectFailures = failedFollowedSessionProjects(sessionsQuery.data?.pages);
-  const reconciling =
-    directoryQueries.some((query) => query.isPending || query.isFetching) ||
-    !preferenceReady ||
-    projectsQuery.isPending ||
-    defaultLocationQuery.isPending ||
-    (availableFollowedProjectIDs.length > 0 &&
-      (sessionsQuery.isPending || sessionsQuery.isPlaceholderData)) ||
-    activeLocationsPending ||
-    (eventLocations.length > 0 && eventLocationsQuery.isPending) ||
-    (Boolean(location) && selectedLocationQuery.isPending) ||
-    interactionPending ||
-    interactionFetching ||
-    (interactionSessionIDs.length > 0 &&
-      (interactionAncestryQuery.isPending || interactionAncestryQuery.isPlaceholderData));
-  const coverageReasons = [
-    ...(unavailableProjectIds.length > 0 ? ["followed-project-unavailable"] : []),
-    ...(sessionProjectFailures.length > 0 ? ["project-session-page-failed"] : []),
-    ...((activeAncestryQuery.data?.failures.length ?? 0) > 0
-      ? ["active-session-metadata-failed"]
-      : []),
-    ...((eventLocationsQuery.data?.failures ?? 0) > 0 ? ["event-location-failed"] : []),
-    ...(location &&
-    selectedLocationQuery.isError &&
-    (!selectedLocationQuery.data ||
-      availableFollowedProjectIDs.includes(selectedLocationQuery.data.project.id))
-      ? ["selected-location-failed"]
-      : []),
-    ...(failedLocationCount > 0 ? ["location-interaction-failed"] : []),
-    ...((interactionAncestryQuery.data?.failures.length ?? 0) > 0
-      ? ["interaction-session-metadata-failed"]
-      : []),
-    ...(inbox.unmatchedSessionIDs.length > 0 ? ["session-parent-unresolved"] : []),
-    ...(preferenceState?.loadFailed ? ["followed-project-preference-failed"] : []),
-  ];
+  const reconciling = isAttentionReconciling({
+    activeLocationsPending: active.activeLocationsPending,
+    defaultLocation: catalog.defaultLocationQuery,
+    directoryQueries,
+    eventLocationCount: eventLocations.length,
+    eventLocationsQuery,
+    followedProjectCount: availableFollowedProjectIDs.length,
+    interactionAncestry: interactionAncestry.query,
+    interactionQueries: allInteractionQueries,
+    interactionSessionCount: blockedSessionIDs.length,
+    location,
+    preferenceReady,
+    projects: catalog.projectsQuery,
+    selectedLocationQuery,
+    sessions: sessions.sessionsQuery,
+  });
+  const coverageReasons = attentionCoverageReasons({
+    activeAncestryFailureCount: active.ancestry.failureCount,
+    eventLocations: eventLocationsQuery.data,
+    failedLocationCount: failedLocations.length,
+    interactionAncestryFailureCount: interactionAncestry.failureCount,
+    location,
+    preferenceLoadFailed: preferences.preferencesError,
+    projectIDs: availableFollowedProjectIDs,
+    selectedLocationQuery,
+    sessionProjectFailureCount: sessions.sessionProjectFailureCount,
+    unavailableProjectCount: unavailableProjectIds.length,
+    unmatchedSessionCount: inbox.unmatchedSessionIDs.length,
+  });
   const attentionCoverage: AttentionCoverage = {
     completeness: reconciling || coverageReasons.length > 0 ? "incomplete" : "complete",
-    failedLocationCount,
+    failedLocationCount: failedLocations.length,
     failedLocations: failedLocationDetails,
-    failedProjects,
-    freshness: runtime.status !== "connected" ? "stale" : reconciling ? "reconciling" : "current",
-    knownLocationCount: knownLocations.length + supplementalLocations.length,
+    failedProjects: failedProjectSummaries(failedLocations, failureLookup),
+    freshness: attentionFreshness(runtime.status, reconciling),
+    knownLocationCount: allLocations.length,
     reasons: coverageReasons,
-    reconciledLocationCount:
-      knownLocations.length + supplementalLocations.length - failedLocationCount,
+    reconciledLocationCount: allLocations.length - failedLocations.length,
     revision,
   };
 
-  const permissionReplyMutation = useMutation({
-    mutationFn: ({
-      reply,
-      requestClient,
-      requestID,
-      sessionID,
-    }: {
-      requestConnectionID: string;
-      location: LocationRef;
-      reply: PermissionReply;
-      requestClient: OpenCodeClient;
-      requestID: string;
-      sessionID: string;
-    }) => replyOpenCodePermissionRequest(requestClient, sessionID, requestID, reply),
-    onSettled: (_data, _error, variables) => {
-      void queryClient.invalidateQueries({
-        exact: true,
-        queryKey: openCodeQueryKeys.permissions(variables.requestConnectionID, variables.location),
-      });
-    },
-  });
-
-  const setFollowedProjectIds = useCallback(
-    async (projectIDs: readonly string[]) => {
-      if (!connectionID || !connectionKey || preferencesSaving) return;
-      setPreferencesSaving(true);
-      try {
-        await replaceFollowedProjectIds(
-          db,
-          connectionID,
-          projectIDs,
-          runtime.connectionUpdatedAtMs,
-        );
-        if (latestConnectionKeyRef.current !== connectionKey) return;
-        setPreferenceState({
-          connectionKey,
-          hasPreference: true,
-          loadFailed: false,
-          projectIDs: [...projectIDs],
-        });
-      } finally {
-        if (latestConnectionKeyRef.current === connectionKey) setPreferencesSaving(false);
-      }
-    },
-    [connectionID, connectionKey, db, preferencesSaving, runtime.connectionUpdatedAtMs],
+  const permissionReply = usePermissionReply(
+    queryClient,
+    client,
+    connectionID,
+    interactions.permissionLocations,
   );
-  const setLocation = useCallback(
-    (nextLocation: LocationRef | undefined) => {
-      setSelection((current) => {
-        const next =
-          nextLocation && connectionKey ? { connectionKey, location: nextLocation } : undefined;
-        return current?.connectionKey === next?.connectionKey &&
-          current?.location.directory === next?.location.directory &&
-          current?.location.workspaceID === next?.location.workspaceID
-          ? current
-          : next;
-      });
-    },
-    [connectionKey],
+  const archiveSession = useArchiveSession(queryClient, client, connectionID);
+  const visibleSessions = visibleSessionState(
+    sessions.visibleSessionsQuery,
+    availableFollowedProjectIDs.length,
   );
-  const replyPermission = useCallback(
-    (requestID: string, sessionID: string, reply: PermissionReply) => {
-      const requestLocation = permissionLocations.get(requestID);
-      if (!client || !connectionID || !requestLocation || permissionReplyMutation.isPending) return;
-      permissionReplyMutation.mutate({
-        location: requestLocation,
-        reply,
-        requestClient: client,
-        requestConnectionID: connectionID,
-        requestID,
-        sessionID,
-      });
-    },
-    [client, connectionID, permissionLocations, permissionReplyMutation],
-  );
-  const archiveSession = useCallback(
-    async (session: SessionInfo, archived: boolean) => {
-      if (!client || !connectionID) throw new Error("CONNECTION_NOT_READY");
-      await archiveOpenCodeSession(client, session.id, archived);
-      // Move the row at once. The archive event and this refetch bring the server's copy.
-      const archivedAt = archived ? Date.now() : undefined;
-      const followedSessions = (query: { queryKey: QueryKey }) =>
-        query.queryKey[0] === "opencode" &&
-        query.queryKey[1] === connectionID &&
-        query.queryKey[2] === "followed-project-sessions";
-      queryClient.setQueriesData<
-        InfiniteData<FollowedSessionPage, FollowedSessionPageParam> | FollowedSessionPage
-      >({ predicate: followedSessions }, (current) => {
-        if (!current) return current;
-        if ("pages" in current) {
-          return {
-            ...current,
-            pages: current.pages.map((page) =>
-              setFollowedSessionArchived(page, session.id, archivedAt),
-            ),
-          };
-        }
-        return setFollowedSessionArchived(current, session.id, archivedAt);
-      });
-      void queryClient.invalidateQueries({ predicate: followedSessions });
-    },
-    [client, connectionID, queryClient],
-  );
-  const setWorkingExpanded = useCallback(
-    (expanded: boolean) => {
-      if (!connectionID || !connectionKey) return;
-      setInboxPreferenceState((current) =>
-        current && current.connectionKey === connectionKey
-          ? { ...current, preferences: { ...current.preferences, workingExpanded: expanded } }
-          : current,
-      );
-      if (connectionUpdatedAtMs === undefined) return;
-      // The shelf follows the tap even when the device cannot store it.
-      void writeWorkingShelfExpanded(db, connectionID, connectionUpdatedAtMs, expanded).catch(
-        () => undefined,
-      );
-    },
-    [connectionID, connectionKey, connectionUpdatedAtMs, db],
-  );
-  const visibleSessionsQuery = normalizedSearch ? searchSessionsQuery : sessionsQuery;
 
   return (
     <FollowedProjectsContext
       value={{
         archiveSession,
         attentionCoverage,
-        blockedSessionIds: new Set(interactionSessionIDs),
-        // Placeholder pages belong to the previous revision. Paging from them
-        // would cancel the first fetch for the current revision.
-        fetchNextPage: () =>
-          visibleSessionsQuery.isPlaceholderData
-            ? Promise.resolve()
-            : visibleSessionsQuery.fetchNextPage(),
-        followedProjectIds,
-        formLocations,
+        blockedSessionIds: new Set(blockedSessionIDs),
+        fetchNextPage: visibleSessions.fetchNextPage,
+        followedProjectIds: preferences.followedProjectIds,
+        formLocations: interactions.formLocations,
         forms,
-        hasNextPage: Boolean(visibleSessionsQuery.hasNextPage),
-        sessionsFetchingNextPage: visibleSessionsQuery.isFetchingNextPage,
+        hasNextPage: visibleSessions.hasNextPage,
+        sessionsFetchingNextPage: visibleSessions.sessionsFetchingNextPage,
         inbox,
-        interactionsError: failedLocationCount > 0,
+        interactionsError: failedLocations.length > 0,
         interactionsLoading: reconciling,
         ...(location ? { location } : {}),
         pendingCount: permissions.length + forms.length,
-        ...(permissionReplyMutation.isError && permissionReplyMutation.variables
-          ? { failedPermissionReplyId: permissionReplyMutation.variables.requestID }
-          : {}),
+        ...permissionReply.failedPermissionReply,
         permissions,
-        preferencesError: Boolean(preferenceState?.loadFailed),
+        preferencesError: preferences.preferencesError,
         preferencesLoading: !preferenceReady,
-        preferencesSaving,
+        preferencesSaving: preferences.preferencesSaving,
         projects,
-        projectsError: projectsQuery.isError,
-        projectsLoading: projectsQuery.isPending,
+        projectsError: catalog.projectsQuery.isError,
+        projectsLoading: catalog.projectsQuery.isPending,
         refetch: () =>
-          Promise.allSettled([
-            ...directoryQueries.map((query) => query.refetch()),
-            projectsQuery.refetch(),
-            defaultLocationQuery.refetch(),
-            activeSessionsQuery.refetch(),
-            ...(availableFollowedProjectIDs.length
-              ? [sessionsQuery.refetch(), archivedSessionsQuery.refetch()]
-              : []),
-            ...(availableFollowedProjectIDs.length && normalizedSearch
-              ? [searchSessionsQuery.refetch()]
-              : []),
-            // refetch() bypasses enabled. Do not initialize a historical
-            // location while its renewed directory probe is still pending.
-            ...knownLocations.flatMap((knownLocation, index) => {
-              if (!canCheckInteractions(knownLocation)) return [];
-              return interactionQueries
-                .slice(index * 2, index * 2 + 2)
-                .map((query) => query.refetch());
-            }),
-            ...supplementalInteractionQueries.map((query) => query.refetch()),
-          ]),
-        replyPermission,
-        ...(permissionReplyMutation.isPending && permissionReplyMutation.variables
-          ? { replyingPermissionId: permissionReplyMutation.variables.requestID }
-          : {}),
-        search,
-        sessionsError:
-          visibleSessionsQuery.isError ||
-          failedFollowedSessionProjects(visibleSessionsQuery.data?.pages).length > 0,
-        sessionsLoading: availableFollowedProjectIDs.length > 0 && visibleSessionsQuery.isPending,
+          refetchFollowedProjects({
+            activeSessionsQuery: active.activeSessionsQuery,
+            archivedSessionsQuery: sessions.archivedSessionsQuery,
+            canCheck: canCheckInteractions,
+            defaultLocationQuery: catalog.defaultLocationQuery,
+            directoryQueries,
+            followedProjectCount: availableFollowedProjectIDs.length,
+            interactionQueries,
+            knownLocations,
+            projectsQuery: catalog.projectsQuery,
+            search: sessions.normalizedSearch,
+            searchSessionsQuery: sessions.searchSessionsQuery,
+            sessionsQuery: sessions.sessionsQuery,
+            supplementalInteractionQueries,
+          }),
+        replyPermission: permissionReply.replyPermission,
+        ...permissionReply.replyingPermission,
+        search: preferences.search,
+        sessionsError: visibleSessions.sessionsError,
+        sessionsLoading: visibleSessions.sessionsLoading,
         setFollowedProjectIds,
-        setLocation,
-        setSearch,
-        setWorkingExpanded,
+        setLocation: preferences.setLocation,
+        setSearch: preferences.setSearch,
+        setWorkingExpanded: inboxPreferences.setWorkingExpanded,
         unavailableProjectIds,
-        workingExpanded: inboxPreferences?.workingExpanded ?? true,
+        workingExpanded: inboxPreferences.workingExpanded,
       }}
     >
       {children}
@@ -1119,51 +390,32 @@ export function useFollowedProjects() {
   return value;
 }
 
-// A reconciliation revision restarts revision-keyed queries under a new key.
-// Keep showing the previous snapshot while the new one loads so the inbox does
-// not blank out, but only when the leading key parts (connection and scope)
-// match. Data never crosses connections or followed-project sets.
-function sameRevisionScope(previousKey: QueryKey | undefined, key: QueryKey, scopeLength: number) {
-  return Boolean(
-    previousKey &&
-      hashKey(previousKey.slice(0, scopeLength)) === hashKey(key.slice(0, scopeLength)),
+function useAccumulatedLocations(scopeKey: string | undefined, discovered: LocationRef[]) {
+  const discoveredLocationsRef = useRef<{
+    scopeKey: string | undefined;
+    locations: LocationRef[];
+  }>({ scopeKey: undefined, locations: [] });
+  const previousLocations =
+    discoveredLocationsRef.current.scopeKey === scopeKey
+      ? discoveredLocationsRef.current.locations
+      : [];
+  const candidateLocations = uniqueLocations([...previousLocations, ...discovered]);
+  discoveredLocationsRef.current = { scopeKey, locations: candidateLocations };
+  return candidateLocations;
+}
+
+function useStableInbox(connectionKey: string | undefined, nextInbox: FollowedInboxSections) {
+  const inboxOrderRef = useRef<{
+    connectionKey: string | undefined;
+    inbox: FollowedInboxSections;
+  }>(undefined);
+  const previousInboxOrder = inboxOrderRef.current;
+  const inbox = stabilizeFollowedInboxSections(
+    nextInbox,
+    previousInboxOrder && previousInboxOrder.connectionKey === connectionKey
+      ? previousInboxOrder.inbox
+      : undefined,
   );
-}
-
-function inferLocationProjectID(
-  location: LocationRef,
-  projects: Awaited<ReturnType<typeof listOpenCodeProjects>>,
-) {
-  const directory = normalizeDirectory(location.directory);
-  let match: { length: number; projectID: string } | undefined;
-  for (const project of projects) {
-    for (const root of [project.canonical, ...project.sandboxes]) {
-      const normalizedRoot = normalizeDirectory(root);
-      if (
-        (directory === normalizedRoot || directory.startsWith(`${normalizedRoot}/`)) &&
-        normalizedRoot.length > (match?.length ?? -1)
-      ) {
-        match = { length: normalizedRoot.length, projectID: project.id };
-      }
-    }
-  }
-  return match?.projectID;
-}
-
-function normalizeDirectory(directory: string) {
-  const normalized = directory.replaceAll("\\", "/").replace(/\/+$/, "");
-  return normalized || "/";
-}
-
-function labelProject(project: Awaited<ReturnType<typeof listOpenCodeProjects>>[number]) {
-  return (
-    project.name?.trim() || project.canonical.split(/[\\/]/).filter(Boolean).at(-1) || project.id
-  );
-}
-
-function compareInteractions(
-  first: { id: string; sessionID: string },
-  second: { id: string; sessionID: string },
-) {
-  return first.sessionID.localeCompare(second.sessionID) || first.id.localeCompare(second.id);
+  inboxOrderRef.current = { connectionKey, inbox };
+  return inbox;
 }

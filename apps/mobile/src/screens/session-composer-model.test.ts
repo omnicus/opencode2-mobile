@@ -7,13 +7,19 @@ import type {
 } from "@opencode2-mobile/opencode-adapter";
 
 import {
+  agentPickerEmptyLabel,
   applyMentionCompletion,
   applySlashCompletion,
+  commandCompletionStatus,
+  filterComposerAgents,
   findMentionTrigger,
   listMentionCompletions,
   listSlashCompletions,
+  mentionCompletionKey,
+  mentionCompletionStatus,
   rebaseComposerMentions,
   resolveComposerSubmitIntent,
+  resolveComposerSubmitState,
   serverFileUri,
 } from "./session-composer-model";
 
@@ -272,5 +278,96 @@ test("creates server-local file URLs without treating hostile path characters as
   expect(() => serverFileUri("/workspace", "/etc/passwd")).toThrow("FILE_MENTION_OUTSIDE_LOCATION");
   expect(() => serverFileUri("C:\\workspace", "C:\\outside.txt")).toThrow(
     "FILE_MENTION_OUTSIDE_LOCATION",
+  );
+});
+
+test("blocks submission while the slash catalog is pending or unavailable", () => {
+  const idle = { active: false, draft: "/review", interruptible: false, stopping: false };
+  expect(resolveComposerSubmitState({ ...idle, completionLoading: true })).toEqual({
+    canSubmit: false,
+    showStop: false,
+    submitHint: "Wait for commands to load.",
+  });
+  expect(resolveComposerSubmitState({ ...idle, completionUnavailable: true })).toEqual({
+    canSubmit: false,
+    showStop: false,
+    submitHint: "Commands are unavailable.",
+  });
+  expect(
+    resolveComposerSubmitState({ ...idle, completionLoading: true, draft: "plain text" }),
+  ).toEqual({ canSubmit: true, showStop: false, submitHint: undefined });
+});
+
+test("requires a delivery choice and offers Stop only for an empty interruptible draft", () => {
+  const busy = { active: true, interruptible: true, stopping: false };
+  expect(resolveComposerSubmitState({ ...busy, draft: "Next" }).canSubmit).toBe(false);
+  expect(resolveComposerSubmitState({ ...busy, delivery: "queue", draft: "Next" })).toEqual({
+    canSubmit: true,
+    showStop: false,
+    submitHint: undefined,
+  });
+  expect(resolveComposerSubmitState({ ...busy, delivery: "steer", draft: " " })).toEqual({
+    canSubmit: false,
+    showStop: true,
+    submitHint: undefined,
+  });
+  expect(
+    resolveComposerSubmitState({ ...busy, delivery: "steer", draft: " ", interruptible: false })
+      .showStop,
+  ).toBe(false);
+  expect(
+    resolveComposerSubmitState({ ...busy, delivery: "steer", draft: " ", justSent: true }).showStop,
+  ).toBe(false);
+  expect(
+    resolveComposerSubmitState({ ...busy, delivery: "steer", disabled: true, draft: "Next" })
+      .canSubmit,
+  ).toBe(false);
+  expect(
+    resolveComposerSubmitState({ ...busy, delivery: "steer", draft: "Next", stopping: true })
+      .canSubmit,
+  ).toBe(false);
+});
+
+test.each([
+  [true, true, "Loading commands", "Searching files, skills, and agents"],
+  [false, true, "Commands are unavailable", "Some mention results are unavailable"],
+  [undefined, undefined, "No matching commands", "No matching files, skills, or agents"],
+])(
+  "describes empty completion lists while loading %s and unavailable %s",
+  (loading, unavailable, command, mention) => {
+    expect(commandCompletionStatus(loading, unavailable)).toBe(command);
+    expect(mentionCompletionStatus(loading, unavailable)).toBe(mention);
+  },
+);
+
+test("filters agents by name, id, or description and keeps the list when not searching", () => {
+  const described = [
+    ...agents,
+    { description: "Writes docs", hidden: false, id: "docs", mode: "primary", name: "Scribe" },
+  ] as AgentInfo[];
+  expect(filterComposerAgents(described, "")).toBe(described);
+  expect(filterComposerAgents(described, "build").map((agent) => agent.id)).toEqual(["build"]);
+  expect(filterComposerAgents(described, "writes").map((agent) => agent.id)).toEqual(["docs"]);
+  expect(filterComposerAgents(described, "missing")).toEqual([]);
+});
+
+test("labels the empty agent picker by catalog and search state", () => {
+  expect(agentPickerEmptyLabel({ error: false, loading: true }, "")).toBe("Loading agents");
+  expect(agentPickerEmptyLabel({ error: true, loading: false }, "x")).toBe("");
+  expect(agentPickerEmptyLabel(undefined, " x ")).toBe("No matching agents");
+  expect(agentPickerEmptyLabel({ error: false, loading: false }, "  ")).toBe(
+    "No primary agents available",
+  );
+});
+
+test("keys mention completions by kind and inserted value", () => {
+  expect(mentionCompletionKey({ label: "a.ts", path: "src/a.ts", type: "file" })).toBe(
+    "file:src/a.ts",
+  );
+  expect(mentionCompletionKey({ label: "Explore", name: "Explore", type: "agent" })).toBe(
+    "agent:Explore",
+  );
+  expect(mentionCompletionKey({ id: "release", label: "Release", type: "skill" })).toBe(
+    "skill:release",
   );
 });

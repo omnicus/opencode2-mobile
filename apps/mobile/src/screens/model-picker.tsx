@@ -25,8 +25,16 @@ import {
   typeRamp,
   typography,
 } from "../theme";
+import {
+  favoriteToggleLabel,
+  isSelectedModel,
+  modelChoiceLabel,
+  modelPickerCatalog,
+} from "./model-picker-model";
 
 const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const starRipple =
+  Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
 
 export type FavoriteControls = ReturnType<typeof useModelFavorites>;
 export type CatalogState = { loading: boolean; error: boolean; retry: () => void };
@@ -52,40 +60,11 @@ export function ModelPicker({
 }) {
   const [search, setSearch] = useState("");
   const query = useDeferredValue(search.trim().toLocaleLowerCase());
-  const favoritesByID = new Map(
-    favorites?.models.map((item, index) => [modelIdentityKey(item), index]),
+  const { isAmbiguous, isFavorite, sections } = modelPickerCatalog(
+    models,
+    favorites?.models,
+    query,
   );
-  const matching = models.filter((item) =>
-    `${item.name}\n${item.providerID}\n${item.id}`.toLocaleLowerCase().includes(query),
-  );
-  const favoriteRows = matching
-    .filter((item) => favoritesByID.has(modelIdentityKey(item)))
-    .sort(
-      (a, b) =>
-        (favoritesByID.get(modelIdentityKey(a)) ?? 0) -
-        (favoritesByID.get(modelIdentityKey(b)) ?? 0),
-    );
-  const nameCounts = new Map<string, number>();
-  const nameKey = (item: ModelInfo) => JSON.stringify([item.providerID, item.name]);
-  for (const item of models)
-    nameCounts.set(nameKey(item), (nameCounts.get(nameKey(item)) ?? 0) + 1);
-  const providers = new Map<string, ModelInfo[]>();
-  for (const item of matching) {
-    if (favoritesByID.has(modelIdentityKey(item))) continue;
-    const rows = providers.get(item.providerID) ?? [];
-    rows.push(item);
-    providers.set(item.providerID, rows);
-  }
-  const sections = [
-    ...(favoriteRows.length ? [{ title: "Favorites", key: "favorites", data: favoriteRows }] : []),
-    ...[...providers]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([provider, data]) => ({
-        title: provider,
-        key: `provider:${provider}`,
-        data: data.sort((a, b) => a.name.localeCompare(b.name)),
-      })),
-  ];
   const close = () => {
     setSearch("");
     onClose();
@@ -123,15 +102,7 @@ export function ModelPicker({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         style={styles.list}
-        ListEmptyComponent={
-          state?.loading ? (
-            <ActivityIndicator accessibilityLabel="Loading models" color={palette.signal} />
-          ) : !state?.error ? (
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.empty}>
-              {search.trim() ? "No matching models" : "No enabled models"}
-            </Text>
-          ) : null
-        }
+        ListEmptyComponent={emptyModelResults(state, Boolean(search.trim()))}
         renderSectionHeader={({ section }) => (
           <Text
             accessibilityRole="header"
@@ -141,71 +112,97 @@ export function ModelPicker({
             {section.title}
           </Text>
         )}
-        renderItem={({ item }) => {
-          const favorite = favoritesByID.has(modelIdentityKey(item));
-          const selected = item.id === model?.id && item.providerID === model.providerID;
-          const ambiguous = (nameCounts.get(nameKey(item)) ?? 0) > 1;
-          return (
-            <View style={[styles.row, selected && styles.selectedRow]}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`${item.name}, ${item.providerID}${ambiguous ? `, ${item.id}` : ""}`}
-                accessibilityState={{ selected }}
-                android_ripple={ripple}
-                onPress={() => {
-                  onSelect({ id: item.id, providerID: item.providerID });
-                  close();
-                }}
-                style={({ pressed }) => [
-                  styles.choice,
-                  pressed && Platform.OS === "ios" && styles.pressed,
-                ]}
-              >
-                <View style={styles.copy}>
-                  <Text dynamicTypeRamp={typeRamp.body} style={styles.label}>
-                    {item.name}
-                  </Text>
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.provider}>
-                    {item.providerID}
-                    {ambiguous ? ` · ${item.id}` : ""}
-                  </Text>
-                </View>
-                {selected ? (
-                  <Feather accessible={false} name="check" size={20} color={palette.signal} />
-                ) : null}
-              </Pressable>
-              <Pressable
-                accessibilityRole="checkbox"
-                accessibilityLabel={`${favorite ? "Remove" : "Add"} ${item.name}${ambiguous ? `, ${item.providerID}, ${item.id}` : ""} ${favorite ? "from" : "to"} favorites`}
-                accessibilityState={{
-                  checked: favorite,
-                  disabled: !favorites || favorites.disabled,
-                }}
-                android_ripple={
-                  Platform.OS === "android"
-                    ? { color: "rgba(255,255,255,0.12)", borderless: true }
-                    : undefined
-                }
-                disabled={!favorites || favorites.disabled}
-                onPress={() => favorites?.toggle(item, !favorite)}
-                style={({ pressed }) => [
-                  styles.star,
-                  pressed && Platform.OS === "ios" && styles.pressed,
-                  (!favorites || favorites.disabled) && styles.disabled,
-                ]}
-              >
-                <Feather
-                  accessible={false}
-                  name="star"
-                  size={20}
-                  color={favorite ? palette.ink : palette.dim}
-                />
-              </Pressable>
-            </View>
-          );
-        }}
+        renderItem={({ item }) => (
+          <ModelPickerRow
+            ambiguous={isAmbiguous(item)}
+            favorite={isFavorite(item)}
+            favorites={favorites}
+            item={item}
+            onChoose={() => {
+              onSelect({ id: item.id, providerID: item.providerID });
+              close();
+            }}
+            selected={isSelectedModel(item, model)}
+          />
+        )}
       />
     </ModalSheet>
+  );
+}
+
+// A plain element, not a component, because the list clones it with layout props.
+function emptyModelResults(state: CatalogState | undefined, searching: boolean) {
+  if (state?.loading) {
+    return <ActivityIndicator accessibilityLabel="Loading models" color={palette.signal} />;
+  }
+  if (state?.error) return null;
+  return (
+    <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.empty}>
+      {searching ? "No matching models" : "No enabled models"}
+    </Text>
+  );
+}
+
+function ModelPickerRow({
+  ambiguous,
+  favorite,
+  favorites,
+  item,
+  onChoose,
+  selected,
+}: {
+  ambiguous: boolean;
+  favorite: boolean;
+  favorites: FavoriteControls | undefined;
+  item: ModelInfo;
+  onChoose: () => void;
+  selected: boolean;
+}) {
+  const favoriteDisabled = !favorites || favorites.disabled;
+  return (
+    <View style={[styles.row, selected && styles.selectedRow]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={modelChoiceLabel(item, ambiguous)}
+        accessibilityState={{ selected }}
+        android_ripple={ripple}
+        onPress={onChoose}
+        style={({ pressed }) => [styles.choice, pressed && Platform.OS === "ios" && styles.pressed]}
+      >
+        <View style={styles.copy}>
+          <Text dynamicTypeRamp={typeRamp.body} style={styles.label}>
+            {item.name}
+          </Text>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.provider}>
+            {item.providerID}
+            {ambiguous ? ` · ${item.id}` : ""}
+          </Text>
+        </View>
+        {selected ? (
+          <Feather accessible={false} name="check" size={20} color={palette.signal} />
+        ) : null}
+      </Pressable>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityLabel={favoriteToggleLabel(item, favorite, ambiguous)}
+        accessibilityState={{ checked: favorite, disabled: favoriteDisabled }}
+        android_ripple={starRipple}
+        disabled={favoriteDisabled}
+        onPress={() => favorites?.toggle(item, !favorite)}
+        style={({ pressed }) => [
+          styles.star,
+          pressed && Platform.OS === "ios" && styles.pressed,
+          favoriteDisabled && styles.disabled,
+        ]}
+      >
+        <Feather
+          accessible={false}
+          name="star"
+          size={20}
+          color={favorite ? palette.ink : palette.dim}
+        />
+      </Pressable>
+    </View>
   );
 }
 

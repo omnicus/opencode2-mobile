@@ -24,6 +24,7 @@ import {
   typography,
   usesLargeTextLayout,
 } from "../theme";
+import { type ModalSheetSize, modalSheetLayout } from "./modal-sheet-model";
 
 export function ModalSheet({
   children,
@@ -42,67 +43,29 @@ export function ModalSheet({
   subtitle?: string;
   title: string;
   visible: boolean;
-  size?: "page" | "full" | "compact";
+  size?: ModalSheetSize;
   returnFocusRef?: RefObject<View | null> | undefined;
   closeLabel?: string;
 }) {
-  const [reducedMotion, setReducedMotion] = useState(false);
   const { fontScale, width } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
-  const compact = size === "compact" && !largeText;
-  const overlay = compact || (size !== "page" && width >= 700);
+  const { bottom, compact, overlay, presentationStyle } = modalSheetLayout(size, largeText, width);
   const headingRef = useRef<Text>(null);
-  const wasVisible = useRef(visible);
-  const restoreFocus = () => {
-    if (!returnFocusRef?.current) return;
-    const handle = findNodeHandle(returnFocusRef.current);
-    if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
-  };
-  useEffect(() => {
-    const closed = wasVisible.current && !visible;
-    wasVisible.current = visible;
-    if (!closed || Platform.OS === "ios" || !returnFocusRef) return;
-    const frame = requestAnimationFrame(() => {
-      const handle = returnFocusRef.current ? findNodeHandle(returnFocusRef.current) : null;
-      if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [visible, returnFocusRef]);
-
-  useEffect(() => {
-    let active = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((enabled) => {
-        if (active) setReducedMotion(enabled);
-      })
-      .catch(() => undefined);
-    const subscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReducedMotion,
-    );
-    return () => {
-      active = false;
-      subscription.remove();
-    };
-  }, []);
+  useReturnFocusAfterClose(visible, returnFocusRef);
+  const reducedMotion = useReducedMotion();
 
   return (
     <Modal
       animationType={reducedMotion ? "none" : "slide"}
       onRequestClose={onClose}
-      onDismiss={restoreFocus}
-      onShow={() => {
-        const handle = findNodeHandle(headingRef.current);
-        if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
-      }}
-      presentationStyle={overlay ? "overFullScreen" : size === "page" ? "pageSheet" : "fullScreen"}
+      onDismiss={() => focusAccessibility(returnFocusRef?.current)}
+      onShow={() => focusAccessibility(headingRef.current)}
+      presentationStyle={presentationStyle}
       transparent={overlay}
       visible={visible}
     >
       {/* Native modals need safe-area measurements from their own presentation root. */}
-      <SafeAreaProvider
-        style={[styles.frame, overlay && styles.overlay, compact && width < 700 && styles.bottom]}
-      >
+      <SafeAreaProvider style={[styles.frame, overlay && styles.overlay, bottom && styles.bottom]}>
         {compact ? (
           <Pressable
             accessible={false}
@@ -120,57 +83,137 @@ export function ModalSheet({
             behavior={Platform.OS === "ios" ? "padding" : undefined}
             style={[styles.keyboardView, compact && styles.compactKeyboardView]}
           >
-            <View style={[styles.header, largeText && styles.headerLargeText]}>
-              <View style={[styles.heading, largeText && styles.headingLargeText]}>
-                <Text
-                  accessibilityRole="header"
-                  ref={headingRef}
-                  dynamicTypeRamp={typeRamp.navTitle}
-                  style={styles.title}
-                >
-                  {title}
-                </Text>
-                {subtitle ? (
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
-                    {subtitle}
-                  </Text>
-                ) : null}
-              </View>
-              <Pressable
-                accessibilityLabel={`Close ${title}`}
-                accessibilityRole="button"
-                android_ripple={
-                  Platform.OS === "android"
-                    ? { color: "rgba(255,255,255,0.12)", borderless: true }
-                    : undefined
-                }
-                onPress={onClose}
-                style={({ pressed }) => [
-                  styles.closeButton,
-                  pressed && Platform.OS === "ios" && styles.pressed,
-                ]}
-              >
-                <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.closeLabel}>
-                  {closeLabel}
-                </Text>
-              </Pressable>
-            </View>
-            {scrollable ? (
-              <ScrollView
-                contentContainerStyle={styles.content}
-                style={compact && styles.compactScroll}
-                keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-                keyboardShouldPersistTaps="handled"
-              >
-                {children}
-              </ScrollView>
-            ) : (
-              <View style={styles.fixedContent}>{children}</View>
-            )}
+            <ModalSheetHeader
+              closeLabel={closeLabel}
+              headingRef={headingRef}
+              largeText={largeText}
+              onClose={onClose}
+              subtitle={subtitle}
+              title={title}
+            />
+            <ModalSheetBody compact={compact} scrollable={scrollable}>
+              {children}
+            </ModalSheetBody>
           </KeyboardAvoidingView>
         </SafeAreaView>
       </SafeAreaProvider>
     </Modal>
+  );
+}
+
+function focusAccessibility(target: Text | View | null | undefined) {
+  const handle = target ? findNodeHandle(target) : null;
+  if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
+}
+
+function useReturnFocusAfterClose(
+  visible: boolean,
+  returnFocusRef: RefObject<View | null> | undefined,
+) {
+  const wasVisible = useRef(visible);
+  useEffect(() => {
+    const closed = wasVisible.current && !visible;
+    wasVisible.current = visible;
+    if (!closed || Platform.OS === "ios" || !returnFocusRef) return;
+    const frame = requestAnimationFrame(() => focusAccessibility(returnFocusRef.current));
+    return () => cancelAnimationFrame(frame);
+  }, [visible, returnFocusRef]);
+}
+
+function useReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void AccessibilityInfo.isReduceMotionEnabled()
+      .then((enabled) => {
+        if (active) setReducedMotion(enabled);
+      })
+      .catch(() => undefined);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReducedMotion,
+    );
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+  return reducedMotion;
+}
+
+function ModalSheetHeader({
+  closeLabel,
+  headingRef,
+  largeText,
+  onClose,
+  subtitle,
+  title,
+}: {
+  closeLabel: string;
+  headingRef: RefObject<Text | null>;
+  largeText: boolean;
+  onClose: () => void;
+  subtitle: string | undefined;
+  title: string;
+}) {
+  return (
+    <View style={[styles.header, largeText && styles.headerLargeText]}>
+      <View style={[styles.heading, largeText && styles.headingLargeText]}>
+        <Text
+          accessibilityRole="header"
+          ref={headingRef}
+          dynamicTypeRamp={typeRamp.navTitle}
+          style={styles.title}
+        >
+          {title}
+        </Text>
+        {subtitle ? (
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
+      <Pressable
+        accessibilityLabel={`Close ${title}`}
+        accessibilityRole="button"
+        android_ripple={
+          Platform.OS === "android"
+            ? { color: "rgba(255,255,255,0.12)", borderless: true }
+            : undefined
+        }
+        onPress={onClose}
+        style={({ pressed }) => [
+          styles.closeButton,
+          pressed && Platform.OS === "ios" && styles.pressed,
+        ]}
+      >
+        <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.closeLabel}>
+          {closeLabel}
+        </Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function ModalSheetBody({
+  children,
+  compact,
+  scrollable,
+}: {
+  children: ReactNode;
+  compact: boolean;
+  scrollable: boolean;
+}) {
+  if (!scrollable) return <View style={styles.fixedContent}>{children}</View>;
+  return (
+    <ScrollView
+      contentContainerStyle={styles.content}
+      style={compact && styles.compactScroll}
+      keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      keyboardShouldPersistTaps="handled"
+    >
+      {children}
+    </ScrollView>
   );
 }
 

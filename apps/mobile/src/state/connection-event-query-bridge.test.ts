@@ -818,6 +818,138 @@ test.each([
   queryClient.clear();
 });
 
+test("reconciles the whole connection when the stream is uncertain without an event", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const scheduled: Array<() => void> = [];
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) => {
+    scheduled.push(callback);
+  });
+
+  bridge.uncertain();
+  bridge.uncertain();
+
+  expect(scheduled).toHaveLength(1);
+  expect(invalidate).not.toHaveBeenCalled();
+  scheduled[0]?.();
+  expect(invalidate.mock.calls).toEqual([
+    [{ queryKey: openCodeQueryKeys.connection("connection-1") }],
+  ]);
+  queryClient.clear();
+});
+
+test("reconciles the whole connection for an uncertain event without its own root", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+
+  bridge.uncertain(
+    transcriptEvent("event-delta", "session.text.delta", {
+      assistantMessageID: "message-1",
+      delta: "x",
+      ordinal: 0,
+      sessionID: "session-1",
+    }),
+  );
+  bridge.uncertain({
+    created: 1,
+    data: {},
+    id: "event-future",
+    location: { directory: "/workspace" },
+    type: "future.updated",
+  } as unknown as OpenCodeEvent);
+
+  expect(invalidate.mock.calls).toEqual([
+    [{ queryKey: openCodeQueryKeys.connection("connection-1") }],
+    [{ queryKey: openCodeQueryKeys.connection("connection-1") }],
+  ]);
+  queryClient.clear();
+});
+
+test("limits an uncertain location event to its root at that location", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const affectedKey = openCodeQueryKeys.vcs("connection-1", { directory: "/workspace" });
+  const unaffected = [
+    openCodeQueryKeys.vcs("connection-1", { directory: "/other" }),
+    openCodeQueryKeys.vcs("connection-2", { directory: "/workspace" }),
+    openCodeQueryKeys.messages("connection-1", { directory: "/workspace" }, "session-1", {}),
+  ];
+  for (const key of [affectedKey, ...unaffected]) queryClient.setQueryData(key, {});
+
+  bridge.uncertain({
+    created: 1,
+    data: { branch: "feature/mobile", sessionID: "session-1" },
+    id: "event-vcs",
+    location: { directory: "/workspace" },
+    type: "vcs.branch.updated",
+  } as unknown as OpenCodeEvent);
+
+  expect(invalidate).toHaveBeenCalledTimes(1);
+  expect(queryClient.getQueryState(affectedKey)?.isInvalidated).toBe(true);
+  for (const key of unaffected) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false);
+  queryClient.clear();
+});
+
+test("reconciles the affected transcript for an uncertain message event", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const affected = [
+    openCodeQueryKeys.messages("connection-1", { directory: "/first" }, "session-1", {}),
+    openCodeQueryKeys.sessions("connection-1", { directory: "/first" }, {}),
+  ];
+  const unaffected = [
+    openCodeQueryKeys.messages("connection-1", { directory: "/second" }, "session-1", {}),
+    openCodeQueryKeys.sessions("connection-1", { directory: "/second" }, {}),
+    openCodeQueryKeys.vcs("connection-1", { directory: "/first" }),
+  ];
+  for (const key of [...affected, ...unaffected]) queryClient.setQueryData(key, []);
+
+  bridge.uncertain(sessionExecutionSucceededEvent("event-1"));
+
+  expect(invalidate).toHaveBeenCalledTimes(2);
+  for (const key of affected) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(true);
+  for (const key of unaffected) expect(queryClient.getQueryState(key)?.isInvalidated).toBe(false);
+  queryClient.clear();
+});
+
+test.each([{}, { sessionID: 1 }])(
+  "does not reconcile a transcript for an uncertain message event without a session (%j)",
+  (data) => {
+    const queryClient = new QueryClient();
+    const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+    const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+      callback(),
+    );
+    const messageKey = openCodeQueryKeys.messages(
+      "connection-1",
+      { directory: "/first" },
+      "session-1",
+      {},
+    );
+    const sessionsKey = openCodeQueryKeys.sessions("connection-1", { directory: "/first" }, {});
+    queryClient.setQueryData(messageKey, []);
+    queryClient.setQueryData(sessionsKey, []);
+
+    bridge.uncertain({
+      ...sessionExecutionSucceededEvent("event-1"),
+      data,
+    } as unknown as OpenCodeEvent);
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(queryClient.getQueryState(sessionsKey)?.isInvalidated).toBe(true);
+    queryClient.clear();
+  },
+);
+
 test.each(["catalog.updated", "plugin.added", "mcp.resources.changed"])(
   "%s does not restart a healthy event generation",
   (type) => {

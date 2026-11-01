@@ -9,6 +9,7 @@ import type {
 
 import {
   buildFollowedInboxSections,
+  type FollowedInboxRow,
   failedFollowedSessionProjects,
   fetchFollowedSessionPage,
   flattenFollowedSessionPages,
@@ -476,6 +477,363 @@ test("moves a cached session between Recent and Archived", () => {
   expect(restored.responses["project-a"]?.data[0]?.time).not.toHaveProperty("archived");
   expect(setFollowedSessionArchived(page, "ses_missing", 50)).toBe(page);
 });
+
+type InboxInput = Parameters<typeof buildFollowedInboxSections>[0];
+
+const archivedCutoffSessions = [
+  run(session("ses_arch_attention", 8, "project-a"), { archived: 1 }),
+  run(session("ses_arch_active", 7, "project-a"), { archived: 1 }),
+  run(session("ses_arch_new", 1, "project-a"), { archived: 1, idle: 150 }),
+  run(session("ses_arch_old", 9, "project-a"), { archived: 1, idle: 50 }),
+  run(session("ses_arch_edge", 5, "project-a"), { archived: 1, idle: 100 }),
+  run(session("ses_recent_new", 3, "project-a"), { idle: 120 }),
+  run(session("ses_recent_old", 4, "project-a"), { idle: 99 }),
+];
+const archivedCutoffInput = {
+  activeSessionIDs: ["ses_arch_active"],
+  permissions: [permissionOn("ses_arch_attention", "per_arch")],
+  rootSessions: archivedCutoffSessions,
+};
+
+const familyRoot = session("ses_family", 1, "project-a");
+const familyChild = child(session("ses_family_child", 6, "project-a"), familyRoot.id, "/child");
+const familyGrandchild = child(
+  session("ses_family_grandchild", 7, "project-a"),
+  familyChild.id,
+  "/grandchild",
+);
+const listedChild = run(child(session("ses_listed_child", 2, "project-a"), familyRoot.id), {
+  idle: 5,
+});
+const cycleA = child(session("ses_cycle_a", 1, "project-a"), "ses_cycle_b");
+const cycleB = child(session("ses_cycle_b", 1, "project-a"), "ses_cycle_a");
+const orphan = child(session("ses_orphan", 3, "project-a"), "ses_missing");
+
+test.each<{
+  expected: Partial<
+    Record<"archived" | "needsYou" | "recent" | "unmatchedSessionIDs" | "working", string[]>
+  >;
+  input: Partial<InboxInput>;
+  name: string;
+}>([
+  { expected: {}, input: {}, name: "empty input" },
+  {
+    expected: {},
+    input: { recentSince: undefined, rootSessions: [run(session("ses_a", 1, "p"), { idle: 1 })] },
+    name: "finished sessions before the inbox start time is known",
+  },
+  {
+    expected: {
+      needsYou: [
+        "ses_perm approval to:ses_perm@/project-a attention:2 owner:ses_perm active project:project-a",
+        "ses_form input to:ses_form@/project-a attention:1 owner:ses_form project:project-a",
+      ],
+      recent: [
+        "ses_ready ready to:ses_ready@/project-a attention:0 project:project-a",
+        "ses_failed failed to:ses_failed@/project-a attention:0 project:project-a",
+        "ses_done done to:ses_done@/project-a attention:0 project:project-a",
+      ],
+      working: ["ses_busy working to:ses_busy@/project-a attention:0 active project:project-a"],
+    },
+    input: {
+      activeSessionIDs: ["ses_busy", "ses_perm"],
+      forms: [formOn("ses_perm", "form_perm"), formOn("ses_form", "form_form")],
+      permissions: [permissionOn("ses_perm", "per_perm")],
+      rootSessions: [
+        run(session("ses_perm", 10, "project-a"), { idle: 5 }),
+        session("ses_form", 9, "project-a"),
+        run(session("ses_busy", 8, "project-a"), { busy: 50 }),
+        run(session("ses_done", 7, "project-a"), { idle: 20, viewed: 10 }),
+        { ...run(session("ses_failed", 6, "project-a"), { idle: 30 }), outcome: "failed" },
+        {
+          ...run(session("ses_ready", 5, "project-a"), { idle: 40, viewed: 40 }),
+          outcome: "failed",
+        },
+        session("ses_never", 4, "project-a"),
+      ],
+    },
+    name: "every status",
+  },
+  {
+    expected: {
+      archived: [
+        "ses_arch_new done to:ses_arch_new@/project-a attention:0 archived project:project-a",
+        "ses_arch_edge done to:ses_arch_edge@/project-a attention:0 archived project:project-a",
+      ],
+      needsYou: [
+        "ses_arch_attention approval to:ses_arch_attention@/project-a attention:1 owner:ses_arch_attention archived project:project-a",
+      ],
+      recent: ["ses_recent_new done to:ses_recent_new@/project-a attention:0 project:project-a"],
+      working: [
+        "ses_arch_active working to:ses_arch_active@/project-a attention:0 active archived project:project-a",
+      ],
+    },
+    input: { ...archivedCutoffInput, recentSince: 100 },
+    name: "archived and unarchived roots around the cutoff",
+  },
+  {
+    expected: {
+      archived: [
+        "ses_arch_old done to:ses_arch_old@/project-a attention:0 archived project:project-a",
+        "ses_arch_edge done to:ses_arch_edge@/project-a attention:0 archived project:project-a",
+        "ses_arch_new done to:ses_arch_new@/project-a attention:0 archived project:project-a",
+      ],
+      needsYou: [
+        "ses_arch_attention approval to:ses_arch_attention@/project-a attention:1 owner:ses_arch_attention archived project:project-a",
+      ],
+      recent: [
+        "ses_recent_old done to:ses_recent_old@/project-a attention:0 project:project-a",
+        "ses_recent_new done to:ses_recent_new@/project-a attention:0 project:project-a",
+      ],
+      working: [
+        "ses_arch_active working to:ses_arch_active@/project-a attention:0 active archived project:project-a",
+      ],
+    },
+    input: { ...archivedCutoffInput, recentSince: "all" },
+    name: "archived and unarchived roots in search, kept in update order",
+  },
+  {
+    expected: {
+      needsYou: [
+        "ses_arch_attention approval to:ses_arch_attention@/project-a attention:1 owner:ses_arch_attention archived project:project-a",
+      ],
+      working: [
+        "ses_arch_active working to:ses_arch_active@/project-a attention:0 active archived project:project-a",
+      ],
+    },
+    input: { ...archivedCutoffInput, recentSince: undefined },
+    name: "archived and unarchived roots without an inbox start",
+  },
+  {
+    expected: {
+      needsYou: [
+        "ses_family approval to:ses_family_child@/child attention:2 owner:ses_family_child active project:project-a",
+      ],
+      recent: [
+        "ses_listed_child done to:ses_listed_child@/project-a attention:0 project:project-a",
+      ],
+    },
+    input: {
+      activeSessionIDs: [familyGrandchild.id, familyGrandchild.id, listedChild.id],
+      ancestrySessions: byID(familyRoot, familyChild, familyGrandchild),
+      forms: [formOn(familyGrandchild.id, "form_family")],
+      permissions: [permissionOn(familyChild.id, "per_family")],
+      rootSessions: [listedChild],
+    },
+    name: "children and grandchildren bubble to a root loaded only through ancestry",
+  },
+  {
+    expected: {
+      needsYou: [
+        "ses_family input to:ses_family_grandchild@/grandchild attention:1 owner:ses_family_grandchild project:project-a",
+      ],
+    },
+    input: {
+      ancestrySessions: byID(familyRoot, familyChild, familyGrandchild),
+      forms: [formOn(familyGrandchild.id, "form_family")],
+      recentSince: undefined,
+    },
+    name: "a grandchild form opens the grandchild",
+  },
+  {
+    expected: {
+      unmatchedSessionIDs: ["ses_cycle_a", "ses_cycle_b", "ses_ghost"],
+      working: ["ses_orphan working to:ses_orphan@/project-a attention:0 active project:project-a"],
+    },
+    input: {
+      activeSessionIDs: ["ses_ghost", orphan.id, "ses_ghost"],
+      ancestrySessions: byID(cycleA, cycleB, orphan),
+      forms: [formOn("global", "form_global"), formOn("ses_cycle_b", "form_cycle")],
+      permissions: [
+        permissionOn("ses_cycle_a", "per_cycle"),
+        permissionOn("ses_ghost", "per_ghost"),
+      ],
+    },
+    name: "unresolved, cyclic, global, and orphaned sessions",
+  },
+  {
+    expected: {
+      needsYou: [
+        "ses_tie_a input to:ses_tie_a@/project-a attention:1 owner:ses_tie_a project:project-a",
+        "ses_tie_b input to:ses_tie_b@/project-a attention:1 owner:ses_tie_b project:project-a",
+      ],
+      recent: [
+        "ses_idle_a done to:ses_idle_a@/project-a attention:0 project:project-a",
+        "ses_idle_b done to:ses_idle_b@/project-a attention:0 project:project-a",
+        "ses_idle_c done to:ses_idle_c@/project-a attention:0 project:project-a",
+      ],
+      working: [
+        "ses_busy_a working to:ses_busy_a@/project-a attention:0 active project:project-a",
+        "ses_busy_b working to:ses_busy_b@/project-a attention:0 active project:project-a",
+        "ses_busy_unknown_a working to:ses_busy_unknown_a@/project-a attention:0 active project:project-a",
+        "ses_busy_unknown_b working to:ses_busy_unknown_b@/project-a attention:0 active project:project-a",
+      ],
+    },
+    input: {
+      activeSessionIDs: ["ses_busy_unknown_b", "ses_busy_b", "ses_busy_unknown_a", "ses_busy_a"],
+      forms: [formOn("ses_tie_b", "form_b"), formOn("ses_tie_a", "form_a")],
+      rootSessions: [
+        session("ses_tie_b", 5, "project-a"),
+        session("ses_tie_a", 5, "project-a"),
+        run(session("ses_busy_unknown_b", 5, "project-a"), { busy: 1, idle: 2 }),
+        run(session("ses_busy_b", 5, "project-a"), { busy: 10 }),
+        session("ses_busy_unknown_a", 5, "project-a"),
+        run(session("ses_busy_a", 5, "project-a"), { busy: 10 }),
+        run(session("ses_idle_c", 9, "project-a"), { idle: 10 }),
+        run(session("ses_idle_b", 5, "project-a"), { idle: 10 }),
+        run(session("ses_idle_a", 1, "project-a"), { idle: 10 }),
+      ],
+    },
+    name: "ties in timestamps",
+  },
+  {
+    expected: {
+      recent: [
+        'ses_alpha_main done to:ses_alpha_main@/repo/alpha attention:0 project:Alpha icon:{"color":"pink"}',
+        'ses_alpha_tree done to:ses_alpha_tree@/trees/alpha-feature/ attention:0 project:Alpha icon:{"color":"pink"} worktree:alpha-feature',
+        "ses_beta done to:ses_beta@/project-b attention:0 project:beta worktree:project-b",
+        "ses_gamma done to:ses_gamma@/project-c attention:0 project:project-c worktree:project-c",
+        "ses_unknown done to:ses_unknown@/project-z attention:0 project:project-z",
+      ],
+    },
+    input: {
+      projects: [
+        {
+          canonical: "/repo/alpha",
+          icon: { color: "pink" },
+          id: "project-a",
+          name: " Alpha ",
+          sandboxes: [],
+          time: { active: 1, created: 1, updated: 1 },
+        },
+        {
+          canonical: "/src/beta/",
+          id: "project-b",
+          sandboxes: [],
+          time: { active: 1, created: 1, updated: 1 },
+        },
+        {
+          canonical: "/",
+          id: "project-c",
+          name: "  ",
+          sandboxes: [],
+          time: { active: 1, created: 1, updated: 1 },
+        },
+      ],
+      rootSessions: [
+        run(
+          { ...session("ses_alpha_main", 1, "project-a"), location: { directory: "/repo/alpha" } },
+          { idle: 50 },
+        ),
+        run(
+          {
+            ...session("ses_alpha_tree", 1, "project-a"),
+            location: { directory: "/trees/alpha-feature/" },
+          },
+          { idle: 40 },
+        ),
+        run(session("ses_beta", 1, "project-b"), { idle: 30 }),
+        run(session("ses_gamma", 1, "project-c"), { idle: 20 }),
+        run(session("ses_unknown", 1, "project-z"), { idle: 10 }),
+      ],
+    },
+    name: "multiple projects, labels, icons, and worktrees",
+  },
+  {
+    expected: {
+      needsYou: [
+        "ses_dup_b approval to:ses_dup_b@/project-a attention:2 owner:ses_dup_b project:project-a",
+        "ses_dup_a approval to:ses_dup_a@/project-a attention:2 owner:ses_dup_a project:project-a",
+      ],
+      recent: ["ses_dup_fresh done to:ses_dup_fresh@/fresh attention:0 project:project-a"],
+    },
+    input: {
+      ancestrySessions: byID({
+        ...session("ses_dup_fresh", 9, "project-a"),
+        location: { directory: "/stale" },
+      }),
+      forms: [formOn("ses_dup_a", "same"), formOn("ses_dup_a", "same")],
+      permissions: [
+        permissionOn("ses_dup_a", "same"),
+        permissionOn("ses_dup_b", "same"),
+        permissionOn("ses_dup_b", "other"),
+        permissionOn("ses_dup_a", "same"),
+      ],
+      rootSessions: [
+        session("ses_dup_a", 1, "project-a"),
+        session("ses_dup_b", 2, "project-a"),
+        run(
+          { ...session("ses_dup_fresh", 1, "project-a"), location: { directory: "/fresh" } },
+          { idle: 1 },
+        ),
+      ],
+    },
+    name: "duplicate sessions and requests",
+  },
+])("pins inbox sections: $name", ({ expected, input }) => {
+  const sections = buildFollowedInboxSections({
+    activeSessionIDs: [],
+    ancestrySessions: {},
+    forms: [],
+    permissions: [],
+    projects: [],
+    recentSince: 0,
+    rootSessions: [],
+    ...input,
+  });
+  const keys = ["archived", "needsYou", "recent", "working"] as const;
+  const sectionNames = {
+    archived: "archived",
+    needsYou: "needs-you",
+    recent: "recent",
+    working: "working",
+  };
+  for (const key of keys) {
+    for (const row of sections[key]) expect(row.section).toBe(sectionNames[key]);
+  }
+  expect({
+    ...Object.fromEntries(keys.map((key) => [key, sections[key].map(describeRow)])),
+    unmatchedSessionIDs: sections.unmatchedSessionIDs,
+  }).toEqual({
+    archived: [],
+    needsYou: [],
+    recent: [],
+    unmatchedSessionIDs: [],
+    working: [],
+    ...expected,
+  });
+});
+
+function describeRow(row: FollowedInboxRow) {
+  return [
+    row.session.id,
+    row.status,
+    `to:${row.targetSessionID}@${row.targetLocation.directory}`,
+    `attention:${row.attentionCount}`,
+    ...(row.attentionOwnerSessionID ? [`owner:${row.attentionOwnerSessionID}`] : []),
+    ...(row.active ? ["active"] : []),
+    ...(row.archived ? ["archived"] : []),
+    `project:${row.projectLabel}`,
+    ...(row.projectIcon ? [`icon:${JSON.stringify(row.projectIcon)}`] : []),
+    ...(row.worktreeLabel ? [`worktree:${row.worktreeLabel}`] : []),
+  ].join(" ");
+}
+
+function permissionOn(sessionID: string, id: string): PermissionRequest {
+  return { action: "shell", id, resources: [], sessionID };
+}
+
+function formOn(sessionID: string, id: string): FormInfo {
+  return { fields: [{ key: "answer", type: "string" }], id, sessionID, title: "Input" };
+}
+
+function child(item: SessionInfo, parentID: string, directory?: string): SessionInfo {
+  return { ...item, parentID, ...(directory ? { location: { directory } } : {}) };
+}
+
+function byID(...items: SessionInfo[]) {
+  return Object.fromEntries(items.map((item) => [item.id, item]));
+}
 
 function run(item: SessionInfo, time: Partial<SessionInfo["time"]>): SessionInfo {
   return { ...item, time: { ...item.time, ...time } };

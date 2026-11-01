@@ -441,3 +441,53 @@ test("rolls back an interrupted revision and admission migration", async () => {
 
   expect(execAsync).toHaveBeenLastCalledWith("ROLLBACK;");
 });
+
+test("leaves a current database untouched after enabling pragmas", async () => {
+  const execAsync = jest.fn<(source: string) => Promise<void>>(async () => undefined);
+  await migrateMobileDatabase({
+    execAsync,
+    getFirstAsync: async () => ({ user_version: 17 }),
+  } as unknown as SQLiteDatabase);
+  expect(execAsync).toHaveBeenCalledTimes(1);
+  expect(execAsync).toHaveBeenCalledWith("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
+});
+
+test("treats a missing user version as a new database", async () => {
+  const execAsync = jest.fn<(source: string) => Promise<void>>(async () => undefined);
+  await migrateMobileDatabase({
+    execAsync,
+    getFirstAsync: async () => null,
+  } as unknown as SQLiteDatabase);
+  expect(execAsync).toHaveBeenCalledTimes(18);
+  expect(execAsync.mock.calls[1]?.[0]).toContain("CREATE TABLE IF NOT EXISTS connection_profiles");
+});
+
+test("does not issue a rollback when an initial schema step fails", async () => {
+  const execAsync = jest
+    .fn<(source: string) => Promise<void>>()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error("disk"));
+  await expect(
+    migrateMobileDatabase({
+      execAsync,
+      getFirstAsync: async () => ({ user_version: 0 }),
+    } as unknown as SQLiteDatabase),
+  ).rejects.toThrow("disk");
+  expect(execAsync).toHaveBeenCalledTimes(2);
+  expect(execAsync).not.toHaveBeenCalledWith("ROLLBACK;");
+});
+
+test("surfaces the migration failure when rollback also fails", async () => {
+  const execAsync = jest
+    .fn<(source: string) => Promise<void>>()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error("disk"))
+    .mockRejectedValueOnce(new Error("rollback"));
+  await expect(
+    migrateMobileDatabase({
+      execAsync,
+      getFirstAsync: async () => ({ user_version: 15 }),
+    } as unknown as SQLiteDatabase),
+  ).rejects.toThrow("disk");
+  expect(execAsync).toHaveBeenLastCalledWith("ROLLBACK;");
+});

@@ -1,6 +1,6 @@
 import MarkdownIt from "markdown-it";
 import type Token from "markdown-it/lib/token.mjs";
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, type ReactNode, useMemo, useState } from "react";
 import {
   ScrollView,
   type StyleProp,
@@ -23,6 +23,8 @@ parser.linkify.set({ fuzzyLink: false, fuzzyEmail: false });
 
 type Node = { token: Token; children: Node[]; key: string };
 type Props = { style: StyleProp<TextStyle>; text: string; onOpenLink: (url: string) => void };
+type BlockProps = Omit<Props, "text">;
+type BlockRenderer = (node: Node, props: BlockProps, previews?: Map<string, string[]>) => ReactNode;
 
 function nodes(tokens: Token[]): Node[] {
   const root: Node[] = [];
@@ -170,107 +172,135 @@ function Blocks({
   blocks,
   previews,
   ...props
-}: Omit<Props, "text"> & { blocks: Node[]; previews?: Map<string, string[]> }) {
-  return blocks.map(({ token, children, key }) => {
-    switch (token.type) {
-      case "inline":
-        return (
-          <Fragment key={key}>
-            {InlineContent({ tokens: token.children ?? [], onOpenLink: props.onOpenLink })}
-          </Fragment>
-        );
-      case "paragraph_open":
-      case "heading_open":
-        return (
-          <View key={key} style={styles.paragraph}>
-            <SelectableTranscriptText
-              key={key}
-              accessibilityRole={token.type === "heading_open" ? "header" : undefined}
-              dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheadline : typeRamp.body}
-              selectable
-              style={[
-                props.style,
-                token.type === "heading_open" && styles.heading,
-                token.tag === "h1" && styles.heading1,
-                token.tag === "h2" && styles.heading2,
-                /h[4-6]/.test(token.tag) && styles.headingSmall,
-              ]}
-            >
-              {Blocks({ blocks: children, ...props })}
-            </SelectableTranscriptText>
-            {previews?.get(key)?.map((href) => (
-              <TranscriptLinkCard key={href} href={href} onOpenLink={props.onOpenLink} />
-            ))}
-          </View>
-        );
-      case "fence":
-      case "code_block": {
-        const language = token.info.trim().split(/\s+/)[0]?.slice(0, 32);
-        return (
-          <View
-            key={key}
-            accessibilityLabel={language ? `Code block, ${language}` : "Code block"}
-            style={styles.codeBlock}
-          >
-            <View style={styles.codeHeader}>
-              {language ? (
-                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.codeLanguage}>
-                  {language}
-                </Text>
-              ) : null}
-              <CopyTextButton text={token.content} label="Copy code" />
-            </View>
-            {/* The native selection view's unwrapped mode left code blocks blank on
-                iPhone; the standard text view lays out without a width callback. */}
-            <ScrollView horizontal>
-              <HighlightedCode
-                code={token.content.replace(/\n$/, "")}
-                info={token.info}
-                style={styles.codeText}
-              />
-            </ScrollView>
-          </View>
-        );
-      }
-      case "table_open":
-        return <MarkdownTable key={key} sections={children} {...props} />;
-      case "bullet_list_open":
-      case "ordered_list_open":
-        return (
-          <View key={key} style={styles.list}>
-            {children.map((item, index) => (
-              <View key={item.key} style={styles.listRow}>
-                <Text style={[props.style, styles.marker]}>
-                  {token.type === "ordered_list_open"
-                    ? `${Number(token.attrGet("start") ?? 1) + index}.`
-                    : "•"}
-                </Text>
-                <View style={styles.listBody}>
-                  <Blocks blocks={item.children} {...props} />
-                </View>
-              </View>
-            ))}
-          </View>
-        );
-      case "blockquote_open":
-        return (
-          <View key={key} style={styles.quote}>
-            <Blocks blocks={children} {...props} />
-          </View>
-        );
-      case "hr":
-        return <View key={key} style={styles.rule} />;
-      default:
-        return (
-          <SelectableTranscriptText key={key} style={props.style}>
-            {token.content}
-          </SelectableTranscriptText>
-        );
-    }
-  });
+}: BlockProps & { blocks: Node[]; previews?: Map<string, string[]> }) {
+  return blocks.map((node) =>
+    (blockRenderers.get(node.token.type) ?? renderTextBlock)(node, props, previews),
+  );
 }
 
-function MarkdownTable({ sections, ...props }: Omit<Props, "text"> & { sections: Node[] }) {
+function renderInlineBlock({ token, key }: Node, props: BlockProps) {
+  return (
+    <Fragment key={key}>
+      {InlineContent({ tokens: token.children ?? [], onOpenLink: props.onOpenLink })}
+    </Fragment>
+  );
+}
+
+function renderParagraphBlock(
+  { token, children, key }: Node,
+  props: BlockProps,
+  previews?: Map<string, string[]>,
+) {
+  return (
+    <View key={key} style={styles.paragraph}>
+      <SelectableTranscriptText
+        key={key}
+        accessibilityRole={token.type === "heading_open" ? "header" : undefined}
+        dynamicTypeRamp={token.type === "heading_open" ? typeRamp.subheadline : typeRamp.body}
+        selectable
+        style={[
+          props.style,
+          token.type === "heading_open" && styles.heading,
+          token.tag === "h1" && styles.heading1,
+          token.tag === "h2" && styles.heading2,
+          /h[4-6]/.test(token.tag) && styles.headingSmall,
+        ]}
+      >
+        {Blocks({ blocks: children, ...props })}
+      </SelectableTranscriptText>
+      {previews?.get(key)?.map((href) => (
+        <TranscriptLinkCard key={href} href={href} onOpenLink={props.onOpenLink} />
+      ))}
+    </View>
+  );
+}
+
+function renderCodeBlock({ token, key }: Node) {
+  const language = token.info.trim().split(/\s+/)[0]?.slice(0, 32);
+  return (
+    <View
+      key={key}
+      accessibilityLabel={language ? `Code block, ${language}` : "Code block"}
+      style={styles.codeBlock}
+    >
+      <View style={styles.codeHeader}>
+        {language ? (
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.codeLanguage}>
+            {language}
+          </Text>
+        ) : null}
+        <CopyTextButton text={token.content} label="Copy code" />
+      </View>
+      {/* The native selection view's unwrapped mode left code blocks blank on
+          iPhone; the standard text view lays out without a width callback. */}
+      <ScrollView horizontal>
+        <HighlightedCode
+          code={token.content.replace(/\n$/, "")}
+          info={token.info}
+          style={styles.codeText}
+        />
+      </ScrollView>
+    </View>
+  );
+}
+
+function renderTableBlock({ children, key }: Node, props: BlockProps) {
+  return <MarkdownTable key={key} sections={children} {...props} />;
+}
+
+function renderListBlock({ token, children, key }: Node, props: BlockProps) {
+  return (
+    <View key={key} style={styles.list}>
+      {children.map((item, index) => (
+        <View key={item.key} style={styles.listRow}>
+          <Text style={[props.style, styles.marker]}>
+            {token.type === "ordered_list_open"
+              ? `${Number(token.attrGet("start") ?? 1) + index}.`
+              : "•"}
+          </Text>
+          <View style={styles.listBody}>
+            <Blocks blocks={item.children} {...props} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function renderQuoteBlock({ children, key }: Node, props: BlockProps) {
+  return (
+    <View key={key} style={styles.quote}>
+      <Blocks blocks={children} {...props} />
+    </View>
+  );
+}
+
+function renderRuleBlock({ key }: Node) {
+  return <View key={key} style={styles.rule} />;
+}
+
+function renderTextBlock({ token, key }: Node, props: BlockProps) {
+  return (
+    <SelectableTranscriptText key={key} style={props.style}>
+      {token.content}
+    </SelectableTranscriptText>
+  );
+}
+
+const blockRenderers = new Map<string, BlockRenderer>([
+  ["inline", renderInlineBlock],
+  ["paragraph_open", renderParagraphBlock],
+  ["heading_open", renderParagraphBlock],
+  ["fence", renderCodeBlock],
+  ["code_block", renderCodeBlock],
+  ["table_open", renderTableBlock],
+  ["bullet_list_open", renderListBlock],
+  ["ordered_list_open", renderListBlock],
+  ["blockquote_open", renderQuoteBlock],
+  ["hr", renderRuleBlock],
+]);
+
+function MarkdownTable({ sections, ...props }: BlockProps & { sections: Node[] }) {
   const { width, fontScale } = useWindowDimensions();
   const [measuredWidth, setMeasuredWidth] = useState<number>();
   const rows = sections.flatMap((section) => section.children);

@@ -5,6 +5,12 @@ export const mobileDatabaseSchemaVersion = 17;
 
 const maxDraftCiphertextBytes = 256 * 1024 + 16;
 
+type Migration = {
+  sql: string;
+  transactional: boolean;
+  version: number;
+};
+
 export async function migrateMobileDatabase(db: SQLiteDatabase) {
   await db.execAsync("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;");
   const current = await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version");
@@ -12,8 +18,27 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
   if (version > mobileDatabaseSchemaVersion) throw new Error("DATABASE_VERSION_TOO_NEW");
   if (version === mobileDatabaseSchemaVersion) return;
 
-  if (version < 1) {
-    await db.execAsync(`
+  for (const migration of migrations) {
+    if (version < migration.version) await runMigration(db, migration);
+  }
+}
+
+async function runMigration(db: SQLiteDatabase, migration: Migration) {
+  if (!migration.transactional) {
+    await db.execAsync(migration.sql);
+    return;
+  }
+  try {
+    await db.execAsync(migration.sql);
+  } catch (caught) {
+    await db.execAsync("ROLLBACK;").catch(() => undefined);
+    throw caught;
+  }
+}
+
+const migrations: readonly Migration[] = [
+  {
+    sql: `
     CREATE TABLE IF NOT EXISTS connection_profiles (
       id TEXT PRIMARY KEY NOT NULL,
       schema_version INTEGER NOT NULL CHECK (schema_version = 1),
@@ -45,22 +70,24 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
     );
     INSERT OR IGNORE INTO connection_selection(singleton, selected_connection_id) VALUES (1, NULL);
     PRAGMA user_version = 1;
-  `);
-  }
-
-  if (version < 2) {
-    await db.execAsync(`
+  `,
+    transactional: false,
+    version: 1,
+  },
+  {
+    sql: `
       CREATE TABLE IF NOT EXISTS app_preferences (
         singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
         app_lock_enabled INTEGER NOT NULL DEFAULT 0 CHECK (app_lock_enabled IN (0, 1))
       );
       INSERT OR IGNORE INTO app_preferences(singleton, app_lock_enabled) VALUES (1, 0);
       PRAGMA user_version = 2;
-    `);
-  }
-
-  if (version < 3) {
-    await db.execAsync(`
+    `,
+    transactional: false,
+    version: 2,
+  },
+  {
+    sql: `
       CREATE TABLE IF NOT EXISTS session_drafts (
         connection_id TEXT NOT NULL REFERENCES connection_profiles(id) ON DELETE CASCADE,
         session_id TEXT NOT NULL,
@@ -77,12 +104,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         connection_id TEXT PRIMARY KEY NOT NULL
       );
       PRAGMA user_version = 3;
-    `);
-  }
-
-  if (version < 4) {
-    try {
-      await db.execAsync(`
+    `,
+    transactional: false,
+    version: 3,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         ALTER TABLE session_drafts
         ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0);
@@ -99,16 +126,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 4;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-
-  if (version < 5) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 4,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS followed_project_preferences (
           connection_id TEXT PRIMARY KEY NOT NULL
@@ -123,16 +146,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 5;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-
-  if (version < 6) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 5,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS notification_pairings (
           connection_id TEXT PRIMARY KEY NOT NULL
@@ -151,16 +170,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 6;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-
-  if (version < 7) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 6,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS handled_notification_events (
           binding_id TEXT NOT NULL
@@ -171,16 +186,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 7;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-
-  if (version < 8) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 7,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS pending_notification_revocations (
           binding_id TEXT PRIMARY KEY NOT NULL,
@@ -190,47 +201,36 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 8;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-
-  if (version < 9) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 8,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         ALTER TABLE session_drafts
         ADD COLUMN payload_version INTEGER NOT NULL DEFAULT 1
           CHECK (payload_version IN (1, 2));
         PRAGMA user_version = 9;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-
-  if (version < 10) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 9,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         ALTER TABLE unresolved_prompt_admissions
         ADD COLUMN submission_kind TEXT NOT NULL DEFAULT 'prompt'
           CHECK (submission_kind IN ('command', 'prompt'));
         PRAGMA user_version = 10;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 11) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 10,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE transcript_preferences (
           singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -240,15 +240,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         INSERT INTO transcript_preferences(singleton) VALUES (1);
         PRAGMA user_version = 11;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 12) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 11,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE model_favorites (
           connection_id TEXT NOT NULL REFERENCES connection_profiles(id) ON DELETE CASCADE,
@@ -259,30 +256,24 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 12;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 13) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 12,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         ALTER TABLE transcript_preferences
         ADD COLUMN default_delivery TEXT NOT NULL DEFAULT 'steer'
         CHECK (default_delivery IN ('steer', 'queue'));
         PRAGMA user_version = 13;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 14) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 13,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE session_archives (
           connection_id TEXT NOT NULL REFERENCES connection_profiles(id) ON DELETE CASCADE,
@@ -291,29 +282,23 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 14;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 15) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 14,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         ALTER TABLE session_archives
         ADD COLUMN restored_at_ms INTEGER CHECK (restored_at_ms IS NULL OR restored_at_ms >= 0);
         PRAGMA user_version = 15;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 16) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 15,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE pull_request_filters (
           connection_id TEXT PRIMARY KEY REFERENCES connection_profiles(id) ON DELETE CASCADE,
@@ -324,15 +309,12 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 16;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-  if (version < 17) {
-    try {
-      await db.execAsync(`
+      `,
+    transactional: true,
+    version: 16,
+  },
+  {
+    sql: `
         BEGIN IMMEDIATE;
         CREATE TABLE session_inbox_preferences (
           connection_id TEXT PRIMARY KEY REFERENCES connection_profiles(id) ON DELETE CASCADE,
@@ -341,10 +323,8 @@ export async function migrateMobileDatabase(db: SQLiteDatabase) {
         );
         PRAGMA user_version = 17;
         COMMIT;
-      `);
-    } catch (caught) {
-      await db.execAsync("ROLLBACK;").catch(() => undefined);
-      throw caught;
-    }
-  }
-}
+      `,
+    transactional: true,
+    version: 17,
+  },
+];

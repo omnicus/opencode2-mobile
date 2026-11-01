@@ -11,11 +11,47 @@ import { useAnnouncement } from "../components/use-announcement";
 import { WorkingIndicator } from "../components/working-indicator";
 import { minTouchTarget, palette, radius, space, typeRamp, typography } from "../theme";
 import { PermissionRequestCard } from "./permission-request-card";
-import { type PromptAdmission, promptAdmissionNeedsOverlay } from "./prompt-admission-model";
-import { sanitizeTranscriptText } from "./session-transcript-model";
+import type { PromptAdmission } from "./prompt-admission-model";
+import {
+  boundedPromptPreview,
+  executionPanelItems,
+  inboxTypeLabel,
+  nextInboxDeadlines,
+  nextPromptCardDeadline,
+  queuedInboxIds,
+} from "./session-execution-panel-model";
 
-// Fast admissions normally reach the transcript before a card can be read.
-const promptCardDelayMs = 500;
+function usePromptCardDeadlines(
+  admissions: PromptAdmission[],
+  inbox: SessionInboxInfo[],
+  projectedMessageIds: Set<string>,
+) {
+  const [, refreshDisplay] = useState(0);
+  const [inboxDeadlines, setInboxDeadlines] = useState<Map<string, number>>(() => new Map());
+  const now = Date.now();
+
+  useEffect(() => {
+    const ids = queuedInboxIds(inbox, projectedMessageIds);
+    setInboxDeadlines((current) => nextInboxDeadlines(current, ids));
+  }, [inbox, projectedMessageIds]);
+
+  useEffect(() => {
+    const deadline = nextPromptCardDeadline({
+      admissions,
+      inboxDeadlines,
+      now,
+      projectedMessageIds,
+    });
+    if (deadline === undefined) return;
+    const timer = setTimeout(
+      () => refreshDisplay((revision) => revision + 1),
+      Math.max(0, deadline - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [admissions, projectedMessageIds, inboxDeadlines, now]);
+
+  return { inboxDeadlines, now };
+}
 
 export function SessionExecutionPanel({
   active,
@@ -60,78 +96,14 @@ export function SessionExecutionPanel({
   replyingPermissionId?: string | undefined;
 }) {
   const { height } = useWindowDimensions();
-  const [, refreshDisplay] = useState(0);
-  const [inboxDeadlines, setInboxDeadlines] = useState<Map<string, number>>(() => new Map());
-  const now = Date.now();
-
-  useEffect(() => {
-    const ids = inbox
-      .filter(
-        (item) =>
-          item.type === "user" && item.delivery === "queue" && !projectedMessageIds.has(item.id),
-      )
-      .map((item) => item.id);
-    setInboxDeadlines((current) => {
-      if (ids.length === current.size && ids.every((id) => current.has(id))) return current;
-      return new Map(ids.map((id) => [id, current.get(id) ?? Date.now() + promptCardDelayMs]));
-    });
-  }, [inbox, projectedMessageIds]);
-
-  const settlingAdmissionIds = new Set(
-    admissions
-      .filter(
-        (admission) =>
-          admission.status !== "unknown-delivery" &&
-          now < admission.submittedAtMs + promptCardDelayMs,
-      )
-      .map((admission) => admission.id),
-  );
-
-  useEffect(() => {
-    const admissionDeadlines = admissions
-      .filter(
-        (admission) =>
-          admission.status !== "unknown-delivery" &&
-          admission.status !== "cancelled" &&
-          admission.status !== "completed" &&
-          !projectedMessageIds.has(admission.id),
-      )
-      .map((admission) => admission.submittedAtMs + promptCardDelayMs);
-    const deadlines = [...admissionDeadlines, ...inboxDeadlines.values()].filter(
-      (deadline) => deadline > now,
-    );
-    if (deadlines.length === 0) return;
-    const timer = setTimeout(
-      () => refreshDisplay((revision) => revision + 1),
-      Math.max(0, Math.min(...deadlines) - Date.now()),
-    );
-    return () => clearTimeout(timer);
-  }, [admissions, projectedMessageIds, inboxDeadlines, now]);
-
-  // Steering is already selected by the delivery preference. Only queued prompts
-  // need persistent controls while they wait for the current execution to finish.
-  const promptInbox = inbox.filter(
-    (item) =>
-      item.type === "user" &&
-      item.delivery === "queue" &&
-      !projectedMessageIds.has(item.id) &&
-      now >= (inboxDeadlines.get(item.id) ?? Infinity) &&
-      !settlingAdmissionIds.has(item.id),
-  );
-  const inboxIds = new Set(inbox.map((item) => item.id));
-  const localOverlays = admissions.filter(
-    (admission) =>
-      admission.status === "unknown-delivery" &&
-      !inboxIds.has(admission.id) &&
-      promptAdmissionNeedsOverlay(admission, projectedMessageIds.has(admission.id)),
-  );
-  const sending = admissions.some(
-    (admission) =>
-      admission.status === "submitting" &&
-      !inboxIds.has(admission.id) &&
-      !settlingAdmissionIds.has(admission.id) &&
-      promptAdmissionNeedsOverlay(admission, projectedMessageIds.has(admission.id)),
-  );
+  const { inboxDeadlines, now } = usePromptCardDeadlines(admissions, inbox, projectedMessageIds);
+  const { localOverlays, promptInbox, sending } = executionPanelItems({
+    admissions,
+    inbox,
+    inboxDeadlines,
+    now,
+    projectedMessageIds,
+  });
   if (
     (!active || hideStatus) &&
     !sending &&
@@ -184,55 +156,93 @@ export function SessionExecutionPanel({
       ) : null}
 
       {localOverlays.map((admission) => (
-        <View key={admission.id} style={styles.admissionCard}>
-          <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-            Delivery unknown
-          </Text>
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
-            {admission.kind === "command"
-              ? "The server may have run this command. Check the transcript before sending it again."
-              : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."}
-          </Text>
-          <View style={styles.actionRow}>
-            <Button label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
-            {admission.retryOffered ? (
-              <Button
-                variant="danger"
-                label="Allow retry (may duplicate)"
-                onPress={() => onAllowRetry(admission.id)}
-              />
-            ) : null}
-          </View>
-        </View>
+        <UnknownDeliveryCard
+          key={admission.id}
+          admission={admission}
+          onAllowRetry={onAllowRetry}
+          onCheckAdmission={onCheckAdmission}
+        />
       ))}
 
       {promptInbox.map((item) => (
-        <View key={item.id} style={styles.inboxCard}>
-          <View style={styles.inboxHeading}>
-            <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-              Queued
-            </Text>
-            <Text dynamicTypeRamp={typeRamp.caption} style={styles.inboxType}>
-              {inboxTypeLabel(item)}
-            </Text>
-          </View>
-          {item.type === "user" ? (
-            <Text dynamicTypeRamp={typeRamp.subheadline} selectable style={styles.promptPreview}>
-              {boundedPromptPreview(item.payload.text)}
-            </Text>
-          ) : null}
-          <View style={styles.actionRow}>
-            <Button label="Steer now" onPress={() => onSteerInbox(item.id)} />
-            <Button
-              variant="danger"
-              label="Cancel"
-              accessibilityHint="Asks before removing the queued prompt"
-              onPress={() => confirmCancelInbox(() => onCancelInbox(item.id))}
-            />
-          </View>
-        </View>
+        <QueuedInboxCard
+          key={item.id}
+          item={item}
+          onCancelInbox={onCancelInbox}
+          onSteerInbox={onSteerInbox}
+        />
       ))}
     </ScrollView>
+  );
+}
+
+function UnknownDeliveryCard({
+  admission,
+  onAllowRetry,
+  onCheckAdmission,
+}: {
+  admission: PromptAdmission;
+  onAllowRetry: (admissionID: string) => void;
+  onCheckAdmission: (admissionID: string) => void;
+}) {
+  return (
+    <View style={styles.admissionCard}>
+      <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
+        Delivery unknown
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
+        {admission.kind === "command"
+          ? "The server may have run this command. Check the transcript before sending it again."
+          : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."}
+      </Text>
+      <View style={styles.actionRow}>
+        <Button label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
+        {admission.retryOffered ? (
+          <Button
+            variant="danger"
+            label="Allow retry (may duplicate)"
+            onPress={() => onAllowRetry(admission.id)}
+          />
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function QueuedInboxCard({
+  item,
+  onCancelInbox,
+  onSteerInbox,
+}: {
+  item: SessionInboxInfo;
+  onCancelInbox: (inboxID: string) => void;
+  onSteerInbox: (inboxID: string) => void;
+}) {
+  return (
+    <View style={styles.inboxCard}>
+      <View style={styles.inboxHeading}>
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
+          Queued
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.caption} style={styles.inboxType}>
+          {inboxTypeLabel(item)}
+        </Text>
+      </View>
+      {item.type === "user" ? (
+        <Text dynamicTypeRamp={typeRamp.subheadline} selectable style={styles.promptPreview}>
+          {boundedPromptPreview(item.payload.text)}
+        </Text>
+      ) : null}
+      <View style={styles.actionRow}>
+        <Button label="Steer now" onPress={() => onSteerInbox(item.id)} />
+        <Button
+          variant="danger"
+          label="Cancel"
+          accessibilityHint="Asks before removing the queued prompt"
+          onPress={() => confirmCancelInbox(() => onCancelInbox(item.id))}
+        />
+      </View>
+    </View>
   );
 }
 
@@ -241,24 +251,6 @@ function confirmCancelInbox(onConfirm: () => void) {
     { style: "cancel", text: "Keep" },
     { onPress: onConfirm, style: "destructive", text: "Cancel prompt" },
   ]);
-}
-
-function inboxTypeLabel(item: SessionInboxInfo) {
-  switch (item.type) {
-    case "user":
-      return "Prompt";
-    case "synthetic":
-      return "System input";
-    case "compaction":
-      return "Compaction";
-    case "move":
-      return "Move";
-  }
-}
-
-function boundedPromptPreview(text: string) {
-  const sanitized = sanitizeTranscriptText(text);
-  return sanitized.length > 2_000 ? `${sanitized.slice(0, 2_000)}\n...` : sanitized;
 }
 
 export function SessionWorkingStatus({

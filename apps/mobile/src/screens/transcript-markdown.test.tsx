@@ -1,7 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
-import { TranscriptMarkdown } from "./transcript-markdown";
+import { InlineTranscriptMarkdown, TranscriptMarkdown } from "./transcript-markdown";
 
 const body = { fontSize: 17, lineHeight: 26 };
 
@@ -123,4 +123,55 @@ test("shows compact PR destinations once and bounds extra link cards", () => {
   expect(screen.getAllByRole("link", { name: /^External link:/ })).toHaveLength(2);
   expect(screen.queryByRole("link", { name: /private.test/ })).toBeNull();
   expect(screen.getByRole("link", { name: "https://docs.test/c" })).toBeOnTheScreen();
+});
+
+test("sizes headings by level and labels code blocks without a language", () => {
+  render(
+    <TranscriptMarkdown
+      style={body}
+      onOpenLink={jest.fn()}
+      text={"# Title\n\n#### Detail\n\n---\n\n    indented();\n\n```\nplain\n```"}
+    />,
+  );
+  expect(screen.getByRole("header", { name: "Title" })).toHaveStyle({ fontSize: 20 });
+  expect(screen.getByRole("header", { name: "Detail" })).toHaveStyle({ fontSize: 16 });
+  expect(screen.getAllByLabelText("Code block")).toHaveLength(2);
+  expect(screen.getByText("indented();")).toBeOnTheScreen();
+  expect(screen.getByText("plain")).toBeOnTheScreen();
+  expect(screen.queryByText("---")).toBeNull();
+});
+
+test("labels fenced code with its language and keeps soft and hard breaks", () => {
+  render(
+    <TranscriptMarkdown
+      style={body}
+      onOpenLink={jest.fn()}
+      text={"one\ntwo  \nthree\n\n```python extra\nprint()\n```"}
+    />,
+  );
+  expect(screen.getByLabelText("Code block, python")).toBeOnTheScreen();
+  expect(screen.getByText("python")).toBeOnTheScreen();
+  expect(
+    screen.getAllByText("one two\nthree", { normalizer: (text) => text }).length,
+  ).toBeGreaterThan(0);
+});
+
+test("renders inline Markdown after an optional prefix", () => {
+  const open = jest.fn();
+  const view = render(
+    <InlineTranscriptMarkdown
+      style={body}
+      onOpenLink={open}
+      prefix="Step"
+      text="Run **[tests](https://example.test/ci)**"
+    />,
+  );
+  expect(screen.getByText("Step  ")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("link", { name: "tests" }));
+  expect(open).toHaveBeenCalledWith("https://example.test/ci");
+  expect(screen.getByRole("link", { name: "tests" })).toHaveStyle({ fontWeight: "700" });
+
+  view.rerender(<InlineTranscriptMarkdown style={body} onOpenLink={open} text="Plain" />);
+  expect(screen.queryByText("Step  ")).toBeNull();
+  expect(screen.getByText("Plain")).toBeOnTheScreen();
 });

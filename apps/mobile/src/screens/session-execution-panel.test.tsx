@@ -1,7 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import type { SessionInboxInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { AccessibilityInfo, Alert, type AlertButton, Platform } from "react-native";
+import { AccessibilityInfo, Alert, type AlertButton, Platform, Text } from "react-native";
 import { minTouchTarget, palette, typography } from "../theme";
 import type { PromptAdmission } from "./prompt-admission-model";
 import { SessionExecutionPanel, SessionWorkingStatus } from "./session-execution-panel";
@@ -606,4 +606,71 @@ test("status controls keep a 48pt target and VoiceOver hears a permission wait",
   expect(announce).toHaveBeenCalledWith("Waiting for permission");
   announce.mockRestore();
   jest.restoreAllMocks();
+});
+
+test("a pending form shows Waiting for input above the form", () => {
+  render(
+    <SessionExecutionPanel
+      active
+      canBackground
+      admissions={[]}
+      formRequests={<Text>Form card</Text>}
+      inbox={[]}
+      permissions={[]}
+      {...callbacks}
+      projectedMessageIds={new Set()}
+    />,
+  );
+  expect(screen.getByText("Waiting for input")).toBeOnTheScreen();
+  expect(screen.getByText("Form card")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Move to background" })).toBeNull();
+});
+
+test("a form keeps the panel open after execution stops", () => {
+  render(
+    <SessionExecutionPanel
+      active={false}
+      admissions={[]}
+      formRequests={<Text>Form card</Text>}
+      inbox={[]}
+      permissions={[]}
+      {...callbacks}
+      projectedMessageIds={new Set()}
+    />,
+  );
+  expect(screen.getByLabelText("Session execution")).toBeOnTheScreen();
+  expect(screen.getByText("Form card")).toBeOnTheScreen();
+  expect(screen.queryByText("Waiting for input")).toBeNull();
+});
+
+test.each<["background" | "interrupt" | "wait", string, string]>([
+  ["background", "Moving to background", "Stop"],
+  ["interrupt", "Move to background", "Stopping"],
+  ["wait", "Move to background", "Stop"],
+])("busy %s disables both execution controls", (busyAction, background, stop) => {
+  const onBackground = jest.fn();
+  const onInterrupt = jest.fn();
+  render(
+    <SessionWorkingStatus
+      busyAction={busyAction}
+      canBackground
+      onBackground={onBackground}
+      onInterrupt={onInterrupt}
+    />,
+  );
+  expect(screen.getByRole("button", { name: background })).toBeDisabled();
+  expect(screen.getByRole("button", { name: stop })).toBeDisabled();
+  fireEvent.press(screen.getByRole("button", { name: stop }));
+  expect(onInterrupt).not.toHaveBeenCalled();
+});
+
+test("the working status defaults to Stop without a background action", () => {
+  const onInterrupt = jest.fn();
+  render(<SessionWorkingStatus onBackground={jest.fn()} onInterrupt={onInterrupt} />);
+  expect(screen.getByText("Working")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Move to background" })).toBeNull();
+  const stop = screen.getByRole("button", { name: "Stop" });
+  expect(stop).toHaveProp("accessibilityHint", "Interrupts the current session");
+  fireEvent.press(stop);
+  expect(onInterrupt).toHaveBeenCalledTimes(1);
 });
