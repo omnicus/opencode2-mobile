@@ -10,10 +10,13 @@ const mockDownload = jest.fn<() => Promise<{ isNew: boolean }>>();
 const mockReload = jest.fn<() => Promise<void>>();
 let mockNativePending = false;
 let mockStartupRunning = false;
+let mockUpdatesEnabled = true;
 const initialAppState = Object.getOwnPropertyDescriptor(AppState, "currentState");
 
 jest.mock("expo-updates", () => ({
-  isEnabled: true,
+  get isEnabled() {
+    return mockUpdatesEnabled;
+  },
   checkForUpdateAsync: () => mockCheck(),
   fetchUpdateAsync: () => mockDownload(),
   reloadAsync: () => mockReload(),
@@ -32,6 +35,7 @@ beforeEach(() => {
   mockReload.mockReset().mockResolvedValue(undefined);
   mockNativePending = false;
   mockStartupRunning = false;
+  mockUpdatesEnabled = true;
 });
 
 afterEach(() => {
@@ -98,4 +102,16 @@ test("shows an update downloaded by native startup without downloading it twice"
   await screen.findByRole("button", { name: "Restart to apply update" });
   expect(mockCheck).not.toHaveBeenCalled();
   expect(mockDownload).not.toHaveBeenCalled();
+});
+
+test("explains a build without updates in plain words and offers no check", () => {
+  mockUpdatesEnabled = false;
+  const screen = render(
+    <AppUpdatesProvider>
+      <AppUpdateCard />
+    </AppUpdatesProvider>,
+  );
+
+  expect(screen.getByText("This build of the app doesn't receive updates.")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Check for app updates" })).toBeNull();
 });
