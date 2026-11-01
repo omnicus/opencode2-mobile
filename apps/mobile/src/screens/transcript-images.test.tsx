@@ -1,6 +1,8 @@
+import "react-native-gesture-handler/jestSetup";
 import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react-native";
+import { Platform } from "react-native";
 
 import { SessionTranscriptRow, TranscriptActivityGroup } from "./session-transcript";
 import {
@@ -97,6 +99,22 @@ test("tapping an image opens a full-screen viewer that closes", () => {
   render(<TranscriptImages images={[{ key: "one", label: "shot.png", uri: png }]} />);
   expect(screen.queryByRole("button", { name: "Close image" })).toBeNull();
   fireEvent.press(screen.getByRole("imagebutton", { name: "shot.png" }));
+  fireEvent.press(screen.getByRole("button", { name: "Close image" }));
+  expect(screen.queryByRole("button", { name: "Close image" })).toBeNull();
+});
+
+test("the viewer zooms with a scroll view on iOS and a pinch gesture on Android", () => {
+  const images = [{ key: "one", label: "shot.png", uri: png }];
+  const view = render(<TranscriptImages images={images} />);
+  fireEvent.press(screen.getByRole("imagebutton", { name: "shot.png" }));
+  expect(screen.UNSAFE_queryAllByProps({ maximumZoomScale: 4 })).not.toHaveLength(0);
+  view.unmount();
+
+  jest.replaceProperty(Platform, "OS", "android");
+  render(<TranscriptImages images={images} />);
+  fireEvent.press(screen.getByRole("imagebutton", { name: "shot.png" }));
+  expect(screen.UNSAFE_queryAllByProps({ maximumZoomScale: 4 })).toHaveLength(0);
+  expect(screen.getAllByLabelText("shot.png")).toHaveLength(2);
   fireEvent.press(screen.getByRole("button", { name: "Close image" }));
   expect(screen.queryByRole("button", { name: "Close image" })).toBeNull();
 });

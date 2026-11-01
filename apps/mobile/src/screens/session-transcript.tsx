@@ -1,8 +1,11 @@
+import Feather from "@expo/vector-icons/Feather";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -14,9 +17,20 @@ import {
 import { applicationName } from "../application-name";
 import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
+import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
+import { WorkingIndicator } from "../components/working-indicator";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
-import { markdownPalette, palette, radius, space, typeRamp, typography } from "../theme";
+import {
+  markdownPalette,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import type { PendingPromptPreview } from "./prompt-admission-model";
 import { ShellObservation } from "./session-shell-output";
 import {
@@ -46,6 +60,10 @@ const maxAssistantParts = 64;
 const maxAttachments = 32;
 const maxToolOutputs = 32;
 const maxInlineReasoning = 240;
+const rippleColor = "rgba(255,255,255,0.12)";
+const subagentToggleHeight = 36;
+// Brings the shell output back to the newest line when the user is this close to it.
+const shellFollowThreshold = 24;
 type AssistantTool = Extract<
   Extract<SessionMessageInfo, { type: "assistant" }>["content"][number],
   { type: "tool" }
@@ -86,6 +104,7 @@ export function PendingPromptRow({
     "awaiting-transcript": "Sent · waiting for transcript",
     "unknown-delivery": "Delivery unknown",
   }[preview.status];
+  useAnnouncement(label);
   return (
     <View style={styles.userRow}>
       <View
@@ -382,7 +401,11 @@ export function TranscriptActivityGroup({
         >
           {progressLabel}
         </Text>
-        <Text accessibilityElementsHidden style={styles.disclosureAction}>
+        <Text
+          accessibilityElementsHidden
+          dynamicTypeRamp={typeRamp.body}
+          style={styles.disclosureAction}
+        >
           {expanded ? "⌄" : "›"}
         </Text>
       </Pressable>
@@ -520,7 +543,7 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
               return isInlineReasoning(part.text) ? (
                 <InlineMarkdownText
                   key={key}
-                  prefix={settled ? "THOUGHT" : "THINKING"}
+                  prefix={settled ? "Thought" : "Thinking"}
                   prefixStyle={styles.reasoningLabel}
                   style={styles.reasoningText}
                   text={part.text}
@@ -687,7 +710,7 @@ function AttachmentLabels({
       {keyedLabels.map(({ key, label }) => (
         <View key={key} style={styles.attachmentChip}>
           <Text
-            dynamicTypeRamp={typeRamp.control}
+            dynamicTypeRamp={typeRamp.footnote}
             numberOfLines={largeText ? undefined : 2}
             style={styles.attachmentLabel}
           >
@@ -1010,7 +1033,9 @@ function ToolDisclosure({
                     onPress={observation.retry}
                     style={styles.textAction}
                   >
-                    <Text style={styles.textActionLabel}>Retry shell output</Text>
+                    <Text dynamicTypeRamp={typeRamp.control} style={styles.textActionLabel}>
+                      Retry shell output
+                    </Text>
                   </Pressable>
                 ) : null}
                 {observation?.snapshot?.truncated ? (
@@ -1018,6 +1043,7 @@ function ToolDisclosure({
                 ) : null}
                 <ShellOutput
                   command={firstInputString(input, ["command", "cmd"], maxSanitizedInput)}
+                  follow={observation?.snapshot?.info?.status === "running"}
                   text={
                     observation
                       ? (observation.snapshot?.output ?? "")
@@ -1164,34 +1190,62 @@ function ShellDisclosure({ largeText, message }: { largeText: boolean; message: 
           onPress={() => setExpanded((current) => !current)}
         />
         {expanded && message.output?.output ? (
-          <ShellOutput command={message.command} text={message.output.output} />
+          <ShellOutput
+            command={message.command}
+            follow={message.status === "running"}
+            text={message.output.output}
+          />
         ) : null}
       </View>
     </View>
   );
 }
 
-function ShellOutput({ command, text }: { command?: string | undefined; text: string }) {
+function ShellOutput({
+  command,
+  follow = false,
+  text,
+}: {
+  command?: string | undefined;
+  follow?: boolean;
+  text: string;
+}) {
   const safeText = sanitizeTranscriptText(text, text.length);
+  const scrollRef = useRef<ScrollView>(null);
+  const following = useRef(true);
+  const copy = <CopyTextButton iconOnly label="Copy shell output" text={safeText} />;
   return (
     <View style={styles.shellOutputBox}>
-      <View style={styles.shellOutputToolbar}>
-        <CopyTextButton iconOnly label="Copy shell output" text={safeText} />
-      </View>
+      {command ? (
+        <View style={styles.shellCommandHeader}>
+          <ScrollView nestedScrollEnabled style={styles.shellCommandScroll}>
+            <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.shellCommand}>
+              {sanitizeTranscriptText(command, maxSanitizedInput)}
+            </SelectableTranscriptText>
+          </ScrollView>
+          {copy}
+        </View>
+      ) : (
+        <View style={styles.shellOutputToolbar}>{copy}</View>
+      )}
       <ScrollView
+        ref={scrollRef}
         accessibilityLabel="Shell output"
         nestedScrollEnabled
         showsVerticalScrollIndicator
         keyboardShouldPersistTaps="handled"
+        onContentSizeChange={() => {
+          if (follow && following.current) scrollRef.current?.scrollToEnd({ animated: false });
+        }}
+        onScroll={({
+          nativeEvent: { contentOffset, contentSize, layoutMeasurement },
+        }: NativeSyntheticEvent<NativeScrollEvent>) => {
+          following.current =
+            contentSize.height - layoutMeasurement.height - contentOffset.y <= shellFollowThreshold;
+        }}
+        scrollEventThrottle={100}
         style={styles.shellOutputScroll}
       >
-        {command ? (
-          <View style={styles.shellCommandHeader}>
-            <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.shellCommand}>
-              {sanitizeTranscriptText(command, maxSanitizedInput)}
-            </SelectableTranscriptText>
-          </View>
-        ) : null}
         <SelectableTranscriptText
           dynamicTypeRamp={typeRamp.body}
           style={[styles.shellOutputText, !command && styles.shellOutputWithoutCommand]}
@@ -1263,69 +1317,124 @@ function SubagentCard({
   presentation: SubagentPresentation;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const canOpen = Boolean(presentation.childSessionID && onOpenSubagent);
+  const [pressed, setPressed] = useState(false);
+  const { childSessionID, state } = presentation;
+  const canOpen = Boolean(childSessionID && onOpenSubagent);
   const canExpand = Boolean(presentation.result);
-  const stateLabel = subagentStateLabel(presentation.state);
+  const inFlight = state === "running" || state === "streaming";
+  const stateLabel = subagentStateLabel(state);
+  const kind = presentation.background ? "Background subagent" : "Subagent";
+  const title = sanitizeTranscriptText(presentation.title, 256);
+  const agent = presentation.agent ? `@${sanitizeTranscriptText(presentation.agent, 128)}` : "";
+  const previousState = useRef(state);
+  useEffect(() => {
+    const previous = previousState.current;
+    previousState.current = state;
+    // Announce the transition only; finished cards in the history stay quiet.
+    if (previous === state || (state !== "completed" && state !== "error")) return;
+    announceOnIOS(`${kind} ${title} ${state === "error" ? "failed" : "completed"}`);
+  }, [kind, state, title]);
+  const open = () => {
+    if (childSessionID) onOpenSubagent?.(childSessionID);
+  };
+  const openProps = {
+    android_ripple: canOpen && Platform.OS === "android" ? { color: rippleColor } : undefined,
+    disabled: !canOpen,
+    onPress: open,
+    onPressIn: () => setPressed(true),
+    onPressOut: () => setPressed(false),
+  };
+  const agentText = agent ? (
+    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subagentAgent}>
+      {agent}
+    </Text>
+  ) : null;
   return (
     <View
-      accessibilityLabel={`Subagent ${presentation.title}. ${stateLabel}`}
-      style={[styles.subagent, presentation.state === "completed" && styles.subagentCompleted]}
+      style={[
+        styles.subagent,
+        inFlight && styles.subagentRunning,
+        state === "error" && styles.subagentError,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
+      testID="subagent-card"
     >
-      <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.subagentLabel}>
-          {presentation.background ? "Background subagent" : "Subagent"}
-        </Text>
-        <Text
-          accessibilityLiveRegion="polite"
-          dynamicTypeRamp={typeRamp.caption}
-          style={[
-            styles.subagentState,
-            presentation.state === "error" && styles.subagentStateError,
-            presentation.state === "running" && styles.subagentStateRunning,
-          ]}
-        >
-          {stateLabel}
-        </Text>
-      </View>
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.subagentTitle}>
-        {sanitizeTranscriptText(presentation.title, 256)}
-      </Text>
-      {presentation.agent ? (
-        <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentAgent}>
-          @{sanitizeTranscriptText(presentation.agent, 128)}
-        </Text>
-      ) : null}
-      {canOpen || canExpand ? (
-        <View style={styles.subagentActions}>
+      <Pressable
+        {...openProps}
+        accessibilityRole={canOpen ? "button" : undefined}
+        accessibilityLabel={`${kind}, ${title}${agent ? `, ${agent}` : ""}, ${stateLabel}`}
+        accessibilityHint={canOpen ? "Opens the subagent session" : undefined}
+        style={styles.subagentMain}
+      >
+        <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.subagentLabel}>
+            {kind}
+          </Text>
+          <View style={styles.subagentStatus}>
+            {inFlight ? <WorkingIndicator /> : null}
+            <Text
+              accessibilityLiveRegion="polite"
+              dynamicTypeRamp={typeRamp.sectionLabel}
+              style={[
+                styles.subagentState,
+                state === "error" && styles.subagentStateError,
+                inFlight && styles.subagentStateRunning,
+              ]}
+            >
+              {stateLabel}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.subagentTitleRow}>
+          <Text dynamicTypeRamp={typeRamp.headline} style={styles.subagentTitle}>
+            {title}
+          </Text>
           {canOpen ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                if (presentation.childSessionID) onOpenSubagent?.(presentation.childSessionID);
-              }}
-              style={({ pressed }) => [styles.subagentAction, pressed && styles.pressed]}
-            >
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
-                Open child
-              </Text>
-            </Pressable>
+            <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
           ) : null}
-          {canExpand ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ expanded }}
-              onPress={() => setExpanded((current) => !current)}
-              style={({ pressed }) => [styles.subagentAction, pressed && styles.pressed]}
-            >
-              <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
-                {expanded ? "Hide result" : "Show result"}
-              </Text>
-            </Pressable>
-          ) : null}
+        </View>
+        {canExpand ? null : agentText}
+      </Pressable>
+      {canExpand ? (
+        <View style={styles.subagentFooter}>
+          <Pressable
+            {...openProps}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            style={styles.subagentFooterOpen}
+          >
+            {agentText}
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={expanded ? "Hide result" : "Show result"}
+            accessibilityState={{ expanded }}
+            android_ripple={
+              Platform.OS === "android" ? { color: rippleColor, borderless: true } : undefined
+            }
+            hitSlop={(minTouchTarget - subagentToggleHeight) / 2}
+            onPress={() => setExpanded((current) => !current)}
+            style={({ pressed: togglePressed }) => [
+              styles.subagentToggle,
+              togglePressed && Platform.OS === "ios" && styles.pressed,
+            ]}
+          >
+            <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
+              {expanded ? "Hide result" : "Show result"}
+            </Text>
+            <Feather
+              accessible={false}
+              color={palette.signal}
+              name={expanded ? "chevron-up" : "chevron-down"}
+              size={16}
+            />
+          </Pressable>
         </View>
       ) : null}
       {expanded && presentation.result ? (
-        <ExpandableText markdown style={styles.subagentResult} text={presentation.result} />
+        <View style={styles.subagentResult}>
+          <ExpandableText markdown style={styles.subagentResultText} text={presentation.result} />
+        </View>
       ) : null}
     </View>
   );
@@ -1359,14 +1468,14 @@ function Disclosure({
         ]}
       >
         <Text
-          dynamicTypeRamp={typeRamp.control}
+          dynamicTypeRamp={typeRamp.body}
           style={[styles.disclosureLabel, largeText && styles.disclosureLabelLargeText]}
         >
           {sanitizeTranscriptText(label, 256)}
         </Text>
         {hasText ? (
           <Text
-            dynamicTypeRamp={typeRamp.control}
+            dynamicTypeRamp={typeRamp.body}
             style={[styles.disclosureAction, largeText && styles.disclosureActionLargeText]}
           >
             {expanded ? "Hide" : "Show"}
@@ -1409,7 +1518,7 @@ function Notice({
   return (
     <View style={styles.notice}>
       <Text
-        dynamicTypeRamp={typeRamp.caption}
+        dynamicTypeRamp={typeRamp.body}
         style={[styles.noticeLabel, error && { color: palette.danger }]}
       >
         {sanitizeTranscriptText(label, 256)}
@@ -1897,13 +2006,15 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   shellCommandHeader: {
+    alignItems: "flex-start",
     backgroundColor: palette.background,
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    padding: 12,
-    paddingRight: 48,
+    flexDirection: "row",
+    paddingLeft: 12,
   },
-  shellCommand: { ...typography.code, color: palette.ink },
+  shellCommandScroll: { flex: 1, maxHeight: 96 },
+  shellCommand: { ...typography.code, color: palette.ink, paddingVertical: 12 },
   shellOutputScroll: { maxHeight: 240 },
   shellOutputText: { ...typography.code, color: palette.dim, padding: 12 },
   shellOutputWithoutCommand: { paddingRight: 48 },
@@ -1925,7 +2036,7 @@ const styles = StyleSheet.create({
     flexWrap: "nowrap",
     gap: space.sm,
     justifyContent: "flex-start",
-    minHeight: 44,
+    minHeight: minTouchTarget,
     paddingHorizontal: 0,
     paddingVertical: space.sm,
   },
@@ -1934,7 +2045,7 @@ const styles = StyleSheet.create({
   activity: {
     paddingHorizontal: 0,
   },
-  loadedSkill: { minHeight: 44, justifyContent: "center", paddingVertical: 4 },
+  loadedSkill: { minHeight: minTouchTarget, justifyContent: "center", paddingVertical: 4 },
   activityAction: { ...typography.chatActivity, color: palette.dim },
   activityError: {
     borderBottomWidth: 0,
@@ -1967,7 +2078,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: space.sm,
     justifyContent: "space-between",
-    minHeight: 44,
+    minHeight: minTouchTarget,
     paddingVertical: 8,
   },
   activityHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
@@ -1993,7 +2104,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
-  attachmentLabel: { ...typography.label, color: palette.dim },
+  attachmentLabel: { ...typography.footnote, color: palette.dim },
   attachments: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
   bodyText: { ...typography.chatBody, color: palette.ink },
   disclosure: {
@@ -2007,13 +2118,13 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: space.xs,
     justifyContent: "space-between",
-    minHeight: 44,
+    minHeight: minTouchTarget,
     paddingHorizontal: 0,
     paddingVertical: 10,
   },
   disclosureHeaderLargeText: { alignItems: "flex-start", flexDirection: "column" },
   disclosureLabel: {
-    ...typography.label,
+    ...typography.chatActivity,
     color: palette.dim,
     flex: 1,
     flexShrink: 1,
@@ -2023,7 +2134,7 @@ const styles = StyleSheet.create({
   diffAction: {
     alignSelf: "flex-start",
     justifyContent: "center",
-    minHeight: 44,
+    minHeight: minTouchTarget,
     paddingRight: space.md,
   },
   diffActionLabel: { ...typography.control, color: palette.signal },
@@ -2033,7 +2144,7 @@ const styles = StyleSheet.create({
     marginHorizontal: space.md,
     paddingVertical: space.xs,
   },
-  noticeLabel: { ...typography.label, color: palette.dim },
+  noticeLabel: { ...typography.chatActivity, color: palette.dim },
   noticeText: { ...typography.subheadline, color: palette.dim, marginTop: 5 },
   omittedText: { ...typography.caption, color: palette.dim, marginTop: 7 },
   outputText: {
@@ -2041,35 +2152,45 @@ const styles = StyleSheet.create({
     color: palette.dim,
     padding: 12,
   },
-  pressed: { opacity: 0.7 },
+  pressed: { opacity: pressedOpacity },
   reasoningLabel: {
-    ...typography.label,
+    ...typography.chatBody,
     color: markdownPalette.reasoning,
+    fontWeight: typography.headline.fontWeight,
   },
   reasoningText: { ...typography.chatBody, color: markdownPalette.reasoning },
   statusText: { ...typography.caption, color: palette.dim },
+  // One card shape for every state; only the border colour follows the status.
   subagent: {
     backgroundColor: palette.card,
-    borderColor: palette.activity,
+    borderColor: palette.border,
     borderRadius: radius.md,
     borderWidth: 1,
     gap: space.xs,
+    // Adds to the row's 6pt gap so consecutive cards sit 8pt apart.
+    marginVertical: 1,
+    overflow: "hidden",
     padding: 12,
   },
-  subagentCompleted: {
-    backgroundColor: "transparent",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: palette.border,
-    borderRadius: 0,
-    borderWidth: 0,
-    gap: 2,
-    paddingHorizontal: 0,
-    paddingVertical: 8,
-  },
-  subagentAction: { justifyContent: "center", minHeight: 44, paddingRight: space.md },
+  subagentRunning: { borderColor: palette.activity },
+  subagentError: { borderColor: palette.danger },
+  subagentMain: { gap: space.xs },
   subagentActionLabel: { ...typography.control, color: palette.signal },
-  subagentActions: { flexDirection: "row", flexWrap: "wrap" },
-  subagentAgent: { ...typography.caption, color: palette.dim },
+  subagentAgent: { ...typography.footnote, color: palette.dim },
+  subagentFooter: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  subagentFooterOpen: {
+    alignSelf: "stretch",
+    flex: 1,
+    justifyContent: "center",
+    minWidth: 0,
+  },
+  subagentToggle: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 4,
+    justifyContent: "flex-end",
+    minHeight: subagentToggleHeight,
+  },
   subagentHeading: {
     alignItems: "center",
     flexDirection: "row",
@@ -2078,20 +2199,26 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   subagentHeadingLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
-  subagentLabel: { ...typography.label, color: palette.activity },
+  subagentLabel: { ...typography.sectionLabel, color: palette.activity },
   subagentResult: {
-    ...typography.chatBody,
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
-    color: palette.ink,
     paddingTop: space.sm,
   },
-  subagentState: { ...typography.label, color: palette.dim },
+  subagentResultText: { ...typography.chatBody, color: palette.ink },
+  subagentState: { ...typography.sectionLabel, color: palette.dim },
   subagentStateError: { color: palette.danger },
   subagentStateRunning: { color: palette.activity },
-  subagentTitle: { ...typography.headline, color: palette.ink },
-  textAction: { alignSelf: "flex-start", minHeight: 44, paddingVertical: 10 },
-  textActionLabel: { ...typography.label, color: palette.signal },
+  subagentStatus: { alignItems: "center", flexDirection: "row", gap: space.xs },
+  subagentTitle: { ...typography.headline, color: palette.ink, flex: 1, minWidth: 0 },
+  subagentTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  textAction: {
+    alignSelf: "flex-start",
+    justifyContent: "center",
+    minHeight: minTouchTarget,
+    paddingVertical: space.xs,
+  },
+  textActionLabel: { ...typography.control, color: palette.signal },
   userBubble: {
     backgroundColor: palette.prompt,
     borderRadius: radius.sm,

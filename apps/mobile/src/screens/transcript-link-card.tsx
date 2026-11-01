@@ -3,7 +3,16 @@ import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { CopyTextButton } from "../components/copy-text-button";
 import { ModalSheet } from "../components/modal-sheet";
-import { palette, radius, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
+import {
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 
 export function parseTranscriptLink(value: string | null) {
   if (!value || value.length > 4096) return undefined;
@@ -69,13 +78,13 @@ export function TranscriptLinkCard({
           <Feather accessible={false} name={icon} size={18} color={palette.accent} />
           <View style={styles.copy}>
             <Text
-              dynamicTypeRamp={typeRamp.control}
+              dynamicTypeRamp={typeRamp.subheadline}
               numberOfLines={largeText ? undefined : 2}
               style={styles.title}
             >
               {title}
             </Text>
-            <Text dynamicTypeRamp={typeRamp.caption} style={styles.subtitle}>
+            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
               {kind} · {destination}
               {local ? " · This device" : ""}
             </Text>
@@ -86,7 +95,7 @@ export function TranscriptLinkCard({
           accessibilityRole="button"
           accessibilityLabel={`Link options for ${title}`}
           onPress={() => setOptions(true)}
-          style={styles.options}
+          style={({ pressed }) => [styles.options, pressed && styles.pressed]}
         >
           <Feather accessible={false} name="more-horizontal" size={16} color={palette.dim} />
         </Pressable>
@@ -104,7 +113,7 @@ export function TranscriptLinkCard({
           {url.toString()}
         </Text>
         {local ? (
-          <Text style={styles.subtitle}>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
             Localhost points to this phone or tablet, not your OpenCode server.
           </Text>
         ) : null}
@@ -112,17 +121,18 @@ export function TranscriptLinkCard({
           accessibilityRole="button"
           accessibilityLabel="Open link"
           onPress={() => {
+            setOptions(false);
             onOpenLink(url.toString());
           }}
-          style={styles.open}
+          style={({ pressed }) => [styles.open, pressed && styles.pressed]}
         >
           <Feather accessible={false} name="external-link" size={18} color={palette.ink} />
-          <Text dynamicTypeRamp={typeRamp.control} style={styles.title}>
+          <Text dynamicTypeRamp={typeRamp.body} style={styles.openLabel}>
             Open link
           </Text>
         </Pressable>
         <CopyTextButton text={url.toString()} label="Copy link" />
-        <Text style={styles.subtitle}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
           Links open in your browser. No preview is fetched automatically.
         </Text>
       </ModalSheet>
@@ -135,10 +145,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: space.sm,
-    minHeight: 48,
-    borderRadius: radius.md,
+    minHeight: minTouchTarget,
+    // Matches the code block frame so both read as embedded content.
+    borderRadius: radius.sm,
     backgroundColor: palette.card,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 1,
     borderColor: palette.border,
   },
   link: {
@@ -146,14 +157,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.sm,
-    minHeight: 48,
+    minHeight: minTouchTarget,
     paddingVertical: 4,
   },
-  options: { width: 44, minHeight: 44, alignItems: "center", justifyContent: "center" },
+  options: {
+    width: minTouchTarget,
+    minHeight: minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   copy: { flex: 1, minWidth: 0, gap: 2 },
-  title: { ...typography.compactControl, color: palette.ink },
-  subtitle: { ...typography.caption, color: palette.dim },
+  title: { ...typography.subheadline, color: palette.ink },
+  subtitle: { ...typography.footnote, color: palette.dim },
   destination: { ...typography.subheadline, color: palette.ink },
-  open: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: 48 },
-  pressed: { opacity: 0.6 },
+  open: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: minTouchTarget },
+  openLabel: { ...typography.body, color: palette.ink },
+  pressed: { opacity: pressedOpacity },
 });

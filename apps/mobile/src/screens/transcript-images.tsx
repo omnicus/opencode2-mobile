@@ -1,10 +1,29 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { useState } from "react";
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { palette, radius, space, typeRamp, typography } from "../theme";
+import {
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type AssistantTool = Extract<
@@ -23,6 +42,7 @@ export const maxTranscriptImages = 8;
 // The message list is already capped at 16 MiB; this keeps one image from using most of it.
 export const maxTranscriptImageLength = 12 * 1024 * 1024;
 const minimumAspectRatio = 0.75;
+const maximumZoom = 4;
 
 export function inlineImageUri(uri: string, mime: string) {
   if (uri.length > maxTranscriptImageLength) return undefined;
@@ -153,12 +173,15 @@ function TranscriptImageViewer({
       transparent
       visible={image !== undefined}
     >
-      <View style={styles.viewer}>
-        {image ? (
+      {/* A Modal is a separate native root, so Android gestures need their own handler root. */}
+      <GestureHandlerRootView style={styles.viewer}>
+        {image && Platform.OS === "android" ? (
+          <ZoomableImage image={image} />
+        ) : image ? (
           <ScrollView
             centerContent
             contentContainerStyle={styles.viewerContent}
-            maximumZoomScale={4}
+            maximumZoomScale={maximumZoom}
             minimumZoomScale={1}
             showsHorizontalScrollIndicator={false}
             showsVerticalScrollIndicator={false}
@@ -185,8 +208,90 @@ function TranscriptImageViewer({
         >
           <Feather accessible={false} color={palette.ink} name="x" size={22} />
         </Pressable>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
+  );
+}
+
+// Android's ScrollView has no zoom, so pinch, pan and double tap drive a transform instead.
+function ZoomableImage({ image }: { image: TranscriptImage }) {
+  const scale = useSharedValue(1);
+  const startScale = useSharedValue(1);
+  const offsetX = useSharedValue(0);
+  const offsetY = useSharedValue(0);
+  const startX = useSharedValue(0);
+  const startY = useSharedValue(0);
+  const width = useSharedValue(0);
+  const height = useSharedValue(0);
+
+  const reset = () => {
+    "worklet";
+    scale.value = withTiming(1);
+    startScale.value = 1;
+    offsetX.value = withTiming(0);
+    offsetY.value = withTiming(0);
+  };
+  const clampOffset = (value: number, size: number, zoom: number) => {
+    "worklet";
+    const limit = (size * (zoom - 1)) / 2;
+    return Math.min(limit, Math.max(-limit, value));
+  };
+  const pinch = Gesture.Pinch()
+    .onStart(() => {
+      startScale.value = scale.value;
+    })
+    .onUpdate((event) => {
+      scale.value = Math.min(maximumZoom, Math.max(1, startScale.value * event.scale));
+      offsetX.value = clampOffset(offsetX.value, width.value, scale.value);
+      offsetY.value = clampOffset(offsetY.value, height.value, scale.value);
+    })
+    .onEnd(() => {
+      if (scale.value <= 1.01) reset();
+    });
+  const pan = Gesture.Pan()
+    .averageTouches(true)
+    .onStart(() => {
+      startX.value = offsetX.value;
+      startY.value = offsetY.value;
+    })
+    .onUpdate((event) => {
+      if (scale.value <= 1) return;
+      offsetX.value = clampOffset(startX.value + event.translationX, width.value, scale.value);
+      offsetY.value = clampOffset(startY.value + event.translationY, height.value, scale.value);
+    });
+  const doubleTap = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd(() => {
+      if (scale.value > 1) reset();
+      else scale.value = withTiming(2);
+    });
+  const transform = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: offsetX.value },
+      { translateY: offsetY.value },
+      { scale: scale.value },
+    ],
+  }));
+
+  return (
+    <GestureDetector gesture={Gesture.Simultaneous(pinch, pan, doubleTap)}>
+      <Animated.View
+        collapsable={false}
+        onLayout={({ nativeEvent: { layout } }) => {
+          width.value = layout.width;
+          height.value = layout.height;
+        }}
+        style={[styles.fill, transform]}
+      >
+        <Image
+          accessibilityIgnoresInvertColors
+          accessibilityLabel={image.label}
+          resizeMode="contain"
+          source={{ uri: image.uri }}
+          style={styles.fill}
+        />
+      </Animated.View>
+    </GestureDetector>
   );
 }
 
@@ -194,11 +299,11 @@ const styles = StyleSheet.create({
   close: {
     alignItems: "center",
     backgroundColor: "rgba(40, 40, 40, 0.85)",
-    borderRadius: 22,
-    height: 44,
+    borderRadius: minTouchTarget / 2,
+    height: minTouchTarget,
     justifyContent: "center",
     position: "absolute",
-    width: 44,
+    width: minTouchTarget,
   },
   failed: {
     backgroundColor: palette.raised,
@@ -208,7 +313,7 @@ const styles = StyleSheet.create({
   failedText: { ...typography.caption, color: palette.dim },
   fill: { height: "100%", width: "100%" },
   images: { gap: space.sm, marginVertical: space.xs },
-  pressed: { opacity: 0.7 },
+  pressed: { opacity: pressedOpacity },
   thumbnail: {
     backgroundColor: palette.raised,
     borderRadius: radius.md,
