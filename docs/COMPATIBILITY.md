@@ -12,6 +12,20 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: code block syntax highlighting, pending device verification
+
+Fenced code blocks are now colored like the OpenCode iOS app. Keywords and
+function names are pink, types lavender, numbers and booleans cyan, and
+punctuation dim. Strings and comments, absent from the reference screenshot, use
+green and italic grey. `prism-react-renderer` 2.4.1, plain JavaScript with no
+native code, tokenizes TypeScript, TSX, JavaScript, JSON, YAML, Python, Rust, Go,
+Swift, Kotlin, SQL, Markdown, C, C++, CSS, and markup. Shell, diff, and other
+languages stay plain. Tokens render as nested spans inside one selectable `Text`,
+so selection and Copy code are unchanged. Blocks over 20,000 characters stay
+plain because streaming re-tokenizes each update. Tests cover token colors,
+lossless tokenizing including empty lines, fence aliases, the size limit, and
+selection. Hermes runtime behavior still needs checking on a device.
+
 ## 2026-11-01: row layout transitions replace the live-edge glide, pending device verification
 
 An iPhone recording showed the transcript flickering as each line streamed in.
