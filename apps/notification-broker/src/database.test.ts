@@ -146,6 +146,43 @@ describe("BrokerDatabase", () => {
     database.close();
   });
 
+  it("keeps a resolved ticketed interaction for its receipt but never requeues it", () => {
+    const database = new BrokerDatabase(":memory:", randomBytes(32));
+    pairDevice(database, "binding-1", 500);
+    const pending = {
+      interaction: "permission",
+      observedAtMs: 1_000,
+      requestID: "per_1",
+      sessionID: "ses_1",
+      v: 1,
+    };
+    database.acceptPluginEvent({ ...pending, eventID: "evt_pending", state: "pending" });
+    const outboxRow = () =>
+      database.database
+        .prepare(
+          `SELECT state, ticket_id, push_data_json, last_error_code
+           FROM outbox WHERE event_id = 'evt_pending'`,
+        )
+        .get() as Record<string, string>;
+    const id = String(
+      database.database.prepare("SELECT id FROM outbox WHERE event_id = 'evt_pending'").get()?.id,
+    );
+    database.markTicketed(id, "ticket-1", 2_000);
+
+    database.acceptPluginEvent({ ...pending, eventID: "evt_resolved", state: "resolved" });
+
+    expect(outboxRow()).toEqual({
+      last_error_code: "RESOLVED",
+      push_data_json: "{}",
+      state: "ticketed",
+      ticket_id: "ticket-1",
+    });
+    expect(database.nextReceipts(100, 2_000 + 15 * 60_000)).toHaveLength(1);
+    database.markRetry(id, "MESSAGE_RATE_EXCEEDED", 3_000);
+    expect(outboxRow()).toMatchObject({ last_error_code: "RESOLVED", state: "failed" });
+    database.close();
+  });
+
   it("does not replay interactions observed before a device paired", () => {
     const database = new BrokerDatabase(":memory:", randomBytes(32));
     database.acceptPluginEvent({
@@ -215,6 +252,35 @@ describe("BrokerDatabase", () => {
         .prepare("SELECT notification_category FROM outbox WHERE event_id = 'evt_shell'")
         .get(),
     ).toEqual({ notification_category: "permission-shell" });
+    database.close();
+  });
+
+  it("requeues ticketed rows for retry without counting the send twice", () => {
+    const database = new BrokerDatabase(":memory:", randomBytes(32));
+    pairDevice(database, "binding-1", 500);
+    const id = String(database.nextQueued(25, 1_000)[0]?.id);
+    const outboxRow = () =>
+      database.database
+        .prepare(
+          `SELECT state, attempts, ticket_id, receipt_due_at_ms, next_attempt_at_ms, last_error_code
+           FROM outbox WHERE id = ?`,
+        )
+        .get(id);
+    database.markTicketed(id, "ticket-1", 2_000);
+
+    database.markRetry(id, "MESSAGE_RATE_EXCEEDED", 3_000);
+
+    expect(outboxRow()).toEqual({
+      attempts: 1,
+      last_error_code: "MESSAGE_RATE_EXCEEDED",
+      next_attempt_at_ms: 5_000,
+      receipt_due_at_ms: null,
+      state: "queued",
+      ticket_id: null,
+    });
+    database.markFailed(id, "EXPO_REJECTED");
+    database.markRetry(id, "MESSAGE_RATE_EXCEEDED", 4_000);
+    expect(outboxRow()).toMatchObject({ last_error_code: "EXPO_REJECTED", state: "failed" });
     database.close();
   });
 

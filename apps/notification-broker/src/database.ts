@@ -380,10 +380,12 @@ export class BrokerDatabase {
       }
     });
     if (event.kind === "interaction" && event.state === "resolved") {
+      // Ticketed rows stay ticketed so their receipt is still checked; markRetry fails them.
       this.database
         .prepare(
-          `UPDATE outbox SET state = 'failed', push_data_json = '{}', last_error_code = 'RESOLVED'
-           WHERE interaction_key = ? AND state = 'queued'`,
+          `UPDATE outbox SET state = CASE state WHEN 'queued' THEN 'failed' ELSE state END,
+           push_data_json = '{}', last_error_code = 'RESOLVED'
+           WHERE interaction_key = ? AND state IN ('queued', 'ticketed')`,
         )
         .run(interactionKey(event));
     }
@@ -557,15 +559,23 @@ export class BrokerDatabase {
       return;
     }
     const row = this.database
-      .prepare("SELECT attempts FROM outbox WHERE id = ? AND state = 'queued'")
-      .get(id) as { attempts: number } | undefined;
+      .prepare(
+        `SELECT state, attempts, last_error_code FROM outbox
+         WHERE id = ? AND state IN ('queued', 'ticketed')`,
+      )
+      .get(id) as { attempts: number; last_error_code: string | null; state: string } | undefined;
     if (!row) return;
-    const attempts = (row?.attempts ?? 0) + 1;
+    if (row.last_error_code === "RESOLVED") {
+      this.markFailed(id, "RESOLVED");
+      return;
+    }
+    // markTicketed already counted the send that a receipt reports on.
+    const attempts = row.state === "ticketed" ? row.attempts : row.attempts + 1;
     const delay = Math.min(15 * 60_000, 2 ** Math.min(attempts, 8) * 1_000);
     this.database
       .prepare(
         `UPDATE outbox SET state = 'queued', attempts = ?, next_attempt_at_ms = ?,
-         last_error_code = ? WHERE id = ?`,
+         ticket_id = NULL, receipt_due_at_ms = NULL, last_error_code = ? WHERE id = ?`,
       )
       .run(attempts, now + delay, errorCode, id);
   }
