@@ -30,7 +30,11 @@ glide curve and the rendered follow states. Motion quality, Android, and the
 newest row being taller than the viewport still need checking on devices.
 
 The same recording showed a fenced code block rendering as an empty box during
-and after streaming. That is not yet investigated.
+and after streaming. Code blocks were the only use of the native selection
+view's unwrapped mode, which sizes its width from a native measurement event.
+Code blocks now use React Native's selectable `Text` inside the horizontal
+scroll view, with Copy code unchanged. The native root cause is unconfirmed, and
+the fix needs checking on a device.
 
 ## 2026-11-01: transcript images, streaming motion, and compact composer, pending device verification
 

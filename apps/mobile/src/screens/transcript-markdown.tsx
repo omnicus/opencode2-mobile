@@ -219,14 +219,12 @@ function Blocks({
               ) : null}
               <CopyTextButton text={token.content} label="Copy code" />
             </View>
+            {/* The native selection view's unwrapped mode left code blocks blank on
+                iPhone; the standard text view lays out without a width callback. */}
             <ScrollView horizontal>
-              <SelectableTranscriptText
-                unwrapped
-                dynamicTypeRamp={typeRamp.body}
-                style={styles.codeText}
-              >
+              <Text selectable dynamicTypeRamp={typeRamp.body} style={styles.codeText}>
                 {token.content.replace(/\n$/, "")}
-              </SelectableTranscriptText>
+              </Text>
             </ScrollView>
           </View>
         );

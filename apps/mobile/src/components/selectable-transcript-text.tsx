@@ -27,7 +27,6 @@ type Run = {
 };
 type NativeProps = ViewProps & {
   runs: Run[];
-  unwrapped: boolean;
   onMeasure: (event: { nativeEvent: { width: number; height: number } }) => void;
   onLink: (event: { nativeEvent: { index: number } }) => void;
 };
@@ -78,12 +77,7 @@ export function selectionRuns(children: ReactNode, base: TextStyle, scale: numbe
   return { runs, actions };
 }
 
-export function SelectableTranscriptText({
-  children,
-  style,
-  unwrapped = false,
-  ...props
-}: TextProps & { unwrapped?: boolean }) {
+export function SelectableTranscriptText({ children, style, ...props }: TextProps) {
   const { fontScale } = useWindowDimensions();
   const [size, setSize] = useState<{ width: number; height: number }>();
   const flatStyle = StyleSheet.flatten(style) ?? {};
@@ -107,7 +101,6 @@ export function SelectableTranscriptText({
       accessibilityLabel={props.accessibilityLabel}
       accessibilityRole={props.accessibilityRole}
       runs={runs}
-      unwrapped={unwrapped}
       onMeasure={({ nativeEvent }) => {
         if (
           Number.isFinite(nativeEvent.height) &&
@@ -125,7 +118,6 @@ export function SelectableTranscriptText({
       style={{
         ...flatStyle,
         height: size?.height ?? Number(flatStyle.lineHeight ?? 26) * fontScale,
-        ...(unwrapped ? { width: size?.width ?? 1 } : {}),
       }}
     />
   );
