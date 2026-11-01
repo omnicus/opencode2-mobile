@@ -25,8 +25,10 @@ A Reanimated frame callback replaced it, but a later recording could not
 confirm that it ran. The glide now runs as a critically damped spring stepped
 once per display frame in JavaScript. It uses the same scroll events and
 `scrollToOffset` calls that live follow and Scroll to latest already depend on.
-Its rate matches the OpenCode iOS app in a side-by-side iPhone recording: one
-22-point line peaks near 160 points per second and settles in about 0.3 seconds.
+Its rate was first set from a side-by-side recording of the OpenCode iOS app
+(one 22-point line peaking near 160 points per second). On device it felt
+slightly faster than OpenCode, so the rate is now 17: one line peaks near 140
+points per second and settles in about 0.33 seconds.
 A line arriving mid-glide keeps the current velocity. Late scroll events from
 earlier glide frames are ignored unless they show newly compensated growth.
 Dragging and Scroll to latest stop the glide, and Reduce Motion keeps

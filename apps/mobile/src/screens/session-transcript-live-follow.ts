@@ -26,11 +26,11 @@ export function resolveTranscriptLiveFollow(current: boolean, event: TranscriptL
   }
 }
 
-// The live-edge glide is a critically damped spring toward offset zero. Its rate matches
-// the OpenCode iOS app on an iPhone recording: one 22-point line peaks near 160 points per
-// second and settles in about 0.3 seconds. A line that arrives mid-glide adds distance
-// but keeps the current velocity, so motion continues instead of restarting from rest.
-export const liveEdgeGlideRate = 20;
+// The live-edge glide is a critically damped spring toward offset zero, tuned against the
+// OpenCode iOS app: one 22-point line peaks near 140 points per second and settles in about
+// 0.33 seconds. A line that arrives mid-glide adds distance but keeps the current velocity,
+// so motion continues instead of restarting from rest.
+export const liveEdgeGlideRate = 17;
 
 export function liveEdgeGlideStep(offset: number, velocity: number, elapsedMs: number) {
   const t = Math.max(0, elapsedMs) / 1000;

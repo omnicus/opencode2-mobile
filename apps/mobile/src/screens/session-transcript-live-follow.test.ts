@@ -71,7 +71,7 @@ function glide(offset: number, velocity = 0, frames = 120) {
   return { positions, state };
 }
 
-test("one line glides like the OpenCode app: eased start, about 160 pt/s, 0.3 s settle", () => {
+test("one line glides like the OpenCode app: eased start, about 140 pt/s, 0.33 s settle", () => {
   const { positions } = glide(22);
   const speeds = positions.map(
     (position, index) => (index === 0 ? 22 : positions[index - 1]!) - position,
@@ -79,13 +79,13 @@ test("one line glides like the OpenCode app: eased start, about 160 pt/s, 0.3 s 
   // Settles exactly on the edge without overshooting.
   expect(positions.at(-1)).toBe(0);
   expect(positions.every((position) => position >= 0)).toBe(true);
-  expect(positions.length * (1000 / 60)).toBeGreaterThan(220);
-  expect(positions.length * (1000 / 60)).toBeLessThan(360);
+  expect(positions.length * (1000 / 60)).toBeGreaterThan(270);
+  expect(positions.length * (1000 / 60)).toBeLessThan(400);
   // Starts slower than it peaks, then eases out.
   const peak = Math.max(...speeds);
   expect(speeds[0]).toBeLessThan(peak);
-  expect(peak * 60).toBeGreaterThan(130);
-  expect(peak * 60).toBeLessThan(190);
+  expect(peak * 60).toBeGreaterThan(115);
+  expect(peak * 60).toBeLessThan(160);
 });
 
 test("a line arriving mid-glide keeps the motion going instead of restarting from rest", () => {
