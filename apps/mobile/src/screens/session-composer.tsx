@@ -541,7 +541,7 @@ function CompletionButton({
           /{completion.name}
         </Text>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
-          COMMAND
+          Command
         </Text>
       </View>
       {completion.label !== completion.name || completion.description ? (

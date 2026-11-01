@@ -1269,7 +1269,7 @@ function SubagentCard({
     >
       <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.subagentLabel}>
-          {presentation.background ? "BACKGROUND SUBAGENT" : "SUBAGENT"}
+          {presentation.background ? "Background subagent" : "Subagent"}
         </Text>
         <Text
           accessibilityLiveRegion="polite"

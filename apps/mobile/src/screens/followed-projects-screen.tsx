@@ -1,10 +1,19 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Button } from "../components/button";
 import { managementStyles } from "../components/management-layout";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette, radius, space, typeRamp, typography } from "../theme";
+import { cardSurface, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
 import { ShellFrame } from "./app-shell";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
@@ -69,24 +78,29 @@ export function FollowedProjectsScreen({ navigation }: Props) {
       }
     >
       <ScrollView contentContainerStyle={managementStyles.content}>
-        <Text dynamicTypeRamp={typeRamp.body} style={styles.copy}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.copy}>
           Choose the projects in your session inbox. Following is saved on this device only and does
           not change server projects.
         </Text>
         {selection.preferencesLoading || selection.projectsLoading ? (
           <View style={styles.state}>
             <ActivityIndicator accessibilityLabel="Loading projects" color={palette.signal} />
-            <Text style={styles.copy}>Loading known projects</Text>
+            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.copy}>
+              Loading known projects
+            </Text>
           </View>
         ) : selection.projectsError ? (
           <View style={styles.state}>
-            <Text accessibilityRole="alert" style={styles.error}>
+            <Text
+              accessibilityRole="alert"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={styles.error}
+            >
               Projects could not be loaded from this connection. Try again.
             </Text>
-            <OrderButton
-              disabled={false}
-              label="Retry loading projects"
-              text="Retry"
+            <Button
+              accessibilityLabel="Retry loading projects"
+              label="Retry"
               onPress={() => void selection.refetch()}
             />
           </View>
@@ -94,12 +108,15 @@ export function FollowedProjectsScreen({ navigation }: Props) {
           <View style={styles.list}>
             {projects.length === 0 && selection.unavailableProjectIds.length === 0 ? (
               <View style={styles.state}>
-                <Text style={styles.projectTitle}>No server projects found</Text>
-                <Text style={styles.copy}>Open a project in OpenCode, then refresh this list.</Text>
-                <OrderButton
-                  disabled={false}
-                  label="Refresh projects"
-                  text="Refresh"
+                <Text dynamicTypeRamp={typeRamp.headline} style={styles.projectTitle}>
+                  No server projects found
+                </Text>
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.copy}>
+                  Open a project in OpenCode, then refresh this list.
+                </Text>
+                <Button
+                  accessibilityLabel="Refresh projects"
+                  label="Refresh"
                   onPress={() => void selection.refetch()}
                 />
               </View>
@@ -117,34 +134,52 @@ export function FollowedProjectsScreen({ navigation }: Props) {
                       checked: selected,
                       disabled: selection.preferencesSaving,
                     }}
+                    android_ripple={
+                      Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined
+                    }
                     disabled={selection.preferencesSaving}
                     onPress={() => toggle(project.id)}
-                    style={({ pressed }) => [styles.projectMain, pressed && styles.pressed]}
+                    style={({ pressed }) => [
+                      styles.projectMain,
+                      pressed && Platform.OS === "ios" && styles.pressed,
+                    ]}
                   >
-                    <Text style={styles.projectTitle}>{projectLabel(project)}</Text>
-                    <Text numberOfLines={2} selectable style={styles.projectPath}>
+                    <Text dynamicTypeRamp={typeRamp.headline} style={styles.projectTitle}>
+                      {projectLabel(project)}
+                    </Text>
+                    <Text
+                      dynamicTypeRamp={typeRamp.footnote}
+                      numberOfLines={2}
+                      selectable
+                      style={styles.projectPath}
+                    >
                       {path}
                     </Text>
-                    <Text style={[styles.followState, selected && styles.followStateSelected]}>
+                    <Text
+                      dynamicTypeRamp={typeRamp.sectionLabel}
+                      style={[styles.followState, selected && styles.followStateSelected]}
+                    >
                       {selected ? "✓ Following" : "Not followed"}
                     </Text>
                   </Pressable>
                   {selected ? (
                     <View style={styles.orderActions}>
-                      <OrderButton
+                      <Button
+                        accessibilityLabel={`Move ${projectLabel(project)} earlier`}
                         disabled={selection.preferencesSaving || position <= 0}
-                        label={`Move ${projectLabel(project)} earlier`}
+                        label="Earlier"
                         onPress={() => move(project.id, -1)}
-                        text="Earlier"
+                        size="compact"
                       />
-                      <OrderButton
+                      <Button
+                        accessibilityLabel={`Move ${projectLabel(project)} later`}
                         disabled={
                           selection.preferencesSaving ||
                           position === selection.followedProjectIds.length - 1
                         }
-                        label={`Move ${projectLabel(project)} later`}
+                        label="Later"
                         onPress={() => move(project.id, 1)}
-                        text="Later"
+                        size="compact"
                       />
                     </View>
                   ) : null}
@@ -153,59 +188,35 @@ export function FollowedProjectsScreen({ navigation }: Props) {
             })}
             {selection.unavailableProjectIds.map((projectID) => (
               <View key={projectID} style={styles.unavailableProject}>
-                <Text style={styles.projectTitle}>Unavailable project</Text>
-                <Text style={styles.copy}>
+                <Text dynamicTypeRamp={typeRamp.headline} style={styles.projectTitle}>
+                  Unavailable project
+                </Text>
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.copy}>
                   This followed project is no longer in the server project list.
                 </Text>
-                <Pressable
+                <Button
                   accessibilityLabel="Unfollow unavailable project"
-                  accessibilityRole="button"
                   disabled={selection.preferencesSaving}
+                  label="Unfollow"
                   onPress={() => toggle(projectID)}
-                  style={({ pressed }) => [styles.unfollowButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.unfollowLabel}>Unfollow</Text>
-                </Pressable>
+                  size="compact"
+                  variant="danger"
+                />
               </View>
             ))}
           </View>
         )}
         {error ? (
-          <Text accessibilityRole="alert" style={styles.error}>
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.subheadline}
+            style={styles.error}
+          >
             The followed project selection could not be saved.
           </Text>
         ) : null}
       </ScrollView>
     </ShellFrame>
-  );
-}
-
-function OrderButton({
-  disabled,
-  label,
-  onPress,
-  text,
-}: {
-  disabled: boolean;
-  label: string;
-  onPress: () => void;
-  text: string;
-}) {
-  return (
-    <Pressable
-      accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.orderButton,
-        disabled && styles.disabled,
-        pressed && styles.pressed,
-      ]}
-    >
-      <Text style={styles.orderLabel}>{text}</Text>
-    </Pressable>
   );
 }
 
@@ -216,52 +227,24 @@ function projectLabel(project: { canonical: string; id: string; name?: string })
 }
 
 const styles = StyleSheet.create({
-  copy: { ...typography.caption, color: palette.dim },
-  disabled: { opacity: 0.5 },
+  copy: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
-  followState: { ...typography.label, color: palette.dim },
+  followState: { ...typography.sectionLabel, color: palette.dim },
   followStateSelected: { color: palette.signal },
   list: { gap: space.sm },
   orderActions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.xs,
-    paddingHorizontal: space.sm,
-    paddingBottom: space.xs,
+    paddingHorizontal: space.md,
+    paddingBottom: space.md,
   },
-  orderButton: {
-    minHeight: 44,
-    paddingHorizontal: space.sm,
-    justifyContent: "center",
-  },
-  orderLabel: { ...typography.control, color: palette.ink },
-  pressed: { opacity: 0.58 },
-  project: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-  },
-  projectMain: { gap: 4, minHeight: 72, padding: space.sm },
-  projectPath: { ...typography.caption, color: palette.dim },
+  pressed: { opacity: pressedOpacity },
+  project: { ...cardSurface, overflow: "hidden", padding: 0 },
+  projectMain: { gap: 4, minHeight: 72, padding: space.md },
+  projectPath: { ...typography.footnote, color: palette.dim },
   projectSelected: { borderColor: palette.border },
   projectTitle: { ...typography.headline, color: palette.ink },
-  state: { alignItems: "center", gap: space.sm, paddingVertical: space.xl },
-  unavailableProject: {
-    backgroundColor: palette.card,
-    borderColor: palette.warm,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    gap: space.sm,
-    padding: space.md,
-  },
-  unfollowButton: {
-    alignItems: "center",
-    borderColor: palette.danger,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    justifyContent: "center",
-    minHeight: 44,
-  },
-  unfollowLabel: { ...typography.control, color: palette.danger },
+  state: { gap: space.sm, paddingVertical: space.xl },
+  unavailableProject: { ...cardSurface, borderColor: palette.warm, gap: space.sm },
 });

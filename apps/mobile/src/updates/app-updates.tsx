@@ -7,18 +7,11 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import {
-  ActivityIndicator,
-  AppState,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { ActivityIndicator, AppState, Modal, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { palette, radius, space, typography } from "../theme";
+import { Button } from "../components/button";
+import { cardSurface, palette, space, typeRamp, typography } from "../theme";
 import { AppUpdateController } from "./app-update-controller";
 import { prepareAppReload } from "./prepare-app-reload";
 
@@ -66,7 +59,11 @@ function RestartOverlay({ controller }: { controller: AppUpdateController }) {
     >
       <View accessibilityViewIsModal style={styles.restartOverlay}>
         <ActivityIndicator color={palette.signal} />
-        <Text accessibilityLiveRegion="polite" style={styles.title}>
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.headline}
+          style={styles.title}
+        >
           Saving drafts and restarting…
         </Text>
       </View>
@@ -113,30 +110,29 @@ function UpdateControls({
   return (
     <View style={[styles.card, compact && { paddingBottom: Math.max(bottomInset, space.sm) }]}>
       {!compact ? (
-        <Text accessibilityRole="header" style={styles.title}>
+        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.title}>
           App updates
         </Text>
       ) : null}
-      <Text accessibilityLiveRegion="polite" style={styles.copy}>
+      <Text
+        accessibilityLiveRegion="polite"
+        dynamicTypeRamp={typeRamp.subheadline}
+        style={styles.copy}
+      >
         {copy}
       </Text>
       {state.error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
           {state.error}
         </Text>
       ) : null}
       {state.phase !== "disabled" ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy }}
-          disabled={busy}
+        <Button
+          busy={busy}
+          label={ready ? "Restart to apply update" : "Check for app updates"}
           onPress={() => void (ready ? controller.restart() : controller.check(true))}
-          style={({ pressed }) => [styles.button, (busy || pressed) && styles.dimmed]}
-        >
-          <Text style={styles.label}>
-            {ready ? "Restart to apply update" : "Check for app updates"}
-          </Text>
-        </Pressable>
+          variant="secondary"
+        />
       ) : null}
     </View>
   );
@@ -151,23 +147,8 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.md,
   },
-  card: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderWidth: 1,
-    borderRadius: radius.lg,
-    padding: space.md,
-    gap: space.sm,
-  },
+  card: { ...cardSurface, gap: space.sm },
   title: { ...typography.headline, color: palette.ink },
   copy: { ...typography.subheadline, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
-  button: {
-    minHeight: 44,
-    justifyContent: "center",
-    alignSelf: "flex-start",
-    paddingVertical: space.sm,
-  },
-  label: { ...typography.control, color: palette.signal },
-  dimmed: { opacity: 0.5 },
 });

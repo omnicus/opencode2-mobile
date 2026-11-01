@@ -18,20 +18,23 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { Button } from "../components/button";
+import { SearchField } from "../components/search-field";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import {
-  control,
+  cardSurface,
+  disabledOpacity,
+  minTouchTarget,
   palette,
-  radius,
+  pressedOpacity,
   space,
   typeRamp,
   typography,
@@ -198,12 +201,12 @@ export function NewSessionScreen({ navigation }: Props) {
           <View style={[styles.heading, largeText && styles.headingLargeText]}>
             <Text
               accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.largeTitle}
+              dynamicTypeRamp={typeRamp.navTitle}
               style={styles.title}
             >
               {selectedProject ? "Choose location" : "New session"}
             </Text>
-            <Text dynamicTypeRamp={typeRamp.body} style={styles.subtitle}>
+            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
               {selectedProject
                 ? projectLabel(selectedProject)
                 : "Choose where this session should start."}
@@ -211,10 +214,18 @@ export function NewSessionScreen({ navigation }: Props) {
           </View>
           <Pressable
             accessibilityRole="button"
+            android_ripple={
+              Platform.OS === "android"
+                ? { color: "rgba(255,255,255,0.12)", borderless: true }
+                : undefined
+            }
             onPress={close}
-            style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.cancelButton,
+              pressed && Platform.OS === "ios" && styles.pressed,
+            ]}
           >
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.cancelLabel}>
+            <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.cancelLabel}>
               Cancel
             </Text>
           </Pressable>
@@ -223,26 +234,21 @@ export function NewSessionScreen({ navigation }: Props) {
         {selectedProject ? (
           <View style={styles.body}>
             {!followed.has(selectedProject.id) ? (
-              <Text style={styles.followingCopy}>
+              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.followingCopy}>
                 Starting here will add this project to Sessions on this device.
               </Text>
             ) : null}
-            <Pressable
+            <Button
               accessibilityLabel="Back to projects"
-              accessibilityRole="button"
               disabled={disabled}
+              icon="chevron-left"
+              label="Projects"
               onPress={() => {
                 setError(undefined);
                 setSelectedProject(undefined);
               }}
-              style={({ pressed }) => [
-                styles.backButton,
-                disabled && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.backLabel}>&lt; Projects</Text>
-            </Pressable>
+              variant="text"
+            />
             <FlatList
               contentContainerStyle={styles.listContent}
               data={selectedLocations}
@@ -267,49 +273,44 @@ export function NewSessionScreen({ navigation }: Props) {
           selection.preferencesError ||
           defaultLocationQuery.isError ? (
           <View style={styles.state}>
-            <Text accessibilityRole="alert" style={styles.error}>
+            <Text
+              accessibilityRole="alert"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={styles.error}
+            >
               Project locations could not be loaded from this connection.
             </Text>
-            <ActionButton
-              label="Retry"
-              onPress={() => {
-                setError(undefined);
-                void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
-              }}
-            />
+            {/* Button aligns itself to the start; the wrapper keeps it centered. */}
+            <View>
+              <Button
+                label="Retry"
+                onPress={() => {
+                  setError(undefined);
+                  void Promise.all([selection.refetch(), defaultLocationQuery.refetch()]);
+                }}
+              />
+            </View>
           </View>
         ) : selection.projects.length === 0 ? (
           <View style={styles.state}>
-            <Text style={styles.stateTitle}>No server projects found</Text>
-            <Text style={styles.stateCopy}>OpenCode did not return any known projects.</Text>
-            <ActionButton label="Retry" onPress={() => void selection.refetch()} />
+            <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateTitle}>
+              No server projects found
+            </Text>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
+              OpenCode did not return any known projects.
+            </Text>
+            <View>
+              <Button label="Retry" onPress={() => void selection.refetch()} />
+            </View>
           </View>
         ) : (
           <View style={styles.body}>
-            <View style={styles.searchField}>
-              <TextInput
-                keyboardAppearance="dark"
-                accessibilityLabel="Search projects"
-                autoCapitalize="none"
-                autoCorrect={false}
-                onChangeText={setSearch}
-                placeholder="Search projects"
-                placeholderTextColor={palette.dim}
-                returnKeyType="search"
-                style={styles.searchInput}
-                value={search}
-              />
-              {search ? (
-                <Pressable
-                  accessibilityLabel="Clear project search"
-                  accessibilityRole="button"
-                  onPress={() => setSearch("")}
-                  style={({ pressed }) => [styles.clearButton, pressed && styles.pressed]}
-                >
-                  <Text style={styles.clearLabel}>Clear</Text>
-                </Pressable>
-              ) : null}
-            </View>
+            <SearchField
+              clearAccessibilityLabel="Clear project search"
+              onChangeText={setSearch}
+              placeholder="Search projects"
+              value={search}
+            />
             <FlatList
               contentContainerStyle={styles.listContent}
               data={rows}
@@ -319,12 +320,12 @@ export function NewSessionScreen({ navigation }: Props) {
               keyExtractor={(row) => row.id}
               ListEmptyComponent={
                 <View style={styles.emptyState}>
-                  <Text style={styles.stateTitle}>
+                  <Text dynamicTypeRamp={typeRamp.headline} style={styles.stateTitle}>
                     {deferredSearch
                       ? `No projects match "${search.trim()}"`
                       : "No followed projects"}
                   </Text>
-                  <Text style={styles.stateCopy}>
+                  <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
                     {deferredSearch
                       ? "Try a project name or path."
                       : "Browse server projects to start a session."}
@@ -333,7 +334,11 @@ export function NewSessionScreen({ navigation }: Props) {
               }
               renderItem={({ item }) =>
                 item.type === "section" ? (
-                  <Text accessibilityRole="header" style={styles.sectionTitle}>
+                  <Text
+                    accessibilityRole="header"
+                    dynamicTypeRamp={typeRamp.sectionLabel}
+                    style={styles.sectionTitle}
+                  >
                     {item.title}
                   </Text>
                 ) : item.project ? (
@@ -347,7 +352,7 @@ export function NewSessionScreen({ navigation }: Props) {
               }
             />
             {!showOtherProjects && otherProjectCount > 0 ? (
-              <ActionButton label="Browse all projects" onPress={showAllProjects} />
+              <Button fullWidth label="Browse all projects" onPress={showAllProjects} />
             ) : null}
           </View>
         )}
@@ -355,11 +360,17 @@ export function NewSessionScreen({ navigation }: Props) {
         {createMutation.isPending ? (
           <View accessibilityLiveRegion="polite" style={styles.creatingState}>
             <ActivityIndicator color={palette.signal} />
-            <Text style={styles.stateCopy}>Creating session...</Text>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
+              Creating session...
+            </Text>
           </View>
         ) : null}
         {error ? (
-          <Text accessibilityRole="alert" style={styles.footerError}>
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.subheadline}
+            style={styles.footerError}
+          >
             {error}
           </Text>
         ) : null}
@@ -456,21 +467,26 @@ function ProjectButton({
       accessibilityLabel={`${label}, ${followed ? "followed" : "not followed, will be added to Sessions"}, ${path}`}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
+      android_ripple={rowRipple}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.project,
         disabled && styles.disabled,
-        pressed && styles.pressed,
+        pressed && Platform.OS === "ios" && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.projectTitle}>
+      <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
         {label}
       </Text>
-      <Text selectable style={styles.projectPath}>
+      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.projectPath}>
         {path}
       </Text>
-      {!followed ? <Text style={styles.followNote}>Will be added to Sessions</Text> : null}
+      {!followed ? (
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.followNote}>
+          Will be added to Sessions
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -492,33 +508,20 @@ function LocationButton({
       accessibilityLabel={`${label}, ${path}`}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
+      android_ripple={rowRipple}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.project,
         disabled && styles.disabled,
-        pressed && styles.pressed,
+        pressed && Platform.OS === "ios" && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.projectTitle}>
+      <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
         {label}
       </Text>
-      <Text selectable style={styles.projectPath}>
+      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.projectPath}>
         {path}
-      </Text>
-    </Pressable>
-  );
-}
-
-function ActionButton({ label, onPress }: { label: string; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}
-    >
-      <Text dynamicTypeRamp={typeRamp.control} style={styles.actionLabel}>
-        {label}
       </Text>
     </Pressable>
   );
@@ -528,7 +531,9 @@ function StateMessage({ label, loading }: { label: string; loading?: boolean }) 
   return (
     <View style={styles.state}>
       {loading ? <ActivityIndicator accessibilityLabel={label} color={palette.signal} /> : null}
-      <Text style={styles.stateCopy}>{label}</Text>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -547,22 +552,16 @@ function projectSearchText(project: Project) {
   return `${projectLabel(project)}\n${project.canonical}\n${project.sandboxes.join("\n")}\n${project.id}`.toLocaleLowerCase();
 }
 
+const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+
 const styles = StyleSheet.create({
-  actionButton: {
-    ...control,
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
-    justifyContent: "center",
-  },
-  actionLabel: { ...typography.control, color: palette.signal, textAlign: "center" },
-  backButton: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44 },
-  backLabel: { ...typography.control, color: palette.signal },
   body: { flex: 1, gap: space.md, padding: space.lg, paddingTop: space.md },
-  cancelButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.xs },
-  cancelLabel: { ...typography.control, color: palette.signal },
-  clearButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.md },
-  clearLabel: { ...typography.control, color: palette.signal },
+  cancelButton: {
+    justifyContent: "center",
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.sm,
+  },
+  cancelLabel: { ...typography.navTitle, color: palette.signal },
   creatingState: {
     alignItems: "center",
     borderTopColor: palette.border,
@@ -572,10 +571,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
   },
-  disabled: { opacity: 0.45 },
+  disabled: { opacity: disabledOpacity },
   emptyState: { alignItems: "center", gap: space.xs, paddingVertical: space.xl },
   error: { ...typography.subheadline, color: palette.danger, textAlign: "center" },
-  followNote: { ...typography.label, color: palette.signal, marginTop: space.xs },
+  followNote: { ...typography.footnote, color: palette.signal, marginTop: space.xs },
   followingCopy: { ...typography.subheadline, color: palette.dim },
   footerError: {
     ...typography.subheadline,
@@ -584,47 +583,36 @@ const styles = StyleSheet.create({
     paddingVertical: space.md,
   },
   header: {
-    alignItems: "flex-start",
+    alignItems: "center",
     borderBottomColor: palette.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: space.md,
-    padding: space.lg,
+    minHeight: 64,
+    paddingHorizontal: space.md,
   },
   heading: { flex: 1, minWidth: 0 },
-  headerLargeText: { flexDirection: "column" },
+  headerLargeText: { alignItems: "flex-start", flexDirection: "column", paddingVertical: space.sm },
   headingLargeText: { flex: 0, width: "100%" },
   keyboardView: { flex: 1 },
   listContent: { paddingBottom: space.xl },
-  pressed: { opacity: 0.58 },
+  pressed: { opacity: pressedOpacity },
   project: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    minHeight: 72,
-    padding: space.md,
+    ...cardSurface,
+    justifyContent: "center",
+    minHeight: 64,
+    overflow: "hidden",
   },
-  projectPath: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  projectTitle: { ...typography.headline, color: palette.ink },
+  projectPath: {
+    ...typography.footnote,
+    color: palette.dim,
+    fontFamily: typography.code.fontFamily,
+    marginTop: 2,
+  },
+  projectTitle: { ...typography.body, color: palette.ink },
   screen: { backgroundColor: palette.background, flex: 1 },
-  searchField: {
-    alignItems: "center",
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
-    minHeight: 48,
-  },
-  searchInput: {
-    ...typography.subheadline,
-    color: palette.ink,
-    flex: 1,
-    minHeight: 48,
-    paddingHorizontal: space.md,
-  },
   sectionTitle: {
-    ...typography.label,
+    ...typography.sectionLabel,
     color: palette.dim,
     paddingBottom: space.xs,
     paddingTop: space.sm,
@@ -639,6 +627,6 @@ const styles = StyleSheet.create({
   },
   stateCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
   stateTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
-  subtitle: { ...typography.caption, color: palette.dim, marginTop: 3 },
+  subtitle: { ...typography.footnote, color: palette.dim, marginTop: 2 },
   title: { ...typography.navTitle, color: palette.ink },
 });

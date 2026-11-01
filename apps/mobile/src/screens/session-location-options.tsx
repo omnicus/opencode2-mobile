@@ -13,7 +13,7 @@ import { AccessibilityInfo, ActivityIndicator, StyleSheet, Switch, Text, View } 
 
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { palette, space, switchColors, typography } from "../theme";
+import { palette, space, switchColors, typeRamp, typography } from "../theme";
 import { ActionButton } from "./app-shell";
 
 export function SessionDevTools({
@@ -113,21 +113,23 @@ export function SessionDevTools({
   if (!visible) return null;
   return (
     <View style={styles.content}>
-      <Text style={styles.note}>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
         MCP changes affect all sessions at this location. They do not change saved configuration and
         may reset when the server restarts.
       </Text>
-      <Text selectable style={styles.path}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} selectable style={styles.path}>
         {location.directory}
       </Text>
-      <Text accessibilityRole="header" style={styles.heading}>
+      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
         Current branch
       </Text>
-      <Text selectable style={styles.name}>
+      <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.name}>
         {branch ?? "Branch unavailable"}
       </Text>
       {branchStale ? (
-        <Text style={styles.note}>This branch may be outdated while the server reconnects.</Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
+          This branch may be outdated while the server reconnects.
+        </Text>
       ) : null}
       {branch ? (
         <ActionButton
@@ -142,22 +144,22 @@ export function SessionDevTools({
           onPress={() => void copyBranch()}
         />
       ) : null}
-      <Text accessibilityRole="header" style={styles.heading}>
+      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
         MCP servers for this location
       </Text>
       {!available ? (
-        <Text accessibilityRole="alert" style={styles.note}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
           Reconnect to this session's server and wait for its location to load before changing MCP
           servers.
         </Text>
       ) : null}
       {unsupported ? (
-        <Text accessibilityRole="alert" style={styles.note}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
           This server does not expose MCP management.
         </Text>
       ) : query.isError ? (
         <View>
-          <Text accessibilityRole="alert" style={styles.note}>
+          <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
             MCP servers could not be refreshed. Their status may be outdated.
           </Text>
           <ActionButton
@@ -171,12 +173,14 @@ export function SessionDevTools({
         <ActivityIndicator accessibilityLabel="Loading MCP servers" color={palette.signal} />
       ) : null}
       {mutation.isError && !unsupported ? (
-        <Text accessibilityRole="alert" style={styles.note}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
           The MCP change could not be confirmed. Check the refreshed status before trying again.
         </Text>
       ) : null}
       {servers?.length === 0 && query.isSuccess ? (
-        <Text style={styles.note}>No MCP servers configured for this location.</Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
+          No MCP servers configured for this location.
+        </Text>
       ) : null}
       {servers?.map((server) => {
         const pending = mutation.isPending && mutation.variables?.server === server.name;
@@ -194,10 +198,14 @@ export function SessionDevTools({
           <View key={server.name} style={styles.server}>
             <View style={styles.serverHeader}>
               <View style={styles.serverInfo}>
-                <Text selectable style={styles.name}>
+                <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.name}>
                   {server.name}
                 </Text>
-                <Text accessibilityLiveRegion="polite" style={styles.note}>
+                <Text
+                  accessibilityLiveRegion="polite"
+                  dynamicTypeRamp={typeRamp.footnote}
+                  style={styles.note}
+                >
                   {status}
                 </Text>
               </View>
@@ -220,7 +228,7 @@ export function SessionDevTools({
               </View>
             </View>
             {needsAuth ? (
-              <Text style={styles.note}>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
                 Finish authentication in OpenCode on the server, then refresh this list.
               </Text>
             ) : server.status.status === "failed" ? (
@@ -264,9 +272,9 @@ function mcpStatusLabel(server: McpServer) {
 
 const styles = StyleSheet.create({
   content: { gap: space.md },
-  heading: { ...typography.control, color: palette.ink },
-  name: { ...typography.subheadline, color: palette.ink },
-  note: { ...typography.caption, color: palette.dim },
+  heading: { ...typography.headline, color: palette.ink },
+  name: { ...typography.body, color: palette.ink },
+  note: { ...typography.footnote, color: palette.dim },
   path: { ...typography.code, color: palette.dim },
   serverHeader: { flexDirection: "row", alignItems: "center", gap: space.md },
   serverInfo: { flex: 1, minWidth: 0, gap: space.xs },

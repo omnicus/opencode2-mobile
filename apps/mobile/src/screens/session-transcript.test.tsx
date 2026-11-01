@@ -1325,7 +1325,7 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
     />,
   );
 
-  expect(screen.getByText("BACKGROUND SUBAGENT")).toBeOnTheScreen();
+  expect(screen.getByText("Background subagent")).toBeOnTheScreen();
   expect(screen.getByText("Inspect event handling")).toBeOnTheScreen();
   expect(screen.getByText("@explore")).toBeOnTheScreen();
   expect(screen.getByText("RUNNING")).toBeOnTheScreen();

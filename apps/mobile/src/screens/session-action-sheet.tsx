@@ -6,14 +6,15 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Pressable, StyleSheet, Text, TextInput } from "react-native";
+import { Alert, StyleSheet, Text, TextInput } from "react-native";
+import { Button } from "../components/button";
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { useSessionArchives } from "../state/use-session-archives";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
-import { palette, radius, space, typography } from "../theme";
+import { minTouchTarget, palette, radius, space, typeRamp, typography } from "../theme";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionDevTools } from "./session-location-options";
 
@@ -146,13 +147,16 @@ export function SessionActionSheet({
       closeLabel={page === "delete" ? "Cancel" : "Close"}
     >
       {page !== "menu" ? (
-        <Action
-          label="Back to session actions"
+        <Button
+          accessibilityLabel="Back to session actions"
           disabled={busy}
+          icon="chevron-left"
+          label="Session actions"
           onPress={() => {
             setPage("menu");
             setError(undefined);
           }}
+          variant="text"
         />
       ) : null}
       {page === "menu" ? (
@@ -179,7 +183,7 @@ export function SessionActionSheet({
               onPress={() => void perform("archive")}
             />
           </MenuGroup>
-          <Text style={styles.caption}>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.caption}>
             Archive is a preference on this device. Working sessions and requests remain visible.
           </Text>
           <MenuGroup>
@@ -212,26 +216,32 @@ export function SessionActionSheet({
             value={title}
             onChangeText={setTitle}
             editable={!busy}
+            keyboardAppearance="dark"
             maxLength={512}
             style={styles.input}
           />
-          <Action
+          <Button
+            busy={busy}
+            disabled={!connected || !title.trim() || title.trim() === session.title}
+            fullWidth
             label={busy ? "Saving" : "Save name"}
-            disabled={busy || !connected || !title.trim() || title.trim() === session.title}
             onPress={() => void perform("rename")}
+            variant="primary"
           />
         </>
       ) : null}
       {page === "delete" ? (
         <>
-          <Text style={styles.copy}>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
             This deletes the remote session and its child sessions. It cannot be undone.
           </Text>
-          <Action
+          <Button
+            busy={busy}
+            disabled={!connected}
+            fullWidth
             label={busy ? "Deleting" : "Confirm delete"}
-            danger
-            disabled={busy || !connected}
             onPress={() => void perform("delete")}
+            variant="danger"
           />
         </>
       ) : null}
@@ -244,7 +254,7 @@ export function SessionActionSheet({
         branchStale={branchStale}
       />
       {error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
           {error}
         </Text>
       ) : null}
@@ -252,52 +262,19 @@ export function SessionActionSheet({
   );
 }
 
-function Action({
-  label,
-  disabled,
-  danger = false,
-  onPress,
-}: {
-  label: string;
-  disabled: boolean;
-  danger?: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.action, (disabled || pressed) && styles.disabled]}
-    >
-      <Text style={[styles.label, danger && styles.error]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  action: {
-    minHeight: 48,
-    justifyContent: "center",
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-  },
-  label: { ...typography.control, color: palette.ink },
   input: {
-    ...typography.subheadline,
-    minHeight: 48,
+    ...typography.body,
+    minHeight: minTouchTarget,
     color: palette.ink,
-    padding: space.sm,
+    backgroundColor: palette.card,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: palette.border,
   },
   copy: { ...typography.subheadline, color: palette.ink },
-  caption: { ...typography.caption, color: palette.dim },
+  caption: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
-  disabled: { opacity: 0.5 },
 });

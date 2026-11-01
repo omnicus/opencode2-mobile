@@ -42,7 +42,8 @@ test("stars do not select or dismiss and matching favorites stay first", () => {
   expect(screen.getAllByRole("button", { name: /^Model/ })).toHaveLength(1);
   fireEvent.press(screen.getByRole("button", { name: "Clear model search" }));
   expect(screen.getAllByRole("button", { name: /^Model/ })).toHaveLength(2);
-  expect(screen.getByText("Model One")).toHaveStyle({ color: palette.accent });
+  expect(screen.getByRole("button", { name: "Model One, p" })).toBeSelected();
+  expect(screen.getByText("Model One")).toHaveStyle({ color: palette.ink });
   fireEvent.changeText(screen.getByLabelText("Search models"), "two");
   fireEvent.press(screen.getByRole("button", { name: "Model Two, p" }));
   expect(onSelect).toHaveBeenCalledWith({ id: "two", providerID: "p" });

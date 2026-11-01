@@ -184,7 +184,7 @@ export function SessionExecutionPanel({
       {localOverlays.map((admission) => (
         <View key={admission.id} style={styles.admissionCard}>
           <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-            DELIVERY UNKNOWN
+            Delivery unknown
           </Text>
           <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
             {admission.kind === "command"
@@ -208,7 +208,7 @@ export function SessionExecutionPanel({
         <View key={item.id} style={styles.inboxCard}>
           <View style={styles.inboxHeading}>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
-              QUEUED
+              Queued
             </Text>
             <Text dynamicTypeRamp={typeRamp.caption} style={styles.inboxType}>
               {inboxTypeLabel(item)}
