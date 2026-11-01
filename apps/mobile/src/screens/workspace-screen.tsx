@@ -73,9 +73,16 @@ import {
   typography,
   usesLargeTextLayout,
 } from "../theme";
-import { ActionButton, getConnectionPresentation, isTabletShell, ShellFrame } from "./app-shell";
+import {
+  ActionButton,
+  getConnectionPresentation,
+  isTabletShell,
+  PendingInteractions,
+  ShellFrame,
+} from "./app-shell";
 import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
+import { PullRequestList } from "./pull-request-list";
 import { SessionActionSheet } from "./session-action-sheet";
 import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
@@ -98,12 +105,14 @@ import {
 import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
+import { WorkspaceBottomMenu, type WorkspaceTab } from "./workspace-bottom-menu";
 import { WorkspaceListHeader } from "./workspace-list-header";
-import { WorkspaceNewSessionAction } from "./workspace-new-session-action";
 import {
+  formatSessionTime,
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
   searchResultItems,
+  sessionTimeDescription,
   type WorkspaceGroup,
   type WorkspaceInboxItem,
   workspaceGroupLabels,
@@ -130,6 +139,8 @@ const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef
 const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
 const borderlessRipple =
   Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
+// Keeps the last rows of the Approvals tab clear of the floating bottom menu.
+const bottomMenuInset = 96;
 const noCollapsedGroups: ReadonlySet<WorkspaceGroup> = new Set();
 // Collapsed groups last for the app session, per connection, and are never persisted.
 const collapsedGroupsByConnection = new Map<string, ReadonlySet<WorkspaceGroup>>();
@@ -153,6 +164,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [screenFocused, setScreenFocused] = useState(() => navigation.isFocused?.() ?? true);
   const [actionSession, setActionSession] = useState<SessionInfo>();
+  const [tab, setTab] = useState<WorkspaceTab>("chat");
   const presentationScope = connectionId ?? "unselected";
   const [collapsedGroups, setCollapsedGroups] = useState(
     () => collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups,
@@ -179,6 +191,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setSessionSearch("");
     setSearchOpen(false);
     setActionSession(undefined);
+    setTab("chat");
     refreshGenerationRef.current += 1;
     setRefreshing(false);
   }, [connectionId]);
@@ -207,6 +220,16 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     });
     return () => subscription.remove();
   }, [screenFocused, searchOpen]);
+
+  // Android back returns to Chat before it can leave the screen.
+  useEffect(() => {
+    if (tab === "chat" || !screenFocused) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setTab("chat");
+      return true;
+    });
+    return () => subscription.remove();
+  }, [screenFocused, tab]);
 
   const projectsQuery = useQuery({
     enabled: Boolean(client && connectionId),
@@ -435,14 +458,11 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
 
   const header = (
     <View style={styles.homeHeader}>
-      {!tablet &&
-      workspaceSelection.pendingCount > 0 &&
-      (Boolean(sessionSearch) ||
-        workspaceSelection.pendingCount >
-          inbox.needsYou.reduce((sum, row) => sum + row.attentionCount, 0)) ? (
+      {/* Search hides the bottom menu, so it keeps a way to the Approvals tab. */}
+      {!tablet && sessionSearch && workspaceSelection.pendingCount > 0 ? (
         <View style={styles.workspaceActions}>
           <HeaderAction
-            accessibilityHint="Opens permission and form requests"
+            accessibilityHint="Closes search and opens Approvals"
             accessibilityLabel={`${workspaceSelection.pendingCount} known ${workspaceSelection.pendingCount === 1 ? "request" : "requests"}`}
             attention
             label={
@@ -450,7 +470,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
                 ? "Needs you 99+"
                 : `Needs you ${workspaceSelection.pendingCount}`
             }
-            onPress={() => navigation.navigate("Pending")}
+            onPress={() => {
+              closeSearch();
+              setTab("approvals");
+            }}
           />
         </View>
       ) : null}
@@ -502,79 +525,100 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         search={sessionSearch}
         searchEditable={workspaceSelection.followedProjectIds.length > 0}
         searchOpen={searchOpen}
+        showSearch={tab === "chat"}
         topInset={tablet ? 0 : insets.top}
         trailing={
-          tablet ? (
-            <WorkspaceHeaderActions
-              navigate={(destination) => navigation.navigate(destination)}
-              onNewSession={() => navigation.navigate("NewSession")}
-            />
-          ) : null
-        }
-      />
-      <FlatList
-        ListEmptyComponent={
-          <SessionEmptyState
-            error={workspaceSelection.sessionsError}
-            hasLocation={workspaceSelection.followedProjectIds.length > 0}
-            loading={workspaceSelection.sessionsLoading}
-            search={deferredSessionSearch}
-            onChooseProjects={() => navigation.navigate("FollowedProjects")}
-            onRetry={() => void refresh()}
-            refreshing={refreshing}
+          <WorkspaceHeaderActions
+            navigate={(destination) => navigation.navigate(destination)}
+            onNewSession={tablet ? () => navigation.navigate("NewSession") : undefined}
           />
         }
-        ListFooterComponent={
-          deferredSessionSearch && workspaceSelection.hasNextPage ? (
-            <View style={styles.listFooter}>
-              <ActionButton
-                busy={workspaceSelection.sessionsFetchingNextPage}
-                label="Load more results"
-                onPress={() => void workspaceSelection.fetchNextPage()}
-                secondary
+      />
+      {tab === "pulls" ? (
+        <PullRequestList
+          active={screenFocused}
+          onChooseProjects={() => navigation.navigate("FollowedProjects")}
+        />
+      ) : tab === "approvals" ? (
+        <PendingInteractions
+          bottomInset={bottomMenuInset}
+          heading={false}
+          onNavigate={(destination) => navigation.navigate(destination)}
+        />
+      ) : null}
+      {/* Chat stays mounted on the other tabs so its scroll position and groups survive. */}
+      <View style={[styles.tabPanel, tab !== "chat" && styles.hiddenPanel]}>
+        <FlatList
+          ListEmptyComponent={
+            <SessionEmptyState
+              error={workspaceSelection.sessionsError}
+              hasLocation={workspaceSelection.followedProjectIds.length > 0}
+              loading={workspaceSelection.sessionsLoading}
+              search={deferredSessionSearch}
+              onChooseProjects={() => navigation.navigate("FollowedProjects")}
+              onRetry={() => void refresh()}
+              refreshing={refreshing}
+            />
+          }
+          ListFooterComponent={
+            deferredSessionSearch && workspaceSelection.hasNextPage ? (
+              <View style={styles.listFooter}>
+                <ActionButton
+                  busy={workspaceSelection.sessionsFetchingNextPage}
+                  label="Load more results"
+                  onPress={() => void workspaceSelection.fetchNextPage()}
+                  secondary
+                />
+              </View>
+            ) : null
+          }
+          ListHeaderComponent={header}
+          contentContainerStyle={styles.listContent}
+          data={inboxItems}
+          extraData={fontScale}
+          keyboardShouldPersistTaps="handled"
+          key={`workspace-sessions:${fontScale}`}
+          keyExtractor={(item) => item.key}
+          maxToRenderPerBatch={12}
+          initialNumToRender={12}
+          refreshControl={
+            <RefreshControl
+              onRefresh={() => void refresh()}
+              refreshing={refreshing}
+              tintColor={palette.signal}
+            />
+          }
+          renderItem={({ item }) =>
+            item.type === "group" ? (
+              <GroupSeparator item={item} onPress={() => toggleGroup(item.group)} />
+            ) : (
+              <SessionRow
+                onActions={() => setActionSession(item.row.session)}
+                largeText={largeText}
+                onDelete={() => confirmDelete(item.row.session, item.row.projectLabel)}
+                onPress={() => openSession(item.row)}
+                row={item.row}
               />
-            </View>
-          ) : null
-        }
-        ListHeaderComponent={header}
-        contentContainerStyle={styles.listContent}
-        data={inboxItems}
-        extraData={fontScale}
-        keyboardShouldPersistTaps="handled"
-        key={`workspace-sessions:${fontScale}`}
-        keyExtractor={(item) => item.key}
-        maxToRenderPerBatch={12}
-        initialNumToRender={12}
-        refreshControl={
-          <RefreshControl
-            onRefresh={() => void refresh()}
-            refreshing={refreshing}
-            tintColor={palette.signal}
-          />
-        }
-        renderItem={({ item }) =>
-          item.type === "group" ? (
-            <GroupSeparator item={item} onPress={() => toggleGroup(item.group)} />
-          ) : (
-            <SessionRow
-              onActions={() => setActionSession(item.row.session)}
-              largeText={largeText}
-              onDelete={() => confirmDelete(item.row.session, item.row.projectLabel)}
-              onPress={() => openSession(item.row)}
-              row={item.row}
-            />
-          )
-        }
-        updateCellsBatchingPeriod={40}
-        windowSize={7}
-      />
-      <WorkspaceNewSessionAction
-        // The search field unmounts on close without a reliable blur, so key off searchOpen.
-        showSettings={!tablet && !searchOpen}
-        onNavigate={(destination) => navigation.navigate(destination)}
-        eligible={!tablet && !searchOpen}
-        onPress={() => navigation.navigate("NewSession")}
-      />
+            )
+          }
+          updateCellsBatchingPeriod={40}
+          windowSize={7}
+        />
+      </View>
+      {tablet ? null : (
+        <WorkspaceBottomMenu
+          active={tab}
+          // The search field unmounts on close without a reliable blur, so key off searchOpen.
+          hidden={searchOpen}
+          onNewSession={() => navigation.navigate("NewSession")}
+          onSelect={(next) => {
+            if (next === tab) return;
+            Keyboard.dismiss();
+            void Haptics.selectionAsync().catch(() => undefined);
+            setTab(next);
+          }}
+        />
+      )}
       {actionSession && connectionId ? (
         <SessionActionSheet
           key={`${connectionId}:${actionSession.id}`}
@@ -1695,14 +1739,12 @@ function HeaderAction({
   accessibilityHint,
   accessibilityLabel,
   attention,
-  disabled,
   label,
   onPress,
 }: {
   accessibilityHint: string;
   accessibilityLabel?: string;
   attention?: boolean;
-  disabled?: boolean;
   label: string;
   onPress: () => void;
 }) {
@@ -1711,13 +1753,10 @@ function HeaderAction({
       accessibilityHint={accessibilityHint}
       accessibilityLabel={accessibilityLabel}
       accessibilityRole="button"
-      accessibilityState={{ disabled: Boolean(disabled) }}
-      disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.headerAction,
         attention && styles.headerActionAttention,
-        disabled && styles.disabled,
         pressed && styles.pressed,
       ]}
     >
@@ -1739,44 +1778,11 @@ function InlineError({ message }: { message: string }) {
   );
 }
 
-function formatSessionTime(value: number) {
-  const elapsedMs = Date.now() - value;
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "Now";
-  const minutes = Math.floor(elapsedMs / 60_000);
-  if (minutes < 1) return "Now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  try {
-    return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  } catch {
-    return "Earlier";
-  }
-}
-
 function locationsEqual(first: LocationRef, second: LocationRef) {
   return (
     first.directory === second.directory &&
     (first.workspaceID ?? null) === (second.workspaceID ?? null)
   );
-}
-
-function sessionTimeDescription(value: number) {
-  const elapsedMs = Date.now() - value;
-  if (!Number.isFinite(elapsedMs) || elapsedMs < 60_000) return "Updated just now";
-  const minutes = Math.floor(elapsedMs / 60_000);
-  if (minutes < 60) return `Updated ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `Updated ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
-  try {
-    return `Updated ${new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "long" })}`;
-  } catch {
-    return "Updated earlier";
-  }
 }
 
 function sessionAccessibilityLabel(row: FollowedInboxRow) {
@@ -1844,6 +1850,7 @@ const styles = StyleSheet.create({
     minHeight: minTouchTarget,
     paddingHorizontal: space.md,
   },
+  hiddenPanel: { display: "none" },
   homeHeader: { paddingHorizontal: space.md },
   latestButton: {
     alignItems: "center",
@@ -1908,9 +1915,10 @@ const styles = StyleSheet.create({
   },
   sessionTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
   sessionTitle: { ...typography.body, color: palette.ink, flex: 1, minWidth: 0 },
-  workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
   swipeContainer: { backgroundColor: palette.background },
+  tabPanel: { flex: 1 },
+  workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   swipeDelete: {
     alignItems: "center",
     backgroundColor: palette.danger,

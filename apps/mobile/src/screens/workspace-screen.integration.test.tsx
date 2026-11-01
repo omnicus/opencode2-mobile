@@ -22,6 +22,7 @@ import {
   Dimensions,
   FlatList,
   Keyboard,
+  Linking,
   Platform,
   RefreshControl,
 } from "react-native";
@@ -77,6 +78,11 @@ let mockSessionsError = false;
 let mockRuntimeStatus: "connected" | "reconnecting" = "connected";
 let mockFollowedProjectIds = ["project-1"];
 let mockEmptyInbox = false;
+let mockSelectionProjects: unknown[] = [];
+const mockListPullRequests = jest.fn(async (..._args: unknown[]) => ({
+  pullRequests: [] as unknown[],
+  status: "listed",
+}));
 const mockFetchNextSessionPage = jest.fn(async () => undefined);
 afterEach(() => {
   mockWorkspaceActive = false;
@@ -93,6 +99,8 @@ afterEach(() => {
   mockRuntimeStatus = "connected";
   mockFollowedProjectIds = ["project-1"];
   mockEmptyInbox = false;
+  mockSelectionProjects = [];
+  mockListPullRequests.mockClear();
 });
 function mockWorkspaceRow(index: number) {
   const session = {
@@ -163,6 +171,7 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   })),
   interruptOpenCodeSession: jest.fn(),
   listActiveOpenCodeSessions: jest.fn(async () => ({})),
+  listGitHubPullRequests: (...args: unknown[]) => mockListPullRequests(...args),
   listOpenCodeAgents: jest.fn(async () => ({ data: [], location })),
   listOpenCodeFormRequests: () => mockListForms(),
   listOpenCodeMessages: jest.fn(
@@ -296,7 +305,7 @@ jest.mock("../state/workspace-selection-context", () => ({
     permissions: mockWorkspacePermissions,
     preferencesLoading: false,
     preferencesSaving: false,
-    projects: [],
+    projects: mockSelectionProjects,
     projectsError: false,
     projectsLoading: false,
     refetch: mockWorkspaceRefetch,
@@ -646,10 +655,14 @@ test("attention rows own requests, with a shortcut only when search hides them",
     expect(screen.queryByText("Needs you 1")).toBeNull();
     openSearch("Session");
     expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "1 known request" }));
-    expect(navigate).toHaveBeenCalledWith("Pending");
     fireEvent.press(screen.getByRole("button", { name: "Clear session search" }));
     await waitFor(() => expect(screen.queryByText("Needs you 1")).toBeNull());
+    fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+    fireEvent.press(await screen.findByRole("button", { name: "1 known request" }));
+    // The shortcut closes search and opens the Approvals tab in place.
+    expect(screen.queryByLabelText("Search sessions")).toBeNull();
+    expect(screen.getByRole("tab", { name: "Approvals" })).toBeSelected();
+    expect(navigate).not.toHaveBeenCalledWith("Pending");
   } finally {
     view.unmount();
     queryClient.clear();
@@ -708,6 +721,113 @@ function renderWorkspace(navigate = jest.fn()) {
     },
   };
 }
+
+test("the bottom menu keeps New session apart and switches between Chat, PRs, and Approvals", async () => {
+  mockSelectionProjects = [
+    { canonical: "/workspace", id: "project-1", name: "App", sandboxes: [], time: { created: 1 } },
+  ];
+  mockListPullRequests.mockResolvedValueOnce({
+    pullRequests: [
+      {
+        author: "octocat",
+        branch: "feature/menu",
+        draft: false,
+        number: 42,
+        reviewDecision: "APPROVED",
+        title: "Add the session menu",
+        url: "https://github.com/acme/app/pull/42",
+      },
+    ],
+    status: "listed",
+  });
+  const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+  const navigate = jest.fn();
+  const view = renderWorkspace(navigate);
+  try {
+    await screen.findByText("Session 0");
+    expect(screen.getAllByRole("tab").map((tab) => tab.props.accessibilityLabel)).toEqual([
+      "Chat",
+      "PRs",
+      "Approvals",
+    ]);
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeSelected();
+    fireEvent.press(screen.getByRole("button", { name: "New session" }));
+    expect(navigate).toHaveBeenCalledWith("NewSession");
+    // PR checks run a command on the server, so none start before the tab opens.
+    expect(mockListPullRequests).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByRole("tab", { name: "PRs" }));
+    expect(await screen.findByText("Add the session menu")).toBeOnTheScreen();
+    expect(mockListPullRequests).toHaveBeenCalledWith(
+      expect.anything(),
+      { directory: "/workspace" },
+      { signal: expect.anything() },
+    );
+    expect(screen.getByText("#42 · feature/menu · octocat")).toBeOnTheScreen();
+    expect(screen.getByText("Approved")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Search sessions" })).toBeNull();
+    fireEvent.press(screen.getByRole("link", { name: /^Pull request 42, Add the session menu/ }));
+    expect(open).toHaveBeenCalledWith("https://github.com/acme/app/pull/42");
+
+    fireEvent.press(screen.getByRole("tab", { name: "Approvals" }));
+    expect(await screen.findByText("Nothing needs you")).toBeOnTheScreen();
+    expect(screen.queryByText("Add the session menu")).toBeNull();
+
+    fireEvent.press(screen.getByRole("tab", { name: "Chat" }));
+    expect(screen.getByText("Session 0")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Search sessions" })).toBeOnTheScreen();
+  } finally {
+    open.mockRestore();
+    view.cleanup();
+  }
+});
+
+test.each([
+  ["gh-missing", "GitHub CLI (gh) is not installed on the server."],
+  ["no-github-remote", "This project has no GitHub repository."],
+] satisfies [string, string][])("the PRs tab explains %s per project", async (reason, copy) => {
+  mockSelectionProjects = [
+    { canonical: "/workspace", id: "project-1", sandboxes: [], time: { created: 1 } },
+  ];
+  mockListPullRequests.mockResolvedValueOnce({ reason, status: "unavailable" } as never);
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    fireEvent.press(screen.getByRole("tab", { name: "PRs" }));
+    expect(await screen.findByText(copy)).toBeOnTheScreen();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("Android back returns from another tab to Chat before leaving", async () => {
+  const handlers: Array<() => boolean | null | undefined> = [];
+  const add = jest.spyOn(BackHandler, "addEventListener").mockImplementation((_event, handler) => {
+    handlers.push(handler);
+    return {
+      remove: () => {
+        handlers.splice(handlers.indexOf(handler), 1);
+      },
+    };
+  });
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(handlers).toHaveLength(0);
+    fireEvent.press(screen.getByRole("tab", { name: "Approvals" }));
+    expect(handlers).toHaveLength(1);
+    let handled: boolean | null | undefined;
+    act(() => {
+      handled = handlers[0]?.();
+    });
+    expect(handled).toBe(true);
+    expect(screen.getByRole("tab", { name: "Chat" })).toBeSelected();
+    expect(handlers).toHaveLength(0);
+  } finally {
+    view.cleanup();
+    add.mockRestore();
+  }
+});
 
 test("with no followed projects, offers Choose projects and New session", async () => {
   mockFollowedProjectIds = [];

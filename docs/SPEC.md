@@ -555,11 +555,35 @@ state rather than local transcript storage.
 On phones, Sessions and Session are native stack destinations. Session uses the
 platform back button and gesture to return to the inbox. A cold-start or deep
 link without back history installs an explicit Sessions fallback. Settings,
-connections, and followed-project management open from a header menu as overlays
-that do not replace the active workspace. Do not retain a bottom tab bar for
-Sessions, Pending, and Settings. A hamburger icon is reserved for a real drawer;
-otherwise use the platform-appropriate menu or settings control. Keep a visible
-attention-count action available from session detail.
+connections, and followed-project management open from the Sessions header as
+overlays that do not replace the active workspace. A hamburger icon is reserved
+for a real drawer; otherwise use the platform-appropriate menu or settings
+control. Keep a visible attention-count action available from session detail.
+
+The phone Sessions screen has a floating bottom menu. A round New session button
+sits on the left, apart from a pill with three tabs: Chat, PRs, and Approvals.
+Chat is the session list. PRs lists open GitHub pull requests for followed
+projects. Approvals shows the same permission and form requests as Needs you.
+The Approvals tab shows the request count, or a dim dot while attention coverage
+is stale or incomplete. Tabs switch in place without stack navigation, and Chat
+stays mounted so its scroll position survives. Android back returns to Chat
+before it leaves the screen. The menu hides while the keyboard is up or search
+is open. During a search with pending requests, a Needs you shortcut in the list
+header closes search and opens Approvals. Large text keeps tab icons without
+visible labels. Session detail, management screens, and the tablet layout do not
+show the menu.
+
+OpenCode V2 has no pull request API. The PRs tab runs one fixed command,
+`gh pr list --state open --limit 30 --json ...`, through `POST /api/shell` at
+each followed project's canonical directory, using the server's GitHub CLI
+login. Nothing from the device is interpolated into the command. The app polls
+until the command exits, stops after 30 seconds, and always removes the shell
+record. Checks start only while the PRs tab is open, are not retried
+automatically, and stay in the in-memory query cache. They are never persisted.
+Output is untrusted: the app accepts only a JSON array of well-formed entries
+with `https` URLs, and opens a pull request in the system browser. A project
+without `gh`, without a `gh` login, or without a GitHub remote shows its own
+explanation instead of failing the whole tab.
 
 On larger layouts, the same model becomes a persistent session sidebar and a
 session detail pane. Project filters and the ongoing and finished groups remain

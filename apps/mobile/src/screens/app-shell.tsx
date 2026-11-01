@@ -90,12 +90,34 @@ export function navigateToSection(
 }
 
 export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">) {
+  const { width } = useWindowDimensions();
+  const tablet = isTabletShell(width);
+  const navigate = (section: Section) => navigateToSection(navigation, section);
+
+  return (
+    <ShellFrame active="Pending" hideConnectionBar={!tablet} navigate={navigate}>
+      <PendingInteractions
+        heading={tablet}
+        onNavigate={(destination) => navigation.navigate(destination)}
+      />
+    </ShellFrame>
+  );
+}
+
+// Requests from followed projects. Shared by the Needs you screen and the phone Approvals tab.
+export function PendingInteractions({
+  bottomInset = 0,
+  heading,
+  onNavigate,
+}: {
+  bottomInset?: number;
+  heading: boolean;
+  onNavigate: (destination: "Connections" | "FollowedProjects") => void;
+}) {
   const [showLocations, setShowLocations] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const runtime = useConnectionRuntime();
   const selection = useWorkspaceSelection();
-  const { width } = useWindowDimensions();
-  const tablet = isTabletShell(width);
   const failedLocationCount = selection.attentionCoverage.failedLocationCount;
   const failedLocations = selection.attentionCoverage.failedLocations ?? [];
   const failedProjectSummary = (selection.attentionCoverage.failedProjects ?? [])
@@ -104,7 +126,6 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
   const allKnownLocationsFailed =
     selection.attentionCoverage.knownLocationCount > 0 &&
     selection.attentionCoverage.reconciledLocationCount === 0;
-  const navigate = (section: Section) => navigateToSection(navigation, section);
 
   async function retry() {
     setRetrying(true);
@@ -116,9 +137,15 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
   }
 
   return (
-    <ShellFrame active="Pending" hideConnectionBar={!tablet} navigate={navigate}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {tablet ? (
+    <>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          bottomInset > 0 && { paddingBottom: bottomInset },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        {heading ? (
           <View style={styles.heading}>
             <Text
               accessibilityRole="header"
@@ -150,10 +177,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
                 Follow a project to see requests that need you here.
               </Text>
             </View>
-            <Button
-              label="Choose projects"
-              onPress={() => navigation.navigate("FollowedProjects")}
-            />
+            <Button label="Choose projects" onPress={() => onNavigate("FollowedProjects")} />
           </View>
         ) : selection.interactionsLoading && selection.pendingCount === 0 ? (
           <View style={styles.stateCard}>
@@ -199,7 +223,7 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
               {runtime.status !== "connected" ? (
                 <ActionButton
                   label="Connections"
-                  onPress={() => navigation.navigate("Connections")}
+                  onPress={() => onNavigate("Connections")}
                   secondary
                 />
               ) : null}
@@ -336,12 +360,12 @@ export function PendingInteractionsScreen({ navigation }: ScreenProps<"Pending">
           label="Manage followed projects"
           onPress={() => {
             setShowLocations(false);
-            navigation.navigate("FollowedProjects");
+            onNavigate("FollowedProjects");
           }}
           secondary
         />
       </ModalSheet>
-    </ShellFrame>
+    </>
   );
 }
 

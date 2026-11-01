@@ -7,6 +7,39 @@ import type { FollowedInboxRow, FollowedInboxSections } from "../state/followed-
 
 type Project = ProjectListOutput[number];
 
+export function formatSessionTime(value: number) {
+  const elapsedMs = Date.now() - value;
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "Now";
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) return "Now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  try {
+    return new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  } catch {
+    return "Earlier";
+  }
+}
+
+export function sessionTimeDescription(value: number) {
+  const elapsedMs = Date.now() - value;
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 60_000) return "Updated just now";
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 60) return `Updated ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Updated ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
+  try {
+    return `Updated ${new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "long" })}`;
+  } catch {
+    return "Updated earlier";
+  }
+}
+
 export function needsComposerDockMeasurement(
   measuredScreenHeight: number | undefined,
   screenHeight: number,
