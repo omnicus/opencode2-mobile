@@ -2,7 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text } from "react-native";
 
-import { palette, space, typeRamp, typography } from "../theme";
+import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
 
 export function CopyTextButton({
   text,
@@ -46,12 +46,12 @@ export function CopyTextButton({
           : undefined
       }
       onPress={() => void copy()}
-      style={styles.action}
+      style={({ pressed }) => [styles.action, pressed && Platform.OS === "ios" && styles.pressed]}
     >
       {iconOnly && !status ? (
         <Feather accessible={false} name="copy" size={14} color={palette.dim} />
       ) : (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.label}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.label}>
           {status === "copied" ? "Copied" : status === "failed" ? "Retry copy" : label}
         </Text>
       )}
@@ -61,13 +61,14 @@ export function CopyTextButton({
 
 const styles = StyleSheet.create({
   action: {
-    minHeight: 44,
-    minWidth: 44,
+    minHeight: minTouchTarget,
+    minWidth: minTouchTarget,
     justifyContent: "center",
     alignSelf: "flex-start",
     paddingHorizontal: space.xs,
   },
-  label: { ...typography.caption, color: palette.dim },
+  label: { ...typography.footnote, color: palette.dim },
+  pressed: { opacity: pressedOpacity },
 });
 
 import Feather from "@expo/vector-icons/Feather";

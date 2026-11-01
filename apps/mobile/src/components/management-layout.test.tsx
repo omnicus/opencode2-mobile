@@ -32,3 +32,21 @@ test.each([1, 1.5])(
     Dimensions.set({ window: originalWindow, screen: originalScreen });
   },
 );
+
+test("the last settings row drops its separator", () => {
+  render(
+    <SettingsGroup title="Security">
+      <SettingsRow>
+        <Text>First</Text>
+      </SettingsRow>
+      <SettingsRow last>
+        <Text>Last</Text>
+      </SettingsRow>
+    </SettingsGroup>,
+  );
+  const [first, last] = screen
+    .UNSAFE_getAllByType(SettingsRow)
+    .map((row) => StyleSheet.flatten(row.findByType(View).props.style));
+  expect(first).toMatchObject({ borderBottomWidth: StyleSheet.hairlineWidth });
+  expect(last?.borderBottomWidth).toBeUndefined();
+});

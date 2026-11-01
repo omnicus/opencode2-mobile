@@ -66,3 +66,18 @@ test("plain rows keep the forward chevron and no expanded state", () => {
   });
   expect(screen.UNSAFE_getAllByType(Feather)[1]?.props.name).toBe("chevron-right");
 });
+
+test("a badge shows a short count and screen readers hear the value instead", () => {
+  render(
+    <MenuRow
+      accessibilityValue="3 requests need you, up to date"
+      badge="3"
+      icon="inbox"
+      label="Needs you"
+      onPress={() => {}}
+    />,
+  );
+  const row = screen.getByRole("button", { name: "Needs you" });
+  expect(row).toHaveProp("accessibilityValue", { text: "3 requests need you, up to date" });
+  expect(screen.getByText("3")).toHaveStyle({ fontSize: 13 });
+});
