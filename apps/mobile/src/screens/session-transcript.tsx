@@ -1838,13 +1838,13 @@ function capitalize(value: string) {
 function subagentStateLabel(state: SubagentPresentation["state"]) {
   switch (state) {
     case "streaming":
-      return "PREPARING";
+      return "Preparing";
     case "running":
-      return "RUNNING";
+      return "Running";
     case "completed":
-      return "COMPLETED";
+      return "Completed";
     case "error":
-      return "FAILED";
+      return "Failed";
   }
 }
 

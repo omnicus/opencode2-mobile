@@ -588,7 +588,7 @@ function MentionButton({
           @{value}
         </Text>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
-          {completion.type.toUpperCase()}
+          {completion.type.charAt(0).toLocaleUpperCase() + completion.type.slice(1)}
         </Text>
       </View>
       {completion.label !== value || completion.description ? (

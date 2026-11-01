@@ -1328,7 +1328,7 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
   expect(screen.getByText("Background subagent")).toBeOnTheScreen();
   expect(screen.getByText("Inspect event handling")).toBeOnTheScreen();
   expect(screen.getByText("@explore")).toBeOnTheScreen();
-  expect(screen.getByText("RUNNING")).toBeOnTheScreen();
+  expect(screen.getByText("Running")).toBeOnTheScreen();
   expect(screen.queryByText("subagent / Completed")).toBeNull();
   expect(screen.queryByText(/<task/)).toBeNull();
 
@@ -1359,7 +1359,7 @@ test("projects injected background results into subagent cards", () => {
   );
 
   expect(screen.getByText("Background task completed: inspect code")).toBeOnTheScreen();
-  expect(screen.getByText("COMPLETED")).toBeOnTheScreen();
+  expect(screen.getByText("Completed")).toBeOnTheScreen();
   expect(screen.getByLabelText(/Subagent Background task completed/)).toHaveStyle({
     backgroundColor: "transparent",
     borderRadius: 0,
