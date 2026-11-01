@@ -3,6 +3,7 @@ import type {
   SessionInfo,
   SessionsResponse,
 } from "@opencode2-mobile/opencode-adapter";
+import type { FollowedInboxRow, FollowedInboxSections } from "../state/followed-project-inbox";
 
 type Project = ProjectListOutput[number];
 
@@ -48,4 +49,45 @@ export function projectDirectories(
       ...project.sandboxes,
     ]),
   ];
+}
+
+export type WorkspaceInboxItem =
+  | { key: string; type: "divider" }
+  | { key: string; row: FollowedInboxRow; type: "session" };
+
+function sessionItem(row: FollowedInboxRow): WorkspaceInboxItem {
+  return { key: row.session.id, row, type: "session" };
+}
+
+// Every ongoing row, then the newest finished rows up to the limit. Rows keep the stabilized
+// order from the inbox so they do not jump while sessions stream.
+export function workspaceInboxItems(
+  inbox: FollowedInboxSections,
+  limit: number,
+): WorkspaceInboxItem[] {
+  const ongoing = [...inbox.needsYou, ...inbox.working];
+  const finishedIDs = new Set(
+    [...inbox.recent]
+      .sort((first, second) => second.session.time.updated - first.session.time.updated)
+      .slice(0, Math.max(0, limit - ongoing.length))
+      .map((row) => row.session.id),
+  );
+  const finished = inbox.recent.filter((row) => finishedIDs.has(row.session.id));
+  return [
+    ...ongoing.map(sessionItem),
+    ...(ongoing.length > 0 && finished.length > 0
+      ? [{ key: "divider:finished", type: "divider" as const }]
+      : []),
+    ...finished.map(sessionItem),
+  ];
+}
+
+export function searchResultItems(inbox: FollowedInboxSections) {
+  return [...inbox.needsYou, ...inbox.working, ...inbox.recent]
+    .sort(
+      (first, second) =>
+        second.session.time.updated - first.session.time.updated ||
+        first.session.id.localeCompare(second.session.id),
+    )
+    .map(sessionItem);
 }

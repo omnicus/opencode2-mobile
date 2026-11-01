@@ -127,16 +127,13 @@ test("builds non-overlapping sections and bubbles child work and attention once"
   expect(sections.needsYou).toHaveLength(1);
   expect(sections.needsYou[0]).toMatchObject({
     active: true,
-    activeChildCount: 1,
     attentionCount: 2,
     attentionLabel: "2 requests",
     projectLabel: "Alpha",
     targetLocation: child.location,
     targetSessionID: "ses_child",
   });
-  expect(sections.needsYou[0]?.children).toMatchObject([
-    { active: true, attentionCount: 2, session: { id: "ses_child" } },
-  ]);
+  expect(sections.needsYou[0]).not.toHaveProperty("children");
   expect(sections.working).toEqual([]);
   expect(sections.recent.map((row) => row.session.id)).toEqual(["ses_recent"]);
   expect(
@@ -203,6 +200,61 @@ test("shows actionable ancestry roots and orphan fallbacks outside loaded feed p
 
   expect(sections.working.map((row) => row.session.id)).toEqual(["ses_orphan", "ses_older_root"]);
   expect(sections.unmatchedSessionIDs).toEqual([]);
+});
+
+test("background-only child work makes the root row working and still opens the root", () => {
+  const root = session("ses_root", 2, "project-a");
+  const child = { ...session("ses_child", 3, "project-a"), parentID: root.id };
+
+  const sections = buildFollowedInboxSections({
+    activeSessionIDs: [child.id],
+    ancestrySessions: { [child.id]: child, [root.id]: root },
+    forms: [],
+    permissions: [],
+    projects: [],
+    rootSessions: [root],
+  });
+
+  expect(sections.working.map((row) => row.session.id)).toEqual(["ses_root"]);
+  expect(sections.working[0]).toMatchObject({
+    active: true,
+    attentionCount: 0,
+    targetSessionID: "ses_root",
+  });
+  expect(sections.recent).toEqual([]);
+});
+
+test("labels a worktree only when the session runs outside the project's canonical directory", () => {
+  const project = {
+    canonical: "/repo",
+    id: "project-a",
+    name: "Repo",
+    sandboxes: [],
+    time: { active: 1, created: 1, updated: 1 },
+  };
+  const canonical = {
+    ...session("ses_canonical", 2, "project-a"),
+    location: { directory: "/repo" },
+  };
+  const worktree = {
+    ...session("ses_worktree", 1, "project-a"),
+    location: { directory: "/worktrees/repo/feature-list" },
+  };
+
+  const sections = buildFollowedInboxSections({
+    activeSessionIDs: [],
+    ancestrySessions: {},
+    forms: [],
+    permissions: [],
+    projects: [project],
+    rootSessions: [canonical, worktree],
+  });
+
+  expect(sections.recent[0]).not.toHaveProperty("worktreeLabel");
+  expect(sections.recent[1]).toMatchObject({
+    projectLabel: "Repo",
+    worktreeLabel: "feature-list",
+  });
 });
 
 test("keeps exact directories and workspace IDs distinct", () => {

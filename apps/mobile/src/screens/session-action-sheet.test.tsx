@@ -6,7 +6,6 @@ import { SessionActionSheet } from "./session-action-sheet";
 
 const mockRename = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockRemove = jest.fn<(...args: unknown[]) => Promise<void>>();
-const mockArchive = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockCleanup = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockMcpList = jest.fn(async () => ({ data: [] }));
 jest.mock("./app-shell", () => {
@@ -49,15 +48,6 @@ jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => ({}) }));
 jest.mock("../state/connection-runtime-context", () => ({
   useConnectionRuntime: () => mockRuntime,
 }));
-jest.mock("../state/use-session-archives", () => ({
-  useSessionArchives: () => ({
-    ids: [],
-    loaded: true,
-    busy: false,
-    error: false,
-    setArchived: (...args: unknown[]) => mockArchive(...args),
-  }),
-}));
 const session = {
   id: "ses_one",
   title: "Original",
@@ -68,7 +58,6 @@ beforeEach(() => {
   mockRuntime = { connectionId: "first", status: "connected", restClient: {} };
   mockRename.mockReset().mockResolvedValue(undefined);
   mockRemove.mockReset().mockResolvedValue(undefined);
-  mockArchive.mockReset().mockResolvedValue(undefined);
   mockCleanup.mockReset().mockResolvedValue(undefined);
   mockMcpList.mockClear();
 });
@@ -174,13 +163,14 @@ test("failed rename retains the entered name and does not close", async () => {
   }
 });
 
-test("archive stays device-local and never removes the remote session", async () => {
+test("the menu offers rename, dev tools and delete, with no archive", () => {
   const view = mount();
   try {
-    fireEvent.press(screen.getByRole("button", { name: "Archive" }));
-    await waitFor(() => expect(view.onClose).toHaveBeenCalled());
-    expect(mockArchive).toHaveBeenCalledWith("ses_one", true);
-    expect(mockRemove).not.toHaveBeenCalled();
+    for (const name of ["Rename", "Dev tools", "Delete"])
+      expect(screen.getByRole("button", { name })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+    expect(screen.queryByText(/Archive/)).toBeNull();
   } finally {
     view.cleanup();
   }
@@ -204,7 +194,7 @@ test("a switched connection disables remote and local actions", () => {
   mockRuntime.connectionId = "other";
   const view = mount();
   try {
-    for (const name of ["Rename", "Archive", "Delete", "Dev tools"])
+    for (const name of ["Rename", "Delete", "Dev tools"])
       expect(screen.getByRole("button", { name })).toBeDisabled();
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(mockRemove).not.toHaveBeenCalled();
