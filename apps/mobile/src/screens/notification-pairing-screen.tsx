@@ -8,7 +8,6 @@ import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
 import { useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -20,6 +19,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Button } from "../components/button";
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import type { ConnectionCredential } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
@@ -37,7 +37,16 @@ import {
   stagePendingNotificationRevocation,
 } from "../notifications/notification-pairing-repository";
 import { registerForOpenCodePushNotifications } from "../notifications/notification-registration";
-import { control, palette, radius, space, typography } from "../theme";
+import {
+  cardSurface,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 
 export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
   const db = useSQLiteContext();
@@ -265,6 +274,8 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
     }
   }
 
+  const approvesHttp = preview?.kind === "opencode" && preview.prepared.allowDevelopmentHttp;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
@@ -275,16 +286,36 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.headerRow}>
             <View style={styles.headerCopy}>
-              <Text style={styles.eyebrow}>SECURE SETUP</Text>
-              <Text accessibilityRole="header" style={styles.title}>
+              <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
+                Secure setup
+              </Text>
+              <Text
+                accessibilityRole="header"
+                dynamicTypeRamp={typeRamp.largeTitle}
+                style={styles.title}
+              >
                 Pair this phone
               </Text>
             </View>
-            <Pressable accessibilityRole="button" onPress={onDone} style={styles.closeButton}>
-              <Text style={styles.closeLabel}>CLOSE</Text>
+            <Pressable
+              accessibilityRole="button"
+              android_ripple={
+                Platform.OS === "android"
+                  ? { borderless: true, color: "rgba(255,255,255,0.12)" }
+                  : undefined
+              }
+              onPress={onDone}
+              style={({ pressed }) => [
+                styles.doneButton,
+                pressed && Platform.OS === "ios" && styles.pressed,
+              ]}
+            >
+              <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.doneLabel}>
+                Done
+              </Text>
             </Pressable>
           </View>
-          <Text style={styles.copy}>
+          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
             Scan an OpenCode /pair code to connect. Notifications are set up when available;
             otherwise the app connects without them. Credentials are stored in the device keychain.
           </Text>
@@ -296,27 +327,28 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
                 onBarcodeScanned={({ data }) => inspect(data)}
                 style={styles.camera}
               />
-              <Text style={styles.cameraHint}>Center the terminal QR code in the frame.</Text>
+              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cameraHint}>
+                Center the terminal QR code in the frame.
+              </Text>
             </View>
           ) : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityState={{ disabled: busy }}
-              disabled={busy}
-              onPress={() => void openScanner()}
-              style={({ pressed }) => [
-                styles.scanButton,
-                busy && styles.disabled,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.scanLabel}>SCAN QR CODE</Text>
-            </Pressable>
+            <View style={styles.scanAction}>
+              <Button
+                disabled={busy}
+                fullWidth
+                icon="camera"
+                label="Scan QR code"
+                onPress={() => void openScanner()}
+                variant="primary"
+              />
+            </View>
           )}
 
           <View style={styles.dividerRow}>
             <View style={styles.divider} />
-            <Text style={styles.dividerLabel}>OR PASTE</Text>
+            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.dividerLabel}>
+              or paste
+            </Text>
             <View style={styles.divider} />
           </View>
           <TextInput
@@ -335,28 +367,31 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
             style={styles.codeInput}
             value={manualCode}
           />
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: busy || manualCode.trim().length === 0 }}
-            disabled={busy || manualCode.trim().length === 0}
-            onPress={() => inspect()}
-            style={({ pressed }) => [
-              styles.inspectButton,
-              (busy || manualCode.trim().length === 0) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.inspectLabel}>CHECK CODE</Text>
-          </Pressable>
+          <View style={styles.checkAction}>
+            <Button
+              disabled={busy || manualCode.trim().length === 0}
+              fullWidth
+              label="Check code"
+              onPress={() => inspect()}
+            />
+          </View>
 
           {preview ? (
             <View style={styles.previewCard}>
-              <Text style={styles.previewEyebrow}>READY TO PAIR</Text>
-              <Text style={styles.previewName}>{pairingPreviewName(preview)}</Text>
-              <Text numberOfLines={2} style={styles.previewOrigin}>
+              <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.previewEyebrow}>
+                Ready to pair
+              </Text>
+              <Text dynamicTypeRamp={typeRamp.headline} style={styles.previewName}>
+                {pairingPreviewName(preview)}
+              </Text>
+              <Text
+                dynamicTypeRamp={typeRamp.subheadline}
+                numberOfLines={2}
+                style={styles.previewOrigin}
+              >
                 {pairingPreviewOrigin(preview)}
               </Text>
-              <Text style={styles.previewMeta}>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.previewMeta}>
                 {preview.kind === "notification"
                   ? `Authentication: ${preview.code.authMode} | Expires in ${Math.max(
                       0,
@@ -366,55 +401,35 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
                       preview.prepared.allowDevelopmentHttp ? " | Approves HTTP transport" : ""
                     }`}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={
-                  preview.kind === "opencode" && preview.prepared.allowDevelopmentHttp
-                    ? "Approve HTTP and pair"
-                    : "Pair and save"
-                }
-                accessibilityState={{ disabled: busy, busy }}
-                disabled={busy}
-                onPress={() => void pair()}
-                style={({ pressed }) => [
-                  styles.pairButton,
-                  busy && styles.disabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {busy ? (
-                  <ActivityIndicator color={palette.background} />
-                ) : (
-                  <Text style={styles.pairLabel}>
-                    {preview.kind === "opencode" && preview.prepared.allowDevelopmentHttp
-                      ? "APPROVE HTTP + PAIR"
-                      : "PAIR AND SAVE"}
-                  </Text>
-                )}
-              </Pressable>
-              {preview.kind === "opencode" ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: busy }}
-                  disabled={busy}
-                  onPress={() => void pairWithoutNotifications()}
-                  style={({ pressed }) => [
-                    styles.inspectButton,
-                    busy && styles.disabled,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Text style={styles.inspectLabel}>
-                    {preview.prepared.allowDevelopmentHttp
-                      ? "APPROVE HTTP + PAIR WITHOUT NOTIFICATIONS"
-                      : "PAIR WITHOUT NOTIFICATIONS"}
-                  </Text>
-                </Pressable>
-              ) : null}
+              <View style={styles.previewActions}>
+                <Button
+                  busy={busy}
+                  fullWidth
+                  label={approvesHttp ? "Approve HTTP and pair" : "Pair and save"}
+                  onPress={() => void pair()}
+                  variant="primary"
+                />
+                {preview.kind === "opencode" ? (
+                  <Button
+                    disabled={busy}
+                    fullWidth
+                    label={
+                      approvesHttp
+                        ? "Approve HTTP and pair without notifications"
+                        : "Pair without notifications"
+                    }
+                    onPress={() => void pairWithoutNotifications()}
+                  />
+                ) : null}
+              </View>
             </View>
           ) : null}
           {error ? (
-            <Text accessibilityLiveRegion="polite" style={styles.error}>
+            <Text
+              accessibilityLiveRegion="polite"
+              dynamicTypeRamp={typeRamp.subheadline}
+              style={styles.error}
+            >
               {error}
             </Text>
           ) : null}
@@ -522,7 +537,7 @@ const styles = StyleSheet.create({
   cameraFrame: {
     backgroundColor: palette.card,
     borderColor: palette.border,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     marginTop: space.lg,
     overflow: "hidden",
@@ -533,8 +548,7 @@ const styles = StyleSheet.create({
     padding: space.md,
     textAlign: "center",
   },
-  closeButton: { justifyContent: "center", minHeight: 44, paddingLeft: space.md },
-  closeLabel: { ...typography.control, color: palette.signal },
+  checkAction: { marginTop: space.sm },
   codeInput: {
     ...typography.code,
     backgroundColor: palette.card,
@@ -546,60 +560,37 @@ const styles = StyleSheet.create({
     padding: space.md,
     textAlignVertical: "top",
   },
-  content: { padding: space.lg, paddingBottom: 48 },
+  content: { padding: space.md, paddingBottom: space.xl },
   copy: { ...typography.subheadline, color: palette.dim, marginTop: space.md },
-  divider: { backgroundColor: palette.border, flex: 1, height: 1 },
-  dividerLabel: { ...typography.label, color: palette.dim },
+  divider: { backgroundColor: palette.border, flex: 1, height: StyleSheet.hairlineWidth },
+  dividerLabel: { ...typography.footnote, color: palette.dim },
   dividerRow: {
     alignItems: "center",
     flexDirection: "row",
     gap: space.sm,
     marginVertical: space.lg,
   },
+  doneButton: {
+    alignItems: "flex-end",
+    justifyContent: "center",
+    minHeight: minTouchTarget,
+    minWidth: minTouchTarget,
+    paddingLeft: space.md,
+  },
+  doneLabel: { ...typography.navTitle, color: palette.signal },
   error: { ...typography.subheadline, color: palette.danger, marginTop: space.md },
-  eyebrow: { ...typography.label, color: palette.dim },
+  eyebrow: { ...typography.sectionLabel, color: palette.dim },
   flex: { flex: 1 },
   headerCopy: { flex: 1 },
   headerRow: { alignItems: "flex-start", flexDirection: "row" },
-  inspectButton: {
-    ...control,
-    alignItems: "center",
-    borderColor: palette.border,
-    borderWidth: 1,
-    marginTop: space.sm,
-    justifyContent: "center",
-  },
-  inspectLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
-  pairButton: {
-    ...control,
-    alignItems: "center",
-    backgroundColor: palette.signal,
-    justifyContent: "center",
-    marginTop: space.lg,
-  },
-  pairLabel: { ...typography.control, color: palette.background, textAlign: "center" },
-  disabled: { opacity: 0.5 },
-  pressed: { opacity: 0.65 },
-  previewCard: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    marginTop: space.lg,
-    padding: space.lg,
-  },
-  previewEyebrow: { ...typography.label, color: palette.success },
-  previewMeta: { ...typography.caption, color: palette.dim, marginTop: space.sm },
+  pressed: { opacity: pressedOpacity },
+  previewActions: { gap: space.sm, marginTop: space.lg },
+  previewCard: { ...cardSurface, marginTop: space.lg },
+  previewEyebrow: { ...typography.sectionLabel, color: palette.success },
+  previewMeta: { ...typography.footnote, color: palette.dim, marginTop: space.sm },
   previewName: { ...typography.headline, color: palette.ink, marginTop: space.xs },
   previewOrigin: { ...typography.subheadline, color: palette.ink, marginTop: space.xs },
   safeArea: { backgroundColor: palette.background, flex: 1 },
-  scanButton: {
-    ...control,
-    alignItems: "center",
-    backgroundColor: palette.signal,
-    justifyContent: "center",
-    marginTop: space.lg,
-  },
-  scanLabel: { ...typography.control, color: palette.background, textAlign: "center" },
+  scanAction: { marginTop: space.lg },
   title: { ...typography.largeTitle, color: palette.ink, marginTop: space.xs },
 });

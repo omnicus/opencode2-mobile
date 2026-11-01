@@ -25,7 +25,6 @@ const mockConnectionsSave = jest.fn(async () => "profile-1");
 const mockConnectionsSelect = jest.fn(async () => undefined);
 const mockConnectionsRemove = jest.fn(async () => undefined);
 const mockReadCredential = jest.fn<() => Promise<unknown>>(async () => undefined);
-const mockSetAppLockEnabled = jest.fn(async () => undefined);
 let mockProfiles: unknown[] = [];
 let mockSelectedProfileId: string | undefined;
 let mockClassifiedError = "UNREACHABLE";
@@ -68,14 +67,6 @@ jest.mock("../connections/connections-context", () => ({
   }),
 }));
 
-jest.mock("../security/app-lock-context", () => ({
-  useAppLock: () => ({
-    busy: false,
-    enabled: false,
-    setEnabled: mockSetAppLockEnabled,
-  }),
-}));
-
 jest.mock("../state/connection-runtime-context", () => ({
   useConnectionRuntime: () => ({
     getDiagnosticsText: () =>
@@ -109,13 +100,12 @@ beforeEach(() => {
   mockProfiles = [];
   mockSelectedProfileId = undefined;
   mockClassifiedError = "UNREACHABLE";
-  mockSetAppLockEnabled.mockClear();
 });
 
 test("requires approval before sending credentials over HTTP", async () => {
   await render(<ConnectionScreen />);
   expect(screen.getByLabelText("Server origin")).toHaveStyle({
-    ...typography.subheadline,
+    ...typography.body,
     color: palette.ink,
   });
 
@@ -125,7 +115,7 @@ test("requires approval before sending credentials over HTTP", async () => {
   );
   await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Approve private-network HTTP before connecting without TLS.",
@@ -137,12 +127,10 @@ test("requires approval before sending credentials over HTTP", async () => {
   });
 });
 
-test("offers an opt-in device authentication lock", async () => {
+test("leaves the device authentication lock to Settings", async () => {
   await render(<ConnectionScreen />);
 
-  fireEvent(screen.getByLabelText("Require device authentication"), "valueChange", true);
-
-  expect(mockSetAppLockEnabled).toHaveBeenCalledWith(true);
+  expect(screen.queryByLabelText("Require device authentication")).toBeNull();
 });
 
 test("rejects a server URL with a path", async () => {
@@ -151,7 +139,7 @@ test("rejects a server URL with a path", async () => {
   await fireEvent.changeText(screen.getByLabelText("Server origin"), "https://server.test/api");
   await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Enter only the server origin, without a path, query, or fragment.",
@@ -176,7 +164,7 @@ test.each([
   await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
   });
 
   expect(await screen.findByRole("alert")).toHaveTextContent(message);
@@ -200,11 +188,13 @@ test("accepts a different server version when required REST behavior succeeds", 
   await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
   });
 
   expect(await screen.findByText("other-version")).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: "SAVE CONNECTION" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Save connection" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Test again" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
 });
 
 test("runs the event and cancellation probe after REST succeeds", async () => {
@@ -228,15 +218,20 @@ test("runs the event and cancellation probe after REST succeeds", async () => {
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
   await fireEvent(screen.getByLabelText("Allow private-network HTTP"), "valueChange", true);
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
   });
 
-  expect(await screen.findByText("SERVER REACHABLE")).toBeOnTheScreen();
+  expect(await screen.findByText("Server reachable")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Run event and cancellation probe" })).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
+  expect(screen.getByRole("button", { name: "Advanced" })).toHaveProp("accessibilityState", {
+    expanded: true,
+  });
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RUN EVENT + CANCELLATION PROBE" }));
+    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
   });
 
-  expect(await screen.findByText("EVENT TRANSPORT PASSED")).toBeOnTheScreen();
+  expect(await screen.findByText("Event transport passed")).toBeOnTheScreen();
   expect(mockProbeEventStream).toHaveBeenCalledTimes(1);
 });
 
@@ -266,16 +261,17 @@ test("runs the PTY probe after event transport succeeds", async () => {
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
   await fireEvent(screen.getByLabelText("Allow private-network HTTP"), "valueChange", true);
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
+  });
+  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
   });
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RUN EVENT + CANCELLATION PROBE" }));
-  });
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RUN PTY WEBSOCKET PROBE" }));
+    fireEvent.press(screen.getByRole("button", { name: "Run PTY WebSocket probe" }));
   });
 
-  expect(await screen.findByText("PTY TRANSPORT PASSED")).toBeOnTheScreen();
+  expect(await screen.findByText("PTY transport passed")).toBeOnTheScreen();
   expect(mockProbePtyTransport).toHaveBeenCalledWith(expect.anything(), "http://100.64.0.10:4096");
 });
 
@@ -299,16 +295,17 @@ test("starts lifecycle recovery after the transport probes pass", async () => {
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
   await fireEvent(screen.getByLabelText("Allow private-network HTTP"), "valueChange", true);
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
+  });
+  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
   });
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RUN EVENT + CANCELLATION PROBE" }));
+    fireEvent.press(screen.getByRole("button", { name: "Run PTY WebSocket probe" }));
   });
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RUN PTY WEBSOCKET PROBE" }));
-  });
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "RUN BACKGROUND + RECONNECT PROBE" }));
+    fireEvent.press(screen.getByRole("button", { name: "Run background and reconnect probe" }));
   });
 
   expect(mockLifecycleRun).toHaveBeenCalledWith(client, client);
@@ -328,12 +325,12 @@ test("stores a tested profile only after explicit save", async () => {
   await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
   await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "TEST CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
   });
 
   expect(mockConnectionsSave).not.toHaveBeenCalled();
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "SAVE CONNECTION" }));
+    fireEvent.press(screen.getByRole("button", { name: "Save connection" }));
   });
   expect(mockConnectionsSave).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -389,9 +386,27 @@ test("loads, selects, and removes a saved profile", async () => {
   expect(await screen.findByDisplayValue("Saved server")).toBeOnTheScreen();
   expect(screen.getByDisplayValue("https://saved.test")).toBeOnTheScreen();
 
+  expect(screen.getByText("Server details")).toBeOnTheScreen();
+
   fireEvent.press(screen.getByRole("button", { name: "Remove Saved server" }));
+  expect(screen.getByText("Confirm remove")).toBeOnTheScreen();
   await act(async () => {
     fireEvent.press(screen.getByRole("button", { name: "Confirm remove Saved server" }));
   });
   expect(mockConnectionsRemove).toHaveBeenCalledWith("profile-1");
+});
+
+test("offers done, add, and QR pairing from the header and saved servers", async () => {
+  const done = jest.fn();
+  const pair = jest.fn();
+  await render(<ConnectionScreen onDone={done} onPair={pair} />);
+
+  expect(
+    screen.getByText("Switch servers or add a direct OpenCode V2 connection."),
+  ).toBeOnTheScreen();
+  expect(screen.getByText("New server")).toBeOnTheScreen();
+  await fireEvent.press(screen.getByRole("button", { name: "Pair with QR code" }));
+  expect(pair).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+  expect(done).toHaveBeenCalledTimes(1);
 });
