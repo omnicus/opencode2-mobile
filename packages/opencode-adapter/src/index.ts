@@ -630,23 +630,36 @@ export async function openCodeDirectoryExists(
   directory: string,
   options?: OpenCodeRequestOptions,
 ) {
+  const relative = relativeDirectoryPath(root, directory);
+  const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
+  const output = await client.file.list({ location: locationInput(root), path: parent }, options);
+  validateResolvedLocation(output.location);
+  if (
+    output.location.directory !== root.directory ||
+    !Array.isArray(output.data) ||
+    !output.data.every(isDirectoryListEntry)
+  ) {
+    throw new Error("MALFORMED_DIRECTORY_LIST");
+  }
+  // V2 returns project-relative paths, including the requested parent's prefix.
+  // Fail closed if a server instead returns absolute, basename-only, or nested paths.
+  const prefix = parent === "." ? "" : `${parent}/`;
+  const paths = output.data.map((entry) => entry.path.replace(/\/$/, ""));
+  if (!paths.every((path) => isDirectoryListChildPath(path, prefix))) {
+    throw new Error("MALFORMED_DIRECTORY_LIST");
+  }
+  // A symlink may be reported as a file. Only absence is proof of retirement.
+  return paths.includes(relative);
+}
+
+// Worktrees can live outside the repository. Keep the live root as the
+// request location, but list the target's parent via a relative path.
+function relativeDirectoryPath(root: LocationRef, directory: string) {
   const base = root.directory.replace(/\\/g, "/").replace(/\/$/, "");
   const target = directory.replace(/\\/g, "/");
-  // Worktrees can live outside the repository. Keep the live root as the
-  // request location, but list the target's parent via a relative path.
-  const absoluteParts = (path: string) => {
-    if (!path.startsWith("/") && !/^[A-Za-z]:(\/|$)/.test(path)) {
-      throw new Error("INVALID_DIRECTORY_PATH");
-    }
-    const parts = (path.startsWith("/") ? path.slice(1) : path).split("/");
-    if (parts.some((part) => !part || part === "." || part === "..")) {
-      throw new Error("INVALID_DIRECTORY_PATH");
-    }
-    return parts;
-  };
   if (root.workspaceID) throw new Error("DIRECTORY_OUTSIDE_PROJECT");
-  const baseParts = base === "" ? [] : absoluteParts(base);
-  const targetParts = absoluteParts(target);
+  const baseParts = base === "" ? [] : absoluteDirectoryParts(base);
+  const targetParts = absoluteDirectoryParts(target);
   if (
     (/^[A-Za-z]:$/.test(baseParts[0] ?? "") || /^[A-Za-z]:$/.test(targetParts[0] ?? "")) &&
     baseParts[0] !== targetParts[0]
@@ -661,39 +674,37 @@ export async function openCodeDirectoryExists(
   if (!relative || targetParts.length <= shared) {
     throw new Error("INVALID_DIRECTORY_PATH");
   }
-  const parent = relative.includes("/") ? relative.slice(0, relative.lastIndexOf("/")) : ".";
-  const output = await client.file.list({ location: locationInput(root), path: parent }, options);
-  validateResolvedLocation(output.location);
-  if (
-    output.location.directory !== root.directory ||
-    !Array.isArray(output.data) ||
-    !output.data.every(
-      (entry) =>
-        isRecord(entry) &&
-        typeof entry.path === "string" &&
-        (entry.type === "file" || entry.type === "directory"),
-    )
-  ) {
-    throw new Error("MALFORMED_DIRECTORY_LIST");
+  return relative;
+}
+
+function absoluteDirectoryParts(path: string) {
+  if (!path.startsWith("/") && !/^[A-Za-z]:(\/|$)/.test(path)) {
+    throw new Error("INVALID_DIRECTORY_PATH");
   }
-  // V2 returns project-relative paths, including the requested parent's prefix.
-  // Fail closed if a server instead returns absolute, basename-only, or nested paths.
-  const prefix = parent === "." ? "" : `${parent}/`;
-  const paths = output.data.map((entry) => entry.path.replace(/\/$/, ""));
-  if (
-    paths.some(
-      (path) =>
-        !path.startsWith(prefix) ||
-        !path.slice(prefix.length) ||
-        path.slice(prefix.length).includes("/") ||
-        !isSafeRelativeFilePath(path.slice(prefix.length)) ||
-        path.includes("\\"),
-    )
-  ) {
-    throw new Error("MALFORMED_DIRECTORY_LIST");
+  const parts = (path.startsWith("/") ? path.slice(1) : path).split("/");
+  if (parts.some((part) => !part || part === "." || part === "..")) {
+    throw new Error("INVALID_DIRECTORY_PATH");
   }
-  // A symlink may be reported as a file. Only absence is proof of retirement.
-  return paths.includes(relative);
+  return parts;
+}
+
+function isDirectoryListEntry(entry: unknown) {
+  return (
+    isRecord(entry) &&
+    typeof entry.path === "string" &&
+    (entry.type === "file" || entry.type === "directory")
+  );
+}
+
+function isDirectoryListChildPath(path: string, prefix: string) {
+  const name = path.slice(prefix.length);
+  return (
+    path.startsWith(prefix) &&
+    Boolean(name) &&
+    !name.includes("/") &&
+    isSafeRelativeFilePath(name) &&
+    !path.includes("\\")
+  );
 }
 
 export async function findOpenCodeFiles(
@@ -1142,77 +1153,93 @@ function isValidMessage(value: unknown): value is SessionMessageInfo {
     return false;
   }
 
-  switch (value.type) {
-    case "idle":
-      return (
-        value.outcome === "succeeded" ||
-        value.outcome === "failed" ||
-        value.outcome === "interrupted"
-      );
-    case "agent-switched":
-      return (
-        typeof value.agent === "string" &&
-        (value.previous === undefined || typeof value.previous === "string")
-      );
-    case "model-switched":
-      return (
-        isModelRef(value.model) && (value.previous === undefined || isModelRef(value.previous))
-      );
-    case "location-switched":
-      return isLocationRef(value.location);
-    case "user":
-      return (
-        typeof value.text === "string" &&
-        isOptionalArrayOf(value.files, isPromptFileAttachment) &&
-        isOptionalArrayOf(value.agents, isPromptAgentAttachment) &&
-        isOptionalArrayOf(value.skills, isPromptSkillAttachment)
-      );
-    case "synthetic":
-    case "system":
-      return (
-        typeof value.text === "string" &&
-        (value.description === undefined || typeof value.description === "string")
-      );
-    case "skill":
-      return (
-        typeof value.skill === "string" &&
-        typeof value.name === "string" &&
-        typeof value.text === "string"
-      );
-    case "shell":
-      return (
-        typeof value.shellID === "string" &&
-        typeof value.command === "string" &&
-        (value.status === "running" ||
-          value.status === "exited" ||
-          value.status === "timeout" ||
-          value.status === "killed") &&
-        (value.exit === undefined ||
-          typeof value.exit === "number" ||
-          value.exit === "Infinity" ||
-          value.exit === "-Infinity" ||
-          value.exit === "NaN") &&
-        isOptionalShellOutput(value.output)
-      );
-    case "assistant":
-      return (
-        typeof value.agent === "string" &&
-        isModelRef(value.model) &&
-        Array.isArray(value.content) &&
-        value.content.every(isValidAssistantPart) &&
-        (value.error === undefined || isStructuredError(value.error)) &&
-        (value.retry === undefined || isValidAssistantRetry(value.retry))
-      );
-    case "compaction":
-      if (value.reason !== "auto" && value.reason !== "manual") return false;
-      if (value.status === "failed") return isStructuredError(value.error);
-      return (
-        (value.status === "running" || value.status === "completed") &&
-        typeof value.summary === "string"
-      );
-    default:
-      return false;
-  }
+  return messageValidators.get(value.type)?.(value) ?? false;
+}
+
+const messageValidators = new Map<string, (value: Record<string, unknown>) => boolean>([
+  ["idle", isIdleMessage],
+  ["agent-switched", isAgentSwitchedMessage],
+  ["model-switched", isModelSwitchedMessage],
+  ["location-switched", (value) => isLocationRef(value.location)],
+  ["user", isUserPromptContent],
+  ["synthetic", isSyntheticPromptContent],
+  ["system", isSyntheticPromptContent],
+  ["skill", isSkillMessage],
+  ["shell", isShellMessage],
+  ["assistant", isAssistantMessage],
+  ["compaction", isCompactionMessage],
+]);
+
+function isIdleMessage(value: Record<string, unknown>) {
+  return (
+    value.outcome === "succeeded" || value.outcome === "failed" || value.outcome === "interrupted"
+  );
+}
+
+function isAgentSwitchedMessage(value: Record<string, unknown>) {
+  return typeof value.agent === "string" && isOptionalString(value.previous);
+}
+
+function isModelSwitchedMessage(value: Record<string, unknown>) {
+  return isModelRef(value.model) && (value.previous === undefined || isModelRef(value.previous));
+}
+
+function isUserPromptContent(value: Record<string, unknown>) {
+  return (
+    typeof value.text === "string" &&
+    isOptionalArrayOf(value.files, isPromptFileAttachment) &&
+    isOptionalArrayOf(value.agents, isPromptAgentAttachment) &&
+    isOptionalArrayOf(value.skills, isPromptSkillAttachment)
+  );
+}
+
+function isSyntheticPromptContent(value: Record<string, unknown>) {
+  return typeof value.text === "string" && isOptionalString(value.description);
+}
+
+function isSkillMessage(value: Record<string, unknown>) {
+  return (
+    typeof value.skill === "string" &&
+    typeof value.name === "string" &&
+    typeof value.text === "string"
+  );
+}
+
+function isShellMessage(value: Record<string, unknown>) {
+  return (
+    typeof value.shellID === "string" &&
+    typeof value.command === "string" &&
+    (value.status === "running" ||
+      value.status === "exited" ||
+      value.status === "timeout" ||
+      value.status === "killed") &&
+    (value.exit === undefined ||
+      typeof value.exit === "number" ||
+      value.exit === "Infinity" ||
+      value.exit === "-Infinity" ||
+      value.exit === "NaN") &&
+    isOptionalShellOutput(value.output)
+  );
+}
+
+function isAssistantMessage(value: Record<string, unknown>) {
+  return (
+    typeof value.agent === "string" &&
+    isModelRef(value.model) &&
+    Array.isArray(value.content) &&
+    value.content.every(isValidAssistantPart) &&
+    (value.error === undefined || isStructuredError(value.error)) &&
+    (value.retry === undefined || isValidAssistantRetry(value.retry))
+  );
+}
+
+function isCompactionMessage(value: Record<string, unknown>) {
+  if (value.reason !== "auto" && value.reason !== "manual") return false;
+  if (value.status === "failed") return isStructuredError(value.error);
+  return (
+    (value.status === "running" || value.status === "completed") &&
+    typeof value.summary === "string"
+  );
 }
 
 function isValidAssistantPart(value: unknown) {
@@ -1464,35 +1491,23 @@ function isValidSessionInboxInfo(value: unknown): value is SessionInboxInfo {
     !value.id ||
     typeof value.sessionID !== "string" ||
     !/^ses/.test(value.sessionID) ||
-    !isRecord(value.time) ||
-    typeof value.time.created !== "number" ||
-    !Number.isFinite(value.time.created) ||
+    !isValidCreatedTime(value.time) ||
     (value.delivery !== "steer" && value.delivery !== "queue") ||
-    !isRecord(value.payload)
+    !isRecord(value.payload) ||
+    typeof value.type !== "string"
   ) {
     return false;
   }
 
-  if (value.type === "user") {
-    return (
-      typeof value.payload.text === "string" &&
-      isOptionalArrayOf(value.payload.files, isPromptFileAttachment) &&
-      isOptionalArrayOf(value.payload.agents, isPromptAgentAttachment) &&
-      isOptionalArrayOf(value.payload.skills, isPromptSkillAttachment)
-    );
-  }
-  if (value.type === "synthetic") {
-    return (
-      typeof value.payload.text === "string" &&
-      (value.payload.description === undefined || typeof value.payload.description === "string")
-    );
-  }
-  if (value.type === "compaction") return true;
-  if (value.type === "move") {
-    return isLocationRef(value.payload.location) && typeof value.payload.projectID === "string";
-  }
-  return false;
+  return inboxPayloadValidators.get(value.type)?.(value.payload) ?? false;
 }
+
+const inboxPayloadValidators = new Map<string, (payload: Record<string, unknown>) => boolean>([
+  ["user", isUserPromptContent],
+  ["synthetic", isSyntheticPromptContent],
+  ["compaction", () => true],
+  ["move", (payload) => isLocationRef(payload.location) && typeof payload.projectID === "string"],
+]);
 
 function isValidSession(session: unknown) {
   return (
@@ -1565,58 +1580,64 @@ function isValidFormField(field: unknown) {
     !isRecord(field) ||
     typeof field.key !== "string" ||
     !field.key ||
-    (field.title !== undefined && typeof field.title !== "string") ||
-    (field.description !== undefined && typeof field.description !== "string")
+    !isOptionalString(field.title) ||
+    !isOptionalString(field.description)
   ) {
     return false;
   }
   if (field.type === "external") return typeof field.url === "string" && Boolean(field.url);
   if (
-    (field.required !== undefined && typeof field.required !== "boolean") ||
-    (field.when !== undefined &&
-      (!Array.isArray(field.when) || !field.when.every(isValidFormCondition)))
+    !isOptionalBoolean(field.required) ||
+    !isOptionalArrayOf(field.when, isValidFormCondition) ||
+    typeof field.type !== "string"
   ) {
     return false;
   }
-  if (field.type === "boolean") {
-    return field.default === undefined || typeof field.default === "boolean";
-  }
-  if (field.type === "number" || field.type === "integer") {
-    return (
-      (field.minimum === undefined || isFormNumber(field.minimum)) &&
-      (field.maximum === undefined || isFormNumber(field.maximum)) &&
-      (field.default === undefined || isFormNumber(field.default))
-    );
-  }
-  if (field.type === "multiselect") {
-    return (
-      Array.isArray(field.options) &&
-      field.options.every(isValidFormOption) &&
-      isOptionalNonNegativeInteger(field.minItems) &&
-      isOptionalNonNegativeInteger(field.maxItems) &&
-      (field.custom === undefined || typeof field.custom === "boolean") &&
-      (field.default === undefined ||
-        (Array.isArray(field.default) && field.default.every((value) => typeof value === "string")))
-    );
-  }
-  if (field.type === "string") {
-    return (
-      (field.format === undefined ||
-        field.format === "email" ||
-        field.format === "uri" ||
-        field.format === "date" ||
-        field.format === "date-time") &&
-      isOptionalNonNegativeInteger(field.minLength) &&
-      isOptionalNonNegativeInteger(field.maxLength) &&
-      (field.pattern === undefined || typeof field.pattern === "string") &&
-      (field.placeholder === undefined || typeof field.placeholder === "string") &&
-      (field.default === undefined || typeof field.default === "string") &&
-      (field.options === undefined ||
-        (Array.isArray(field.options) && field.options.every(isValidFormOption))) &&
-      (field.custom === undefined || typeof field.custom === "boolean")
-    );
-  }
-  return false;
+  return formFieldValidators.get(field.type)?.(field) ?? false;
+}
+
+const formFieldValidators = new Map<string, (field: Record<string, unknown>) => boolean>([
+  ["boolean", (field) => isOptionalBoolean(field.default)],
+  ["number", isValidNumberFormField],
+  ["integer", isValidNumberFormField],
+  ["multiselect", isValidMultiselectFormField],
+  ["string", isValidStringFormField],
+]);
+
+function isValidNumberFormField(field: Record<string, unknown>) {
+  return (
+    (field.minimum === undefined || isFormNumber(field.minimum)) &&
+    (field.maximum === undefined || isFormNumber(field.maximum)) &&
+    (field.default === undefined || isFormNumber(field.default))
+  );
+}
+
+function isValidMultiselectFormField(field: Record<string, unknown>) {
+  return (
+    Array.isArray(field.options) &&
+    field.options.every(isValidFormOption) &&
+    isOptionalNonNegativeInteger(field.minItems) &&
+    isOptionalNonNegativeInteger(field.maxItems) &&
+    isOptionalBoolean(field.custom) &&
+    isOptionalArrayOf(field.default, (value) => typeof value === "string")
+  );
+}
+
+function isValidStringFormField(field: Record<string, unknown>) {
+  return (
+    (field.format === undefined ||
+      field.format === "email" ||
+      field.format === "uri" ||
+      field.format === "date" ||
+      field.format === "date-time") &&
+    isOptionalNonNegativeInteger(field.minLength) &&
+    isOptionalNonNegativeInteger(field.maxLength) &&
+    isOptionalString(field.pattern) &&
+    isOptionalString(field.placeholder) &&
+    isOptionalString(field.default) &&
+    isOptionalArrayOf(field.options, isValidFormOption) &&
+    isOptionalBoolean(field.custom)
+  );
 }
 
 function isValidFormCondition(condition: unknown) {
@@ -1687,6 +1708,10 @@ function isOptionalNullableString(value: unknown) {
 
 function isOptionalString(value: unknown) {
   return value === undefined || typeof value === "string";
+}
+
+function isOptionalBoolean(value: unknown) {
+  return value === undefined || typeof value === "boolean";
 }
 
 function isValidFileDiff(value: unknown): value is FileDiffInfo {

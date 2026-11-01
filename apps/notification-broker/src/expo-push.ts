@@ -55,50 +55,42 @@ export class ExpoPushWorker {
         continue;
       }
       try {
-        const response = await fetch(expoSendUrl, {
-          body: JSON.stringify({
-            body: notificationBody(asNotificationCategory(row.notification_category)),
-            channelId: "opencode-attention",
-            collapseId: asString(row.collapse_id),
-            data: JSON.parse(asString(row.push_data_json)),
-            priority: "high",
-            sound: "default",
-            tag: asString(row.collapse_id),
-            title: "OpenCode",
-            to: this.database.decryptExpoToken(row),
-            ttl: 7 * 24 * 60 * 60,
-          }),
-          headers: {
-            Accept: "application/json",
-            "Content-Type": "application/json",
-            ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
-          },
-          method: "POST",
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (response.status === 429 || response.status >= 500) {
-          this.database.markRetry(
-            id,
-            response.status === 429 ? "RATE_LIMITED" : "EXPO_UNAVAILABLE",
-          );
-          continue;
-        }
-        if (!response.ok) {
-          this.database.markFailed(id, "EXPO_REJECTED");
-          continue;
-        }
-        const ticket = parseTicket(await response.json());
-        if (ticket.status === "ok") this.database.markTicketed(id, ticket.id);
-        else if (ticket.error === "DeviceNotRegistered") {
-          this.database.disableDevice(bindingID, "provider-unregistered");
-          this.database.markFailed(id, "DEVICE_NOT_REGISTERED");
-        } else if (ticket.error === "MessageRateExceeded") {
-          this.database.markRetry(id, "MESSAGE_RATE_EXCEEDED");
-        } else this.database.markFailed(id, "EXPO_TICKET_ERROR");
+        await this.sendRow(id, bindingID, row);
       } catch {
         this.database.markRetry(id, "NETWORK_ERROR");
       }
     }
+  }
+
+  private async sendRow(id: string, bindingID: string, row: Record<string, SQLInputValue>) {
+    const response = await fetch(expoSendUrl, {
+      body: JSON.stringify({
+        body: notificationBody(asNotificationCategory(row.notification_category)),
+        channelId: "opencode-attention",
+        collapseId: asString(row.collapse_id),
+        data: JSON.parse(asString(row.push_data_json)),
+        priority: "high",
+        sound: "default",
+        tag: asString(row.collapse_id),
+        title: "OpenCode",
+        to: this.database.decryptExpoToken(row),
+        ttl: 7 * 24 * 60 * 60,
+      }),
+      headers: this.expoHeaders(),
+      method: "POST",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status === 429 || response.status >= 500) {
+      this.database.markRetry(id, response.status === 429 ? "RATE_LIMITED" : "EXPO_UNAVAILABLE");
+      return;
+    }
+    if (!response.ok) {
+      this.database.markFailed(id, "EXPO_REJECTED");
+      return;
+    }
+    const ticket = parseTicket(await response.json());
+    if (ticket.status === "ok") this.database.markTicketed(id, ticket.id);
+    else this.applyExpoError(id, bindingID, ticket.error, "EXPO_TICKET_ERROR");
   }
 
   private async checkReceipts() {
@@ -108,42 +100,60 @@ export class ExpoPushWorker {
     try {
       const response = await fetch(expoReceiptsUrl, {
         body: JSON.stringify({ ids }),
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
-        },
+        headers: this.expoHeaders(),
         method: "POST",
         signal: AbortSignal.timeout(10_000),
       });
       if (!response.ok) {
-        for (const row of rows) this.database.deferReceipt(asString(row.id), 5 * 60_000);
+        this.deferReceipts(rows);
         return;
       }
       const receipts = parseReceipts(await response.json());
-      for (const row of rows) {
-        const receipt = receipts[asString(row.ticket_id)];
-        const id = asString(row.id);
-        if (!receipt) {
-          const createdAtMs = asNumber(row.created_at_ms);
-          if (Date.now() - createdAtMs >= 24 * 60 * 60_000) {
-            this.database.markFailed(id, "RECEIPT_EXPIRED");
-          } else {
-            this.database.deferReceipt(id, 15 * 60_000);
-          }
-          continue;
-        }
-        if (receipt.status === "ok") this.database.markDelivered(id);
-        else if (receipt.error === "DeviceNotRegistered") {
-          this.database.disableDevice(asString(row.binding_id), "provider-unregistered");
-          this.database.markFailed(id, "DEVICE_NOT_REGISTERED");
-        } else if (receipt.error === "MessageRateExceeded") {
-          this.database.markRetry(id, "MESSAGE_RATE_EXCEEDED");
-        } else this.database.markFailed(id, "EXPO_RECEIPT_ERROR");
-      }
+      for (const row of rows) this.applyReceipt(row, receipts[asString(row.ticket_id)]);
     } catch {
-      for (const row of rows) this.database.deferReceipt(asString(row.id), 5 * 60_000);
+      this.deferReceipts(rows);
     }
+  }
+
+  private applyReceipt(row: Record<string, SQLInputValue>, receipt: ExpoResult | undefined) {
+    const id = asString(row.id);
+    if (!receipt) {
+      const createdAtMs = asNumber(row.created_at_ms);
+      if (Date.now() - createdAtMs >= 24 * 60 * 60_000) {
+        this.database.markFailed(id, "RECEIPT_EXPIRED");
+      } else {
+        this.database.deferReceipt(id, 15 * 60_000);
+      }
+      return;
+    }
+    if (receipt.status === "ok") this.database.markDelivered(id);
+    else this.applyExpoError(id, asString(row.binding_id), receipt.error, "EXPO_RECEIPT_ERROR");
+  }
+
+  private applyExpoError(
+    id: string,
+    bindingID: string,
+    error: string | undefined,
+    fallbackCode: string,
+  ) {
+    if (error === "DeviceNotRegistered") {
+      this.database.disableDevice(bindingID, "provider-unregistered");
+      this.database.markFailed(id, "DEVICE_NOT_REGISTERED");
+    } else if (error === "MessageRateExceeded") {
+      this.database.markRetry(id, "MESSAGE_RATE_EXCEEDED");
+    } else this.database.markFailed(id, fallbackCode);
+  }
+
+  private deferReceipts(rows: Array<Record<string, SQLInputValue>>) {
+    for (const row of rows) this.database.deferReceipt(asString(row.id), 5 * 60_000);
+  }
+
+  private expoHeaders() {
+    return {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {}),
+    };
   }
 }
 
@@ -228,29 +238,30 @@ function asNumber(value: SQLInputValue | undefined) {
   return value;
 }
 
+const notificationCategories: ReadonlySet<string> = new Set<NotificationCategory>([
+  "form",
+  "permission-edit",
+  "permission-execute",
+  "permission-external-directory",
+  "permission-glob",
+  "permission-grep",
+  "permission-other",
+  "permission-question",
+  "permission-read",
+  "permission-shell",
+  "permission-skill",
+  "permission-subagent",
+  "permission-webfetch",
+  "permission-websearch",
+  "session-done",
+  "test",
+]);
+
 function asNotificationCategory(value: SQLInputValue | undefined): NotificationCategory {
-  if (typeof value !== "string") throw new Error("INVALID_BROKER_DATA");
-  switch (value) {
-    case "form":
-    case "permission-edit":
-    case "permission-execute":
-    case "permission-external-directory":
-    case "permission-glob":
-    case "permission-grep":
-    case "permission-other":
-    case "permission-question":
-    case "permission-read":
-    case "permission-shell":
-    case "permission-skill":
-    case "permission-subagent":
-    case "permission-webfetch":
-    case "permission-websearch":
-    case "session-done":
-    case "test":
-      return value;
-    default:
-      throw new Error("INVALID_BROKER_DATA");
+  if (typeof value !== "string" || !notificationCategories.has(value)) {
+    throw new Error("INVALID_BROKER_DATA");
   }
+  return value as NotificationCategory;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
