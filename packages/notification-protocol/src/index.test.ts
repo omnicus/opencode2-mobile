@@ -7,8 +7,10 @@ import {
   openNotificationJson,
   parseNotificationConnectionBootstrap,
   parseNotificationDeliveryState,
+  parseNotificationDeviceCommand,
   parseNotificationPairingCode,
   parseNotificationPairingIssueRequest,
+  parseNotificationPairingRegistration,
   parseNotificationPluginEvent,
   parseNotificationRoutingEnvelope,
   parseOpenCodeDevicePairingCode,
@@ -232,5 +234,96 @@ describe("notification protocol", () => {
     expect(() =>
       parseNotificationDeliveryState({ enabled: "false", updatedAtMs: 1_000, v: 1 }),
     ).toThrow("INVALID_NOTIFICATION_STATE");
+  });
+
+  it.each(["enable", "pause", "revoke", "status", "test"] as const)(
+    "parses the %s device command without a push token",
+    (operation) => {
+      expect(
+        parseNotificationDeviceCommand({
+          atMs: 1_000,
+          expoPushToken: "ExpoPushToken[ignored]",
+          nonceID: "nonce-1",
+          operation,
+          v: 1,
+        }),
+      ).toEqual({ atMs: 1_000, nonceID: "nonce-1", operation, v: 1 });
+    },
+  );
+
+  it("parses a device token rotation", () => {
+    expect(
+      parseNotificationDeviceCommand({
+        atMs: 0,
+        expoPushToken: " ExponentPushToken[abc_-1] ",
+        nonceID: "nonce-1",
+        operation: "token",
+        v: 1,
+      }),
+    ).toEqual({
+      atMs: 0,
+      expoPushToken: "ExponentPushToken[abc_-1]",
+      nonceID: "nonce-1",
+      operation: "token",
+      v: 1,
+    });
+  });
+
+  it.each([
+    ["a non-object", "status"],
+    ["an array", [{ atMs: 1_000, nonceID: "nonce-1", operation: "status", v: 1 }]],
+    ["another version", { atMs: 1_000, nonceID: "nonce-1", operation: "status", v: 2 }],
+    ["a missing operation", { atMs: 1_000, nonceID: "nonce-1", v: 1 }],
+    ["an unknown operation", { atMs: 1_000, nonceID: "nonce-1", operation: "delete", v: 1 }],
+    ["a negative time", { atMs: -1, nonceID: "nonce-1", operation: "status", v: 1 }],
+    ["a fractional time", { atMs: 1.5, nonceID: "nonce-1", operation: "status", v: 1 }],
+    ["a string time", { atMs: "1000", nonceID: "nonce-1", operation: "status", v: 1 }],
+    ["a missing nonce", { atMs: 1_000, operation: "status", v: 1 }],
+    ["an unsafe nonce", { atMs: 1_000, nonceID: "nonce/1", operation: "status", v: 1 }],
+    ["a long nonce", { atMs: 1_000, nonceID: "n".repeat(129), operation: "status", v: 1 }],
+    ["a missing push token", { atMs: 1_000, nonceID: "nonce-1", operation: "token", v: 1 }],
+    [
+      "a malformed push token",
+      {
+        atMs: 1_000,
+        expoPushToken: "PushToken[abc]",
+        nonceID: "nonce-1",
+        operation: "token",
+        v: 1,
+      },
+    ],
+  ])("rejects a device command with %s", (_, value) => {
+    expect(() => parseNotificationDeviceCommand(value)).toThrow("INVALID_DEVICE_COMMAND");
+  });
+
+  it("parses device pairing registrations", () => {
+    const registration = {
+      bindingID: "binding-1",
+      deviceKey: encodeNotificationBytes(new Uint8Array(32).fill(3)),
+      deviceName: " Phone ",
+      expoPushToken: "ExpoPushToken[abc]",
+      platform: "ios",
+      v: 1,
+    } as const;
+    expect(parseNotificationPairingRegistration(registration)).toEqual({
+      ...registration,
+      deviceName: "Phone",
+    });
+    expect(
+      parseNotificationPairingRegistration({ ...registration, platform: "android" }),
+    ).toMatchObject({ platform: "android" });
+    for (const value of [
+      null,
+      { ...registration, v: 2 },
+      { ...registration, deviceKey: encodeNotificationBytes(new Uint8Array(16)) },
+      { ...registration, platform: "web" },
+      { ...registration, bindingID: "" },
+      { ...registration, deviceName: "  " },
+      { ...registration, expoPushToken: "ExpoPushToken[]" },
+    ]) {
+      expect(() => parseNotificationPairingRegistration(value)).toThrow(
+        "INVALID_PAIRING_REGISTRATION",
+      );
+    }
   });
 });
