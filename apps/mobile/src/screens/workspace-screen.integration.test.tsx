@@ -1660,24 +1660,21 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
   const transcriptPosition = () =>
     screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
       .maintainVisibleContentPosition;
-  // Following: growth lands below the anchored row, and the list reports that compensation
-  // as a scroll away from the edge. The UI-thread glide takes it from there; JavaScript only
-  // scrolls if the glide shows no progress.
-  expect(transcriptPosition()).toEqual({ minIndexForVisible: 1 });
+  const transcriptRowTransition = () =>
+    screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
+      .itemLayoutAnimation;
+  // Following: rows ease to their new layout as the newest row grows, and the list stays
+  // anchored on that row so no frame shows a scroll correction.
+  expect(transcriptPosition()).toEqual({ minIndexForVisible: 0 });
+  expect(transcriptRowTransition()).toBeDefined();
   scrollToOffset.mockClear();
   fireEvent(transcript, "contentSizeChange", 320, 1_100);
-  fireEvent.scroll(transcript, scrollEvent(25));
-  fireEvent.scroll(transcript, scrollEvent(18));
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 600));
+  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
+  scrollToOffset.mockClear();
+  fireEvent(transcript, "layout", {
+    nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 220 } },
   });
-  expect(scrollToOffset).not.toHaveBeenCalled();
-  fireEvent.scroll(transcript, scrollEvent(0));
-  fireEvent.scroll(transcript, scrollEvent(25));
-  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 }));
-  fireEvent.scroll(transcript, liveEdgeEvent);
-  // Programmatic glide frames never turn live follow off.
-  expect(screen.queryByRole("button", { name: "Scroll to latest" })).toBeNull();
+  await waitFor(() => expect(scrollToOffset).toHaveBeenCalledWith({ animated: false, offset: 0 }));
 
   fireEvent(transcript, "scrollBeginDrag", liveEdgeEvent);
   fireEvent.scroll(transcript, justAwayFromLiveEdge);
@@ -1688,7 +1685,8 @@ test("renders short thoughts inline and keeps detailed thoughts collapsed", asyn
     nativeEvent: { layout: { x: 0, y: 0, width: 320, height: 500 } },
   });
   expect(scrollToOffset).not.toHaveBeenCalled();
-  expect(transcriptPosition()).toEqual({ minIndexForVisible: 1 });
+  // Reading older text: no row animation competes with the position the list keeps.
+  expect(transcriptRowTransition()).toBeUndefined();
   fireEvent.press(screen.getByRole("button", { name: "Scroll to latest" }));
   expect(scrollToOffset).toHaveBeenCalledWith({ animated: true, offset: 0 });
   fireEvent.scroll(transcript, scrollEvent(120));
@@ -1733,9 +1731,13 @@ test("Reduce Motion keeps live-edge follow instant", async () => {
     await waitFor(() =>
       expect(
         screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
-          .maintainVisibleContentPosition,
-      ).toEqual({ minIndexForVisible: 1 }),
+          .itemLayoutAnimation,
+      ).toBeUndefined(),
     );
+    expect(
+      screen.UNSAFE_getByProps({ accessibilityLabel: "Session transcript" }).props
+        .maintainVisibleContentPosition,
+    ).toEqual({ minIndexForVisible: 0 });
     scrollToOffset.mockClear();
     fireEvent(transcript, "contentSizeChange", 320, 1_100);
     await waitFor(() =>

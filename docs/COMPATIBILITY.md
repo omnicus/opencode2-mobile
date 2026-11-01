@@ -12,6 +12,31 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-01: row layout transitions replace the live-edge glide, pending device verification
+
+An iPhone recording showed the transcript flickering as each line streamed in.
+Frame-by-frame motion showed the same pair roughly every 150 ms: the
+transcript rose a full line (about 22 points) for one frame, dropped back about
+20 points the next, then glided up. The glide depended on
+`maintainVisibleContentPosition` anchoring the row above the newest one. iOS
+applied that compensation one frame after drawing the new layout, so each line
+showed uncompensated for a frame. Tuning the glide cannot remove a frame drawn
+before it runs.
+
+The transcript is anchored on the newest row again (`minIndexForVisible: 0`),
+so streaming growth needs no scroll compensation. While following with Reduce
+Motion off, Reanimated's `Animated.FlatList` applies a `LinearTransition` to
+each row. That spring is critically damped at the earlier glide rate (mass 1,
+stiffness 289, damping 34). Rows animate from their previous frame to the new
+one in the commit that changes them: older text slides up, and the growing row
+eases to its new height while its new line rises in from the bottom edge.
+Reading older text, or Reduce Motion, removes the transition. The UI-thread
+glide, its JavaScript fallback, and the `live_edge_fallbacks` counter are
+removed. Rendered tests cover the anchor, the transition while following, its
+removal when reading or under Reduce Motion, and instant live-edge corrections.
+Motion quality, the appearance of newly inserted rows, and Android still need
+checking on devices.
+
 ## 2026-11-01: background stale banner, pending device verification
 
 A 4-frames-per-second review of an app-switching recording found streamed text

@@ -45,12 +45,7 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
-import Animated, {
-  scrollTo,
-  useAnimatedRef,
-  useFrameCallback,
-  useSharedValue,
-} from "react-native-reanimated";
+import Animated, { LinearTransition } from "react-native-reanimated";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
@@ -63,7 +58,6 @@ import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import {
   recordTranscriptFollowCorrection,
   recordTranscriptLatestJump,
-  recordTranscriptLiveEdgeFallback,
   recordTranscriptResidentSet,
 } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
@@ -104,7 +98,6 @@ import {
   TranscriptUpdatesGroup,
 } from "./session-transcript";
 import {
-  liveEdgeGlideStep,
   resolveTranscriptLiveFollow,
   type TranscriptLiveFollowEvent,
 } from "./session-transcript-live-follow";
@@ -125,8 +118,12 @@ const recentSessionLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
-// If the UI-thread glide has not moved a compensated transcript by then, scroll from JavaScript.
-const liveEdgeFallbackMs = 500;
+// While following, rows ease to their new layout when the newest row grows: older text slides
+// up and new lines rise in from the bottom edge. Reanimated animates each row's frame in the
+// commit that changes it, so no frame shows the jump. A critically damped spring at this rate
+// moves one 22-point line at up to about 140 pt/s and settles in about 0.33 s, close to the
+// OpenCode iOS app.
+const liveEdgeRowTransition = LinearTransition.springify().mass(1).stiffness(289).damping(34);
 const userScrollSettleMs = 160;
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
@@ -777,38 +774,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const deferredMentionSearch = useDeferredValue(mentionSearch);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
-  const transcriptListRef = useAnimatedRef<FlatList<TranscriptListItem>>();
-  // The live-edge glide runs on the UI thread so a busy JavaScript thread cannot make it
-  // skip frames. JavaScript only adds distance when the list compensates for new rows.
-  const glideActive = useSharedValue(false);
-  const glideOffset = useSharedValue(0);
-  const glideVelocity = useSharedValue(0);
-  useFrameCallback(({ timeSincePreviousFrame }) => {
-    if (!glideActive.value || glideOffset.value <= 0) return;
-    const next = liveEdgeGlideStep(
-      glideOffset.value,
-      glideVelocity.value,
-      Math.min(timeSincePreviousFrame ?? 16, 34),
-    );
-    glideOffset.value = next.offset;
-    glideVelocity.value = next.velocity;
-    scrollTo(transcriptListRef, 0, next.offset, false);
-  });
-  // Arms after compensated growth; JavaScript scrolls if the glide shows no progress.
-  const glideFallbackRef = useRef<{
-    progressed: boolean;
-    timer: ReturnType<typeof setTimeout> | null;
-  }>({ progressed: false, timer: null });
-  useEffect(() => {
-    glideActive.value = smoothLiveEdge;
-  }, [glideActive, smoothLiveEdge]);
-  useEffect(
-    () => () => {
-      const timer = glideFallbackRef.current.timer;
-      if (timer !== null) clearTimeout(timer);
-    },
-    [],
-  );
+  const transcriptListRef = useRef<FlatList<TranscriptListItem>>(null);
   const liveFollowEnabledRef = useRef(true);
   const latestJumpPendingRef = useRef(false);
   const userScrollSessionRef = useRef(false);
@@ -1065,8 +1031,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     }
     userScrollSessionRef.current = false;
     lastScrollOffsetRef.current = 0;
-    glideOffset.value = 0;
-    glideVelocity.value = 0;
     liveFollowEnabledRef.current = true;
     latestJumpPendingRef.current = false;
     setLiveFollowEnabled(true);
@@ -1081,7 +1045,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         followFrameRef.current = null;
       }
     };
-  }, [glideOffset, glideVelocity, sessionMutationScope]);
+  }, [sessionMutationScope]);
 
   useEffect(() => {
     recordTranscriptResidentSet(transcriptPageCount, messages.length);
@@ -1128,8 +1092,6 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     ) {
       return;
     }
-    // The UI-thread glide follows growth that the list compensated for.
-    if (smoothLiveEdgeRef.current) return;
     followFrameRef.current = requestAnimationFrame(() => {
       followFrameRef.current = null;
       if (!liveFollowEnabledRef.current) return;
@@ -1138,46 +1100,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     });
   }
 
-  function stopLiveEdgeGlide() {
-    cancelFollowFrame();
-    glideOffset.value = 0;
-    glideVelocity.value = 0;
-    const fallback = glideFallbackRef.current;
-    if (fallback.timer !== null) clearTimeout(fallback.timer);
-    glideFallbackRef.current = { progressed: false, timer: null };
-  }
-
-  function canGlide() {
-    return (
-      liveFollowEnabledRef.current &&
-      smoothLiveEdgeRef.current &&
-      !userScrollSessionRef.current &&
-      !latestJumpPendingRef.current
-    );
-  }
-
-  // New lines land just below the anchored rows, and the list reports that as a scroll away
-  // from the edge. Hand the distance to the glide, keeping its current velocity.
-  function followCompensatedGrowth(previousOffset: number, offset: number) {
-    const fallback = glideFallbackRef.current;
-    if (offset < previousOffset - 0.5) fallback.progressed = true;
-    if (!canGlide() || offset <= liveEdgeThreshold || offset <= glideOffset.value + 4) return;
-    glideOffset.value = offset;
-    if (fallback.timer !== null) return;
-    recordTranscriptFollowCorrection();
-    fallback.progressed = false;
-    fallback.timer = setTimeout(() => {
-      fallback.timer = null;
-      if (fallback.progressed || !canGlide() || isAtLiveEdge()) return;
-      recordTranscriptLiveEdgeFallback();
-      glideOffset.value = 0;
-      glideVelocity.value = 0;
-      transcriptListRef.current?.scrollToOffset({ animated: true, offset: 0 });
-    }, liveEdgeFallbackMs);
-  }
-
   function handleTranscriptScroll(event: NativeSyntheticEvent<NativeScrollEvent>) {
-    const previousOffset = lastScrollOffsetRef.current;
     const offset = recordTranscriptOffset(event.nativeEvent.contentOffset.y);
     const atLiveEdge = isAtLiveEdge(offset);
     transitionLiveFollow({
@@ -1185,13 +1108,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       type: "scroll",
       userScrollSessionActive: userScrollSessionRef.current,
     });
-    followCompensatedGrowth(previousOffset, offset);
   }
 
   function handleScrollBeginDrag() {
-    // Stop the glide before the follow state re-renders so it never fights the drag.
-    glideActive.value = false;
-    stopLiveEdgeGlide();
     clearUserScrollSettle();
     if (latestJumpPendingRef.current) {
       latestJumpPendingRef.current = false;
@@ -1233,7 +1152,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 
   function scrollToLatest() {
     clearUserScrollSettle();
-    stopLiveEdgeGlide();
+    cancelFollowFrame();
     userScrollSessionRef.current = false;
     latestJumpPendingRef.current = true;
     setLatestJumpPending(true);
@@ -1497,9 +1416,8 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                 </View>
               ) : null
             }
-            // Anchor the row above the newest one: growth of the newest row then
-            // keeps older text still, and the live-edge glide brings the new lines up.
-            maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
+            {...(smoothLiveEdge ? { itemLayoutAnimation: liveEdgeRowTransition } : {})}
+            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
             maxToRenderPerBatch={12}
             onContentSizeChange={(_width, height) => {
               setTranscriptSize((current) =>
