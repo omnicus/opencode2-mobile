@@ -6,6 +6,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { pinDarkAppearance } from "./appearance";
 import { ConnectionsProvider } from "./connections/connections-context";
 import { rootNavigationRef } from "./navigation/navigation-ref";
 import { RootNavigation } from "./navigation/root-navigation";
@@ -18,6 +19,8 @@ import { TranscriptPreferencesProvider } from "./state/transcript-preferences";
 import { migrateMobileDatabase, mobileDatabaseName } from "./storage/database";
 import { palette } from "./theme";
 import { AppUpdateBanner, AppUpdatesProvider } from "./updates/app-updates";
+
+pinDarkAppearance();
 
 const queryClient = new QueryClient({
   defaultOptions: {
