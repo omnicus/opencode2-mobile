@@ -862,6 +862,28 @@ export function renameOpenCodeSession(
   return client.session.update({ sessionID, title }, options);
 }
 
+// Archive state lives on the server, so every client sees the same archived sessions.
+export function archiveOpenCodeSession(
+  client: OpenCodeClient,
+  sessionID: string,
+  archived: boolean,
+  options?: OpenCodeRequestOptions,
+) {
+  return client.session.update({ archived, sessionID }, options);
+}
+
+// Marks the run that ended at `idle` as read for every client. A session is unread while
+// `time.idle` is newer than `time.viewed`.
+export function markOpenCodeSessionViewed(
+  client: OpenCodeClient,
+  sessionID: string,
+  idle: number,
+  options?: OpenCodeRequestOptions,
+) {
+  if (!Number.isFinite(idle) || idle < 0) throw new Error("INVALID_SESSION_IDLE");
+  return client.session.view({ idle, sessionID }, options);
+}
+
 export function removeOpenCodeSession(
   client: OpenCodeClient,
   sessionID: string,

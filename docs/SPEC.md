@@ -387,44 +387,78 @@ header. Close search clears the query, hides the keyboard, and collapses the
 field, and Android back does the same while search is open. The list body has
 no search field of its own.
 
-The default inbox is one list in up to three groups, in this order:
+The default inbox has the same layout as the OpenCode desktop Inbox sidebar
+(`packages/app/src/shell/titlebar/inbox.tsx` in OpenCode 2.2.5). A scrolling
+list shows, in this order:
 
-1. "Needs you": sessions with pending permissions or forms.
-2. "Working": sessions present in the connection-wide active-session snapshot.
-3. "Finished": the remaining sessions, in server recency order.
+1. "Needs attention" with its count: root sessions with a pending permission
+   ("Approval") or form ("Question") anywhere in their family.
+2. "Recent": finished root sessions that are not archived. The header shows
+   only when Needs attention has rows.
+3. "Archived": finished root sessions whose `time.archived` is set.
 
-A small separator sits above each group that has rows, including the first.
-It shows the group name in a dim footnote, a hairline that fills the row, and a
-chevron. The whole separator is one 48-point button whose screen-reader label
-names the group and its session count and whose state says whether it is
-expanded. Tapping it collapses or expands the group. The app keeps collapsed
-groups in memory per connection until it quits and never stores them. Groups
-start expanded. The change animates only when Reduce Motion is off. The list
-shows every ongoing session and fills the remaining rows up to 20 with the most
-recent finished sessions. It has no "load older" control. Search queries older
-sessions on the server, shows its results as one flat list ordered by recency
-without separators, and supports cursor pagination with "Load more results".
+"Working" closes the list, after Archived. Its header shows the count and a
+chevron, is one 48-point button whose state says whether it is expanded, and
+collapses or expands the section. The device stores that state per connection.
+The change animates only when Reduce Motion is off. The section fills the space
+a short list leaves, so it sits at the bottom of the screen. A longer list
+pushes it below the last row, and the whole inbox scrolls as one list. With
+Needs attention, Recent, and Archived all empty, the list shows an idle state:
+"Nothing needs you right now", then "Sessions show up here when they need your
+answer or finish a run." It ends with "Running sessions are under Working." while
+Working has rows, and "Start one with New session." otherwise.
 
-The app has no archive. Every followed-project session that the server returns
-can appear in the list or in search results.
+Recent and Archived list only sessions whose last run finished
+(`time.idle`) at or after the device's inbox start. The device stores that start
+per connection the first time it shows the inbox, so the inbox starts empty and
+fills as sessions finish, as on desktop. Desktop keeps its own start, so the two
+lists differ only by sessions that finished between the two starts, and archiving
+one on either side clears it from both. The session list pages back per
+followed project until it passes the inbox start, up to four pages. The archived
+list loads the newest 50 archived roots per followed project.
+
+Archive and read state live on the server and are shared with every client.
+Swiping a row, its accessibility action, and the long-press sheet archive or
+unarchive it with `PATCH /api/session/{id}` and `{ archived }`. The row moves
+at once and the lists refetch. A failure leaves the row and shows an alert.
+`session.archived`, `session.unarchived`, and `session.viewed` events from other
+clients refetch the session lists. So does `session.execution.started`, because
+a new run's `time.busy` is the start of the working duration. A finished session is unread while
+`time.idle` is newer than `time.viewed`. An open, focused session in the
+foreground marks its last finished run viewed with
+`POST /api/session/{id}/view`, so it also reads as read on desktop.
+
+Search queries older sessions on the server, including ones that finished
+before the inbox start, shows its results as one flat list ordered by recency
+without headers or the Working section, and supports cursor pagination with "Load more
+results".
 
 Attention takes presentation priority over execution, so a running session with
-a pending interaction appears only once, ahead of working sessions. Keep attention, execution,
+a pending interaction appears only once, in Needs attention. Keep attention, execution,
 lifecycle, transport freshness, and local prompt-admission recovery as separate
 internal facts even when the row presents one primary label. Do not reinterpret
 OpenCode's `{ type: "running" }` active-session result as a broader inbox
 lifecycle.
 
-Each row starts with the project's avatar, centered on the title line. The
-right side of the title line shows an amber dot and the request label when the
-session needs you, the working indicator while it works, and otherwise the
-relative update time. A second line, aligned with the title, names the project. It adds the worktree name only when the session's
-directory differs from the project's canonical directory and that data is
-already loaded. Rows do not show branches, child rows, or background-task
-counts. Rows have no cards or separators between them. A two-line row is about
-64 points tall. Search results use the same rows. The row's screen-reader label
-still includes the title, project, state, and update time. Keep existing rows stable while activity streams instead of
-reordering them on every update.
+Each row has three lines. The first shows the project's avatar and name in a
+dim footnote, with the status on the right: "Approval" or "Question" in amber,
+"Working" and the current run's duration in blue (ticking each second, while
+screen readers hear only "Working"), "Failed" in red or "Done" in green for an
+unread finished run, and otherwise the age of the last run. The second line is
+the title, semibold while unread and dim once read. The third line shows the
+branch for a session in the project's checkout or a current worktree, and the
+worktree directory name for a session elsewhere. The app reads VCS only for
+those live directories because reading initializes a location on the server.
+Working rows are at 70% opacity and archived rows at 50%. Rows do not show
+child rows or background-task counts, and have no cards or separators between
+them. Search results use the same rows. The row's screen-reader label includes
+the title, project, branch or worktree, state, archive state, and the time of
+the last run.
+
+Needs attention keeps its rows in place while their families stream. Working
+sorts by when each run started, so rows stay put while they stream and a
+session that starts working joins the end. Recent and Archived sort by the most
+recently finished run.
 
 Project avatars follow OpenCode desktop. The project's `icon.color` picks one of
 orange, yellow, cyan, green, red, pink, blue, purple, or gray. "mint" means
@@ -545,8 +579,9 @@ state rather than local transcript storage.
 - Followed-project management using projects known to the selected OpenCode
   connection.
 - Project, location, directory, and worktree selection for new sessions.
-- Cross-project session inbox: collapsible Needs you, Working, and Finished
-  groups up to 20 rows, with server search and pagination for older sessions.
+- Cross-project session inbox in the OpenCode desktop Inbox layout: Needs
+  attention, Recent, Archived, and Working in one scrolling list, server-shared
+  archive and read state, and server search and pagination for older sessions.
 - Session transcript with stable live-follow and unread controls.
 - Composer with multiline native editing and model/agent controls.
 - Permission and form sheets.
@@ -563,7 +598,8 @@ control. Keep a visible attention-count action available from session detail.
 The phone Sessions screen has a floating bottom menu: a pill with three tabs,
 Chat, PRs, and Approvals, and a round New session button apart on the right.
 Chat is the session list. PRs lists open GitHub pull requests for followed
-projects. Approvals shows the same permission and form requests as Needs you.
+projects. Approvals shows the same permission and form requests as Needs
+attention.
 The Approvals tab shows the request count, or a dim dot while attention coverage
 is stale or incomplete. Tabs switch in place without stack navigation, and Chat
 stays mounted so its scroll position survives. Android back returns to Chat

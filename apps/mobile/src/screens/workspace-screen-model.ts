@@ -3,7 +3,11 @@ import type {
   SessionInfo,
   SessionsResponse,
 } from "@opencode2-mobile/opencode-adapter";
-import type { FollowedInboxRow, FollowedInboxSections } from "../state/followed-project-inbox";
+import type {
+  FollowedInboxRow,
+  FollowedInboxSections,
+  FollowedInboxStatus,
+} from "../state/followed-project-inbox";
 
 type Project = ProjectListOutput[number];
 
@@ -84,64 +88,74 @@ export function projectDirectories(
   ];
 }
 
-export type WorkspaceGroup = "finished" | "needs-you" | "working";
+export type WorkspaceSection = "archived" | "needs-you" | "recent";
 
-export const workspaceGroupLabels: Record<WorkspaceGroup, string> = {
-  finished: "Finished",
-  "needs-you": "Needs you",
+export const workspaceSectionLabels: Record<WorkspaceSection | "working", string> = {
+  archived: "Archived",
+  "needs-you": "Needs attention",
+  recent: "Recent",
+  working: "Working",
+};
+
+export const inboxStatusLabels: Record<Exclude<FollowedInboxStatus, "ready">, string> = {
+  approval: "Approval",
+  done: "Done",
+  failed: "Failed",
+  input: "Question",
   working: "Working",
 };
 
 export type WorkspaceInboxItem =
-  | { collapsed: boolean; count: number; group: WorkspaceGroup; key: string; type: "group" }
+  | { count?: number; key: string; section: WorkspaceSection; type: "header" }
   | { key: string; row: FollowedInboxRow; type: "session" };
 
 function sessionItem(row: FollowedInboxRow): WorkspaceInboxItem {
   return { key: row.session.id, row, type: "session" };
 }
 
-// Every ongoing row, then the newest finished rows up to the limit, each group under its own
-// separator. Rows keep the stabilized order from the inbox so they do not jump while sessions
-// stream.
-export function workspaceInboxItems(
-  inbox: FollowedInboxSections,
-  limit: number,
-  collapsed: ReadonlySet<WorkspaceGroup> = new Set(),
-): WorkspaceInboxItem[] {
-  const ongoingCount = inbox.needsYou.length + inbox.working.length;
-  const finishedIDs = new Set(
-    [...inbox.recent]
-      .sort((first, second) => second.session.time.updated - first.session.time.updated)
-      .slice(0, Math.max(0, limit - ongoingCount))
-      .map((row) => row.session.id),
-  );
-  const groups: [WorkspaceGroup, FollowedInboxRow[]][] = [
-    ["needs-you", inbox.needsYou],
-    ["working", inbox.working],
-    ["finished", inbox.recent.filter((row) => finishedIDs.has(row.session.id))],
+// The scrolling part of the OpenCode desktop inbox: Needs attention with its count, Recent
+// (headed only below Needs attention), then Archived. Working rows sit in their own shelf.
+export function workspaceInboxItems(inbox: FollowedInboxSections): WorkspaceInboxItem[] {
+  return [
+    ...(inbox.needsYou.length > 0
+      ? [
+          {
+            count: inbox.needsYou.length,
+            key: "header:needs-you",
+            section: "needs-you" as const,
+            type: "header" as const,
+          },
+          ...inbox.needsYou.map(sessionItem),
+        ]
+      : []),
+    ...(inbox.recent.length > 0 && inbox.needsYou.length > 0
+      ? [{ key: "header:recent", section: "recent" as const, type: "header" as const }]
+      : []),
+    ...inbox.recent.map(sessionItem),
+    ...(inbox.archived.length > 0
+      ? [
+          { key: "header:archived", section: "archived" as const, type: "header" as const },
+          ...inbox.archived.map(sessionItem),
+        ]
+      : []),
   ];
-  return groups.flatMap(([group, rows]) => {
-    if (rows.length === 0) return [];
-    const groupCollapsed = collapsed.has(group);
-    return [
-      {
-        collapsed: groupCollapsed,
-        count: rows.length,
-        group,
-        key: `group:${group}`,
-        type: "group" as const,
-      },
-      ...(groupCollapsed ? [] : rows.map(sessionItem)),
-    ];
-  });
 }
 
 export function searchResultItems(inbox: FollowedInboxSections) {
-  return [...inbox.needsYou, ...inbox.working, ...inbox.recent]
+  return [...inbox.needsYou, ...inbox.working, ...inbox.recent, ...inbox.archived]
     .sort(
       (first, second) =>
         second.session.time.updated - first.session.time.updated ||
         first.session.id.localeCompare(second.session.id),
     )
     .map(sessionItem);
+}
+
+// Compact elapsed time as in the desktop inbox: seconds only while a run is under a minute old.
+export function formatElapsed(milliseconds: number, seconds: boolean) {
+  const elapsed = Math.max(0, Math.floor(milliseconds / 1000));
+  if (elapsed < 60) return seconds ? `${elapsed}s` : "now";
+  if (elapsed < 3600) return `${Math.floor(elapsed / 60)}m`;
+  if (elapsed < 86_400) return `${Math.floor(elapsed / 3600)}h`;
+  return `${Math.floor(elapsed / 86_400)}d`;
 }

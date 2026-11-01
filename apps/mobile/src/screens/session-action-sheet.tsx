@@ -12,6 +12,7 @@ import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
+import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import { minTouchTarget, palette, radius, space, typeRamp, typography } from "../theme";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
@@ -35,6 +36,8 @@ export function SessionActionSheet({
   const runtime = useConnectionRuntime();
   const queryClient = useQueryClient();
   const db = useSQLiteContext();
+  const workspaceSelection = useWorkspaceSelection();
+  const archived = session.time.archived !== undefined;
   const [page, setPage] = useState<"menu" | "rename" | "delete" | "devtools">("menu");
   const [title, setTitle] = useState(session.title ?? "");
   const [busy, setBusy] = useState(false);
@@ -57,7 +60,7 @@ export function SessionActionSheet({
 
   const canSaveName = connected && Boolean(title.trim()) && title.trim() !== session.title;
 
-  async function perform(action: "rename" | "delete") {
+  async function perform(action: "archive" | "rename" | "delete") {
     if (controllerRef.current || runtime.connectionId !== connectionId) return;
     if (!connected || !runtime.restClient) return;
     if (action === "rename" && !title.trim()) return;
@@ -67,6 +70,8 @@ export function SessionActionSheet({
     setError(undefined);
     let cleanupIncomplete = false;
     try {
+      // Archive state is shared with every client, including OpenCode desktop.
+      if (action === "archive") await workspaceSelection.archiveSession(session, !archived);
       if (action === "rename" && runtime.restClient)
         await renameOpenCodeSession(runtime.restClient, session.id, title.trim(), {
           signal: controller.signal,
@@ -160,10 +165,18 @@ export function SessionActionSheet({
           <MenuGroup>
             <MenuRow
               icon="edit-2"
-              last
               label="Rename"
               disabled={busy || !connected}
               onPress={() => setPage("rename")}
+            />
+            <MenuRow
+              icon="archive"
+              last
+              disclosure={false}
+              label={archived ? "Unarchive" : "Archive"}
+              description="Applies on every device"
+              disabled={busy || !connected}
+              onPress={() => void perform("archive")}
             />
           </MenuGroup>
           <MenuGroup>

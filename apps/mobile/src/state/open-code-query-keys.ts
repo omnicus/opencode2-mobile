@@ -1,10 +1,13 @@
 import type { LocationRef } from "@opencode2-mobile/opencode-adapter";
 
 export type SessionListKeyParameters = {
+  archived?: boolean;
   limit?: number;
   order?: "asc" | "desc";
   parentID?: string | null;
   search?: string;
+  // The inbox start that the list pages back to.
+  since?: number;
 };
 
 export type MessageListKeyParameters = {
@@ -65,6 +68,8 @@ export const openCodeQueryKeys = {
         : parameters.parentID === null
           ? "parent:root"
           : parameters.parentID,
+      parameters.archived ? "archived" : "active",
+      parameters.since ?? null,
       reconciliationRevision,
     ] as const;
   },

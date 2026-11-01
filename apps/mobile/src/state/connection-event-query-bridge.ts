@@ -479,9 +479,9 @@ function eventInvalidationRoot(event: OpenCodeEvent): InvalidationRoot | undefin
   if (event.type === "vcs.branch.updated") return "vcs";
   if (event.type === "project.updated") return "projects";
   if (inboxEventTypes.has(event.type)) return "inbox";
-  if (event.type === "session.status" || event.type === "session.execution.started") {
-    return undefined;
-  }
+  if (event.type === "session.status") return undefined;
+  // A new run sets `time.busy`, which the inbox shows as how long the session has worked.
+  if (event.type === "session.execution.started") return "sessions";
   if (sessionMetadataEventTypes.has(event.type)) return "sessions";
   if (
     event.type.startsWith("session.") &&
@@ -520,7 +520,10 @@ const sessionMetadataEventTypes = new Set<string>([
   "session.moved",
   "session.deleted",
   "session.renamed",
+  // Archive and read state are shared with other clients, so the session lists follow them.
   "session.viewed",
+  "session.archived",
+  "session.unarchived",
   "session.execution.succeeded",
   "session.execution.failed",
   "session.execution.interrupted",

@@ -1,4 +1,5 @@
 import {
+  archiveOpenCodeSession,
   type FormInfo,
   getDefaultOpenCodeLocation,
   getOpenCodeLocation,
@@ -12,9 +13,11 @@ import {
   type PermissionReply,
   type PermissionRequest,
   replyOpenCodePermissionRequest,
+  type SessionInfo,
 } from "@opencode2-mobile/opencode-adapter";
 import {
   hashKey,
+  type InfiniteData,
   type QueryKey,
   useInfiniteQuery,
   useMutation,
@@ -38,10 +41,16 @@ import {
   readFollowedProjectIds,
   replaceFollowedProjectIds,
 } from "../storage/followed-project-repository";
+import {
+  type SessionInboxPreferences,
+  startSessionInbox,
+  writeWorkingShelfExpanded,
+} from "../storage/session-inbox-repository";
 import { useConnectionRuntime } from "./connection-runtime-context";
 import {
   buildFollowedInboxSections,
   type FollowedInboxSections,
+  type FollowedSessionPage,
   type FollowedSessionPageParam,
   failedFollowedSessionProjects,
   fetchFollowedSessionPage,
@@ -49,12 +58,15 @@ import {
   loadSessionAncestries,
   locationKey,
   nextFollowedSessionPageParam,
+  setFollowedSessionArchived,
   stabilizeFollowedInboxSections,
   uniqueLocations,
 } from "./followed-project-inbox";
 import { openCodeQueryKeys } from "./open-code-query-keys";
 
 const sessionPageSize = 30;
+// The OpenCode desktop inbox also loads the newest 50 archived root sessions.
+const archivedPageSize = 50;
 const unresolvedConnectionID = "unselected";
 // ["opencode", connectionID, "session-ancestries", purpose]
 const ancestryScopeLength = 4;
@@ -81,6 +93,7 @@ export type AttentionCoverage = {
 };
 
 type FollowedProjectsContextValue = {
+  archiveSession: (session: SessionInfo, archived: boolean) => Promise<void>;
   attentionCoverage: AttentionCoverage;
   blockedSessionIds: ReadonlySet<string>;
   fetchNextPage: () => Promise<unknown>;
@@ -111,7 +124,9 @@ type FollowedProjectsContextValue = {
   setFollowedProjectIds: (projectIDs: readonly string[]) => Promise<void>;
   setLocation: (location: LocationRef | undefined) => void;
   setSearch: (search: string) => void;
+  setWorkingExpanded: (expanded: boolean) => void;
   unavailableProjectIds: string[];
+  workingExpanded: boolean;
 };
 
 const FollowedProjectsContext = createContext<FollowedProjectsContextValue | undefined>(undefined);
@@ -135,6 +150,10 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     projectIDs: string[];
   }>();
   const [preferencesSaving, setPreferencesSaving] = useState(false);
+  const [inboxPreferenceState, setInboxPreferenceState] = useState<{
+    connectionKey: string;
+    preferences: SessionInboxPreferences;
+  }>();
   const inboxOrderRef = useRef<{
     connectionKey: string | undefined;
     inbox: FollowedInboxSections;
@@ -185,6 +204,28 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
       active = false;
     };
   }, [connectionID, connectionKey, db]);
+
+  const connectionUpdatedAtMs = runtime.connectionUpdatedAtMs;
+  useEffect(() => {
+    setInboxPreferenceState(undefined);
+    if (!connectionID || !connectionKey || connectionUpdatedAtMs === undefined) return;
+    let active = true;
+    const nowMs = Date.now();
+    // A device that cannot store its inbox start still shows one, starting now.
+    void startSessionInbox(db, connectionID, connectionUpdatedAtMs, nowMs)
+      .catch(() => ({ sinceMs: nowMs, workingExpanded: true }))
+      .then((preferences) => {
+        if (active) setInboxPreferenceState({ connectionKey, preferences });
+      });
+    return () => {
+      active = false;
+    };
+  }, [connectionID, connectionKey, connectionUpdatedAtMs, db]);
+  const inboxPreferences =
+    inboxPreferenceState && inboxPreferenceState.connectionKey === connectionKey
+      ? inboxPreferenceState.preferences
+      : undefined;
+  const inboxSinceMs = inboxPreferences?.sinceMs;
 
   const projectsQuery = useQuery({
     enabled: Boolean(client && connectionID),
@@ -275,12 +316,21 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
   const sessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
     connectionID ?? unresolvedConnectionID,
     availableFollowedProjectIDs,
-    { limit: sessionPageSize, order: "desc", parentID: null },
+    {
+      limit: sessionPageSize,
+      order: "desc",
+      parentID: null,
+      ...(inboxSinceMs === undefined ? {} : { since: inboxSinceMs }),
+    },
     revision,
   );
   const sessionsQuery = useInfiniteQuery({
     enabled: Boolean(
-      client && connectionID && preferenceReady && availableFollowedProjectIDs.length,
+      client &&
+        connectionID &&
+        preferenceReady &&
+        inboxSinceMs !== undefined &&
+        availableFollowedProjectIDs.length,
     ),
     getNextPageParam: nextFollowedSessionPageParam,
     initialPageParam,
@@ -293,9 +343,39 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
       return fetchFollowedSessionPage(client, availableFollowedProjectIDs, pageParam, {
         limit: sessionPageSize,
         signal,
+        ...(inboxSinceMs === undefined ? {} : { until: inboxSinceMs }),
       });
     },
     queryKey: sessionsQueryKey,
+  });
+  const archivedSessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
+    connectionID ?? unresolvedConnectionID,
+    availableFollowedProjectIDs,
+    { archived: true, limit: archivedPageSize, order: "desc", parentID: null },
+    revision,
+  );
+  const archivedSessionsQuery = useQuery({
+    enabled: Boolean(
+      client && connectionID && preferenceReady && availableFollowedProjectIDs.length,
+    ),
+    placeholderData: (previous: FollowedSessionPage | undefined, previousQuery) =>
+      sameRevisionScope(
+        previousQuery?.queryKey,
+        archivedSessionsQueryKey,
+        archivedSessionsQueryKey.length - 1,
+      )
+        ? previous
+        : undefined,
+    queryFn: ({ signal }) => {
+      if (!client) throw new Error("CONNECTION_NOT_READY");
+      return fetchFollowedSessionPage(
+        client,
+        availableFollowedProjectIDs,
+        Object.fromEntries(availableFollowedProjectIDs.map((projectID) => [projectID, undefined])),
+        { archived: true, limit: archivedPageSize, signal },
+      );
+    },
+    queryKey: archivedSessionsQueryKey,
   });
   const normalizedSearch = search.trim();
   const searchSessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
@@ -338,9 +418,13 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     queryKey: searchSessionsQueryKey,
   });
   const rootSessions = flattenFollowedSessionPages(sessionsQuery.data?.pages);
+  // Archived roots only add Archived rows. Location discovery keeps to the active list.
   const visibleRootSessions = normalizedSearch
     ? flattenFollowedSessionPages(searchSessionsQuery.data?.pages)
-    : rootSessions;
+    : flattenFollowedSessionPages([
+        ...(sessionsQuery.data?.pages ?? []),
+        ...(archivedSessionsQuery.data ? [archivedSessionsQuery.data] : []),
+      ]);
 
   const activeSessionsQuery = useQuery({
     enabled: Boolean(client && connectionID),
@@ -679,6 +763,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     forms,
     permissions,
     projects,
+    recentSince: normalizedSearch ? "all" : inboxSinceMs,
     rootSessions: visibleRootSessions,
   });
   const previousInboxOrder = inboxOrderRef.current;
@@ -906,11 +991,56 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     },
     [client, connectionID, permissionLocations, permissionReplyMutation],
   );
+  const archiveSession = useCallback(
+    async (session: SessionInfo, archived: boolean) => {
+      if (!client || !connectionID) throw new Error("CONNECTION_NOT_READY");
+      await archiveOpenCodeSession(client, session.id, archived);
+      // Move the row at once. The archive event and this refetch bring the server's copy.
+      const archivedAt = archived ? Date.now() : undefined;
+      const followedSessions = (query: { queryKey: QueryKey }) =>
+        query.queryKey[0] === "opencode" &&
+        query.queryKey[1] === connectionID &&
+        query.queryKey[2] === "followed-project-sessions";
+      queryClient.setQueriesData<
+        InfiniteData<FollowedSessionPage, FollowedSessionPageParam> | FollowedSessionPage
+      >({ predicate: followedSessions }, (current) => {
+        if (!current) return current;
+        if ("pages" in current) {
+          return {
+            ...current,
+            pages: current.pages.map((page) =>
+              setFollowedSessionArchived(page, session.id, archivedAt),
+            ),
+          };
+        }
+        return setFollowedSessionArchived(current, session.id, archivedAt);
+      });
+      void queryClient.invalidateQueries({ predicate: followedSessions });
+    },
+    [client, connectionID, queryClient],
+  );
+  const setWorkingExpanded = useCallback(
+    (expanded: boolean) => {
+      if (!connectionID || !connectionKey) return;
+      setInboxPreferenceState((current) =>
+        current && current.connectionKey === connectionKey
+          ? { ...current, preferences: { ...current.preferences, workingExpanded: expanded } }
+          : current,
+      );
+      if (connectionUpdatedAtMs === undefined) return;
+      // The shelf follows the tap even when the device cannot store it.
+      void writeWorkingShelfExpanded(db, connectionID, connectionUpdatedAtMs, expanded).catch(
+        () => undefined,
+      );
+    },
+    [connectionID, connectionKey, connectionUpdatedAtMs, db],
+  );
   const visibleSessionsQuery = normalizedSearch ? searchSessionsQuery : sessionsQuery;
 
   return (
     <FollowedProjectsContext
       value={{
+        archiveSession,
         attentionCoverage,
         blockedSessionIds: new Set(interactionSessionIDs),
         // Placeholder pages belong to the previous revision. Paging from them
@@ -945,7 +1075,9 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
             projectsQuery.refetch(),
             defaultLocationQuery.refetch(),
             activeSessionsQuery.refetch(),
-            ...(availableFollowedProjectIDs.length ? [sessionsQuery.refetch()] : []),
+            ...(availableFollowedProjectIDs.length
+              ? [sessionsQuery.refetch(), archivedSessionsQuery.refetch()]
+              : []),
             ...(availableFollowedProjectIDs.length && normalizedSearch
               ? [searchSessionsQuery.refetch()]
               : []),
@@ -971,7 +1103,9 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         setFollowedProjectIds,
         setLocation,
         setSearch,
+        setWorkingExpanded,
         unavailableProjectIds,
+        workingExpanded: inboxPreferences?.workingExpanded ?? true,
       }}
     >
       {children}

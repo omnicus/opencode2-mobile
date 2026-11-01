@@ -12,15 +12,18 @@ import {
   failedFollowedSessionProjects,
   fetchFollowedSessionPage,
   flattenFollowedSessionPages,
+  isSessionUnread,
   nextFollowedSessionPageParam,
+  setFollowedSessionArchived,
   stabilizeFollowedInboxSections,
   uniqueLocations,
+  workingSince,
 } from "./followed-project-inbox";
 
 type ListProjectSessionsCall = (
   client: OpenCodeClient,
   projectID: string,
-  input: { cursor?: string },
+  input: { archived?: boolean; cursor?: string },
   options?: { signal?: AbortSignal },
 ) => Promise<SessionsResponse>;
 
@@ -121,6 +124,7 @@ test("builds non-overlapping sections and bubbles child work and attention once"
         time: { active: 1, created: 1, updated: 1 },
       },
     ],
+    recentSince: "all",
     rootSessions: [root, recent],
   });
 
@@ -128,7 +132,7 @@ test("builds non-overlapping sections and bubbles child work and attention once"
   expect(sections.needsYou[0]).toMatchObject({
     active: true,
     attentionCount: 2,
-    attentionLabel: "2 requests",
+    status: "approval",
     projectLabel: "Alpha",
     targetLocation: child.location,
     targetSessionID: "ses_child",
@@ -142,7 +146,7 @@ test("builds non-overlapping sections and bubbles child work and attention once"
 });
 
 test.each(["permission", "form"] as const)(
-  "labels a single %s request without server content",
+  "gives a single %s request its status without server content",
   (kind) => {
     const root = session("ses_reason", 3, "project-a");
     const permission: PermissionRequest = {
@@ -161,13 +165,14 @@ test.each(["permission", "form"] as const)(
       activeSessionIDs: [root.id],
       ancestrySessions: {},
       projects: [],
+      recentSince: "all",
       rootSessions: [root],
       permissions: kind === "permission" ? [permission, permission] : [],
       forms: kind === "form" ? [form, form] : [],
     });
     expect(sections.needsYou[0]).toMatchObject({
       attentionCount: 1,
-      attentionLabel: kind === "permission" ? "Permission required" : "Form required",
+      status: kind === "permission" ? "approval" : "input",
     });
     expect(sections.working).toEqual([]);
   },
@@ -195,10 +200,12 @@ test("shows actionable ancestry roots and orphan fallbacks outside loaded feed p
         time: { active: 1, created: 1, updated: 1 },
       },
     ],
+    recentSince: "all",
     rootSessions: [],
   });
 
-  expect(sections.working.map((row) => row.session.id)).toEqual(["ses_orphan", "ses_older_root"]);
+  // Neither run start is known, so the order falls back to the session ID.
+  expect(sections.working.map((row) => row.session.id)).toEqual(["ses_older_root", "ses_orphan"]);
   expect(sections.unmatchedSessionIDs).toEqual([]);
 });
 
@@ -212,6 +219,7 @@ test("background-only child work makes the root row working and still opens the 
     forms: [],
     permissions: [],
     projects: [],
+    recentSince: "all",
     rootSessions: [root],
   });
 
@@ -247,6 +255,7 @@ test("labels a worktree only when the session runs outside the project's canonic
     forms: [],
     permissions: [],
     projects: [project],
+    recentSince: "all",
     rootSessions: [canonical, worktree],
   });
 
@@ -287,6 +296,7 @@ test("keeps global forms out of session ancestry without marking coverage unreso
     ],
     permissions: [],
     projects: [],
+    recentSince: "all",
     rootSessions: [root],
   });
 
@@ -294,106 +304,182 @@ test("keeps global forms out of session ancestry without marking coverage unreso
   expect(sections.recent.map((row) => row.session.id)).toEqual([root.id]);
 });
 
-test("keeps existing priority rows stable while their server timestamps change", () => {
+test("keeps Needs you rows stable while their server timestamps change", () => {
   const first = session("ses_first", 1, "project-a");
   const second = session("ses_second", 2, "project-a");
-  const previous = buildFollowedInboxSections({
-    activeSessionIDs: [first.id, second.id],
-    ancestrySessions: { [first.id]: first, [second.id]: second },
-    forms: [],
-    permissions: [],
-    projects: [],
-    rootSessions: [first, second],
-  });
-  const next = buildFollowedInboxSections({
-    activeSessionIDs: [first.id, second.id],
-    ancestrySessions: {
-      [first.id]: { ...first, time: { created: 1, updated: 4 } },
-      [second.id]: second,
-    },
-    forms: [],
-    permissions: [],
-    projects: [],
-    rootSessions: [{ ...first, time: { created: 1, updated: 4 } }, second],
-  });
+  const permissions = [first, second].map((item) => ({
+    action: "shell",
+    id: `per_${item.id}`,
+    resources: [],
+    sessionID: item.id,
+  }));
+  const build = (rootSessions: SessionInfo[]) =>
+    buildFollowedInboxSections({
+      activeSessionIDs: [],
+      ancestrySessions: {},
+      forms: [],
+      permissions,
+      projects: [],
+      recentSince: 0,
+      rootSessions,
+    });
+  const previous = build([first, second]);
+  const next = build([{ ...first, time: { created: 1, updated: 4 } }, second]);
 
+  expect(previous.needsYou.map((row) => row.session.id)).toEqual(["ses_second", "ses_first"]);
+  expect(next.needsYou.map((row) => row.session.id)).toEqual(["ses_first", "ses_second"]);
   expect(
-    stabilizeFollowedInboxSections(next, previous).working.map((row) => row.session.id),
+    stabilizeFollowedInboxSections(next, previous).needsYou.map((row) => row.session.id),
   ).toEqual(["ses_second", "ses_first"]);
 });
 
-test("keeps existing recent rows stable across competing timestamp updates", () => {
-  const first = session("ses_first", 1, "project-a");
-  const second = session("ses_second", 2, "project-a");
-  const previous = buildFollowedInboxSections({
-    activeSessionIDs: [],
+test("orders Working by when each run started, with unknown starts last", () => {
+  const late = run(session("ses_late", 9, "project-a"), { busy: 300 });
+  const early = run(session("ses_early", 8, "project-a"), { busy: 100 });
+  // The previous run ended after it started, so this run's start is not known yet.
+  const unknown = run(session("ses_unknown", 10, "project-a"), { busy: 50, idle: 60 });
+
+  const sections = buildFollowedInboxSections({
+    activeSessionIDs: [late.id, early.id, unknown.id],
     ancestrySessions: {},
     forms: [],
     permissions: [],
     projects: [],
-    rootSessions: [first, second],
-  });
-  const firstUpdate = buildFollowedInboxSections({
-    activeSessionIDs: [],
-    ancestrySessions: {},
-    forms: [],
-    permissions: [],
-    projects: [],
-    rootSessions: [{ ...first, time: { created: 1, updated: 3 } }, second],
-  });
-  const firstStableUpdate = stabilizeFollowedInboxSections(firstUpdate, previous);
-  const secondUpdate = buildFollowedInboxSections({
-    activeSessionIDs: [],
-    ancestrySessions: {},
-    forms: [],
-    permissions: [],
-    projects: [],
-    rootSessions: [
-      { ...first, time: { created: 1, updated: 3 } },
-      { ...second, time: { created: 2, updated: 4 } },
-    ],
+    recentSince: 0,
+    rootSessions: [late, early, unknown],
   });
 
-  expect(firstStableUpdate.recent.map((row) => row.session.id)).toEqual([
-    "ses_second",
-    "ses_first",
+  expect(sections.working.map((row) => row.session.id)).toEqual([
+    "ses_early",
+    "ses_late",
+    "ses_unknown",
   ]);
-  expect(
-    stabilizeFollowedInboxSections(secondUpdate, firstStableUpdate).recent.map(
-      (row) => row.session.id,
-    ),
-  ).toEqual(["ses_second", "ses_first"]);
+  expect(sections.working.every((row) => row.status === "working")).toBe(true);
+  expect(workingSince(late)).toBe(300);
+  expect(workingSince(unknown)).toBeUndefined();
 });
 
-test("inserts newly discovered sessions by recency without reordering existing rows", () => {
-  const first = session("ses_first", 3, "project-a");
-  const second = session("ses_second", 2, "project-a");
-  const previous = buildFollowedInboxSections({
+test("lists only runs finished since the inbox started, newest first, split by archive", () => {
+  const before = run(session("ses_before", 9, "project-a"), { idle: 999 });
+  const never = session("ses_never", 8, "project-a");
+  const older = run(session("ses_older", 7, "project-a"), { idle: 1_100 });
+  const newer = run(session("ses_newer", 6, "project-a"), { idle: 1_300 });
+  const archived = run(session("ses_archived", 5, "project-a"), { archived: 1_400, idle: 1_200 });
+  const archivedBefore = run(session("ses_archived_before", 4, "project-a"), {
+    archived: 1_400,
+    idle: 900,
+  });
+  const input = {
     activeSessionIDs: [],
     ancestrySessions: {},
     forms: [],
     permissions: [],
     projects: [],
-    rootSessions: [first, second],
-  });
-  const next = buildFollowedInboxSections({
+    rootSessions: [before, never, older, newer, archived, archivedBefore],
+  };
+
+  const sections = buildFollowedInboxSections({ ...input, recentSince: 1_000 });
+  expect(sections.recent.map((row) => row.session.id)).toEqual(["ses_newer", "ses_older"]);
+  expect(sections.archived.map((row) => row.session.id)).toEqual(["ses_archived"]);
+  expect(sections.archived[0]).toMatchObject({ archived: true, section: "archived" });
+  // Until the device knows when its inbox started, nothing finished is listed.
+  const unstarted = buildFollowedInboxSections({ ...input, recentSince: undefined });
+  expect([...unstarted.recent, ...unstarted.archived]).toEqual([]);
+  // Search lists every finished session.
+  expect(buildFollowedInboxSections({ ...input, recentSince: "all" }).recent).toHaveLength(4);
+});
+
+test("finished rows are done, failed, or ready from the shared viewed time", () => {
+  const done = run(session("ses_done", 3, "project-a"), { idle: 20, viewed: 10 });
+  const failed = {
+    ...run(session("ses_failed", 2, "project-a"), { idle: 20 }),
+    outcome: "failed" as const,
+  };
+  const read = {
+    ...run(session("ses_read", 1, "project-a"), { idle: 20, viewed: 20 }),
+    outcome: "failed" as const,
+  };
+
+  const sections = buildFollowedInboxSections({
     activeSessionIDs: [],
     ancestrySessions: {},
     forms: [],
     permissions: [],
     projects: [],
-    rootSessions: [
-      session("ses_new", 4, "project-a"),
-      first,
-      second,
-      session("ses_older", 1, "project-a"),
-    ],
+    recentSince: 0,
+    rootSessions: [done, failed, read],
   });
 
-  expect(
-    stabilizeFollowedInboxSections(next, previous).recent.map((row) => row.session.id),
-  ).toEqual(["ses_new", "ses_first", "ses_second", "ses_older"]);
+  expect(Object.fromEntries(sections.recent.map((row) => [row.session.id, row.status]))).toEqual({
+    ses_done: "done",
+    ses_failed: "failed",
+    ses_read: "ready",
+  });
+  expect(isSessionUnread(done)).toBe(true);
+  expect(isSessionUnread(read)).toBe(false);
+  expect(isSessionUnread(session("ses_never", 1, "project-a"))).toBe(false);
 });
+
+test("pages each project back to the inbox start and asks for archived roots", async () => {
+  mockListProjectSessions.mockReset();
+  mockListProjectSessions.mockImplementation(async (_client, _projectID, input) => {
+    const page = Number(input.cursor ?? 0);
+    // Each page is ten minutes older than the one before it.
+    return {
+      cursor: { next: String(page + 1) },
+      data: [session(`ses_${page}`, 10_000_000 - page * 600_000, "project-a")],
+    };
+  });
+  const client = {} as OpenCodeClient;
+
+  const page = await fetchFollowedSessionPage(
+    client,
+    ["project-a"],
+    { "project-a": undefined },
+    { limit: 30, until: 10_000_000 - 1_000_000 },
+  );
+  expect(page.responses["project-a"]?.data.map((item) => item.id)).toEqual([
+    "ses_0",
+    "ses_1",
+    "ses_2",
+  ]);
+  expect(page.cursors).toEqual({ "project-a": "3" });
+
+  mockListProjectSessions.mockClear();
+  await fetchFollowedSessionPage(
+    client,
+    ["project-a"],
+    { "project-a": undefined },
+    { archived: true, limit: 50 },
+  );
+  expect(mockListProjectSessions).toHaveBeenCalledTimes(1);
+  expect(mockListProjectSessions).toHaveBeenCalledWith(
+    client,
+    "project-a",
+    { archived: true, limit: 50, order: "desc", parentID: null },
+    undefined,
+  );
+});
+
+test("moves a cached session between Recent and Archived", () => {
+  const first = session("ses_first", 2, "project-a");
+  const page = {
+    cursors: {},
+    failures: [],
+    responses: { "project-a": { cursor: {}, data: [first, session("ses_other", 1, "project-a")] } },
+  };
+
+  const archived = setFollowedSessionArchived(page, "ses_first", 50);
+  expect(archived.responses["project-a"]?.data[0]?.time.archived).toBe(50);
+  expect(archived.responses["project-a"]?.data[1]).toBe(page.responses["project-a"].data[1]);
+  const restored = setFollowedSessionArchived(archived, "ses_first", undefined);
+  expect(restored.responses["project-a"]?.data[0]?.time).not.toHaveProperty("archived");
+  expect(setFollowedSessionArchived(page, "ses_missing", 50)).toBe(page);
+});
+
+function run(item: SessionInfo, time: Partial<SessionInfo["time"]>): SessionInfo {
+  return { ...item, time: { ...item.time, ...time } };
+}
 
 function session(id: string, updated: number, projectID: string): SessionInfo {
   return {
