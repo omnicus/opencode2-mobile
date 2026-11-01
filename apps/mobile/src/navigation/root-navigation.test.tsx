@@ -174,7 +174,7 @@ test("pushes session detail and presents workspace management routes over it", a
 
   act(() => navigation.navigate("Pending"));
   expect(await screen.findByText("Pending screen")).toBeOnTheScreen();
-  act(() => navigation.goBack());
+  fireEvent.press(screen.getByRole("button", { name: "Done" }));
   expect(await screen.findByText("Session screen")).toBeOnTheScreen();
 
   act(() => navigation.navigate("FollowedProjects"));

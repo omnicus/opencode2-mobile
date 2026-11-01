@@ -7,6 +7,7 @@ import { Dimensions, Pressable, Text } from "react-native";
 import { useConnections } from "../connections/connections-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
+import { typography } from "../theme";
 import {
   getConnectionPresentation,
   getWorkspaceState,
@@ -24,14 +25,14 @@ jest.mock("./form-request-list", () => ({ FormRequestList: () => null }));
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => undefined) }));
 
 test("communicates every transport status without relying on color", () => {
-  expect(getConnectionPresentation("connected", 0).label).toBe("LIVE");
-  expect(getConnectionPresentation("connecting", 0).label).toBe("CONNECTING");
-  expect(getConnectionPresentation("reconnecting", 3).label).toBe("RECONNECTING 3");
-  expect(getConnectionPresentation("stale", 0).label).toBe("STALE");
-  expect(getConnectionPresentation("offline", 0).label).toBe("OFFLINE");
-  expect(getConnectionPresentation("unauthorized", 0).label).toBe("AUTH BLOCKED");
-  expect(getConnectionPresentation("incompatible", 0).label).toBe("INCOMPATIBLE");
-  expect(getConnectionPresentation("idle", 0).label).toBe("NO CONNECTION");
+  expect(getConnectionPresentation("connected", 0).label).toBe("Connected");
+  expect(getConnectionPresentation("connecting", 0).label).toBe("Connecting");
+  expect(getConnectionPresentation("reconnecting", 3).label).toBe("Reconnecting (3)");
+  expect(getConnectionPresentation("stale", 0).label).toBe("Stale");
+  expect(getConnectionPresentation("offline", 0).label).toBe("Offline");
+  expect(getConnectionPresentation("unauthorized", 0).label).toBe("Authorization required");
+  expect(getConnectionPresentation("incompatible", 0).label).toBe("Incompatible server");
+  expect(getConnectionPresentation("idle", 0).label).toBe("No connection");
 });
 
 test("does not flag the background stale state as a connection problem", () => {
@@ -134,18 +135,11 @@ test("session tabs replace healthy connection and server labels but retain conne
       sessionTabs: { active: "session", onSelect },
     });
   const view = render(element());
-  expect(screen.queryByText("LIVE")).toBeNull();
+  expect(screen.queryByText("Connected")).toBeNull();
   expect(screen.queryByText("Test server")).toBeNull();
+  expect(screen.getByLabelText("Session view")).toBeOnTheScreen();
   expect(screen.getByRole("tab", { name: "Session", selected: true })).toBeOnTheScreen();
-  expect(screen.getByText("Session")).toHaveStyle({
-    fontSize: 12,
-    lineHeight: 16,
-    textDecorationLine: "underline",
-  });
-  expect(screen.getByRole("tab", { name: "Session" })).toHaveStyle({
-    minHeight: 44,
-    paddingHorizontal: 4,
-  });
+  expect(screen.getByText("Session")).toHaveStyle(typography.control);
   expect(screen.getByRole("button", { name: "Current branch, main" })).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("tab", { name: "Changes" }));
   expect(onSelect).toHaveBeenCalledWith("changes");
@@ -153,7 +147,7 @@ test("session tabs replace healthy connection and server labels but retain conne
     .mocked(useConnectionRuntime)
     .mockReturnValue({ reconnectAttempt: 0, status: "offline" } as never);
   view.rerender(element());
-  fireEvent.press(screen.getByRole("button", { name: /Connection problem: OFFLINE/ }));
+  fireEvent.press(screen.getByRole("button", { name: /Connection problem: Offline/ }));
   expect(navigate).toHaveBeenCalledWith("Settings");
 });
 
@@ -311,9 +305,53 @@ test("allows a permission owned by a background child session from Pending", () 
     } as never),
   );
 
+  expect(screen.getByLabelText("1 pending request")).toBeOnTheScreen();
   expect(screen.getByText("redacted command")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(replyPermission).toHaveBeenCalledWith("per_test", "ses_child", "once");
+  view.unmount();
+});
+
+test("summarizes an empty queue and routes unfollowed users to project selection", () => {
+  const navigate = jest.fn();
+  const selection = {
+    attentionCoverage: {
+      completeness: "complete",
+      failedLocationCount: 0,
+      failedProjects: [],
+      knownLocationCount: 2,
+      reconciledLocationCount: 2,
+    },
+    followedProjectIds: ["project-1"],
+    forms: [],
+    interactionsError: false,
+    interactionsLoading: false,
+    pendingCount: 0,
+    permissions: [],
+    preferencesLoading: false,
+  };
+  jest.mocked(useConnections).mockReturnValue({
+    profiles: [{ id: "connection-1", name: "Test server" }],
+    selectedProfileId: "connection-1",
+  } as never);
+  jest
+    .mocked(useConnectionRuntime)
+    .mockReturnValue({ reconnectAttempt: 0, status: "connected" } as never);
+  jest.mocked(useWorkspaceSelection).mockReturnValue(selection as never);
+  const element = () =>
+    createElement(PendingInteractionsScreen, { navigation: { navigate } } as never);
+
+  const view = render(element());
+  expect(screen.getByText("No pending requests")).toHaveStyle(typography.headline);
+  expect(screen.getByText("Checked 2 locations.")).toBeOnTheScreen();
+
+  jest
+    .mocked(useWorkspaceSelection)
+    .mockReturnValue({ ...selection, followedProjectIds: [] } as never);
+  view.rerender(element());
+  expect(screen.getByText("Follow a project to reconcile pending work.")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Choose projects" }));
+  expect(navigate).toHaveBeenCalledWith("FollowedProjects");
   view.unmount();
 });
 

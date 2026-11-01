@@ -21,7 +21,7 @@ import { NewSessionScreen } from "../screens/new-session-screen";
 import { NotificationPairingScreen } from "../screens/notification-pairing-screen";
 import { SessionScreen, WorkspaceScreen } from "../screens/workspace-screen";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { palette } from "../theme";
+import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
 import { SessionAttentionMarker } from "./workspace-header-actions";
 
 export type RootStackParamList = {
@@ -80,7 +80,10 @@ export function RootNavigation() {
         headerShown: !tablet,
         headerStyle: { backgroundColor: palette.background },
         headerTintColor: palette.ink,
-        headerTitleStyle: { fontSize: 16, fontWeight: "500" },
+        headerTitleStyle: {
+          fontSize: typography.navTitle.fontSize,
+          fontWeight: typography.navTitle.fontWeight,
+        },
       }}
     >
       <Stack.Screen
@@ -141,7 +144,11 @@ export function RootNavigation() {
       <Stack.Screen
         component={PendingInteractionsScreen}
         name="Pending"
-        options={{ presentation: "modal", title: "Needs you" }}
+        options={({ navigation }) => ({
+          presentation: "modal",
+          title: "Needs you",
+          headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
+        })}
       />
       <Stack.Screen
         component={SettingsScreen}
@@ -185,9 +192,14 @@ function ManagementDoneButton({ onPress }: { onPress: () => void }) {
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      style={{ minHeight: 44, justifyContent: "center", paddingHorizontal: 10 }}
+      style={({ pressed }) => [
+        styles.doneButton,
+        pressed && Platform.OS === "ios" && styles.headerButtonPressed,
+      ]}
     >
-      <Text style={{ color: palette.ink, fontSize: 14, fontWeight: "600" }}>Done</Text>
+      <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.doneLabel}>
+        Done
+      </Text>
     </Pressable>
   );
 }
@@ -205,7 +217,12 @@ function WorkspaceHeader({
     <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
       <View style={styles.header}>
         {onBack ? <SessionBackButton onPress={onBack} /> : <View style={styles.headerSide} />}
-        <Text accessibilityRole="header" numberOfLines={1} style={styles.headerTitle}>
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.navTitle}
+          numberOfLines={1}
+          style={styles.headerTitle}
+        >
           {title}
         </Text>
         {rightActions ?? <View style={styles.headerSide} />}
@@ -235,8 +252,8 @@ function SessionBackButton({ onPress }: { onPress: () => void }) {
         accessibilityElementsHidden
         color={palette.signal}
         importantForAccessibility="no-hide-descendants"
-        name="chevron-left"
-        size={28}
+        name={Platform.OS === "android" ? "arrow-left" : "chevron-left"}
+        size={Platform.OS === "android" ? 24 : 28}
       />
       <SessionAttentionMarker />
     </Pressable>
@@ -250,7 +267,15 @@ const styles = StyleSheet.create({
     minHeight: 44,
     paddingHorizontal: 8,
   },
-  headerButtonPressed: { opacity: 0.55 },
+  doneButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 44,
+    minWidth: minTouchTarget,
+    paddingHorizontal: space.sm,
+  },
+  doneLabel: { ...typography.navTitle, color: palette.signal },
+  headerButtonPressed: { opacity: pressedOpacity },
   headerSafeArea: { backgroundColor: palette.background },
   headerSide: {
     alignItems: "center",
@@ -259,10 +284,9 @@ const styles = StyleSheet.create({
     width: 44,
   },
   headerTitle: {
+    ...typography.navTitle,
     color: palette.ink,
     flex: 1,
-    fontSize: 15,
-    fontWeight: "500",
     textAlign: "center",
   },
 });

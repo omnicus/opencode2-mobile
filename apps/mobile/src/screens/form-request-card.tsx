@@ -15,7 +15,16 @@ import {
 import { applicationName } from "../application-name";
 import { ModalSheet } from "../components/modal-sheet";
 import { requestCardStyles } from "../components/request-card-styles";
-import { palette, radius, space, typeRamp, typography } from "../theme";
+import {
+  disabledOpacity,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import {
   createFormDraft,
   type FormDraft,
@@ -110,7 +119,7 @@ export function FormRequestCard({
     answerFields.length > 1 ? (
       <Text
         accessibilityLiveRegion="polite"
-        dynamicTypeRamp={typeRamp.caption}
+        dynamicTypeRamp={typeRamp.footnote}
         style={styles.description}
       >
         {answered} of {answerFields.length} answered
@@ -132,7 +141,7 @@ export function FormRequestCard({
         ) : null,
       )}
       {error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
           {error}
         </Text>
       ) : null}
@@ -152,14 +161,13 @@ export function FormRequestCard({
   return (
     <>
       <View accessibilityLabel={`Form: ${form.title}`} style={styles.card}>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.eyebrow}>
-          Input required
-        </Text>
-        <Text
-          accessibilityRole="header"
-          dynamicTypeRamp={typeRamp.subheadline}
-          style={styles.title}
-        >
+        <View style={styles.eyebrowRow}>
+          <Feather accessible={false} name="edit-3" size={14} color={palette.warm} />
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
+            Input required
+          </Text>
+        </View>
+        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.title}>
           {sanitizeTranscriptText(form.title, 512)}
         </Text>
         {progress}
@@ -170,9 +178,18 @@ export function FormRequestCard({
             accessibilityLabel="Review input request"
             accessibilityHint="Opens the form with answer actions below the fields"
             onPress={() => setFocused(true)}
-            style={styles.button}
+            style={({ pressed }) => [
+              styles.button,
+              styles.buttonPrimary,
+              pressed && styles.pressed,
+            ]}
           >
-            <Text style={styles.buttonLabel}>Review and answer</Text>
+            <Text
+              dynamicTypeRamp={typeRamp.control}
+              style={[styles.buttonLabel, styles.buttonPrimaryLabel]}
+            >
+              Review and answer
+            </Text>
           </Pressable>
         ) : (
           <>
@@ -182,7 +199,7 @@ export function FormRequestCard({
         )}
       </View>
       {allowFocus && !focused && error ? (
-        <Text accessibilityRole="alert" style={styles.error}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
           {error}
         </Text>
       ) : null}
@@ -200,7 +217,11 @@ export function FormRequestCard({
             style={styles.focusedFields}
             contentContainerStyle={styles.focusedContent}
           >
-            <Text accessibilityRole="header" style={styles.title}>
+            <Text
+              accessibilityRole="header"
+              dynamicTypeRamp={typeRamp.headline}
+              style={styles.title}
+            >
               {sanitizeTranscriptText(form.title, 512)}
             </Text>
             {progress}
@@ -283,7 +304,9 @@ function FormControl({
     return (
       <View style={styles.field}>
         <FieldHeading description={description} required={field.required} title={title} />
-        <Text style={styles.description}>Choose any that apply</Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
+          Choose any that apply
+        </Text>
         <View accessibilityRole="summary" style={styles.options}>
           {field.options.map((option) => (
             <ChoiceButton
@@ -334,7 +357,9 @@ function FormControl({
       <FieldHeading description={description} required={field.required} title={title} />
       {field.type === "string" && field.options ? (
         <>
-          <Text style={styles.description}>Choose one</Text>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
+            Choose one
+          </Text>
           <View accessibilityRole="radiogroup" style={styles.options}>
             {field.options.map((option) => (
               <ChoiceButton
@@ -373,7 +398,7 @@ function FormControl({
         />
       ) : null}
       {field.type === "number" || field.type === "integer" ? (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.constraint}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
           {numberConstraint(field)}
         </Text>
       ) : null}
@@ -398,7 +423,7 @@ function FieldHeading({
         {required ? " *" : ""}
       </Text>
       {description ? (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.description}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
           {description}
         </Text>
       ) : null}
@@ -408,7 +433,7 @@ function FieldHeading({
 
 function FieldError({ error }: { error?: string | undefined }) {
   return error ? (
-    <Text accessibilityRole="alert" style={styles.error}>
+    <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
       {error}
     </Text>
   ) : null;
@@ -453,7 +478,7 @@ function ChoiceButton({
         </Text>
       </View>
       {description ? (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.description}>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
           {description}
         </Text>
       ) : null}
@@ -483,9 +508,8 @@ function FormButton({
       style={({ pressed }) => [
         styles.button,
         primary && styles.buttonPrimary,
-        danger && styles.buttonDanger,
-        disabled && styles.disabled,
         pressed && styles.pressed,
+        disabled && styles.disabled,
       ]}
     >
       <Text
@@ -553,44 +577,45 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   button: requestCardStyles.button,
-  buttonPrimary: { backgroundColor: palette.signal },
+  buttonPrimary: { backgroundColor: palette.signal, borderColor: palette.signal },
   buttonPrimaryLabel: { color: palette.background },
-  buttonDanger: { borderColor: palette.border },
   buttonDangerLabel: { color: palette.danger },
   buttonLabel: requestCardStyles.buttonLabel,
   card: requestCardStyles.card,
   choice: {
     borderColor: palette.border,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: 2,
-    minHeight: 44,
-    padding: space.sm,
+    justifyContent: "center",
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
   choiceLabel: { ...typography.control, color: palette.ink, flexShrink: 1 },
   choiceLabelSelected: { color: palette.signal },
   choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  constraint: { ...typography.caption, color: palette.dim },
-  description: { ...typography.caption, color: palette.dim },
-  disabled: { opacity: 0.5 },
+  description: { ...typography.footnote, color: palette.dim },
+  disabled: { opacity: disabledOpacity },
   error: { ...typography.subheadline, color: palette.danger },
-  eyebrow: { ...typography.label, color: palette.dim },
+  eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
+  eyebrow: { ...typography.sectionLabel, color: palette.warm, flexShrink: 1 },
   field: { gap: space.xs },
   fieldHeading: { gap: 2 },
   input: {
-    ...typography.subheadline,
+    ...typography.body,
     backgroundColor: palette.background,
     borderColor: palette.border,
-    borderRadius: radius.sm,
+    borderRadius: radius.md,
     borderWidth: 1,
     color: palette.ink,
-    minHeight: 44,
-    paddingHorizontal: space.sm,
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
     paddingVertical: space.sm,
   },
   label: { ...typography.control, color: palette.ink },
   multilineInput: { minHeight: 88, textAlignVertical: "top" },
   options: { gap: space.xs },
-  pressed: { opacity: 0.62 },
+  pressed: { opacity: pressedOpacity },
   title: { ...typography.headline, color: palette.ink },
 });

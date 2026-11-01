@@ -14,7 +14,16 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
-import { palette, radius, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
+import {
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 
 export function ModalSheet({
   children,
@@ -107,13 +116,13 @@ export function ModalSheet({
                 <Text
                   accessibilityRole="header"
                   ref={headingRef}
-                  dynamicTypeRamp={typeRamp.subheadline}
+                  dynamicTypeRamp={typeRamp.navTitle}
                   style={styles.title}
                 >
                   {title}
                 </Text>
                 {subtitle ? (
-                  <Text dynamicTypeRamp={typeRamp.control} style={styles.subtitle}>
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
                     {subtitle}
                   </Text>
                 ) : null}
@@ -124,7 +133,7 @@ export function ModalSheet({
                 onPress={onClose}
                 style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
               >
-                <Text dynamicTypeRamp={typeRamp.control} style={styles.closeLabel}>
+                <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.closeLabel}>
                   {closeLabel}
                 </Text>
               </Pressable>
@@ -162,8 +171,14 @@ const styles = StyleSheet.create({
   compactPanel: { flex: 0, flexShrink: 1 },
   compactKeyboardView: { flex: 0, flexShrink: 1 },
   compactScroll: { flexGrow: 0, flexShrink: 1 },
-  closeButton: { justifyContent: "center", minHeight: 44, paddingHorizontal: space.sm },
-  closeLabel: { ...typography.control, color: palette.signal },
+  closeButton: {
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: minTouchTarget,
+    minWidth: minTouchTarget,
+    paddingHorizontal: space.sm,
+  },
+  closeLabel: { ...typography.navTitle, color: palette.signal },
   content: { gap: space.md, padding: space.md, paddingBottom: space.xl },
   fixedContent: { flex: 1, gap: space.md, padding: space.md, paddingBottom: space.xl },
   header: {
@@ -178,8 +193,8 @@ const styles = StyleSheet.create({
   heading: { flex: 1, minWidth: 0 },
   headingLargeText: { flex: 0, width: "100%" },
   keyboardView: { flex: 1 },
-  pressed: { opacity: 0.55 },
+  pressed: { opacity: pressedOpacity },
   safeArea: { backgroundColor: palette.background, flex: 1 },
-  subtitle: { ...typography.caption, color: palette.dim, marginTop: 2 },
+  subtitle: { ...typography.footnote, color: palette.dim, marginTop: 2 },
   title: { ...typography.navTitle, color: palette.ink },
 });
