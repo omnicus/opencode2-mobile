@@ -796,7 +796,7 @@ export function ShellFrame({
                           size={14}
                         />
                         <Text
-                          dynamicTypeRamp={typeRamp.subheading}
+                          dynamicTypeRamp={typeRamp.subheadline}
                           ellipsizeMode="middle"
                           numberOfLines={1}
                           style={styles.branchName}
@@ -818,7 +818,7 @@ export function ShellFrame({
                           name="git-branch"
                           size={14}
                         />
-                        <Text dynamicTypeRamp={typeRamp.subheading} style={styles.branchName}>
+                        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.branchName}>
                           {branch.state === "loading"
                             ? "Checking branch"
                             : branch.state === "none"
@@ -845,7 +845,7 @@ export function ShellFrame({
                   ]}
                 >
                   <Text
-                    dynamicTypeRamp={typeRamp.subheading}
+                    dynamicTypeRamp={typeRamp.subheadline}
                     numberOfLines={largeText ? undefined : 1}
                     style={[styles.connectionName, largeText && styles.connectionNameLargeText]}
                   >
@@ -1153,10 +1153,10 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     padding: space.lg,
   },
-  cardCopy: { ...typography.body, color: palette.dim, marginTop: space.xs },
+  cardCopy: { ...typography.subheadline, color: palette.dim, marginTop: space.xs },
   cardLabel: { ...typography.label, color: palette.dim },
   cardTitle: {
-    ...typography.heading,
+    ...typography.headline,
     color: palette.ink,
     marginTop: space.xs,
   },
@@ -1218,7 +1218,7 @@ const styles = StyleSheet.create({
   },
   emptyMark: { color: palette.signal, fontSize: 34, fontWeight: "300", letterSpacing: -1.2 },
   errorEyebrow: { ...typography.label, color: palette.danger },
-  errorText: { ...typography.body, color: palette.danger, marginTop: space.sm },
+  errorText: { ...typography.subheadline, color: palette.danger, marginTop: space.sm },
   eyebrow: { ...typography.label, color: palette.dim },
   failureCard: {
     backgroundColor: palette.background,
@@ -1228,7 +1228,7 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     padding: space.lg,
   },
-  lede: { ...typography.body, color: palette.dim, marginTop: space.sm, maxWidth: 620 },
+  lede: { ...typography.subheadline, color: palette.dim, marginTop: space.sm, maxWidth: 620 },
   main: { flex: 1, minWidth: 0 },
   metric: {
     backgroundColor: palette.card,
@@ -1303,20 +1303,20 @@ const styles = StyleSheet.create({
   },
   stateCardText: { flex: 1 },
   stateCopy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
     marginTop: space.sm,
     maxWidth: 480,
   },
   stateTitle: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
     marginTop: space.sm,
   },
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },
   tabletShell: { flexDirection: "row" },
   title: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
     marginTop: space.sm,
   },

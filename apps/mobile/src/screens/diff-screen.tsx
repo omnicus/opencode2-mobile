@@ -122,7 +122,7 @@ export function SessionChanges({
             <View style={styles.summary}>
               <Text
                 accessibilityRole="header"
-                dynamicTypeRamp={typeRamp.subheading}
+                dynamicTypeRamp={typeRamp.subheadline}
                 style={styles.title}
               >
                 {files.length} {files.length === 1 ? "file" : "files"}
@@ -303,12 +303,12 @@ function DiffState({
     <View style={styles.state}>
       <Text
         accessibilityRole="header"
-        dynamicTypeRamp={typeRamp.subheading}
+        dynamicTypeRamp={typeRamp.subheadline}
         style={styles.stateTitle}
       >
         {title}
       </Text>
-      <Text dynamicTypeRamp={typeRamp.body} style={styles.stateDetail}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateDetail}>
         {detail}
       </Text>
       {action && onPress ? (
@@ -414,9 +414,9 @@ const styles = StyleSheet.create({
   retry: { justifyContent: "center", minHeight: 44, paddingRight: space.md },
   retryLabel: { ...typography.control, color: palette.signal },
   state: { gap: space.sm },
-  stateDetail: { ...typography.body, color: palette.dim },
-  stateTitle: { ...typography.heading, color: palette.ink },
+  stateDetail: { ...typography.subheadline, color: palette.dim },
+  stateTitle: { ...typography.headline, color: palette.ink },
   summary: { gap: space.xs, padding: space.md },
-  title: { ...typography.heading, color: palette.ink },
+  title: { ...typography.headline, color: palette.ink },
   totals: { ...typography.code },
 });

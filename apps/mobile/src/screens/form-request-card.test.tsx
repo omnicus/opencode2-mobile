@@ -38,7 +38,7 @@ test("question controls use shared typography and neutral attention colors", () 
     color: palette.dim,
   });
   expect(screen.getByText("Production")).toHaveStyle(typography.control);
-  expect(screen.getByLabelText("name")).toHaveStyle(typography.body);
+  expect(screen.getByLabelText("name")).toHaveStyle(typography.subheadline);
 });
 
 test("renders all field controls, conditional visibility, and a validated reply", () => {

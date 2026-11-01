@@ -1283,7 +1283,7 @@ function SubagentCard({
           {stateLabel}
         </Text>
       </View>
-      <Text dynamicTypeRamp={typeRamp.subheading} style={styles.subagentTitle}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.subagentTitle}>
         {sanitizeTranscriptText(presentation.title, 256)}
       </Text>
       {presentation.agent ? (
@@ -2023,14 +2023,14 @@ const styles = StyleSheet.create({
     paddingRight: space.md,
   },
   diffActionLabel: { ...typography.control, color: palette.signal },
-  errorText: { ...typography.body, color: palette.danger },
+  errorText: { ...typography.subheadline, color: palette.danger },
   linkText: { color: markdownPalette.linkText, textDecorationLine: "underline" },
   notice: {
     marginHorizontal: space.md,
     paddingVertical: space.xs,
   },
   noticeLabel: { ...typography.label, color: palette.dim },
-  noticeText: { ...typography.body, color: palette.dim, marginTop: 5 },
+  noticeText: { ...typography.subheadline, color: palette.dim, marginTop: 5 },
   omittedText: { ...typography.caption, color: palette.dim, marginTop: 7 },
   outputText: {
     ...typography.code,
@@ -2085,7 +2085,7 @@ const styles = StyleSheet.create({
   subagentState: { ...typography.label, color: palette.dim },
   subagentStateError: { color: palette.danger },
   subagentStateRunning: { color: palette.activity },
-  subagentTitle: { ...typography.heading, color: palette.ink },
+  subagentTitle: { ...typography.headline, color: palette.ink },
   textAction: { alignSelf: "flex-start", minHeight: 44, paddingVertical: 10 },
   textActionLabel: { ...typography.label, color: palette.signal },
   userBubble: {

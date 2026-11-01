@@ -156,8 +156,8 @@ const styles = StyleSheet.create({
   card: {
     ...requestCardStyles.card,
   },
-  title: { ...typography.heading, color: palette.ink },
-  action: { ...typography.body, color: palette.ink },
+  title: { ...typography.headline, color: palette.ink },
+  action: { ...typography.subheadline, color: palette.ink },
   commandBox: { backgroundColor: palette.background, borderRadius: radius.sm },
   command: {
     ...typography.code,
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     color: palette.ink,
   },
   caption: { ...typography.caption, color: palette.dim },
-  copy: { ...typography.body, color: palette.dim, marginVertical: space.sm },
+  copy: { ...typography.subheadline, color: palette.dim, marginVertical: space.sm },
   actions: {
     ...requestCardStyles.actions,
     paddingTop: space.sm,
@@ -185,7 +185,7 @@ const styles = StyleSheet.create({
   primaryLabel: { color: palette.background },
   buttonLabel: requestCardStyles.buttonLabel,
   reject: { color: palette.danger },
-  error: { ...typography.body, color: palette.danger },
+  error: { ...typography.subheadline, color: palette.danger },
   disabled: { opacity: 0.5 },
   detailsButton: {
     minHeight: 44,

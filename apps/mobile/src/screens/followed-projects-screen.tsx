@@ -218,7 +218,7 @@ function projectLabel(project: { canonical: string; id: string; name?: string })
 const styles = StyleSheet.create({
   copy: { ...typography.caption, color: palette.dim },
   disabled: { opacity: 0.5 },
-  error: { ...typography.body, color: palette.danger },
+  error: { ...typography.subheadline, color: palette.danger },
   followState: { ...typography.label, color: palette.dim },
   followStateSelected: { color: palette.signal },
   list: { gap: space.sm },
@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
   projectMain: { gap: 4, minHeight: 72, padding: space.sm },
   projectPath: { ...typography.caption, color: palette.dim },
   projectSelected: { borderColor: palette.border },
-  projectTitle: { ...typography.heading, color: palette.ink },
+  projectTitle: { ...typography.headline, color: palette.ink },
   state: { alignItems: "center", gap: space.sm, paddingVertical: space.xl },
   unavailableProject: {
     backgroundColor: palette.card,

@@ -237,13 +237,13 @@ const styles = StyleSheet.create({
   },
   buttonPressed: { opacity: 0.7 },
   copy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
     marginTop: space.md,
     maxWidth: 440,
   },
   error: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.danger,
     marginTop: space.md,
   },
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     padding: 28,
   },
   title: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
     marginTop: space.sm,
   },

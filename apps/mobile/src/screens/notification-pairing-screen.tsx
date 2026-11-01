@@ -527,7 +527,12 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     overflow: "hidden",
   },
-  cameraHint: { ...typography.body, color: palette.dim, padding: space.md, textAlign: "center" },
+  cameraHint: {
+    ...typography.subheadline,
+    color: palette.dim,
+    padding: space.md,
+    textAlign: "center",
+  },
   closeButton: { justifyContent: "center", minHeight: 44, paddingLeft: space.md },
   closeLabel: { ...typography.control, color: palette.signal },
   codeInput: {
@@ -542,7 +547,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   content: { padding: space.lg, paddingBottom: 48 },
-  copy: { ...typography.body, color: palette.dim, marginTop: space.md },
+  copy: { ...typography.subheadline, color: palette.dim, marginTop: space.md },
   divider: { backgroundColor: palette.border, flex: 1, height: 1 },
   dividerLabel: { ...typography.label, color: palette.dim },
   dividerRow: {
@@ -551,7 +556,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
     marginVertical: space.lg,
   },
-  error: { ...typography.body, color: palette.danger, marginTop: space.md },
+  error: { ...typography.subheadline, color: palette.danger, marginTop: space.md },
   eyebrow: { ...typography.label, color: palette.dim },
   flex: { flex: 1 },
   headerCopy: { flex: 1 },
@@ -585,8 +590,8 @@ const styles = StyleSheet.create({
   },
   previewEyebrow: { ...typography.label, color: palette.success },
   previewMeta: { ...typography.caption, color: palette.dim, marginTop: space.sm },
-  previewName: { ...typography.heading, color: palette.ink, marginTop: space.xs },
-  previewOrigin: { ...typography.body, color: palette.ink, marginTop: space.xs },
+  previewName: { ...typography.headline, color: palette.ink, marginTop: space.xs },
+  previewOrigin: { ...typography.subheadline, color: palette.ink, marginTop: space.xs },
   safeArea: { backgroundColor: palette.background, flex: 1 },
   scanButton: {
     ...control,
@@ -596,5 +601,5 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
   },
   scanLabel: { ...typography.control, color: palette.background, textAlign: "center" },
-  title: { ...typography.title, color: palette.ink, marginTop: space.xs },
+  title: { ...typography.largeTitle, color: palette.ink, marginTop: space.xs },
 });

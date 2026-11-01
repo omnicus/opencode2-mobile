@@ -159,9 +159,9 @@ const styles = StyleSheet.create({
     padding: space.md,
     gap: space.sm,
   },
-  title: { ...typography.heading, color: palette.ink },
-  copy: { ...typography.body, color: palette.dim },
-  error: { ...typography.body, color: palette.danger },
+  title: { ...typography.headline, color: palette.ink },
+  copy: { ...typography.subheadline, color: palette.dim },
+  error: { ...typography.subheadline, color: palette.danger },
   button: {
     minHeight: 44,
     justifyContent: "center",

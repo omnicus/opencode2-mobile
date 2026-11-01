@@ -155,7 +155,11 @@ export function FormRequestCard({
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.eyebrow}>
           Input required
         </Text>
-        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.subheading} style={styles.title}>
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.subheadline}
+          style={styles.title}
+        >
           {sanitizeTranscriptText(form.title, 512)}
         </Text>
         {progress}
@@ -569,12 +573,12 @@ const styles = StyleSheet.create({
   constraint: { ...typography.caption, color: palette.dim },
   description: { ...typography.caption, color: palette.dim },
   disabled: { opacity: 0.5 },
-  error: { ...typography.body, color: palette.danger },
+  error: { ...typography.subheadline, color: palette.danger },
   eyebrow: { ...typography.label, color: palette.dim },
   field: { gap: space.xs },
   fieldHeading: { gap: 2 },
   input: {
-    ...typography.body,
+    ...typography.subheadline,
     backgroundColor: palette.background,
     borderColor: palette.border,
     borderRadius: radius.sm,
@@ -588,5 +592,5 @@ const styles = StyleSheet.create({
   multilineInput: { minHeight: 88, textAlignVertical: "top" },
   options: { gap: space.xs },
   pressed: { opacity: 0.62 },
-  title: { ...typography.heading, color: palette.ink },
+  title: { ...typography.headline, color: palette.ink },
 });

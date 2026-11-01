@@ -115,7 +115,7 @@ beforeEach(() => {
 test("requires approval before sending credentials over HTTP", async () => {
   await render(<ConnectionScreen />);
   expect(screen.getByLabelText("Server origin")).toHaveStyle({
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.ink,
   });
 
@@ -131,7 +131,10 @@ test("requires approval before sending credentials over HTTP", async () => {
     "Approve private-network HTTP before connecting without TLS.",
   );
   expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
-  expect(screen.getByRole("alert")).toHaveStyle({ ...typography.body, color: palette.danger });
+  expect(screen.getByRole("alert")).toHaveStyle({
+    ...typography.subheadline,
+    color: palette.danger,
+  });
 });
 
 test("offers an opt-in device authentication lock", async () => {

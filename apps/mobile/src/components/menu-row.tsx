@@ -1,7 +1,15 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { ComponentProps, ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { palette, radius, space, typeRamp, typography } from "../theme";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  disabledOpacity,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 
 export function MenuGroup({ children }: { children: ReactNode }) {
   return <View style={styles.group}>{children}</View>;
@@ -32,13 +40,14 @@ export function MenuRow({
       accessibilityLabel={label}
       accessibilityHint={description}
       accessibilityState={{ disabled }}
+      android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
         styles.row,
-        description && styles.described,
         !last && styles.separator,
-        (disabled || pressed) && styles.dimmed,
+        pressed && Platform.OS === "ios" && styles.pressed,
+        disabled && styles.disabled,
       ]}
     >
       <Feather
@@ -52,7 +61,7 @@ export function MenuRow({
           {label}
         </Text>
         {description ? (
-          <Text dynamicTypeRamp={typeRamp.caption} style={styles.description}>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
             {description}
           </Text>
         ) : null}
@@ -75,16 +84,16 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 48,
+    minHeight: 52,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
-    gap: space.sm,
+    gap: 12,
   },
-  described: { minHeight: 60 },
   separator: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: palette.border },
   copy: { flex: 1, minWidth: 0, gap: 2 },
-  label: { ...typography.body, fontWeight: "500", color: palette.ink },
-  description: { ...typography.caption, color: palette.dim },
+  label: { ...typography.body, color: palette.ink },
+  description: { ...typography.footnote, color: palette.dim },
   danger: { color: palette.danger },
-  dimmed: { opacity: 0.55 },
+  pressed: { opacity: pressedOpacity },
+  disabled: { opacity: disabledOpacity },
 });

@@ -198,7 +198,7 @@ export function NewSessionScreen({ navigation }: Props) {
           <View style={[styles.heading, largeText && styles.headingLargeText]}>
             <Text
               accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.heading}
+              dynamicTypeRamp={typeRamp.largeTitle}
               style={styles.title}
             >
               {selectedProject ? "Choose location" : "New session"}
@@ -464,7 +464,7 @@ function ProjectButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.subheading} style={styles.projectTitle}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.projectTitle}>
         {label}
       </Text>
       <Text selectable style={styles.projectPath}>
@@ -500,7 +500,7 @@ function LocationButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.subheading} style={styles.projectTitle}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.projectTitle}>
         {label}
       </Text>
       <Text selectable style={styles.projectPath}>
@@ -574,11 +574,11 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.45 },
   emptyState: { alignItems: "center", gap: space.xs, paddingVertical: space.xl },
-  error: { ...typography.body, color: palette.danger, textAlign: "center" },
+  error: { ...typography.subheadline, color: palette.danger, textAlign: "center" },
   followNote: { ...typography.label, color: palette.signal, marginTop: space.xs },
-  followingCopy: { ...typography.body, color: palette.dim },
+  followingCopy: { ...typography.subheadline, color: palette.dim },
   footerError: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.danger,
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
@@ -606,7 +606,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   projectPath: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  projectTitle: { ...typography.heading, color: palette.ink },
+  projectTitle: { ...typography.headline, color: palette.ink },
   screen: { backgroundColor: palette.background, flex: 1 },
   searchField: {
     alignItems: "center",
@@ -617,7 +617,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   searchInput: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.ink,
     flex: 1,
     minHeight: 48,
@@ -637,8 +637,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: space.xl,
   },
-  stateCopy: { ...typography.body, color: palette.dim, textAlign: "center" },
-  stateTitle: { ...typography.heading, color: palette.ink, textAlign: "center" },
+  stateCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  stateTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
   subtitle: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  title: { ...typography.sheetTitle, color: palette.ink },
+  title: { ...typography.navTitle, color: palette.ink },
 });

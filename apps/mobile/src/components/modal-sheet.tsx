@@ -107,7 +107,7 @@ export function ModalSheet({
                 <Text
                   accessibilityRole="header"
                   ref={headingRef}
-                  dynamicTypeRamp={typeRamp.subheading}
+                  dynamicTypeRamp={typeRamp.subheadline}
                   style={styles.title}
                 >
                   {title}
@@ -181,5 +181,5 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.55 },
   safeArea: { backgroundColor: palette.background, flex: 1 },
   subtitle: { ...typography.caption, color: palette.dim, marginTop: 2 },
-  title: { ...typography.sheetTitle, color: palette.ink },
+  title: { ...typography.navTitle, color: palette.ink },
 });

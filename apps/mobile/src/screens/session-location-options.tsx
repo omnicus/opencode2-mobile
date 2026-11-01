@@ -265,7 +265,7 @@ function mcpStatusLabel(server: McpServer) {
 const styles = StyleSheet.create({
   content: { gap: space.md },
   heading: { ...typography.control, color: palette.ink },
-  name: { ...typography.body, color: palette.ink },
+  name: { ...typography.subheadline, color: palette.ink },
   note: { ...typography.caption, color: palette.dim },
   path: { ...typography.code, color: palette.dim },
   serverHeader: { flexDirection: "row", alignItems: "center", gap: space.md },

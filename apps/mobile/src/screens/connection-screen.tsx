@@ -1175,7 +1175,7 @@ const styles = StyleSheet.create({
     maxWidth: 680,
   },
   error: {
-    ...typography.body,
+    ...typography.subheadline,
     backgroundColor: palette.background,
     borderColor: palette.danger,
     borderRadius: radius.sm,
@@ -1184,7 +1184,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   emptyCopy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
   },
   diagnosticsText: {
@@ -1225,7 +1225,7 @@ const styles = StyleSheet.create({
     paddingBottom: space.lg,
   },
   guidanceText: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
   },
   guidanceTitle: {
@@ -1254,7 +1254,7 @@ const styles = StyleSheet.create({
     color: palette.ink,
   },
   input: {
-    ...typography.body,
+    ...typography.subheadline,
     backgroundColor: palette.background,
     borderColor: palette.border,
     borderRadius: radius.sm,
@@ -1296,11 +1296,11 @@ const styles = StyleSheet.create({
     gap: space.lg,
   },
   metricValue: {
-    ...typography.heading,
+    ...typography.headline,
     color: palette.ink,
   },
   notice: {
-    ...typography.body,
+    ...typography.subheadline,
     backgroundColor: palette.background,
     borderColor: palette.success,
     borderRadius: radius.sm,
@@ -1371,7 +1371,7 @@ const styles = StyleSheet.create({
     padding: space.sm,
   },
   profileName: {
-    ...typography.heading,
+    ...typography.headline,
     color: palette.ink,
     flex: 1,
   },
@@ -1552,7 +1552,7 @@ const styles = StyleSheet.create({
     color: palette.signal,
   },
   streamCopy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.ink,
   },
   streamResult: {
@@ -1565,7 +1565,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   title: {
-    ...typography.sheetTitle,
+    ...typography.navTitle,
     color: palette.ink,
     flexShrink: 1,
     maxWidth: 600,
@@ -1587,7 +1587,7 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   warningText: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
     marginTop: space.xs,
   },

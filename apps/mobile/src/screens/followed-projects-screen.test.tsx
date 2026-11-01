@@ -29,7 +29,11 @@ test.each(["projectsError", "empty"])("offers recovery for %s", (state) => {
     />,
   );
   if (state === "empty") expect(screen.getByText("No server projects found")).toBeOnTheScreen();
-  else expect(screen.getByRole("alert")).toHaveStyle({ ...typography.body, color: palette.danger });
+  else
+    expect(screen.getByRole("alert")).toHaveStyle({
+      ...typography.subheadline,
+      color: palette.danger,
+    });
   fireEvent.press(
     screen.getByRole("button", {
       name: state === "empty" ? "Refresh projects" : "Retry loading projects",

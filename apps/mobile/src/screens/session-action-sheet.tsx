@@ -288,7 +288,7 @@ const styles = StyleSheet.create({
   },
   label: { ...typography.control, color: palette.ink },
   input: {
-    ...typography.body,
+    ...typography.subheadline,
     minHeight: 48,
     color: palette.ink,
     padding: space.sm,
@@ -296,8 +296,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
   },
-  copy: { ...typography.body, color: palette.ink },
+  copy: { ...typography.subheadline, color: palette.ink },
   caption: { ...typography.caption, color: palette.dim },
-  error: { ...typography.body, color: palette.danger },
+  error: { ...typography.subheadline, color: palette.danger },
   disabled: { opacity: 0.5 },
 });

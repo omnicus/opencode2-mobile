@@ -15,11 +15,11 @@ const request = {
 test("permission messages use neutral headings and shared error typography", () => {
   render(<PermissionRequestCard request={request} replying={false} error onReply={jest.fn()} />);
   expect(screen.getByText("Permission required")).toHaveStyle({
-    ...typography.heading,
+    ...typography.headline,
     color: palette.ink,
   });
   expect(screen.getByRole("alert")).toHaveStyle({
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.danger,
   });
 });

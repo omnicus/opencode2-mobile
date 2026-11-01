@@ -48,7 +48,7 @@ test("can recover from update-service failure without any connection providers",
   );
   await screen.findByText("Couldn't check or download an app update. Try again.");
   expect(screen.getByText("Couldn't check or download an app update. Try again.")).toHaveStyle({
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.danger,
   });
   mockCheck.mockResolvedValueOnce({ isAvailable: true });

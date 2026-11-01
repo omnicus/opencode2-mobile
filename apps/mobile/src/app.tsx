@@ -152,7 +152,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundary
 const styles = StyleSheet.create({
   appRoot: { flex: 1 },
   errorCopy: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
     marginTop: 12,
   },
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
     padding: 28,
   },
   errorTitle: {
-    ...typography.title,
+    ...typography.largeTitle,
     color: palette.ink,
     marginTop: 10,
   },

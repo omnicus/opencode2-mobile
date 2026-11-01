@@ -16,10 +16,15 @@ test.each([1, 1.5])(
         </SettingsRow>
       </SettingsGroup>,
     );
-    expect(screen.getByRole("header", { name: "Transcript" })).toBeOnTheScreen();
+    expect(screen.getByRole("header", { name: "Transcript" })).toHaveStyle({
+      fontSize: 13,
+      fontWeight: "600",
+      paddingHorizontal: 16,
+    });
     const row = screen.UNSAFE_getByType(SettingsRow).findByType(View);
     expect(StyleSheet.flatten(row.props.style)).toMatchObject({
-      minHeight: 48,
+      minHeight: 52,
+      paddingHorizontal: 16,
       flexDirection: fontScale >= 1.3 ? "column" : "row",
       alignItems: fontScale >= 1.3 ? "stretch" : "center",
     });

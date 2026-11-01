@@ -336,7 +336,10 @@ test("renders active execution and mutable queued inbox work", async () => {
   fireEvent.press(screen.getByRole("button", { name: "Stop" }));
   expect(callbacks.onInterrupt).toHaveBeenCalledTimes(1);
   await waitFor(() => expect(screen.getByText("Queued prompt")).toBeOnTheScreen());
-  expect(screen.getByText("Queued prompt")).toHaveStyle({ ...typography.body, color: palette.ink });
+  expect(screen.getByText("Queued prompt")).toHaveStyle({
+    ...typography.subheadline,
+    color: palette.ink,
+  });
   expect(screen.getByText("QUEUED")).toHaveStyle({ ...typography.label, color: palette.dim });
   expect(screen.getByRole("button", { name: "Cancel" })).toHaveStyle({
     borderColor: palette.border,
@@ -437,7 +440,7 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
 
   expect(screen.getByText("DELIVERY UNKNOWN")).toBeOnTheScreen();
   expect(screen.getByText(/server may have admitted this prompt/)).toHaveStyle({
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.dim,
   });
   fireEvent.press(screen.getByRole("button", { name: "Check delivery" }));

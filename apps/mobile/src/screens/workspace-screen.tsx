@@ -463,7 +463,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           <View style={styles.homeTitleCopy}>
             <Text
               accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.heading}
+              dynamicTypeRamp={typeRamp.largeTitle}
               maxFontSizeMultiplier={displayTitleMaxFontSizeMultiplier}
               style={styles.homeTitle}
             >
@@ -1694,7 +1694,7 @@ function SessionRow({
                 </View>
               ) : null}
               <Text
-                dynamicTypeRamp={typeRamp.subheading}
+                dynamicTypeRamp={typeRamp.subheadline}
                 numberOfLines={largeText ? 4 : 2}
                 style={styles.sessionTitle}
               >
@@ -2013,7 +2013,7 @@ const styles = StyleSheet.create({
   },
   contextRowLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
   contextRowCopy: { flex: 1, minWidth: 0 },
-  contextValue: { ...typography.body, color: palette.ink, marginTop: 4 },
+  contextValue: { ...typography.subheadline, color: palette.ink, marginTop: 4 },
   countLabel: { ...typography.caption, color: palette.dim },
   deleteButton: {
     alignItems: "center",
@@ -2036,7 +2036,7 @@ const styles = StyleSheet.create({
   detailContentLargeText: { paddingBottom: 140 },
   detailHeader: { paddingHorizontal: space.md, paddingTop: space.md },
   emptyState: { alignItems: "center", minHeight: 160, padding: space.xl },
-  error: { ...typography.body, color: palette.danger },
+  error: { ...typography.subheadline, color: palette.danger },
   eyebrow: { ...typography.label, color: palette.dim },
   headerAction: {
     alignItems: "center",
@@ -2066,7 +2066,7 @@ const styles = StyleSheet.create({
   homeTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
   homeTitleRowLargeText: { alignItems: "flex-start", flexDirection: "column" },
   input: {
-    ...typography.body,
+    ...typography.subheadline,
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.md,
@@ -2104,8 +2104,8 @@ const styles = StyleSheet.create({
     paddingBottom: space.sm,
   },
   listSectionTitle: { color: palette.dim, flex: 1, fontSize: 14, fontWeight: "500" },
-  muted: { ...typography.body, color: palette.dim, marginTop: space.xs },
-  newSessionCopy: { ...typography.body, color: palette.dim, marginTop: space.xs },
+  muted: { ...typography.subheadline, color: palette.dim, marginTop: space.xs },
+  newSessionCopy: { ...typography.subheadline, color: palette.dim, marginTop: space.xs },
   newSessionIntro: { marginBottom: space.sm },
   newSessionPrompt: {
     color: palette.ink,
@@ -2129,7 +2129,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   pickerRowSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  pickerTitle: { ...typography.heading, color: palette.ink },
+  pickerTitle: { ...typography.headline, color: palette.ink },
   pressed: { opacity: 0.7 },
   scopeAction: { color: palette.signal, fontSize: 14, fontWeight: "700", marginLeft: space.sm },
   scopeActionLargeText: { marginLeft: 0, marginTop: space.xs },
@@ -2145,7 +2145,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   searchInput: {
-    ...typography.body,
+    ...typography.subheadline,
     color: palette.ink,
     flex: 1,
     minHeight: 46,
@@ -2162,7 +2162,7 @@ const styles = StyleSheet.create({
   sectionHeading: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   sectionLabel: { ...typography.label, color: palette.dim },
   sectionTitle: {
-    ...typography.heading,
+    ...typography.headline,
     color: palette.ink,
     marginTop: 3,
   },
@@ -2230,7 +2230,7 @@ const styles = StyleSheet.create({
   sheetRowCopy: { flex: 1, minWidth: 0 },
   sheetRowSelected: { backgroundColor: palette.signalDark },
   sheetRowSubtitle: { ...typography.caption, color: palette.dim, marginTop: 3 },
-  sheetRowTitle: { ...typography.heading, color: palette.ink },
+  sheetRowTitle: { ...typography.headline, color: palette.ink },
   sheetSection: { marginTop: space.xs },
   sheetSectionLabel: {
     ...typography.label,
@@ -2271,7 +2271,7 @@ const styles = StyleSheet.create({
   swipeDeleteLabel: { color: palette.background, fontSize: 12, fontWeight: "700" },
   title: { color: palette.ink, fontSize: 34, fontWeight: "700", letterSpacing: -1, lineHeight: 40 },
   titleInput: {
-    ...typography.body,
+    ...typography.subheadline,
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.lg,
