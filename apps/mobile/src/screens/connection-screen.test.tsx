@@ -1,5 +1,6 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { Alert } from "react-native";
 
 import { palette, typography } from "../theme";
 import { ConnectionScreen } from "./connection-screen";
@@ -53,6 +54,9 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
 }));
 
 jest.mock("expo/fetch", () => ({ fetch: jest.fn() }));
+jest.mock("react-native-keyboard-controller", () =>
+  require("react-native-keyboard-controller/jest"),
+);
 jest.mock("expo-device", () => ({ isDevice: false }));
 
 jest.mock("../connections/connections-context", () => ({
@@ -102,29 +106,91 @@ beforeEach(() => {
   mockClassifiedError = "UNREACHABLE";
 });
 
-test("requires approval before sending credentials over HTTP", async () => {
-  await render(<ConnectionScreen />);
-  expect(screen.getByLabelText("Server origin")).toHaveStyle({
+function reachableClient() {
+  return {
+    server: {
+      status: jest.fn(async () => ({ urls: ["https://server.test"], pid: 42, version: "test" })),
+    },
+    session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
+  };
+}
+
+async function openForm() {
+  await fireEvent.press(screen.getByRole("button", { name: "Enter address manually" }));
+}
+
+async function fillBasic(address: string) {
+  await fireEvent.changeText(screen.getByLabelText("Server address"), address);
+  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
+  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
+}
+
+async function pressConnect() {
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Connect" }));
+  });
+}
+
+test("opens first run on pairing and hides the empty server list", async () => {
+  const pair = jest.fn();
+  await render(<ConnectionScreen onPair={pair} />);
+
+  expect(screen.getByRole("header", { name: "Connect to OpenCode" })).toBeOnTheScreen();
+  expect(screen.getByText("You can add more servers later in Settings.")).toBeOnTheScreen();
+  expect(screen.queryByText("Saved servers")).toBeNull();
+  expect(screen.queryByLabelText("Server address")).toBeNull();
+
+  await fireEvent.press(screen.getByRole("button", { name: "Scan pairing code" }));
+  expect(pair).toHaveBeenCalledTimes(1);
+
+  await openForm();
+  expect(screen.getByLabelText("Server address")).toHaveStyle({
     ...typography.body,
     color: palette.ink,
   });
+  expect(screen.queryByText("Saved servers")).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Hide connection details" }));
+  expect(screen.getByRole("header", { name: "Connect to OpenCode" })).toBeOnTheScreen();
+});
 
-  await fireEvent.changeText(
-    screen.getByPlaceholderText("http://100.64.0.10:4096"),
-    "http://100.64.0.10:4096",
-  );
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
+test("requires the HTTP switch, shown under the address, before sending credentials", async () => {
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  expect(screen.queryByLabelText("Allow HTTP")).toBeNull();
+  await fillBasic("http://100.64.0.10:4096");
+  expect(screen.getByLabelText("Allow HTTP")).toBeOnTheScreen();
+  await pressConnect();
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Approve private-network HTTP before connecting without TLS.",
+    "This address uses HTTP. Turn on Allow HTTP below or use https://.",
   );
   expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
   expect(screen.getByRole("alert")).toHaveStyle({
     ...typography.subheadline,
     color: palette.danger,
   });
+});
+
+test.each([
+  ["192.168.1.20:4096", "http://192.168.1.20:4096", true],
+  ["opencode.example.com", "https://opencode.example.com", false],
+])("adds a scheme to %s", async (address, baseUrl, http) => {
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  await fillBasic(address);
+  expect(screen.queryByLabelText("Allow HTTP") !== null).toBe(http);
+  if (http) await fireEvent(screen.getByLabelText("Allow HTTP"), "valueChange", true);
+  await pressConnect();
+
+  expect(mockCreateOpenCodeClient).toHaveBeenCalledWith(expect.objectContaining({ baseUrl }));
+  expect(mockConnectionsSave).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({ allowDevelopmentHttp: http, baseUrl }),
+    }),
+  );
 });
 
 test("leaves the device authentication lock to Settings", async () => {
@@ -135,14 +201,13 @@ test("leaves the device authentication lock to Settings", async () => {
 
 test("rejects a server URL with a path", async () => {
   await render(<ConnectionScreen />);
+  await openForm();
 
-  await fireEvent.changeText(screen.getByLabelText("Server origin"), "https://server.test/api");
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
+  await fillBasic("https://server.test/api");
+  await pressConnect();
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "Enter only the server origin, without a path, query, or fragment.",
+    "Enter only the server address and port, with nothing after them.",
   );
   expect(mockCreateOpenCodeClient).not.toHaveBeenCalled();
 });
@@ -152,184 +217,44 @@ test.each([
   ["TLS", "The server's TLS certificate could not be verified."],
   ["TIMEOUT", "The server did not respond within 10 seconds."],
   ["UNREACHABLE", "The server could not be reached. Check its address, network, and TLS settings."],
-])("shows a redacted %s connection failure", async (kind, message) => {
+])("shows a redacted %s connection failure without saving", async (kind, message) => {
   mockClassifiedError = kind;
   mockCreateOpenCodeClient.mockReturnValue({
     server: { status: jest.fn(async () => Promise.reject(new Error("private transport detail"))) },
     session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
   });
   await render(<ConnectionScreen />);
+  await openForm();
 
-  await fireEvent.changeText(screen.getByLabelText("Server origin"), "https://server.test");
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
-  });
+  await fillBasic("https://server.test");
+  await pressConnect();
 
   expect(await screen.findByRole("alert")).toHaveTextContent(message);
   expect(screen.queryByText("private transport detail")).not.toBeOnTheScreen();
-});
-
-test("accepts a different server version when required REST behavior succeeds", async () => {
-  mockCreateOpenCodeClient.mockReturnValue({
-    server: {
-      status: jest.fn(async () => ({
-        urls: ["https://server.test"],
-        pid: 42,
-        version: "other-version",
-      })),
-    },
-    session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
-  });
-  await render(<ConnectionScreen />);
-
-  await fireEvent.changeText(screen.getByLabelText("Server origin"), "https://server.test");
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
-  });
-
-  expect(await screen.findByText("other-version")).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: "Save connection" })).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: "Test again" })).toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
-});
-
-test("runs the event and cancellation probe after REST succeeds", async () => {
-  mockCreateOpenCodeClient.mockReturnValue({
-    server: {
-      status: jest.fn(async () => ({ urls: ["http://server.test"], pid: 42, version: "test" })),
-    },
-    session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
-  });
-  mockProbeEventStream.mockResolvedValue({
-    cancellation: true,
-    eventType: "server.connected",
-  });
-  await render(<ConnectionScreen />);
-
-  await fireEvent.changeText(
-    screen.getByPlaceholderText("http://100.64.0.10:4096"),
-    "http://100.64.0.10:4096",
-  );
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent(screen.getByLabelText("Allow private-network HTTP"), "valueChange", true);
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
-  });
-
-  expect(await screen.findByText("Server reachable")).toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: "Run event and cancellation probe" })).toBeNull();
-  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
-  expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
-  });
-
-  expect(await screen.findByText("Event transport passed")).toBeOnTheScreen();
-  expect(mockProbeEventStream).toHaveBeenCalledTimes(1);
-});
-
-test("runs the PTY probe after event transport succeeds", async () => {
-  mockCreateOpenCodeClient.mockReturnValue({
-    server: {
-      status: jest.fn(async () => ({ urls: ["http://server.test"], pid: 42, version: "test" })),
-    },
-    session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
-  });
-  mockProbeEventStream.mockResolvedValue({
-    cancellation: true,
-    eventType: "server.connected",
-  });
-  mockProbePtyTransport.mockResolvedValue({
-    cleanup: true,
-    output: true,
-    ticketExpiresIn: 30,
-  });
-  await render(<ConnectionScreen />);
-
-  await fireEvent.changeText(
-    screen.getByPlaceholderText("http://100.64.0.10:4096"),
-    "http://100.64.0.10:4096",
-  );
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent(screen.getByLabelText("Allow private-network HTTP"), "valueChange", true);
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
-  });
-  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
-  });
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Run PTY WebSocket probe" }));
-  });
-
-  expect(await screen.findByText("PTY transport passed")).toBeOnTheScreen();
-  expect(mockProbePtyTransport).toHaveBeenCalledWith(expect.anything(), "http://100.64.0.10:4096");
-});
-
-test("starts lifecycle recovery after the transport probes pass", async () => {
-  const client = {
-    server: {
-      status: jest.fn(async () => ({ urls: ["http://server.test"], pid: 42, version: "test" })),
-    },
-    session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
-  };
-  mockCreateOpenCodeClient.mockReturnValue(client);
-  mockProbeEventStream.mockResolvedValue({ cancellation: true, eventType: "server.connected" });
-  mockProbePtyTransport.mockResolvedValue({ cleanup: true, output: true, ticketExpiresIn: 30 });
-  await render(<ConnectionScreen />);
-
-  await fireEvent.changeText(
-    screen.getByPlaceholderText("http://100.64.0.10:4096"),
-    "http://100.64.0.10:4096",
-  );
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await fireEvent(screen.getByLabelText("Allow private-network HTTP"), "valueChange", true);
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
-  });
-  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
-  });
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Run PTY WebSocket probe" }));
-  });
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Run background and reconnect probe" }));
-  });
-
-  expect(mockLifecycleRun).toHaveBeenCalledWith(client, client);
-});
-
-test("stores a tested profile only after explicit save", async () => {
-  mockCreateOpenCodeClient.mockReturnValue({
-    server: {
-      status: jest.fn(async () => ({ urls: ["https://server.test"], pid: 42, version: "test" })),
-    },
-    session: { list: jest.fn(async () => ({ cursor: {}, data: [] })) },
-  });
-  await render(<ConnectionScreen />);
-
-  await fireEvent.changeText(screen.getByLabelText("Connection name"), "Tailnet server");
-  await fireEvent.changeText(screen.getByLabelText("Server origin"), "https://server.test");
-  await fireEvent.changeText(screen.getByLabelText("Username"), "opencode");
-  await fireEvent.changeText(screen.getByLabelText("Password"), "secret");
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Test connection" }));
-  });
-
   expect(mockConnectionsSave).not.toHaveBeenCalled();
-  await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Save connection" }));
-  });
+});
+
+test("clears a previous result as soon as a field changes", async () => {
+  await render(<ConnectionScreen />);
+  await openForm();
+  await fillBasic("https://server.test/api");
+  await pressConnect();
+  expect(screen.getByRole("alert")).toBeOnTheScreen();
+
+  await fireEvent.changeText(screen.getByLabelText("Server address"), "https://server.test");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("connects by testing and then saving, naming the server after its host", async () => {
+  const done = jest.fn();
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen onDone={done} />);
+  await openForm();
+
+  await fillBasic("https://server.test");
+  expect(screen.getByLabelText("Connection name")).toHaveProp("placeholder", "server.test");
+  await pressConnect();
+
   expect(mockConnectionsSave).toHaveBeenCalledWith(
     expect.objectContaining({
       credential: {
@@ -340,17 +265,113 @@ test("stores a tested profile only after explicit save", async () => {
       },
       draft: expect.objectContaining({
         baseUrl: "https://server.test",
-        name: "Tailnet server",
+        name: "server.test",
       }),
+      health: expect.objectContaining({ pid: 42, version: "test" }),
+    }),
+  );
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
+test("keeps a typed name and connects from the keyboard's last field", async () => {
+  mockCreateOpenCodeClient.mockReturnValue(reachableClient());
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  await fireEvent.changeText(screen.getByLabelText("Connection name"), "Tailnet server");
+  await fillBasic("https://server.test");
+  expect(screen.getByLabelText("Server address")).toHaveProp("returnKeyType", "next");
+  expect(screen.getByLabelText("Password")).toHaveProp("returnKeyType", "go");
+  await act(async () => {
+    fireEvent(screen.getByLabelText("Password"), "submitEditing");
+  });
+
+  expect(mockConnectionsSave).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draft: expect.objectContaining({ name: "Tailnet server" }),
     }),
   );
 });
 
-test("loads, selects, and removes a saved profile", async () => {
+test("keeps the password and token apart when switching authentication", async () => {
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  await fireEvent.changeText(screen.getByLabelText("Password"), "basic-secret");
+  await fireEvent.press(screen.getByRole("radio", { name: "Bearer" }));
+  expect(screen.getByLabelText("Token")).toHaveProp("value", "");
+  expect(screen.getByLabelText("Token")).toHaveProp("autoComplete", "off");
+  await fireEvent.changeText(screen.getByLabelText("Token"), "bearer-token");
+  await fireEvent.press(screen.getByRole("radio", { name: "Basic" }));
+  expect(screen.getByLabelText("Password")).toHaveProp("value", "basic-secret");
+  await fireEvent.press(screen.getByRole("radio", { name: "Bearer" }));
+  expect(screen.getByLabelText("Token")).toHaveProp("value", "bearer-token");
+});
+
+test("shows and hides the secret", async () => {
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  expect(screen.getByLabelText("Password")).toHaveProp("secureTextEntry", true);
+  await fireEvent.press(screen.getByRole("button", { name: "Show password" }));
+  expect(screen.getByLabelText("Password")).toHaveProp("secureTextEntry", false);
+  await fireEvent.press(screen.getByRole("button", { name: "Hide password" }));
+  expect(screen.getByLabelText("Password")).toHaveProp("secureTextEntry", true);
+});
+
+test("tests without saving and runs the probes from Advanced", async () => {
+  const client = reachableClient();
+  mockCreateOpenCodeClient.mockReturnValue(client);
+  mockProbeEventStream.mockResolvedValue({ cancellation: true, eventType: "server.connected" });
+  mockProbePtyTransport.mockResolvedValue({ cleanup: true, output: true, ticketExpiresIn: 30 });
+  await render(<ConnectionScreen />);
+  await openForm();
+
+  await fillBasic("http://100.64.0.10:4096");
+  await fireEvent(screen.getByLabelText("Allow HTTP"), "valueChange", true);
+  expect(screen.queryByText(/Client contract/)).toBeNull();
+  expect(screen.queryByText(/Android Emulator/)).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Advanced" }));
+  expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
+  expect(screen.getByText(/Client contract test/)).toBeOnTheScreen();
+  expect(screen.getByText(/Android Emulator/)).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Run event and cancellation probe" })).toBeNull();
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Test without saving" }));
+  });
+  expect(await screen.findByText("Server reachable")).toBeOnTheScreen();
+  expect(screen.getByText("PID")).toBeOnTheScreen();
+  expect(mockConnectionsSave).not.toHaveBeenCalled();
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Run event and cancellation probe" }));
+  });
+  expect(await screen.findByText("Event transport passed")).toBeOnTheScreen();
+  expect(mockProbeEventStream).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Run PTY WebSocket probe" }));
+  });
+  expect(await screen.findByText("PTY transport passed")).toBeOnTheScreen();
+  expect(mockProbePtyTransport).toHaveBeenCalledWith(expect.anything(), "http://100.64.0.10:4096");
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Run background and reconnect probe" }));
+  });
+  expect(mockLifecycleRun).toHaveBeenCalledWith(client, client);
+
+  await fireEvent.changeText(screen.getByLabelText("Username"), "someone-else");
+  expect(screen.queryByText("Server reachable")).toBeNull();
+  expect(screen.queryByText("Event transport passed")).toBeNull();
+});
+
+test("loads, selects, and removes a saved profile after confirming its host", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   const profile = {
     allowDevelopmentHttp: false,
     authMode: "bearer",
-    baseUrl: "https://saved.test",
+    baseUrl: "https://saved.test:4096",
     createdAtMs: 1,
     credentialRef: "credential-ref",
     id: "profile-1",
@@ -382,28 +403,45 @@ test("loads, selects, and removes a saved profile", async () => {
     fireEvent.press(screen.getByRole("button", { name: "Edit Saved server" }));
   });
   expect(await screen.findByDisplayValue("Saved server")).toBeOnTheScreen();
-  expect(screen.getByDisplayValue("https://saved.test")).toBeOnTheScreen();
-
+  expect(screen.getByDisplayValue("https://saved.test:4096")).toBeOnTheScreen();
+  expect(screen.getByLabelText("Token")).toHaveProp("value", "secret-token");
   expect(screen.getByText("Server details")).toBeOnTheScreen();
 
   fireEvent.press(screen.getByRole("button", { name: "Remove Saved server" }));
-  expect(screen.getByText("Confirm remove")).toBeOnTheScreen();
+  expect(mockConnectionsRemove).not.toHaveBeenCalled();
+  expect(alert).toHaveBeenCalledWith(
+    "Remove Saved server?",
+    "This removes saved.test:4096 and its saved credentials from this device.",
+    expect.any(Array),
+  );
+  const buttons = alert.mock.calls[0]?.[2] ?? [];
+  const remove = buttons.find((button) => button.text === "Remove");
+  expect(remove?.style).toBe("destructive");
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Confirm remove Saved server" }));
+    remove?.onPress?.();
   });
   expect(mockConnectionsRemove).toHaveBeenCalledWith("profile-1");
+  alert.mockRestore();
 });
 
-test("offers done, add, and QR pairing from the header and saved servers", async () => {
+test("offers done, add, and pairing from the header and saved servers", async () => {
+  mockProfiles = [
+    {
+      allowDevelopmentHttp: true,
+      authMode: "none",
+      baseUrl: "http://saved.test",
+      id: "profile-1",
+      name: "Saved server",
+    },
+  ];
   const done = jest.fn();
   const pair = jest.fn();
   await render(<ConnectionScreen onDone={done} onPair={pair} />);
 
-  expect(
-    screen.getByText("Switch servers or add a direct OpenCode V2 connection."),
-  ).toBeOnTheScreen();
-  expect(screen.getByText("New server")).toBeOnTheScreen();
-  await fireEvent.press(screen.getByRole("button", { name: "Pair with QR code" }));
+  expect(screen.getByText("Saved servers")).toBeOnTheScreen();
+  expect(screen.getByText("HTTP allowed, not encrypted")).toBeOnTheScreen();
+  expect(screen.queryByText("Connect to OpenCode")).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Scan pairing code" }));
   expect(pair).toHaveBeenCalledTimes(1);
   await fireEvent.press(screen.getByRole("button", { name: "Done" }));
   expect(done).toHaveBeenCalledTimes(1);

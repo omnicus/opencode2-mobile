@@ -36,24 +36,77 @@ beforeEach(() => {
   });
 });
 
-test("requires authentication at launch and after backgrounding", async () => {
+test("prompts by itself at launch and after returning from the background", async () => {
   mockGetPreference.mockResolvedValue({ app_lock_enabled: 1 });
   render(
     <AppLockProvider>
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  await act(async () => Promise.resolve());
 
+  expect(await screen.findByText("Private content")).toBeOnTheScreen();
+  expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+
+  setAppState("background");
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
+  expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+
   await act(async () => {
-    fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
-    await Promise.resolve();
+    setAppState("active");
     await Promise.resolve();
   });
   expect(await screen.findByText("Private content")).toBeOnTheScreen();
+  expect(mockAuthenticate).toHaveBeenCalledTimes(2);
+});
 
-  act(() => appStateListener?.("background"));
+test("does not prompt again after a cancel until the user asks or the app returns", async () => {
+  mockAuthenticate.mockResolvedValue("CANCELLED");
+  mockGetPreference.mockResolvedValue({ app_lock_enabled: 1 });
+  render(
+    <AppLockProvider>
+      <Text>Private content</Text>
+    </AppLockProvider>,
+  );
+
+  expect(
+    await screen.findByText("Unlock was cancelled. Tap Unlock to try again."),
+  ).toBeOnTheScreen();
+  expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    setAppState("inactive");
+    setAppState("active");
+    await Promise.resolve();
+  });
+  expect(mockAuthenticate).toHaveBeenCalledTimes(1);
+
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
+    await Promise.resolve();
+  });
+  expect(mockAuthenticate).toHaveBeenCalledTimes(2);
+
+  await act(async () => {
+    setAppState("background");
+    setAppState("active");
+    await Promise.resolve();
+  });
+  expect(mockAuthenticate).toHaveBeenCalledTimes(3);
+  expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
+});
+
+test("asks for a device passcode when none is set", async () => {
+  mockAuthenticate.mockResolvedValue("UNAVAILABLE");
+  mockGetPreference.mockResolvedValue({ app_lock_enabled: 1 });
+  render(
+    <AppLockProvider>
+      <Text>Private content</Text>
+    </AppLockProvider>,
+  );
+
+  expect(
+    await screen.findByText("Set a passcode or screen lock on this device first."),
+  ).toBeOnTheScreen();
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
 });
 
@@ -115,9 +168,9 @@ test("does not unlock after authentication finishes in the background", async ()
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  await screen.findByRole("button", { name: "Unlock" });
+  await screen.findByRole("button", { name: "Authenticating…" });
+  expect(mockAuthenticate).toHaveBeenCalledTimes(1);
 
-  fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
   Object.defineProperty(AppState, "currentState", { configurable: true, value: "background" });
   await act(async () => {
     resolveAuthentication?.("AUTHENTICATED");
@@ -142,9 +195,8 @@ test("keeps unlock busy until a successful native prompt returns through inactiv
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  await screen.findByRole("button", { name: "Unlock" });
+  await screen.findByRole("button", { name: "Authenticating…" });
 
-  fireEvent.press(screen.getByRole("button", { name: "Unlock" }));
   Object.defineProperty(AppState, "currentState", { configurable: true, value: "inactive" });
   act(() => appStateListener?.("inactive"));
   await act(async () => {
@@ -158,6 +210,11 @@ test("keeps unlock busy until a successful native prompt returns through inactiv
   act(() => appStateListener?.("active"));
   expect(screen.getByText("Private content")).toBeOnTheScreen();
 });
+
+function setAppState(state: AppStateStatus) {
+  Object.defineProperty(AppState, "currentState", { configurable: true, value: state });
+  act(() => appStateListener?.(state));
+}
 
 function AppLockToggle() {
   const appLock = useAppLock();

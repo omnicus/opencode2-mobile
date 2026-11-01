@@ -1,13 +1,7 @@
 import { useSQLiteContext } from "expo-sqlite";
 import { createContext, type ReactNode, use, useEffect, useRef, useState } from "react";
-import {
-  AccessibilityInfo,
-  ActivityIndicator,
-  AppState,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { AccessibilityInfo, ActivityIndicator, AppState, StyleSheet, Text } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { applicationName } from "../application-name";
 import { Button } from "../components/button";
@@ -35,6 +29,9 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
   const pendingUnlockRef = useRef(false);
   const unlockBackgroundedRef = useRef(false);
   const unlockInProgressRef = useRef(false);
+  // One automatic prompt per foreground visit, so cancelling it does not prompt again.
+  const autoPromptedRef = useRef(false);
+  const [foregroundVisit, setForegroundVisit] = useState(0);
 
   useEffect(() => {
     void loadAttempt;
@@ -68,6 +65,7 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState === "background") {
         if (unlockInProgressRef.current) unlockBackgroundedRef.current = true;
+        else autoPromptedRef.current = false;
         if (pendingUnlockRef.current) setBusy(false);
         pendingUnlockRef.current = false;
       }
@@ -77,6 +75,8 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
         pendingUnlockRef.current = false;
         setLocked(false);
         setBusy(false);
+      } else {
+        setForegroundVisit((visit) => visit + 1);
       }
     });
     return () => subscription.remove();
@@ -94,17 +94,28 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
     }
   }, [enabled, locked, preferenceLoadFailed, ready]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: unlock is recreated every render
+  useEffect(() => {
+    void foregroundVisit;
+    if (!locked) autoPromptedRef.current = false;
+    if (!ready || preferenceLoadFailed || !enabled || !locked) return;
+    if (autoPromptedRef.current || unlockInProgressRef.current) return;
+    if (AppState.currentState !== "active") return;
+    autoPromptedRef.current = true;
+    void unlock();
+  }, [enabled, foregroundVisit, locked, preferenceLoadFailed, ready]);
+
   async function authenticate() {
     setBusy(true);
     setError(undefined);
     try {
       const result = await authenticateDeviceOwner();
       if (result === "UNAVAILABLE") {
-        setError("Set up Face ID, Touch ID, or fingerprint authentication on this device first.");
+        setError("Set a passcode or screen lock on this device first.");
         return false;
       }
       if (result === "CANCELLED") {
-        setError("Device authentication was not completed.");
+        setError("Unlock was cancelled. Tap Unlock to try again.");
         return false;
       }
       return true;
@@ -164,11 +175,11 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
   return (
     <AppLockContext value={value}>
       {!ready ? (
-        <View style={styles.shell}>
+        <SafeAreaView style={styles.shell}>
           <ActivityIndicator accessibilityLabel="Loading app lock" color={palette.signal} />
-        </View>
+        </SafeAreaView>
       ) : preferenceLoadFailed ? (
-        <View style={styles.shell}>
+        <SafeAreaView style={styles.shell}>
           <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
             Device lock unavailable
           </Text>
@@ -192,9 +203,9 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
             style={styles.action}
             variant="primary"
           />
-        </View>
+        </SafeAreaView>
       ) : enabled && locked ? (
-        <View style={styles.shell}>
+        <SafeAreaView style={styles.shell}>
           <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
             Device lock
           </Text>
@@ -206,7 +217,8 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
             {applicationName} is locked.
           </Text>
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-            Authenticate on this device to reveal saved connections.
+            Unlock with Face ID, fingerprint, or your device passcode to see your servers and
+            sessions.
           </Text>
           {error ? (
             <Text
@@ -224,7 +236,7 @@ export function AppLockProvider({ children }: { children: ReactNode }) {
             style={styles.action}
             variant="primary"
           />
-        </View>
+        </SafeAreaView>
       ) : (
         children
       )}

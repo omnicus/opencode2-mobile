@@ -1,7 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { LocationRef } from "@opencode2-mobile/opencode-adapter";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useReducedMotion } from "../components/use-reduced-motion";
@@ -22,6 +22,7 @@ import { NotificationPairingScreen } from "../screens/notification-pairing-scree
 import { SessionScreen, WorkspaceScreen } from "../screens/workspace-screen";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import { attentionAccessibilityValue } from "./attention-labels";
 import { SessionAttentionMarker } from "./workspace-header-actions";
 
 export type RootStackParamList = {
@@ -49,21 +50,38 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export function RootNavigation() {
   const connections = useConnections();
-  const [showPairing, setShowPairing] = useState(false);
   const reducedMotion = useReducedMotion();
   const { width } = useWindowDimensions();
   const tablet = isTabletShell(width);
   const customWorkspaceHeader =
     Platform.OS === "ios" && Number.parseInt(String(Platform.Version), 10) >= 26;
 
-  if (showPairing) {
-    return <NotificationPairingScreen onDone={() => setShowPairing(false)} />;
-  }
-
   if (!connections.ready) return <ConnectionStorageLoadingScreen />;
   if (connections.error) return <ConnectionStorageFailureScreen />;
+  const pairingOptions = {
+    animation: reducedMotion ? "none" : "slide_from_bottom",
+    headerShown: false,
+    presentation: "modal",
+  } as const;
   if (connections.profiles.length === 0) {
-    return <ConnectionScreen onPair={() => setShowPairing(true)} />;
+    return (
+      <Stack.Navigator
+        initialRouteName="Connections"
+        key="first-run"
+        screenOptions={{
+          animation: reducedMotion ? "none" : "default",
+          contentStyle: { backgroundColor: palette.background },
+          headerShown: false,
+        }}
+      >
+        <Stack.Screen name="Connections">
+          {({ navigation }) => <ConnectionScreen onPair={() => navigation.navigate("Pairing")} />}
+        </Stack.Screen>
+        <Stack.Screen name="Pairing" options={pairingOptions}>
+          {({ navigation }) => <NotificationPairingScreen onDone={() => navigation.goBack()} />}
+        </Stack.Screen>
+      </Stack.Navigator>
+    );
   }
   const selected = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
@@ -146,6 +164,7 @@ export function RootNavigation() {
         component={PendingInteractionsScreen}
         name="Pending"
         options={({ navigation }) => ({
+          headerShown: true,
           presentation: "modal",
           title: "Needs you",
           headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
@@ -155,6 +174,7 @@ export function RootNavigation() {
         component={SettingsScreen}
         name="Settings"
         options={({ navigation }) => ({
+          headerShown: true,
           presentation: "modal",
           title: "Settings",
           headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
@@ -164,6 +184,7 @@ export function RootNavigation() {
         component={FollowedProjectsScreen}
         name="FollowedProjects"
         options={({ navigation }) => ({
+          headerShown: true,
           presentation: "modal",
           title: "Followed projects",
           headerRight: () => <ManagementDoneButton onPress={() => navigation.goBack()} />,
@@ -184,14 +205,7 @@ export function RootNavigation() {
           />
         )}
       </Stack.Screen>
-      <Stack.Screen
-        name="Pairing"
-        options={{
-          animation: reducedMotion ? "none" : "slide_from_bottom",
-          headerShown: false,
-          presentation: "modal",
-        }}
-      >
+      <Stack.Screen name="Pairing" options={pairingOptions}>
         {({ navigation }) => <NotificationPairingScreen onDone={() => navigation.goBack()} />}
       </Stack.Screen>
     </Stack.Navigator>
@@ -254,7 +268,7 @@ function SessionBackButton({ onPress }: { onPress: () => void }) {
           : "Returns to the session list"
       }
       accessibilityValue={{
-        text: `${selection.pendingCount} known requests, ${selection.attentionCoverage.freshness}`,
+        text: attentionAccessibilityValue(selection.pendingCount, selection.attentionCoverage),
       }}
       onPress={onPress}
       style={({ pressed }) => [styles.headerSide, pressed && styles.headerButtonPressed]}
@@ -281,7 +295,7 @@ const styles = StyleSheet.create({
   doneButton: {
     alignItems: "center",
     justifyContent: "center",
-    minHeight: 44,
+    minHeight: minTouchTarget,
     minWidth: minTouchTarget,
     paddingHorizontal: space.sm,
   },
