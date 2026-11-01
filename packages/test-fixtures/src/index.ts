@@ -23,6 +23,12 @@ export type FakeOpenCodeApiOptions = {
   sessions?: FakeSession[];
   skills?: unknown[];
   shells?: Record<string, { info: unknown; output: string }>;
+  // Results for POST /api/shell keyed by command. Unknown commands exit 127. pollsBeforeExit
+  // counts the GET requests that still report the command as running.
+  shellCommands?: Record<
+    string,
+    { exit?: number; output: string; pollsBeforeExit?: number; status?: string }
+  >;
   shellOutputResponse?: unknown;
   vcs?: unknown;
   vcsDiff?: unknown[];
@@ -63,6 +69,11 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
   let pendingForms = [...(options.forms ?? [])];
   const formStates = new Map<string, unknown>();
   const mcpByLocation = new Map<string, unknown[]>();
+  let nextShell = 1;
+  const createdShells = new Map<
+    string,
+    { info: Record<string, unknown>; output: string; pollsBeforeExit: number; final: string }
+  >();
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(
@@ -141,10 +152,57 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
       server.status = { status: mcpMatch[2] === "connect" ? "connected" : "disabled" };
       return new Response(null, { status: 204 });
     }
+    if (url.pathname === "/api/shell" && method === "POST") {
+      const body = isRecord(jsonBody) ? jsonBody : {};
+      const command = typeof body.command === "string" ? body.command : "";
+      const result = options.shellCommands?.[command] ?? {
+        exit: 127,
+        output: "sh: gh: command not found\n",
+      };
+      const id = `sh_fake_${nextShell++}`;
+      const final = result.status ?? "exited";
+      const pollsBeforeExit = result.pollsBeforeExit ?? 0;
+      const info: Record<string, unknown> = {
+        command,
+        cwd: resolvedLocation(options, url).directory,
+        file: `/tmp/${id}.out`,
+        id,
+        metadata: isRecord(body.metadata) ? body.metadata : {},
+        shell: "/bin/sh",
+        status: pollsBeforeExit > 0 ? "running" : final,
+        time: { started: 0 },
+        ...(pollsBeforeExit > 0 || result.exit === undefined ? {} : { exit: result.exit }),
+      };
+      createdShells.set(id, {
+        final,
+        info: { ...info, ...(result.exit === undefined ? {} : { exit: result.exit }) },
+        output: result.output,
+        pollsBeforeExit,
+      });
+      return json({ location: resolvedLocation(options, url), data: info });
+    }
     const shellMatch = url.pathname.match(/^\/api\/shell\/([^/]+)(\/output)?$/);
+    if (shellMatch && method === "DELETE") {
+      const id = decodeURIComponent(shellMatch[1] ?? "");
+      if (!createdShells.delete(id)) {
+        return json({ _tag: "ShellNotFoundError", id, message: "Shell not found" }, 404);
+      }
+      return new Response(null, { status: 204 });
+    }
     if (shellMatch && method === "GET") {
       const id = decodeURIComponent(shellMatch[1] ?? "");
-      const shell = options.shells?.[id];
+      const created = createdShells.get(id);
+      if (created && !shellMatch[2]) {
+        const running = created.pollsBeforeExit > 0;
+        if (running) created.pollsBeforeExit -= 1;
+        return json({
+          location: resolvedLocation(options, url),
+          data: running
+            ? { ...created.info, exit: undefined, status: "running" }
+            : { ...created.info, status: created.final },
+        });
+      }
+      const shell = options.shells?.[id] ?? created;
       if (!shell) return json({ _tag: "ShellNotFoundError", id, message: "Shell not found" }, 404);
       if (!shellMatch[2])
         return json({ location: resolvedLocation(options, url), data: shell.info });

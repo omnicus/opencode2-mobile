@@ -105,6 +105,9 @@ export const openCodeQueryKeys = {
   permissions(connectionId: string, location: LocationRef) {
     return [...locationKey(connectionId, location), "permissions"] as const;
   },
+  pullRequests(connectionId: string, location: LocationRef) {
+    return [...locationKey(connectionId, location), "github-pull-requests"] as const;
+  },
   promptAdmissions(connectionId: string, location: LocationRef, sessionId: string) {
     return [...locationKey(connectionId, location), "prompt-admissions", sessionId] as const;
   },

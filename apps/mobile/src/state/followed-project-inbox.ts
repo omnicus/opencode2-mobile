@@ -294,7 +294,7 @@ function resolveRootSessionID(
   return !currentID && sessions.has(sessionID) ? sessionID : undefined;
 }
 
-function labelProject(project: ProjectListOutput[number] | undefined, fallback: string) {
+export function labelProject(project: ProjectListOutput[number] | undefined, fallback: string) {
   if (!project) return fallback;
   return (
     project.name?.trim() || project.canonical.split(/[\\/]/).filter(Boolean).at(-1) || project.id

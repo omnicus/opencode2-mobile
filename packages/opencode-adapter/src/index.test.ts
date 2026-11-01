@@ -26,9 +26,11 @@ import {
   getOpenCodeShellOutput,
   getOpenCodeVcs,
   getOpenCodeVcsDiff,
+  gitHubPullRequestListCommand,
   interruptOpenCodeSession,
   isShellNotFoundError,
   listActiveOpenCodeSessions,
+  listGitHubPullRequests,
   listOpenCodeAgents,
   listOpenCodeCommands,
   listOpenCodeFormRequests,
@@ -187,6 +189,157 @@ describe("background shell output", () => {
       (error: unknown) => error,
     );
     expect(isShellNotFoundError(error)).toBe(true);
+  });
+});
+
+describe("GitHub pull requests", () => {
+  const location = { directory: "/workspace/app" };
+  const pullRequest = {
+    author: { login: "octocat" },
+    headRefName: "feature/menu",
+    isDraft: false,
+    number: 42,
+    reviewDecision: "APPROVED",
+    title: "Add the session menu",
+    updatedAt: "2026-10-30T12:00:00Z",
+    url: "https://github.com/acme/app/pull/42",
+  };
+
+  it("runs the fixed gh command at the exact location, polls until exit, and removes the shell", async () => {
+    vi.useFakeTimers();
+    try {
+      const fixture = createFakeOpenCodeApi({
+        shellCommands: {
+          [gitHubPullRequestListCommand]: {
+            exit: 0,
+            output: `${JSON.stringify([pullRequest, { ...pullRequest, author: null, isDraft: true, number: 7, reviewDecision: "" }])}\n`,
+            pollsBeforeExit: 1,
+          },
+        },
+      });
+      const client = createOpenCodeClient({
+        baseUrl: "http://fake.invalid",
+        fetch: fixture.fetch,
+      });
+      const listed = listGitHubPullRequests(client, location);
+      await vi.runAllTimersAsync();
+
+      await expect(listed).resolves.toEqual({
+        pullRequests: [
+          {
+            author: "octocat",
+            branch: "feature/menu",
+            draft: false,
+            number: 42,
+            reviewDecision: "APPROVED",
+            title: "Add the session menu",
+            updatedAtMs: Date.parse("2026-10-30T12:00:00Z"),
+            url: "https://github.com/acme/app/pull/42",
+          },
+          {
+            branch: "feature/menu",
+            draft: true,
+            number: 7,
+            title: "Add the session menu",
+            updatedAtMs: Date.parse("2026-10-30T12:00:00Z"),
+            url: "https://github.com/acme/app/pull/42",
+          },
+        ],
+        status: "listed",
+      });
+      expect(fixture.requests.map(({ method, path }) => `${method} ${path}`)).toEqual([
+        "POST /api/shell",
+        "GET /api/shell/sh_fake_1",
+        "GET /api/shell/sh_fake_1",
+        "GET /api/shell/sh_fake_1/output",
+        "DELETE /api/shell/sh_fake_1",
+      ]);
+      expect(fixture.requests[0]).toMatchObject({
+        jsonBody: { command: gitHubPullRequestListCommand },
+        query: { "location[directory]": ["/workspace/app"] },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("finds the JSON array past warning lines", async () => {
+    const fixture = createFakeOpenCodeApi({
+      shellCommands: {
+        [gitHubPullRequestListCommand]: {
+          exit: 0,
+          output: `warning: [config] ignored\n${JSON.stringify([pullRequest])}\n`,
+        },
+      },
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    const result = await listGitHubPullRequests(client, location);
+    expect(result.status === "listed" && result.pullRequests.map((pr) => pr.number)).toEqual([42]);
+  });
+
+  it.each([
+    [127, "sh: gh: command not found", "gh-missing"],
+    [4, "To get started with GitHub CLI, please run:  gh auth login", "gh-auth"],
+    [1, "fatal: not a git repository (or any of the parent directories): .git", "no-github-remote"],
+    [1, "no git remotes found", "no-github-remote"],
+    [1, "GraphQL: something else", "failed"],
+  ] as const)("reports exit %i as %s", async (exit, output, reason) => {
+    const fixture = createFakeOpenCodeApi({
+      shellCommands: { [gitHubPullRequestListCommand]: { exit, output } },
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(listGitHubPullRequests(client, location)).resolves.toEqual({
+      reason,
+      status: "unavailable",
+    });
+    expect(fixture.requests.at(-1)?.method).toBe("DELETE");
+  });
+
+  it("stops polling at the deadline and still removes the shell", async () => {
+    let clock = 0;
+    vi.useFakeTimers();
+    try {
+      const fixture = createFakeOpenCodeApi({
+        shellCommands: {
+          [gitHubPullRequestListCommand]: { exit: 0, output: "[]", pollsBeforeExit: 1_000 },
+        },
+      });
+      const client = createOpenCodeClient({
+        baseUrl: "http://fake.invalid",
+        fetch: fixture.fetch,
+      });
+      const listed = listGitHubPullRequests(client, location, {
+        now: () => {
+          clock += 10_000;
+          return clock;
+        },
+      });
+      await vi.runAllTimersAsync();
+      await expect(listed).resolves.toEqual({ reason: "timeout", status: "unavailable" });
+      expect(fixture.requests.at(-1)).toMatchObject({
+        method: "DELETE",
+        path: "/api/shell/sh_fake_1",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    "not json",
+    JSON.stringify({ number: 1 }),
+    JSON.stringify([{ ...pullRequest, url: "javascript:alert(1)" }]),
+    JSON.stringify([{ ...pullRequest, url: "http://github.com/acme/app/pull/42" }]),
+    JSON.stringify([{ ...pullRequest, number: 0 }]),
+  ])("rejects malformed output %s", async (output) => {
+    const fixture = createFakeOpenCodeApi({
+      shellCommands: { [gitHubPullRequestListCommand]: { exit: 0, output } },
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(listGitHubPullRequests(client, location)).rejects.toThrow(
+      "MALFORMED_PULL_REQUEST_LIST",
+    );
+    expect(fixture.requests.at(-1)?.method).toBe("DELETE");
   });
 });
 

@@ -329,6 +329,187 @@ export async function getOpenCodeShellOutput(
   return response;
 }
 
+// OpenCode has no pull request API, so the app runs this fixed command with the server's own
+// GitHub CLI login. Nothing from the device is interpolated into it.
+export const gitHubPullRequestListCommand =
+  "gh pr list --state open --limit 30 --json number,title,url,author,isDraft,headRefName,updatedAt,reviewDecision";
+const gitHubPullRequestDeadlineMs = 30_000;
+const gitHubPullRequestPollMs = [250, 500, 1_000];
+const gitHubReviewDecisions = ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] as const;
+
+export type GitHubPullRequest = {
+  author?: string;
+  branch: string;
+  draft: boolean;
+  number: number;
+  reviewDecision?: (typeof gitHubReviewDecisions)[number];
+  title: string;
+  updatedAtMs?: number;
+  url: string;
+};
+
+export type GitHubPullRequestUnavailableReason =
+  | "failed"
+  | "gh-auth"
+  | "gh-missing"
+  | "no-github-remote"
+  | "timeout";
+
+export type GitHubPullRequestList =
+  | { pullRequests: GitHubPullRequest[]; status: "listed" }
+  | { reason: GitHubPullRequestUnavailableReason; status: "unavailable" };
+
+export async function listGitHubPullRequests(
+  client: OpenCodeClient,
+  location: LocationRef,
+  options?: OpenCodeRequestOptions & { now?: () => number },
+): Promise<GitHubPullRequestList> {
+  const now = options?.now ?? Date.now;
+  const signal = options?.signal;
+  const created = await client.shell.create(
+    {
+      command: gitHubPullRequestListCommand,
+      location: locationInput(location),
+      metadata: { source: "opencode-mobile.pull-requests" },
+    },
+    signal ? { signal } : undefined,
+  );
+  validateResolvedLocation(created.location);
+  if (!isRecord(created.data) || typeof created.data.id !== "string") {
+    throw new Error("MALFORMED_SHELL_INFO");
+  }
+  const id = created.data.id;
+  try {
+    const deadline = now() + gitHubPullRequestDeadlineMs;
+    let info = created.data;
+    for (let attempt = 0; info.status === "running"; attempt += 1) {
+      if (now() >= deadline) return { reason: "timeout", status: "unavailable" };
+      await abortableDelay(
+        gitHubPullRequestPollMs[Math.min(attempt, gitHubPullRequestPollMs.length - 1)] ?? 1_000,
+        signal,
+      );
+      info = (await getOpenCodeShell(client, location, id, signal ? { signal } : undefined)).data;
+    }
+    const output = await getOpenCodeShellOutput(
+      client,
+      location,
+      id,
+      signal ? { signal } : undefined,
+    );
+    if (output.data.cursor < output.data.size || output.data.truncated) {
+      throw new Error("PULL_REQUEST_LIST_TOO_LARGE");
+    }
+    if (info.status !== "exited") return { reason: "timeout", status: "unavailable" };
+    if (info.exit !== 0) {
+      return {
+        reason: classifyGitHubCliFailure(info.exit, output.data.output),
+        status: "unavailable",
+      };
+    }
+    return { pullRequests: parseGitHubPullRequests(output.data.output), status: "listed" };
+  } finally {
+    // Removing the record also stops a command that is still running.
+    await client.shell.remove({ id, location: locationInput(location) }).catch(() => undefined);
+  }
+}
+
+function classifyGitHubCliFailure(
+  exit: number | undefined,
+  output: string,
+): GitHubPullRequestUnavailableReason {
+  const text = output.toLocaleLowerCase();
+  if (
+    exit === 127 ||
+    /command not found|gh: not found|is not recognized as|unknown command: gh/.test(text)
+  ) {
+    return "gh-missing";
+  }
+  if (/gh auth login|not logged in|authentication required|http 401/.test(text)) return "gh-auth";
+  if (
+    /not a git repository|no git remotes|none of the git remotes|set-default|could not determine/.test(
+      text,
+    )
+  ) {
+    return "no-github-remote";
+  }
+  return "failed";
+}
+
+function parseGitHubPullRequests(output: string): GitHubPullRequest[] {
+  // stdout and stderr share one capture, so look past any warning lines for the JSON array.
+  const candidates = [output.trim(), ...output.split("\n").map((line) => line.trim())];
+  for (const candidate of candidates) {
+    if (!candidate.startsWith("[")) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(parsed)) continue;
+    return parsed.map(parseGitHubPullRequest);
+  }
+  throw new Error("MALFORMED_PULL_REQUEST_LIST");
+}
+
+function parseGitHubPullRequest(value: unknown): GitHubPullRequest {
+  if (
+    !isRecord(value) ||
+    !Number.isSafeInteger(value.number) ||
+    (value.number as number) < 1 ||
+    typeof value.title !== "string" ||
+    typeof value.url !== "string" ||
+    typeof value.headRefName !== "string" ||
+    typeof value.isDraft !== "boolean" ||
+    !isOptionalString(value.updatedAt) ||
+    !isOptionalString(value.reviewDecision) ||
+    (value.author !== undefined && value.author !== null && !isRecord(value.author))
+  ) {
+    throw new Error("MALFORMED_PULL_REQUEST_LIST");
+  }
+  let url: URL;
+  try {
+    url = new URL(value.url);
+  } catch {
+    throw new Error("MALFORMED_PULL_REQUEST_LIST");
+  }
+  if (url.protocol !== "https:") throw new Error("MALFORMED_PULL_REQUEST_LIST");
+  const login = isRecord(value.author) ? value.author.login : undefined;
+  const updatedAtMs =
+    typeof value.updatedAt === "string" ? Date.parse(value.updatedAt) : Number.NaN;
+  const reviewDecision = gitHubReviewDecisions.find(
+    (decision) => decision === value.reviewDecision,
+  );
+  return {
+    branch: value.headRefName,
+    draft: value.isDraft,
+    number: value.number as number,
+    title: value.title,
+    url: url.toString(),
+    ...(typeof login === "string" && login ? { author: login } : {}),
+    ...(reviewDecision ? { reviewDecision } : {}),
+    ...(Number.isFinite(updatedAtMs) ? { updatedAtMs } : {}),
+  };
+}
+
+function abortableDelay(ms: number, signal: AbortSignal | undefined) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    function abort() {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    }
+    signal?.addEventListener("abort", abort, { once: true });
+  });
+}
+
 export async function getOpenCodeVcsDiff(
   client: OpenCodeClient,
   location: LocationRef,

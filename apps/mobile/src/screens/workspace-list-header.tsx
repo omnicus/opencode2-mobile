@@ -30,6 +30,7 @@ export function WorkspaceListHeader({
   search,
   searchEditable,
   searchOpen,
+  showSearch = true,
   topInset,
   trailing,
 }: {
@@ -42,6 +43,8 @@ export function WorkspaceListHeader({
   search: string;
   searchEditable: boolean;
   searchOpen: boolean;
+  // Search covers sessions only, so other tabs hide it.
+  showSearch?: boolean;
   topInset: number;
   trailing?: ReactNode;
 }) {
@@ -91,12 +94,14 @@ export function WorkspaceListHeader({
               {name}
             </Text>
           </Pressable>
-          <IconButton
-            disabled={!searchEditable}
-            icon="search"
-            label="Search sessions"
-            onPress={onOpenSearch}
-          />
+          {showSearch ? (
+            <IconButton
+              disabled={!searchEditable}
+              icon="search"
+              label="Search sessions"
+              onPress={onOpenSearch}
+            />
+          ) : null}
           {trailing}
         </View>
       )}

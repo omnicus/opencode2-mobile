@@ -11,11 +11,9 @@ type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Setti
 export function WorkspaceHeaderActions({
   navigate,
   onNewSession,
-  floating = false,
 }: {
   navigate: (destination: HeaderDestination) => void;
   onNewSession?: (() => void) | undefined;
-  floating?: boolean;
 }) {
   const selection = useWorkspaceSelection();
   const count = selection.pendingCount;
@@ -23,7 +21,7 @@ export function WorkspaceHeaderActions({
   const freshness = selection.attentionCoverage.freshness;
 
   return (
-    <View style={[styles.actions, floating && styles.floating]}>
+    <View style={styles.actions}>
       {onNewSession ? <NewSessionButton onPress={onNewSession} /> : null}
       <Pressable
         accessibilityHint="Opens requests that need you, followed projects, connections, and device settings"
@@ -105,18 +103,6 @@ export function SessionAttentionMarker() {
 }
 
 const styles = StyleSheet.create({
-  floating: {
-    backgroundColor: palette.card,
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: radius.pill,
-    width: minTouchTarget,
-    height: minTouchTarget,
-    alignItems: "center",
-    justifyContent: "center",
-    elevation: 3,
-    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.2)",
-  },
   attentionDot: {
     position: "absolute",
     top: 6,
