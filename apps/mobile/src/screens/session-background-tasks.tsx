@@ -8,15 +8,19 @@ import { palette, space, typeRamp, typography } from "../theme";
 import { runningBackgroundSubagents } from "./session-transcript-model";
 
 export function SessionBackgroundTasks({
+  activeSessions,
   messages,
   onOpenChild,
+  sessionID,
 }: {
+  activeSessions?: Readonly<Record<string, unknown>> | undefined;
   messages: SessionMessageInfo[];
   onOpenChild: (sessionID: string) => void;
+  sessionID?: string;
 }) {
   const [visible, setVisible] = useState(false);
   const triggerRef = useRef<View>(null);
-  const tasks = runningBackgroundSubagents(messages);
+  const tasks = runningBackgroundSubagents(messages, activeSessions, sessionID);
   useEffect(() => {
     if (tasks.length === 0) setVisible(false);
   }, [tasks.length]);

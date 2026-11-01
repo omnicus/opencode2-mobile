@@ -1,5 +1,5 @@
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { memo, useEffect, useRef, useState } from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -24,6 +24,7 @@ import {
   parseSubagentProtocolText,
   type SubagentPresentation,
   type SubagentProtocolText,
+  type SubagentStates,
   sanitizeTranscriptText,
 } from "./session-transcript-model";
 import {
@@ -35,6 +36,8 @@ import {
 } from "./transcript-images";
 import { parseTranscriptLink } from "./transcript-link-card";
 import { InlineTranscriptMarkdown, TranscriptMarkdown } from "./transcript-markdown";
+
+export const SessionSubagentStates = createContext<SubagentStates | undefined>(undefined);
 
 const textStep = 4_000;
 const maxVisibleText = 32_000;
@@ -867,7 +870,8 @@ function ToolDisclosure({
   tool: AssistantTool;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const subagent = getSubagentPresentation(tool);
+  const subagentStates = useContext(SessionSubagentStates);
+  const subagent = getSubagentPresentation(tool, subagentStates);
   if (subagent) {
     return (
       <SubagentCard largeText={largeText} onOpenSubagent={onOpenSubagent} presentation={subagent} />

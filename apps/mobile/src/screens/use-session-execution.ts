@@ -792,6 +792,7 @@ export function useSessionExecution({
   return {
     pendingPrompts: enabled ? pendingPromptPreviews(admissions, inbox, projectedMessageIds) : [],
     active,
+    activeSessions: enabled && !activeSessionsQuery.isError ? activeSessionsQuery.data : undefined,
     canBackground,
     allowRetry: (admissionID: string) => void allowRetry(admissionID),
     admissions,
