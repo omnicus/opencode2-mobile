@@ -22,7 +22,7 @@ import {
 } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useSQLiteContext } from "expo-sqlite";
-import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -92,6 +92,7 @@ import { SessionShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
   PendingPromptRow,
+  SessionSubagentStates,
   SessionTranscriptRow,
   TranscriptActivityGroup,
   type TranscriptListItem,
@@ -101,7 +102,7 @@ import {
   resolveTranscriptLiveFollow,
   type TranscriptLiveFollowEvent,
 } from "./session-transcript-live-follow";
-import { flattenTranscriptPages } from "./session-transcript-model";
+import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
 import { WorkspaceNewSessionAction } from "./workspace-new-session-action";
@@ -886,7 +887,8 @@ export function SessionScreen({ navigation, route }: SessionProps) {
       : vcsQuery.isPending
         ? ({ state: "loading" } as const)
         : ({ state: "none" } as const);
-  const messages = flattenTranscriptPages(messagesQuery.data?.pages);
+  const messagePages = messagesQuery.data?.pages;
+  const messages = useMemo(() => flattenTranscriptPages(messagePages), [messagePages]);
   const { items: projectedTranscriptItems, footers: transcriptFooters } =
     buildTranscriptPresentation(
       messages,
@@ -908,6 +910,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     session,
     sessionID,
   });
+  const activeSessions = execution.activeSessions;
+  const transcriptSubagentStates = useMemo(
+    () => subagentStates(messages, activeSessions, sessionID),
+    [activeSessions, messages, sessionID],
+  );
   const transcriptItems: TranscriptListItem[] = [
     ...execution.pendingPrompts,
     ...projectedTranscriptItems,
@@ -1206,6 +1213,8 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     <View onLayout={measureComposerContent}>
       <SessionBackgroundTasks
         key={routeSessionScope}
+        activeSessions={activeSessions}
+        sessionID={sessionID}
         messages={
           sessionLocationReady && runtime.status === "connected" && !messagesQuery.isError
             ? messages
@@ -1333,78 +1342,129 @@ export function SessionScreen({ navigation, route }: SessionProps) {
             ),
           }}
         >
-          <Animated.FlatList
-            accessibilityLabel="Session transcript"
-            contentContainerStyle={[
-              styles.detailContent,
-              largeText && styles.detailContentLargeText,
-            ]}
-            data={transcriptItems}
-            extraData={fontScale}
-            initialNumToRender={12}
-            inverted
-            keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-            keyboardShouldPersistTaps="handled"
-            key={`session-transcript:${transcriptMeasureScope}`}
-            keyExtractor={(message) => message.id}
-            ListEmptyComponent={
-              messagesQuery.isPending ? (
-                <View style={styles.transcriptState}>
-                  <ActivityIndicator
-                    accessibilityLabel="Loading transcript"
-                    color={palette.signal}
-                  />
+          <SessionSubagentStates.Provider value={transcriptSubagentStates}>
+            <Animated.FlatList
+              accessibilityLabel="Session transcript"
+              contentContainerStyle={[
+                styles.detailContent,
+                largeText && styles.detailContentLargeText,
+              ]}
+              data={transcriptItems}
+              extraData={fontScale}
+              initialNumToRender={12}
+              inverted
+              keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+              keyboardShouldPersistTaps="handled"
+              key={`session-transcript:${transcriptMeasureScope}`}
+              keyExtractor={(message) => message.id}
+              ListEmptyComponent={
+                messagesQuery.isPending ? (
+                  <View style={styles.transcriptState}>
+                    <ActivityIndicator
+                      accessibilityLabel="Loading transcript"
+                      color={palette.signal}
+                    />
+                  </View>
+                ) : messagesQuery.isError ? (
+                  <View style={styles.transcriptState}>
+                    <InlineError
+                      message={
+                        messagesQuery.error instanceof Error &&
+                        messagesQuery.error.message === "MALFORMED_MESSAGE_LIST"
+                          ? "This server returned unsupported transcript data."
+                          : "The transcript could not be loaded. Refresh and try again."
+                      }
+                    />
+                  </View>
+                ) : null
+              }
+              ListFooterComponent={
+                <View style={styles.detailHeader}>
+                  {sessionQuery.isPending ? <ActivityIndicator color={palette.signal} /> : null}
+                  {sessionQuery.isError ? (
+                    <InlineError message="The session could not be loaded." />
+                  ) : null}
+                  {canLoadOlder && !autoFillTranscript ? (
+                    <SmallButton
+                      label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
+                      onPress={() => {
+                        if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
+                      }}
+                    />
+                  ) : null}
+                  {showOlderContextLoading ? (
+                    <Text style={styles.transcriptLimit}>Loading earlier context</Text>
+                  ) : null}
+                  {messagesQuery.isFetchNextPageError ? (
+                    <InlineError message="Earlier context could not be loaded. Tap Load older to retry." />
+                  ) : null}
+                  {!canLoadOlder && messagesQuery.hasNextPage ? (
+                    <Text style={styles.transcriptLimit}>
+                      Older messages are not loaded on this device.
+                    </Text>
+                  ) : null}
                 </View>
-              ) : messagesQuery.isError ? (
-                <View style={styles.transcriptState}>
-                  <InlineError
-                    message={
-                      messagesQuery.error instanceof Error &&
-                      messagesQuery.error.message === "MALFORMED_MESSAGE_LIST"
-                        ? "This server returned unsupported transcript data."
-                        : "The transcript could not be loaded. Refresh and try again."
-                    }
-                  />
-                </View>
-              ) : null
-            }
-            ListFooterComponent={
-              <View style={styles.detailHeader}>
-                {sessionQuery.isPending ? <ActivityIndicator color={palette.signal} /> : null}
-                {sessionQuery.isError ? (
-                  <InlineError message="The session could not be loaded." />
-                ) : null}
-                {canLoadOlder && !autoFillTranscript ? (
-                  <SmallButton
-                    label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
-                    onPress={() => {
-                      if (!messagesQuery.isFetchingNextPage) void messagesQuery.fetchNextPage();
-                    }}
-                  />
-                ) : null}
-                {showOlderContextLoading ? (
-                  <Text style={styles.transcriptLimit}>Loading earlier context</Text>
-                ) : null}
-                {messagesQuery.isFetchNextPageError ? (
-                  <InlineError message="Earlier context could not be loaded. Tap Load older to retry." />
-                ) : null}
-                {!canLoadOlder && messagesQuery.hasNextPage ? (
-                  <Text style={styles.transcriptLimit}>
-                    Older messages are not loaded on this device.
-                  </Text>
-                ) : null}
-              </View>
-            }
-            // The inverted list draws its header below the newest row.
-            ListHeaderComponent={
-              execution.active ? (
-                <View style={styles.workingStatus}>
-                  <SessionWorkingStatus
-                    hideInterrupt
-                    busyAction={execution.busyAction}
-                    canBackground={execution.canBackground}
-                    onBackground={execution.background}
-                    onInterrupt={execution.interrupt}
+              }
+              // The inverted list draws its header below the newest row.
+              ListHeaderComponent={
+                execution.active ? (
+                  <View style={styles.workingStatus}>
+                    <SessionWorkingStatus
+                      hideInterrupt
+                      busyAction={execution.busyAction}
+                      canBackground={execution.canBackground}
+                      onBackground={execution.background}
+                      onInterrupt={execution.interrupt}
+                      waitingFor={
+                        sessionPermissions.length > 0
+                          ? "permission"
+                          : sessionForms.length > 0
+                            ? "input"
+                            : undefined
+                      }
+                    />
+                  </View>
+                ) : null
+              }
+              {...(smoothLiveEdge ? { itemLayoutAnimation: liveEdgeRowTransition } : {})}
+              maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+              maxToRenderPerBatch={12}
+              onContentSizeChange={(_width, height) => {
+                setTranscriptSize((current) =>
+                  current.scope === transcriptMeasureScope && current.content === height
+                    ? current
+                    : {
+                        scope: transcriptMeasureScope,
+                        viewport: current.scope === transcriptMeasureScope ? current.viewport : 0,
+                        content: height,
+                      },
+                );
+                scheduleLiveEdgeScroll();
+              }}
+              onLayout={(event) => {
+                const height = event.nativeEvent.layout.height;
+                setTranscriptSize((current) =>
+                  current.scope === transcriptMeasureScope && current.viewport === height
+                    ? current
+                    : {
+                        scope: transcriptMeasureScope,
+                        viewport: height,
+                        content: current.scope === transcriptMeasureScope ? current.content : 0,
+                      },
+                );
+                scheduleLiveEdgeScroll();
+              }}
+              onMomentumScrollBegin={handleMomentumScrollBegin}
+              onMomentumScrollEnd={handleMomentumScrollEnd}
+              onScroll={handleTranscriptScroll}
+              onScrollBeginDrag={handleScrollBeginDrag}
+              onScrollEndDrag={handleScrollEndDrag}
+              ref={transcriptListRef}
+              renderItem={({ item }) =>
+                item.type === "pending-prompt" ? (
+                  <PendingPromptRow preview={item} largeText={largeText} />
+                ) : item.type === "activity-group" ? (
+                  <TranscriptActivityGroup
                     waitingFor={
                       sessionPermissions.length > 0
                         ? "permission"
@@ -1412,95 +1472,46 @@ export function SessionScreen({ navigation, route }: SessionProps) {
                           ? "input"
                           : undefined
                     }
+                    item={item}
+                    largeText={largeText}
+                    showReasoning={transcriptPreferences.reasoning}
+                    onOpenDiff={openDiff}
+                    onOpenSubagent={openSubagent}
                   />
-                </View>
-              ) : null
-            }
-            {...(smoothLiveEdge ? { itemLayoutAnimation: liveEdgeRowTransition } : {})}
-            maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-            maxToRenderPerBatch={12}
-            onContentSizeChange={(_width, height) => {
-              setTranscriptSize((current) =>
-                current.scope === transcriptMeasureScope && current.content === height
-                  ? current
-                  : {
-                      scope: transcriptMeasureScope,
-                      viewport: current.scope === transcriptMeasureScope ? current.viewport : 0,
-                      content: height,
-                    },
-              );
-              scheduleLiveEdgeScroll();
-            }}
-            onLayout={(event) => {
-              const height = event.nativeEvent.layout.height;
-              setTranscriptSize((current) =>
-                current.scope === transcriptMeasureScope && current.viewport === height
-                  ? current
-                  : {
-                      scope: transcriptMeasureScope,
-                      viewport: height,
-                      content: current.scope === transcriptMeasureScope ? current.content : 0,
-                    },
-              );
-              scheduleLiveEdgeScroll();
-            }}
-            onMomentumScrollBegin={handleMomentumScrollBegin}
-            onMomentumScrollEnd={handleMomentumScrollEnd}
-            onScroll={handleTranscriptScroll}
-            onScrollBeginDrag={handleScrollBeginDrag}
-            onScrollEndDrag={handleScrollEndDrag}
-            ref={transcriptListRef}
-            renderItem={({ item }) =>
-              item.type === "pending-prompt" ? (
-                <PendingPromptRow preview={item} largeText={largeText} />
-              ) : item.type === "activity-group" ? (
-                <TranscriptActivityGroup
-                  waitingFor={
-                    sessionPermissions.length > 0
-                      ? "permission"
-                      : sessionForms.length > 0
-                        ? "input"
+                ) : item.type === "updates-group" ? (
+                  <TranscriptUpdatesGroup
+                    item={item}
+                    largeText={largeText}
+                    onOpenSubagent={openSubagent}
+                  />
+                ) : (
+                  <SessionTranscriptRow
+                    hideFooter={!transcriptFooters.has(item.id)}
+                    turnDuration={transcriptFooters.get(item.id) ?? null}
+                    detailed={transcriptPreferences.detailed}
+                    showReasoning={transcriptPreferences.reasoning}
+                    largeText={largeText}
+                    message={item}
+                    modelName={
+                      item.type === "assistant"
+                        ? execution.models.find(
+                            (model) =>
+                              model.id === item.model.id &&
+                              model.providerID === item.model.providerID,
+                          )?.name
                         : undefined
-                  }
-                  item={item}
-                  largeText={largeText}
-                  showReasoning={transcriptPreferences.reasoning}
-                  onOpenDiff={openDiff}
-                  onOpenSubagent={openSubagent}
-                />
-              ) : item.type === "updates-group" ? (
-                <TranscriptUpdatesGroup
-                  item={item}
-                  largeText={largeText}
-                  onOpenSubagent={openSubagent}
-                />
-              ) : (
-                <SessionTranscriptRow
-                  hideFooter={!transcriptFooters.has(item.id)}
-                  turnDuration={transcriptFooters.get(item.id) ?? null}
-                  detailed={transcriptPreferences.detailed}
-                  showReasoning={transcriptPreferences.reasoning}
-                  largeText={largeText}
-                  message={item}
-                  modelName={
-                    item.type === "assistant"
-                      ? execution.models.find(
-                          (model) =>
-                            model.id === item.model.id &&
-                            model.providerID === item.model.providerID,
-                        )?.name
-                      : undefined
-                  }
-                  onOpenDiff={openDiff}
-                  onOpenSubagent={openSubagent}
-                />
-              )
-            }
-            scrollEventThrottle={16}
-            style={styles.transcriptList}
-            updateCellsBatchingPeriod={40}
-            windowSize={7}
-          />
+                    }
+                    onOpenDiff={openDiff}
+                    onOpenSubagent={openSubagent}
+                  />
+                )
+              }
+              scrollEventThrottle={16}
+              style={styles.transcriptList}
+              updateCellsBatchingPeriod={40}
+              windowSize={7}
+            />
+          </SessionSubagentStates.Provider>
         </SessionShellScope.Provider>
         {(!liveFollowEnabled || latestJumpPending) && transcriptItems.length > 0 ? (
           <Pressable
