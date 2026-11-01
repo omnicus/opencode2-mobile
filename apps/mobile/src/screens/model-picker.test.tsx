@@ -114,3 +114,78 @@ test("model rows meet the touch target and search uses the search return key", (
     minHeight: minTouchTarget,
   });
 });
+
+test("favorite errors offer a retry and favorites can be removed", () => {
+  const retry = jest.fn();
+  const toggle = jest.fn();
+  render(
+    <ModelPicker
+      models={models}
+      model={undefined}
+      visible
+      onSelect={jest.fn()}
+      onClose={jest.fn()}
+      state={{ loading: false, error: false, retry: jest.fn() }}
+      favorites={{
+        models: [{ id: "one", providerID: "p" }],
+        toggle,
+        disabled: false,
+        error: true,
+        retry,
+      }}
+    />,
+  );
+  expect(screen.getByText("Model favorites could not be saved or loaded.")).toBeOnTheScreen();
+  expect(screen.queryByText("Models could not be loaded.")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+  expect(retry).toHaveBeenCalledTimes(1);
+  const remove = screen.getByRole("checkbox", { name: "Remove Model One from favorites" });
+  expect(remove).toBeChecked();
+  fireEvent.press(remove);
+  expect(toggle).toHaveBeenCalledWith(models[0], false);
+  expect(screen.getByRole("header", { name: "Favorites" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Model One, p" })).not.toBeSelected();
+});
+
+test("stars are disabled while favorites are unavailable or busy", () => {
+  const toggle = jest.fn();
+  const props = {
+    models,
+    model: undefined,
+    visible: true,
+    onSelect: jest.fn(),
+    onClose: jest.fn(),
+    state: undefined,
+  };
+  const view = render(<ModelPicker {...props} favorites={undefined} />);
+  expect(screen.getByRole("checkbox", { name: "Add Model One to favorites" })).toBeDisabled();
+  view.rerender(
+    <ModelPicker
+      {...props}
+      favorites={{ models: [], toggle, disabled: true, error: false, retry: jest.fn() }}
+    />,
+  );
+  const star = screen.getByRole("checkbox", { name: "Add Model One to favorites" });
+  expect(star).toBeDisabled();
+  fireEvent.press(star);
+  expect(toggle).not.toHaveBeenCalled();
+});
+
+test("an empty result says whether the search or the catalog is empty", () => {
+  const props = {
+    model: undefined,
+    visible: true,
+    onSelect: jest.fn(),
+    onClose: jest.fn(),
+    favorites: undefined,
+    state: { loading: false, error: false, retry: jest.fn() },
+  };
+  const view = render(<ModelPicker {...props} models={[]} />);
+  expect(screen.getByText("No enabled models")).toBeOnTheScreen();
+  view.rerender(<ModelPicker {...props} models={models} />);
+  fireEvent.changeText(screen.getByLabelText("Search models"), "  missing  ");
+  expect(screen.getByText("No matching models")).toBeOnTheScreen();
+  view.rerender(<ModelPicker {...props} models={models} state={{ ...props.state, error: true }} />);
+  expect(screen.queryByText("No matching models")).toBeNull();
+  expect(screen.getByText("Models could not be loaded.")).toBeOnTheScreen();
+});
