@@ -1,6 +1,7 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import { createNavigationContainerRef, NavigationContainer } from "@react-navigation/native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { Platform } from "react-native";
 
 import { RootNavigation, type RootStackParamList } from "./root-navigation";
 
@@ -293,4 +294,28 @@ test("describes waiting requests on the session back button in plain words", asy
   expect(screen.getByRole("button", { name: "Back to Sessions" })).toHaveAccessibilityValue({
     text: "2 requests need you, up to date",
   });
+});
+
+test.each([
+  ["26.0", false],
+  ["18.5", true],
+])("sizes Done for the iOS %s header", async (version, keepsMinimum) => {
+  const restore = jest.spyOn(Platform, "Version", "get").mockReturnValue(version);
+  try {
+    mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+    const navigation = createNavigationContainerRef<RootStackParamList>();
+    render(
+      <NavigationContainer ref={navigation}>
+        <RootNavigation />
+      </NavigationContainer>,
+    );
+    await screen.findByText("Workspace shell");
+    act(() => navigation.navigate("Settings"));
+    await screen.findByText("Settings screen");
+    const done = screen.getByRole("button", { name: "Done" });
+    if (keepsMinimum) expect(done).toHaveStyle({ minHeight: 48 });
+    else expect(done).not.toHaveStyle({ minHeight: 48 });
+  } finally {
+    restore.mockRestore();
+  }
 });

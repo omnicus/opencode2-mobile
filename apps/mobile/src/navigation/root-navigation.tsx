@@ -53,8 +53,7 @@ export function RootNavigation() {
   const reducedMotion = useReducedMotion();
   const { width } = useWindowDimensions();
   const tablet = isTabletShell(width);
-  const customWorkspaceHeader =
-    Platform.OS === "ios" && Number.parseInt(String(Platform.Version), 10) >= 26;
+  const customWorkspaceHeader = usesGlassHeader();
 
   if (!connections.ready) return <ConnectionStorageLoadingScreen />;
   if (connections.error) return <ConnectionStorageFailureScreen />;
@@ -212,13 +211,19 @@ export function RootNavigation() {
   );
 }
 
+function usesGlassHeader() {
+  return Platform.OS === "ios" && Number.parseInt(String(Platform.Version), 10) >= 26;
+}
+
 function ManagementDoneButton({ onPress }: { onPress: () => void }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
-        styles.doneButton,
+        // iOS 26 wraps header buttons in a glass capsule sized for a standard bar item.
+        // A taller view sits off-center inside it, so let the capsule set the size there.
+        usesGlassHeader() ? styles.glassDoneButton : styles.doneButton,
         pressed && Platform.OS === "ios" && styles.headerButtonPressed,
       ]}
     >
@@ -300,6 +305,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
   },
   doneLabel: { ...typography.navTitle, color: palette.signal },
+  glassDoneButton: { alignItems: "center", justifyContent: "center", paddingHorizontal: space.xs },
   headerButtonPressed: { opacity: pressedOpacity },
   headerSafeArea: { backgroundColor: palette.background },
   headerSide: {
