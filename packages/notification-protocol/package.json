@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "coverage": "vitest run --coverage --coverage.reporter=lcovonly --coverage.reportsDirectory=../../coverage/packages/notification-protocol",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
@@ -21,6 +22,7 @@
     "js-base64": "3.7.8"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "4.1.10",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
   }

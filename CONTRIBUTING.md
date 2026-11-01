@@ -22,3 +22,21 @@ native projects, or broker state. Use
 
 Read `docs/SPEC.md` and the relevant section of `TODO.md` before making
 architectural changes.
+
+## CRAP scores
+
+`pnpm crap` scores every function with
+[crapper](https://github.com/unclebob/crapper):
+`CRAP = CC² × (1 − coverage)³ + CC`. It runs `pnpm coverage` first, which
+fails the run if any test fails, then prints the worst functions first and
+writes `.metrics/crap.edn`. Below 5 is low risk and above 30 needs tests or a
+split. It needs [uv](https://docs.astral.sh/uv/) and Python 3.11 or later.
+
+```sh
+pnpm crap                         # coverage, then scores
+pnpm crap --use-existing-coverage # reuse the reports in coverage/
+pnpm crap --no-coverage           # complexity only
+pnpm crap --changed               # files git reports as added or modified
+pnpm crap screens                 # paths containing "screens"
+pnpm crap --threshold 30          # exit 2 when the worst score is higher
+```
