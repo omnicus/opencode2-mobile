@@ -14,6 +14,8 @@ import {
   replyOpenCodePermissionRequest,
 } from "@opencode2-mobile/opencode-adapter";
 import {
+  hashKey,
+  type QueryKey,
   useInfiniteQuery,
   useMutation,
   useQueries,
@@ -54,6 +56,10 @@ import { openCodeQueryKeys } from "./open-code-query-keys";
 
 const sessionPageSize = 30;
 const unresolvedConnectionID = "unselected";
+// ["opencode", connectionID, "session-ancestries", purpose]
+const ancestryScopeLength = 4;
+
+type SessionAncestries = Awaited<ReturnType<typeof loadSessionAncestries>>;
 
 export type AttentionLocationFailure = {
   location: LocationRef;
@@ -266,12 +272,22 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
   const initialPageParam = Object.fromEntries(
     availableFollowedProjectIDs.map((projectID) => [projectID, undefined]),
   ) as FollowedSessionPageParam;
+  const sessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
+    connectionID ?? unresolvedConnectionID,
+    availableFollowedProjectIDs,
+    { limit: sessionPageSize, order: "desc", parentID: null },
+    revision,
+  );
   const sessionsQuery = useInfiniteQuery({
     enabled: Boolean(
       client && connectionID && preferenceReady && availableFollowedProjectIDs.length,
     ),
     getNextPageParam: nextFollowedSessionPageParam,
     initialPageParam,
+    placeholderData: (previous, previousQuery) =>
+      sameRevisionScope(previousQuery?.queryKey, sessionsQueryKey, sessionsQueryKey.length - 1)
+        ? previous
+        : undefined,
     queryFn: ({ pageParam, signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return fetchFollowedSessionPage(client, availableFollowedProjectIDs, pageParam, {
@@ -279,14 +295,20 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         signal,
       });
     },
-    queryKey: openCodeQueryKeys.followedProjectSessions(
-      connectionID ?? unresolvedConnectionID,
-      availableFollowedProjectIDs,
-      { limit: sessionPageSize, order: "desc", parentID: null },
-      revision,
-    ),
+    queryKey: sessionsQueryKey,
   });
   const normalizedSearch = search.trim();
+  const searchSessionsQueryKey = openCodeQueryKeys.followedProjectSessions(
+    connectionID ?? unresolvedConnectionID,
+    availableFollowedProjectIDs,
+    {
+      limit: sessionPageSize,
+      order: "desc",
+      parentID: null,
+      search: normalizedSearch,
+    },
+    revision,
+  );
   const searchSessionsQuery = useInfiniteQuery({
     enabled: Boolean(
       client &&
@@ -297,6 +319,14 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     ),
     getNextPageParam: nextFollowedSessionPageParam,
     initialPageParam,
+    placeholderData: (previous, previousQuery) =>
+      sameRevisionScope(
+        previousQuery?.queryKey,
+        searchSessionsQueryKey,
+        searchSessionsQueryKey.length - 1,
+      )
+        ? previous
+        : undefined,
     queryFn: ({ pageParam, signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return fetchFollowedSessionPage(client, availableFollowedProjectIDs, pageParam, {
@@ -305,17 +335,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         signal,
       });
     },
-    queryKey: openCodeQueryKeys.followedProjectSessions(
-      connectionID ?? unresolvedConnectionID,
-      availableFollowedProjectIDs,
-      {
-        limit: sessionPageSize,
-        order: "desc",
-        parentID: null,
-        search: normalizedSearch,
-      },
-      revision,
-    ),
+    queryKey: searchSessionsQueryKey,
   });
   const rootSessions = flattenFollowedSessionPages(sessionsQuery.data?.pages);
   const visibleRootSessions = normalizedSearch
@@ -331,27 +351,38 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     queryKey: openCodeQueryKeys.activeSessions(connectionID ?? unresolvedConnectionID),
   });
   const activeSessionIDs = Object.keys(activeSessionsQuery.data ?? {}).sort();
+  const activeAncestryQueryKey = openCodeQueryKeys.sessionAncestries(
+    connectionID ?? unresolvedConnectionID,
+    "active",
+    activeSessionIDs,
+    revision,
+  );
   const activeAncestryQuery = useQuery({
     enabled: Boolean(client && connectionID && activeSessionIDs.length),
+    // Ancestry entries are looked up by session ID, so the previous snapshot
+    // stays valid for display while the active set or revision changes.
+    placeholderData: (previous: SessionAncestries | undefined, previousQuery) =>
+      sameRevisionScope(previousQuery?.queryKey, activeAncestryQueryKey, ancestryScopeLength)
+        ? previous
+        : undefined,
     queryFn: ({ signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return loadSessionAncestries(client, activeSessionIDs, signal);
     },
-    queryKey: openCodeQueryKeys.sessionAncestries(
-      connectionID ?? unresolvedConnectionID,
-      "active",
-      activeSessionIDs,
-      revision,
-    ),
+    queryKey: activeAncestryQueryKey,
   });
 
   const eventLocations = uniqueLocations(runtime.eventLocations);
   const activeLocationsResolved =
     activeSessionsQuery.isSuccess &&
     (activeSessionIDs.length === 0 ||
-      (activeAncestryQuery.isSuccess && activeAncestryQuery.data.failures.length === 0));
+      (activeAncestryQuery.isSuccess &&
+        !activeAncestryQuery.isPlaceholderData &&
+        activeAncestryQuery.data.failures.length === 0));
   const activeLocationsPending =
-    activeSessionsQuery.isPending || (activeSessionIDs.length > 0 && activeAncestryQuery.isPending);
+    activeSessionsQuery.isPending ||
+    (activeSessionIDs.length > 0 &&
+      (activeAncestryQuery.isPending || activeAncestryQuery.isPlaceholderData));
   const protectedLocationKeys = new Set(
     [
       ...availableFollowedProjectIDs.flatMap((projectID) => {
@@ -390,8 +421,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         eventLocations.length &&
         preferenceReady &&
         !projectsQuery.isPending &&
-        !activeSessionsQuery.isPending &&
-        (activeSessionIDs.length === 0 || !activeAncestryQuery.isPending),
+        !activeLocationsPending,
     ),
     queryFn: async ({ signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
@@ -567,18 +597,23 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         .filter((sessionID) => sessionID !== "global"),
     ),
   ].sort();
+  const interactionAncestryQueryKey = openCodeQueryKeys.sessionAncestries(
+    connectionID ?? unresolvedConnectionID,
+    "interactions",
+    interactionSessionIDs,
+    revision,
+  );
   const interactionAncestryQuery = useQuery({
     enabled: Boolean(client && connectionID && interactionSessionIDs.length),
+    placeholderData: (previous: SessionAncestries | undefined, previousQuery) =>
+      sameRevisionScope(previousQuery?.queryKey, interactionAncestryQueryKey, ancestryScopeLength)
+        ? previous
+        : undefined,
     queryFn: ({ signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return loadSessionAncestries(client, interactionSessionIDs, signal);
     },
-    queryKey: openCodeQueryKeys.sessionAncestries(
-      connectionID ?? unresolvedConnectionID,
-      "interactions",
-      interactionSessionIDs,
-      revision,
-    ),
+    queryKey: interactionAncestryQueryKey,
   });
   const knownLocationKeys = new Set(knownLocations.map(locationKey));
   const supplementalLocations = uniqueLocations(
@@ -754,14 +789,15 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     !preferenceReady ||
     projectsQuery.isPending ||
     defaultLocationQuery.isPending ||
-    (availableFollowedProjectIDs.length > 0 && sessionsQuery.isPending) ||
-    activeSessionsQuery.isPending ||
-    (activeSessionIDs.length > 0 && activeAncestryQuery.isPending) ||
+    (availableFollowedProjectIDs.length > 0 &&
+      (sessionsQuery.isPending || sessionsQuery.isPlaceholderData)) ||
+    activeLocationsPending ||
     (eventLocations.length > 0 && eventLocationsQuery.isPending) ||
     (Boolean(location) && selectedLocationQuery.isPending) ||
     interactionPending ||
     interactionFetching ||
-    (interactionSessionIDs.length > 0 && interactionAncestryQuery.isPending);
+    (interactionSessionIDs.length > 0 &&
+      (interactionAncestryQuery.isPending || interactionAncestryQuery.isPlaceholderData));
   const coverageReasons = [
     ...(unavailableProjectIds.length > 0 ? ["followed-project-unavailable"] : []),
     ...(sessionProjectFailures.length > 0 ? ["project-session-page-failed"] : []),
@@ -877,7 +913,12 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
       value={{
         attentionCoverage,
         blockedSessionIds: new Set(interactionSessionIDs),
-        fetchNextPage: () => visibleSessionsQuery.fetchNextPage(),
+        // Placeholder pages belong to the previous revision. Paging from them
+        // would cancel the first fetch for the current revision.
+        fetchNextPage: () =>
+          visibleSessionsQuery.isPlaceholderData
+            ? Promise.resolve()
+            : visibleSessionsQuery.fetchNextPage(),
         followedProjectIds,
         formLocations,
         forms,
@@ -940,6 +981,17 @@ export function useFollowedProjects() {
   const value = use(FollowedProjectsContext);
   if (!value) throw new Error("FollowedProjectsProvider is missing");
   return value;
+}
+
+// A reconciliation revision restarts revision-keyed queries under a new key.
+// Keep showing the previous snapshot while the new one loads so the inbox does
+// not blank out, but only when the leading key parts (connection and scope)
+// match. Data never crosses connections or followed-project sets.
+function sameRevisionScope(previousKey: QueryKey | undefined, key: QueryKey, scopeLength: number) {
+  return Boolean(
+    previousKey &&
+      hashKey(previousKey.slice(0, scopeLength)) === hashKey(key.slice(0, scopeLength)),
+  );
 }
 
 function inferLocationProjectID(
