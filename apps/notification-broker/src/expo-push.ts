@@ -5,6 +5,7 @@ import type { BrokerDatabase } from "./database.js";
 
 const expoSendUrl = "https://exp.host/--/api/v2/push/send";
 const expoReceiptsUrl = "https://exp.host/--/api/v2/push/getReceipts";
+export const notificationLifetimeMs = 15 * 60_000;
 
 export class ExpoPushWorker {
   private running = false;
@@ -46,6 +47,7 @@ export class ExpoPushWorker {
   }
 
   private async sendQueued() {
+    this.database.expireQueued();
     for (const row of this.database.nextQueued()) {
       const id = asString(row.id);
       const bindingID = asString(row.binding_id);
@@ -69,12 +71,12 @@ export class ExpoPushWorker {
         channelId: "opencode-attention",
         collapseId: asString(row.collapse_id),
         data: JSON.parse(asString(row.push_data_json)),
+        expiration: Math.floor((asNumber(row.created_at_ms) + notificationLifetimeMs) / 1000),
         priority: "high",
         sound: "default",
         tag: asString(row.collapse_id),
         title: "OpenCode",
         to: this.database.decryptExpoToken(row),
-        ttl: 7 * 24 * 60 * 60,
       }),
       headers: this.expoHeaders(),
       method: "POST",

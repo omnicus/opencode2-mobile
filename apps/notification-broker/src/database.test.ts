@@ -284,6 +284,62 @@ describe("BrokerDatabase", () => {
     database.close();
   });
 
+  it("expires queued rows at the lifetime but keeps ticketed rows for their receipts", () => {
+    const database = new BrokerDatabase(":memory:", randomBytes(32));
+    pairDevice(database, "binding-1", 500);
+    const queuedID = String(database.nextQueued(25, 1_000)[0]?.id);
+    database.acceptPluginEvent({
+      eventID: "evt_ticketed",
+      interaction: "permission",
+      observedAtMs: 1_000,
+      requestID: "per_1",
+      sessionID: "ses_1",
+      state: "pending",
+      v: 1,
+    });
+    const ticketedID = String(
+      database.database.prepare("SELECT id FROM outbox WHERE event_id = 'evt_ticketed'").get()?.id,
+    );
+    database.markTicketed(ticketedID, "ticket-1", 2_000);
+    const expiresAtMs = 501 + 15 * 60_000;
+    const rows = () =>
+      database.database
+        .prepare("SELECT state, push_data_json, last_error_code FROM outbox WHERE id = ?")
+        .get(queuedID);
+
+    database.expireQueued(expiresAtMs - 1);
+    expect(database.canSendQueued(queuedID, expiresAtMs - 1)).toBe(true);
+    expect(database.canSendQueued(queuedID, expiresAtMs)).toBe(false);
+    expect(rows()).toMatchObject({ state: "queued" });
+
+    database.expireQueued(expiresAtMs);
+    expect(rows()).toEqual({ last_error_code: "EXPIRED", push_data_json: "{}", state: "failed" });
+    expect(database.nextReceipts(100, 2 * 60 * 60_000)).toMatchObject([{ id: ticketedID }]);
+    database.close();
+  });
+
+  it("fails a retry that would run at or past the lifetime", () => {
+    const database = new BrokerDatabase(":memory:", randomBytes(32));
+    pairDevice(database, "binding-1", 500);
+    const id = String(database.nextQueued(25, 1_000)[0]?.id);
+    const expiresAtMs = 501 + 15 * 60_000;
+    const outboxRow = () =>
+      database.database
+        .prepare("SELECT state, next_attempt_at_ms, last_error_code FROM outbox WHERE id = ?")
+        .get(id);
+
+    database.markRetry(id, "RATE_LIMITED", expiresAtMs - 2_001);
+    expect(outboxRow()).toEqual({
+      last_error_code: "RATE_LIMITED",
+      next_attempt_at_ms: expiresAtMs - 1,
+      state: "queued",
+    });
+
+    database.markRetry(id, "RATE_LIMITED", expiresAtMs - 4_000);
+    expect(outboxRow()).toMatchObject({ last_error_code: "EXPIRED", state: "failed" });
+    database.close();
+  });
+
   it("prunes expired unused challenges without removing the retry window", () => {
     const database = new BrokerDatabase(":memory:", randomBytes(32));
     const consumed = createPairingCode(database, 1_000);

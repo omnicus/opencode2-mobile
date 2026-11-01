@@ -123,7 +123,9 @@ all OpenCode API requests directly to the saved server. A V2 plugin projects onl
 opaque routing identifiers, a finite notification category, and the exact
 location required to route global forms. The broker owns one-time pairing,
 device registrations, an encrypted
-durable outbox, Expo tickets and receipts, token replacement, and revocation. It
+durable outbox, Expo tickets and receipts, token replacement, and revocation.
+Each push expires 15 minutes after its OpenCode event. The broker does not send or
+retry it later and passes the same expiry to Expo, APNs, and FCM. The broker
 does not use an OpenCode credential during normal notification processing. Its
 local pairing CLI accepts the credential and stores it in an encrypted,
 short-lived bootstrap challenge for delivery to the intended phone. When the app

@@ -26,6 +26,7 @@ import {
 } from "@opencode2-mobile/notification-protocol";
 
 import { decryptBrokerValue, encryptBrokerValue } from "./crypto.js";
+import { notificationLifetimeMs } from "./expo-push.js";
 
 type ChallengeRow = {
   binding_id: string | null;
@@ -501,16 +502,26 @@ export class BrokerDatabase {
       .all(now, limit) as Array<Record<string, SQLInputValue>>;
   }
 
-  canSendQueued(id: string) {
+  expireQueued(now = Date.now()) {
+    this.database
+      .prepare(
+        `UPDATE outbox SET state = 'failed', push_data_json = '{}', last_error_code = 'EXPIRED'
+         WHERE state = 'queued' AND created_at_ms <= ?`,
+      )
+      .run(now - notificationLifetimeMs);
+  }
+
+  canSendQueued(id: string, now = Date.now()) {
     return Boolean(
       this.database
         .prepare(
           `SELECT 1 FROM outbox o
            JOIN devices d ON d.binding_id = o.binding_id
            JOIN notification_settings s ON s.singleton = 1 AND s.enabled = 1
-           WHERE o.id = ? AND o.state = 'queued' AND d.disabled_at_ms IS NULL`,
+           WHERE o.id = ? AND o.state = 'queued' AND d.disabled_at_ms IS NULL
+             AND o.created_at_ms > ?`,
         )
-        .get(id),
+        .get(id, now - notificationLifetimeMs),
     );
   }
 
@@ -560,10 +571,12 @@ export class BrokerDatabase {
     }
     const row = this.database
       .prepare(
-        `SELECT state, attempts, last_error_code FROM outbox
+        `SELECT state, attempts, created_at_ms, last_error_code FROM outbox
          WHERE id = ? AND state IN ('queued', 'ticketed')`,
       )
-      .get(id) as { attempts: number; last_error_code: string | null; state: string } | undefined;
+      .get(id) as
+      | { attempts: number; created_at_ms: number; last_error_code: string | null; state: string }
+      | undefined;
     if (!row) return;
     if (row.last_error_code === "RESOLVED") {
       this.markFailed(id, "RESOLVED");
@@ -572,6 +585,10 @@ export class BrokerDatabase {
     // markTicketed already counted the send that a receipt reports on.
     const attempts = row.state === "ticketed" ? row.attempts : row.attempts + 1;
     const delay = Math.min(15 * 60_000, 2 ** Math.min(attempts, 8) * 1_000);
+    if (now + delay >= row.created_at_ms + notificationLifetimeMs) {
+      this.markFailed(id, "EXPIRED");
+      return;
+    }
     this.database
       .prepare(
         `UPDATE outbox SET state = 'queued', attempts = ?, next_attempt_at_ms = ?,
