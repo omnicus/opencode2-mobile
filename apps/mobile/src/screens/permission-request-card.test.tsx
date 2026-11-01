@@ -250,3 +250,84 @@ test("VoiceOver hears the pending reply and its failure", () => {
     "The server did not accept that reply. Review the refreshed request and try again.",
   );
 });
+
+test("shell previews show the full command button only when layout cuts lines off", () => {
+  render(
+    <PermissionRequestCard
+      request={{ ...request, resources: ["pnpm test --watch"] }}
+      replying={false}
+      error={false}
+      onReply={jest.fn()}
+    />,
+  );
+  const preview = screen.getByText("pnpm test --watch");
+  fireEvent(preview, "textLayout", { nativeEvent: { lines: [{ text: "pnpm test" }] } });
+  expect(screen.getByRole("button", { name: "Show full command" })).toBeOnTheScreen();
+  fireEvent(preview, "textLayout", {
+    nativeEvent: { lines: [{ text: "pnpm test " }, { text: "--watch" }] },
+  });
+  expect(screen.queryByRole("button", { name: "Show full command" })).toBeNull();
+  fireEvent(preview, "textLayout", {
+    nativeEvent: { lines: Array.from({ length: 7 }, () => ({ text: "" })) },
+  });
+  expect(screen.getByRole("button", { name: "Show full command" })).toBeOnTheScreen();
+});
+
+test("a single saved pattern is named without a count", () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(jest.fn());
+  render(
+    <PermissionRequestCard request={request} replying={false} error={false} onReply={jest.fn()} />,
+  );
+  const always = screen.getByRole("button", { name: "Always allow python3 *" });
+  expect(within(always).queryByText(/\+/)).toBeNull();
+  fireEvent.press(always);
+  expect(alert).toHaveBeenCalledWith(
+    "Always allow?",
+    "Future requests that match this pattern will be allowed without asking:\n\npython3 *",
+    expect.any(Array),
+  );
+});
+
+test("Details explains known actions and lists resources without saved patterns", () => {
+  render(
+    <PermissionRequestCard
+      request={{
+        action: editRequest.action,
+        id: editRequest.id,
+        resources: editRequest.resources,
+        sessionID: editRequest.sessionID,
+      }}
+      replying={false}
+      error={false}
+      onReply={jest.fn()}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Details" }));
+  expect(screen.getByText("Requested resources")).toBeOnTheScreen();
+  expect(screen.getByText("OpenCode Mobile explanation")).toBeOnTheScreen();
+  expect(
+    screen.getByText("Change project files. Edit, write, and patch use this permission."),
+  ).toBeOnTheScreen();
+  expect(screen.queryByLabelText("Saved permission patterns")).toBeNull();
+  expect(
+    screen.queryByText(
+      "Always allow saves the displayed patterns, which can cover more than this request.",
+    ),
+  ).toBeNull();
+});
+
+test("custom tools without resources show no preview or explanation", () => {
+  render(
+    <PermissionRequestCard
+      request={{ ...request, action: "mobile-approval-ui-test", resources: [], save: [] }}
+      replying={false}
+      error={false}
+      onReply={jest.fn()}
+    />,
+  );
+  expect(screen.getByText("Call tool mobile-approval-ui-test")).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Show full command" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Details" }));
+  expect(screen.getByText("Requested resources")).toBeOnTheScreen();
+  expect(screen.queryByText("OpenCode Mobile explanation")).toBeNull();
+});

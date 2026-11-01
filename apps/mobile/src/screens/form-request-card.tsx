@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { FormAnswer, FormField, FormInfo } from "@opencode2-mobile/opencode-adapter";
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -52,38 +52,12 @@ export function FormRequestCard({
   onOpenExternal?: (url: string) => void;
   onSubmit: (answer: FormAnswer) => void;
 }) {
-  const [draft, setDraft] = useState<FormDraft>(() => createFormDraft(form));
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { change, clear, draft, errors, setErrors } = useFormDraft(form);
   const [focused, setFocused] = useState(false);
   const reviewRef = useRef<View>(null);
   useEffect(() => {
     if (!allowFocus) setFocused(false);
   }, [allowFocus]);
-
-  function change(key: string, value: FormDraft[string]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-    setErrors((current) => {
-      if (!(key in current)) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }
-
-  function clear(key: string) {
-    setDraft((current) => {
-      if (!Object.hasOwn(current, key)) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-    setErrors((current) => {
-      if (!(key in current)) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }
 
   function submit() {
     const result = validateFormDraft(form, draft);
@@ -92,8 +66,7 @@ export function FormRequestCard({
       onSubmit(result.answer);
       return;
     }
-    const invalid = Object.keys(result.errors).length;
-    announceOnIOS(invalid === 1 ? "1 answer needs attention" : `${invalid} answers need attention`);
+    announceOnIOS(attentionMessage(Object.keys(result.errors).length));
   }
 
   function confirmCancel() {
@@ -108,39 +81,12 @@ export function FormRequestCard({
   }
 
   const visibleKeys = visibleFormFieldKeys(form, draft);
-  const answerFields = form.fields.filter(
-    (field) => field.type !== "external" && visibleKeys.has(field.key),
-  );
-  const answered = answerFields.filter((field) => {
-    const value = draft[field.key];
-    return (
-      value !== undefined &&
-      (typeof value === "string"
-        ? value.trim().length > 0
-        : Array.isArray(value)
-          ? value.length > 0
-          : true)
-    );
-  }).length;
-  const progressText =
-    answerFields.length > 1 ? `${answered} of ${answerFields.length} answered` : undefined;
-  const announcedProgress = useRef(progressText);
-  useEffect(() => {
-    if (announcedProgress.current === progressText) return;
-    announcedProgress.current = progressText;
-    announceOnIOS(progressText);
-  }, [progressText]);
+  const progressText = formProgressText(form, draft, visibleKeys);
+  useProgressAnnouncement(progressText);
   useAnnouncement(busy && "Submitting answers…");
   useAnnouncement(error);
-  const progress = progressText ? (
-    <Text
-      accessibilityLiveRegion="polite"
-      dynamicTypeRamp={typeRamp.footnote}
-      style={styles.description}
-    >
-      {progressText}
-    </Text>
-  ) : null;
+  const title = sanitizeTranscriptText(form.title, 512);
+  const progress = <FormProgress text={progressText} />;
   const fields = (
     <>
       {form.fields.map((field) =>
@@ -156,30 +102,11 @@ export function FormRequestCard({
           />
         ) : null,
       )}
-      {error ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
+      <FieldError error={error} />
     </>
   );
   const actions = (
-    <View style={[styles.actions, allowFocus && styles.focusedActions]}>
-      <Button
-        variant="primary"
-        busy={Boolean(busy)}
-        label={busy ? "Submitting" : allowFocus ? "Send answers" : "Submit"}
-        onPress={submit}
-        style={styles.actionButton}
-      />
-      <Button
-        variant="danger"
-        disabled={Boolean(busy)}
-        label="Cancel form"
-        onPress={confirmCancel}
-        style={styles.actionButton}
-      />
-    </View>
+    <FormActions allowFocus={allowFocus} busy={busy} onCancel={confirmCancel} onSubmit={submit} />
   );
   return (
     <>
@@ -191,30 +118,11 @@ export function FormRequestCard({
           </Text>
         </View>
         <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.title}>
-          {sanitizeTranscriptText(form.title, 512)}
+          {title}
         </Text>
         {progress}
         {allowFocus ? (
-          <Pressable
-            ref={reviewRef}
-            accessibilityRole="button"
-            accessibilityLabel="Review input request"
-            accessibilityHint="Opens the form with answer actions below the fields"
-            android_ripple={Platform.OS === "android" ? ripple : undefined}
-            onPress={() => setFocused(true)}
-            style={({ pressed }) => [
-              styles.button,
-              styles.buttonPrimary,
-              pressed && Platform.OS === "ios" && styles.pressed,
-            ]}
-          >
-            <Text
-              dynamicTypeRamp={typeRamp.control}
-              style={[styles.buttonLabel, styles.buttonPrimaryLabel]}
-            >
-              Review and answer
-            </Text>
-          </Pressable>
+          <ReviewButton onPress={() => setFocused(true)} reviewRef={reviewRef} />
         ) : (
           <>
             {fields}
@@ -222,11 +130,7 @@ export function FormRequestCard({
           </>
         )}
       </View>
-      {allowFocus && !focused && error ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
+      {allowFocus && !focused ? <FieldError error={error} /> : null}
       {allowFocus ? (
         <ModalSheet
           title="Answer request"
@@ -246,7 +150,7 @@ export function FormRequestCard({
               dynamicTypeRamp={typeRamp.headline}
               style={styles.title}
             >
-              {sanitizeTranscriptText(form.title, 512)}
+              {title}
             </Text>
             {progress}
             {fields}
@@ -256,6 +160,137 @@ export function FormRequestCard({
       ) : null}
     </>
   );
+}
+
+function useFormDraft(form: FormInfo) {
+  const [draft, setDraft] = useState<FormDraft>(() => createFormDraft(form));
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  function change(key: string, value: FormDraft[string]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setErrors((current) => (key in current ? withoutKey(current, key) : current));
+  }
+
+  function clear(key: string) {
+    setDraft((current) => (Object.hasOwn(current, key) ? withoutKey(current, key) : current));
+    setErrors((current) => (key in current ? withoutKey(current, key) : current));
+  }
+
+  return { change, clear, draft, errors, setErrors };
+}
+
+function withoutKey<Value>(record: Record<string, Value>, key: string) {
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
+function attentionMessage(invalid: number) {
+  return invalid === 1 ? "1 answer needs attention" : `${invalid} answers need attention`;
+}
+
+function formProgressText(form: FormInfo, draft: FormDraft, visibleKeys: ReadonlySet<string>) {
+  const answerFields = form.fields.filter(
+    (field) => field.type !== "external" && visibleKeys.has(field.key),
+  );
+  if (answerFields.length <= 1) return undefined;
+  const answered = answerFields.filter((field) => hasAnswer(draft[field.key])).length;
+  return `${answered} of ${answerFields.length} answered`;
+}
+
+function hasAnswer(value: FormDraft[string] | undefined) {
+  if (value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return true;
+}
+
+function useProgressAnnouncement(progressText: string | undefined) {
+  const announcedProgress = useRef(progressText);
+  useEffect(() => {
+    if (announcedProgress.current === progressText) return;
+    announcedProgress.current = progressText;
+    announceOnIOS(progressText);
+  }, [progressText]);
+}
+
+function FormProgress({ text }: { text: string | undefined }) {
+  return text ? (
+    <Text
+      accessibilityLiveRegion="polite"
+      dynamicTypeRamp={typeRamp.footnote}
+      style={styles.description}
+    >
+      {text}
+    </Text>
+  ) : null;
+}
+
+function ReviewButton({
+  onPress,
+  reviewRef,
+}: {
+  onPress: () => void;
+  reviewRef: RefObject<View | null>;
+}) {
+  return (
+    <Pressable
+      ref={reviewRef}
+      accessibilityRole="button"
+      accessibilityLabel="Review input request"
+      accessibilityHint="Opens the form with answer actions below the fields"
+      android_ripple={Platform.OS === "android" ? ripple : undefined}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.button,
+        styles.buttonPrimary,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
+    >
+      <Text
+        dynamicTypeRamp={typeRamp.control}
+        style={[styles.buttonLabel, styles.buttonPrimaryLabel]}
+      >
+        Review and answer
+      </Text>
+    </Pressable>
+  );
+}
+
+function FormActions({
+  allowFocus,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  allowFocus: boolean;
+  busy?: boolean | undefined;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <View style={[styles.actions, allowFocus && styles.focusedActions]}>
+      <Button
+        variant="primary"
+        busy={Boolean(busy)}
+        label={submitLabel(busy, allowFocus)}
+        onPress={onSubmit}
+        style={styles.actionButton}
+      />
+      <Button
+        variant="danger"
+        disabled={Boolean(busy)}
+        label="Cancel form"
+        onPress={onCancel}
+        style={styles.actionButton}
+      />
+    </View>
+  );
+}
+
+function submitLabel(busy: boolean | undefined, allowFocus: boolean) {
+  if (busy) return "Submitting";
+  return allowFocus ? "Send answers" : "Submit";
 }
 
 function FormControl({
@@ -285,139 +320,128 @@ function FormControl({
       </View>
     );
   }
-  if (field.type === "boolean") {
-    const value = draft[field.key];
-    return (
-      <View style={styles.field}>
-        <FieldHeading description={description} required={field.required} title={title} />
-        <View
-          accessibilityLabel={title}
-          accessibilityRole="radiogroup"
-          style={styles.booleanOptions}
-        >
-          <ChoiceButton
-            label="Yes"
-            onPress={() => onChange(true)}
-            radio
-            selected={value === true}
-          />
-          <ChoiceButton
-            label="No"
-            onPress={() => onChange(false)}
-            radio
-            selected={value === false}
-          />
-          {!field.required ? (
-            <ChoiceButton
-              label="Not set"
-              onPress={onClear}
-              radio
-              selected={!Object.hasOwn(draft, field.key)}
-            />
-          ) : null}
-        </View>
-        <FieldError error={error} />
-      </View>
-    );
-  }
-  if (field.type === "multiselect") {
-    const current = draft[field.key];
-    const selected: string[] = Array.isArray(current) ? current : [];
-    const optionValues = new Set(field.options.map((option) => option.value));
-    const customValues = selected.filter((value) => !optionValues.has(value));
-    return (
-      <View style={styles.field}>
-        <FieldHeading description={description} required={field.required} title={title} />
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
-          Choose any that apply
-        </Text>
-        <View accessibilityLabel={title} role="group" style={styles.options}>
-          {field.options.map((option) => (
-            <ChoiceButton
-              description={option.description}
-              key={option.value}
-              label={option.label}
-              onPress={() =>
-                onChange(
-                  selected.includes(option.value)
-                    ? selected.filter((value) => value !== option.value)
-                    : [...selected, option.value],
-                )
-              }
-              selected={selected.includes(option.value)}
-            />
-          ))}
-        </View>
-        {field.custom ? (
-          <CustomValuesInput
-            initialValues={customValues}
-            onChange={(values) =>
-              onChange([...selected.filter((value) => optionValues.has(value)), ...values])
-            }
-            title={title}
-          />
-        ) : null}
-        <FieldError error={error} />
-      </View>
-    );
-  }
+  const props = { description, draft, error, onChange, title };
+  if (field.type === "boolean")
+    return <BooleanControl {...props} field={field} onClear={onClear} />;
+  if (field.type === "multiselect") return <MultiselectControl {...props} field={field} />;
+  return <TextControl {...props} field={field} />;
+}
 
-  const current = draft[field.key];
-  const value = typeof current === "string" ? current : "";
+type FieldControlProps<Type extends FormField["type"]> = {
+  description?: string | undefined;
+  draft: FormDraft;
+  error?: string | undefined;
+  field: Extract<FormField, { type: Type }>;
+  onChange: (value: FormDraft[string]) => void;
+  title: string;
+};
+
+function BooleanControl({
+  description,
+  draft,
+  error,
+  field,
+  onChange,
+  onClear,
+  title,
+}: FieldControlProps<"boolean"> & { onClear: () => void }) {
+  const value = draft[field.key];
   return (
     <View style={styles.field}>
       <FieldHeading description={description} required={field.required} title={title} />
-      {field.type === "string" && field.options ? (
-        <>
-          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
-            Choose one
-          </Text>
-          <View accessibilityRole="radiogroup" style={styles.options}>
-            {field.options.map((option) => (
-              <ChoiceButton
-                description={option.description}
-                key={option.value}
-                label={option.label}
-                onPress={() => onChange(option.value)}
-                radio
-                selected={value === option.value}
-              />
-            ))}
-          </View>
-        </>
-      ) : null}
-      {field.type !== "string" || !field.options || field.custom ? (
-        <TextInput
-          keyboardAppearance="dark"
-          accessibilityLabel={title}
-          autoCapitalize={
-            field.type === "string" && (field.format === "email" || field.format === "uri")
-              ? "none"
-              : "sentences"
-          }
-          autoCorrect={
-            !(field.type === "string" && (field.format === "email" || field.format === "uri"))
-          }
-          // numbers-and-punctuation is iOS-only; both keyboards include the minus sign.
-          keyboardType={
-            field.type === "number" || field.type === "integer"
-              ? Platform.OS === "ios"
-                ? "numbers-and-punctuation"
-                : "numeric"
-              : field.format === "email"
-                ? "email-address"
-                : field.format === "uri"
-                  ? "url"
-                  : "default"
-          }
-          onChangeText={onChange}
-          placeholder={field.type === "string" ? field.placeholder : undefined}
-          placeholderTextColor={palette.dim}
-          style={styles.input}
-          value={value}
+      <View accessibilityLabel={title} accessibilityRole="radiogroup" style={styles.booleanOptions}>
+        <ChoiceButton label="Yes" onPress={() => onChange(true)} radio selected={value === true} />
+        <ChoiceButton label="No" onPress={() => onChange(false)} radio selected={value === false} />
+        {!field.required ? (
+          <ChoiceButton
+            label="Not set"
+            onPress={onClear}
+            radio
+            selected={!Object.hasOwn(draft, field.key)}
+          />
+        ) : null}
+      </View>
+      <FieldError error={error} />
+    </View>
+  );
+}
+
+function MultiselectControl({
+  description,
+  draft,
+  error,
+  field,
+  onChange,
+  title,
+}: FieldControlProps<"multiselect">) {
+  const current = draft[field.key];
+  const selected: string[] = Array.isArray(current) ? current : [];
+  const optionValues = new Set(field.options.map((option) => option.value));
+  const customValues = selected.filter((value) => !optionValues.has(value));
+  return (
+    <View style={styles.field}>
+      <FieldHeading description={description} required={field.required} title={title} />
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
+        Choose any that apply
+      </Text>
+      <View accessibilityLabel={title} role="group" style={styles.options}>
+        {field.options.map((option) => (
+          <ChoiceButton
+            description={option.description}
+            key={option.value}
+            label={option.label}
+            onPress={() => onChange(toggleSelection(selected, option.value))}
+            selected={selected.includes(option.value)}
+          />
+        ))}
+      </View>
+      {field.custom ? (
+        <CustomValuesInput
+          initialValues={customValues}
+          onChange={(values) => onChange(withCustomValues(selected, optionValues, values))}
+          title={title}
         />
       ) : null}
-      {field.type === "number" || field.type === "integer" ? (
+      <FieldError error={error} />
+    </View>
+  );
+}
+
+function toggleSelection(selected: string[], value: string) {
+  return selected.includes(value)
+    ? selected.filter((candidate) => candidate !== value)
+    : [...selected, value];
+}
+
+function withCustomValues(
+  selected: string[],
+  optionValues: ReadonlySet<string>,
+  customValues: string[],
+) {
+  return [...selected.filter((value) => optionValues.has(value)), ...customValues];
+}
+
+type TextField = Extract<FormField, { type: "integer" | "number" | "string" }>;
+
+function TextControl({
+  description,
+  draft,
+  error,
+  field,
+  onChange,
+  title,
+}: FieldControlProps<"integer" | "number" | "string">) {
+  const current = draft[field.key];
+  const value = typeof current === "string" ? current : "";
+  const options = field.type === "string" ? field.options : undefined;
+  return (
+    <View style={styles.field}>
+      <FieldHeading description={description} required={field.required} title={title} />
+      {options ? <SingleChoiceOptions onChange={onChange} options={options} value={value} /> : null}
+      {showsTextInput(field) ? (
+        <TextFieldInput field={field} onChange={onChange} title={title} value={value} />
+      ) : null}
+      {field.type !== "string" ? (
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
           {numberConstraint(field)}
         </Text>
@@ -425,6 +449,76 @@ function FormControl({
       <FieldError error={error} />
     </View>
   );
+}
+
+function SingleChoiceOptions({
+  onChange,
+  options,
+  value,
+}: {
+  onChange: (value: string) => void;
+  options: NonNullable<Extract<FormField, { type: "string" }>["options"]>;
+  value: string;
+}) {
+  return (
+    <>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
+        Choose one
+      </Text>
+      <View accessibilityRole="radiogroup" style={styles.options}>
+        {options.map((option) => (
+          <ChoiceButton
+            description={option.description}
+            key={option.value}
+            label={option.label}
+            onPress={() => onChange(option.value)}
+            radio
+            selected={value === option.value}
+          />
+        ))}
+      </View>
+    </>
+  );
+}
+
+function showsTextInput(field: TextField) {
+  return field.type !== "string" || !field.options || Boolean(field.custom);
+}
+
+function TextFieldInput({
+  field,
+  onChange,
+  title,
+  value,
+}: {
+  field: TextField;
+  onChange: (value: string) => void;
+  title: string;
+  value: string;
+}) {
+  const verbatim = field.type === "string" && (field.format === "email" || field.format === "uri");
+  return (
+    <TextInput
+      keyboardAppearance="dark"
+      accessibilityLabel={title}
+      autoCapitalize={verbatim ? "none" : "sentences"}
+      autoCorrect={!verbatim}
+      keyboardType={textKeyboardType(field)}
+      onChangeText={onChange}
+      placeholder={field.type === "string" ? field.placeholder : undefined}
+      placeholderTextColor={palette.dim}
+      style={styles.input}
+      value={value}
+    />
+  );
+}
+
+function textKeyboardType(field: TextField) {
+  // numbers-and-punctuation is iOS-only; both keyboards include the minus sign.
+  if (field.type !== "string") return Platform.OS === "ios" ? "numbers-and-punctuation" : "numeric";
+  if (field.format === "email") return "email-address";
+  if (field.format === "uri") return "url";
+  return "default";
 }
 
 function CustomValuesInput({
