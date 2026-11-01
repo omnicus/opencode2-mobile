@@ -8,7 +8,7 @@ import { SessionAttentionMarker, WorkspaceHeaderActions } from "./workspace-head
 jest.mock("@expo/vector-icons/Feather", () => () => null);
 jest.mock("../state/workspace-selection-context", () => ({ useWorkspaceSelection: jest.fn() }));
 
-test("keeps attention and workspace options available in the native header", () => {
+test("the gear opens Settings directly and carries the attention state", () => {
   jest.mocked(useWorkspaceSelection).mockReturnValue({
     attentionCoverage: { completeness: "incomplete", freshness: "reconciling" },
     pendingCount: 3,
@@ -16,21 +16,18 @@ test("keeps attention and workspace options available in the native header", () 
   const navigate = jest.fn();
   render(<WorkspaceHeaderActions navigate={navigate} />);
   expect(screen.queryByText("3+")).toBeNull();
-  expect(screen.queryByText("More")).toBeNull();
   expect(
     screen.getByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
   ).toBeOnTheScreen();
-  expect(
-    screen.getByRole("button", { name: "Workspace options" }).props.accessibilityValue.text,
-  ).toContain("3 known requests");
+  const settings = screen.getByRole("button", { name: "Settings" });
+  expect(settings.props.accessibilityValue.text).toBe(
+    "3 requests need you, checking, some projects not checked",
+  );
 
-  fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
-  fireEvent.press(screen.getByRole("button", { name: "Needs you, 3" }));
-  expect(navigate).toHaveBeenCalledWith("Pending");
-
-  fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
-  fireEvent.press(screen.getByRole("button", { name: "Followed projects" }));
-  expect(navigate).toHaveBeenCalledWith("FollowedProjects");
+  fireEvent.press(settings);
+  expect(navigate).toHaveBeenCalledWith("Settings");
+  expect(navigate).toHaveBeenCalledTimes(1);
+  expect(screen.queryByText("Workspace options")).toBeNull();
 });
 
 test("current complete coverage without requests has no attention indicator", () => {
@@ -42,28 +39,20 @@ test("current complete coverage without requests has no attention indicator", ()
   expect(
     screen.queryByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
   ).toBeNull();
+  expect(screen.getByRole("button", { name: "Settings" }).props.accessibilityValue.text).toBe(
+    "0 requests need you, up to date",
+  );
 });
 
-test("moves Needs you into the menu when there are no known requests", () => {
+test("shows an uncertain indicator while checking with no known requests", () => {
   jest.mocked(useWorkspaceSelection).mockReturnValue({
     attentionCoverage: { completeness: "incomplete", freshness: "reconciling" },
     pendingCount: 0,
   } as never);
-  const navigate = jest.fn();
-  render(<WorkspaceHeaderActions navigate={navigate} />);
-
-  expect(screen.queryByText("0+")).toBeNull();
+  render(<WorkspaceHeaderActions navigate={jest.fn()} />);
   expect(
     screen.getByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
-  ).toBeOnTheScreen();
-  expect(
-    screen.queryByRole("button", {
-      name: "0 known requests. Attention coverage incomplete, reconciling.",
-    }),
-  ).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "Workspace options" }));
-  fireEvent.press(screen.getByRole("button", { name: "Needs you, syncing" }));
-  expect(navigate).toHaveBeenCalledWith("Pending");
+  ).toHaveStyle({ backgroundColor: palette.dim });
 });
 
 test("session attention is a small circle rather than an approval-list action", () => {
@@ -76,7 +65,7 @@ test("session attention is a small circle rather than an approval-list action", 
     screen.getByTestId("session-attention-marker", { includeHiddenElements: true }),
   ).toHaveStyle({ width: 7, height: 7, borderRadius: 4, backgroundColor: palette.warm, left: 6 });
   expect(screen.queryByRole("button", { name: "Needs you" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Workspace options" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
   jest.mocked(useWorkspaceSelection).mockReturnValue({
     attentionCoverage: { completeness: "complete", freshness: "current" },
     pendingCount: 0,

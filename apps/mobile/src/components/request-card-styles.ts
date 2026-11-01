@@ -15,6 +15,7 @@ export const requestCardStyles = StyleSheet.create({
     borderWidth: 1,
     flexGrow: 1,
     maxWidth: "100%",
+    overflow: "hidden",
   },
   buttonLabel: { ...typography.control, color: palette.ink, textAlign: "center" },
   card: { ...cardSurface, gap: 12 },

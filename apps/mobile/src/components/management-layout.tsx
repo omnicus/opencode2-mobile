@@ -18,12 +18,13 @@ export function SettingsGroup({ children, title }: { children: ReactNode; title:
   );
 }
 
-export function SettingsRow({ children }: { children: ReactNode }) {
+export function SettingsRow({ children, last = false }: { children: ReactNode; last?: boolean }) {
   const { fontScale } = useWindowDimensions();
   return (
     <View
       style={[
         managementStyles.row,
+        !last && managementStyles.separator,
         usesLargeTextLayout(fontScale) && managementStyles.rowLargeText,
       ]}
     >
@@ -58,8 +59,7 @@ export const managementStyles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: space.md,
     paddingVertical: space.sm,
-    borderBottomColor: palette.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
   },
+  separator: { borderBottomColor: palette.border, borderBottomWidth: StyleSheet.hairlineWidth },
   rowLargeText: { alignItems: "stretch", flexDirection: "column" },
 });

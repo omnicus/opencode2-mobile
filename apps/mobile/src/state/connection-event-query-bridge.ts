@@ -3,6 +3,7 @@ import type {
   LocationRef,
   OpenCodeEvent,
   PermissionRequest,
+  ProjectListOutput,
   SessionActive,
   SessionMessagesResponse,
 } from "@opencode2-mobile/opencode-adapter";
@@ -25,6 +26,7 @@ type InvalidationRoot =
   | "inbox"
   | "messages"
   | "permissions"
+  | "projects"
   | "sessions"
   | "shell"
   | "vcs";
@@ -83,7 +85,11 @@ export class ConnectionEventQueryBridge {
       }));
     }
 
-    const root = eventInvalidationRoot(event);
+    const root =
+      event.type === "project.updated" &&
+      replaceCachedProject(this.queryClient, this.connectionId, event.data)
+        ? undefined
+        : eventInvalidationRoot(event);
     if (root) {
       this.queue(
         root,
@@ -194,6 +200,11 @@ export class ConnectionEventQueryBridge {
         void this.queryClient.invalidateQueries({
           exact: true,
           queryKey: openCodeQueryKeys.health(this.connectionId),
+        });
+      } else if (root === "projects") {
+        void this.queryClient.invalidateQueries({
+          exact: true,
+          queryKey: openCodeQueryKeys.projects(this.connectionId),
         });
       } else if (root === "connection") {
         void this.queryClient.invalidateQueries({
@@ -403,6 +414,31 @@ function reducePermissionQueries(
   }
 }
 
+// The event carries the whole project, so a project already in the list is replaced in place.
+// A new or malformed project falls back to refetching the list.
+function replaceCachedProject(queryClient: QueryClient, connectionId: string, project: unknown) {
+  if (
+    !isRecord(project) ||
+    typeof project.id !== "string" ||
+    typeof project.canonical !== "string" ||
+    !Array.isArray(project.sandboxes)
+  ) {
+    return false;
+  }
+  const key = openCodeQueryKeys.projects(connectionId);
+  const current = queryClient.getQueryData<ProjectListOutput>(key);
+  const index = current?.findIndex((candidate) => candidate.id === project.id) ?? -1;
+  if (!current || index < 0) return false;
+  const next = [...current];
+  next[index] = project as ProjectListOutput[number];
+  queryClient.setQueryData(key, next);
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export function reduceActiveSessions(
   current: Record<string, SessionActive> | undefined,
   event: OpenCodeEvent,
@@ -441,6 +477,7 @@ function eventInvalidationRoot(event: OpenCodeEvent): InvalidationRoot | undefin
     return "shell";
   if (advisoryLocationEventTypes.has(event.type)) return undefined;
   if (event.type === "vcs.branch.updated") return "vcs";
+  if (event.type === "project.updated") return "projects";
   if (inboxEventTypes.has(event.type)) return "inbox";
   if (event.type === "session.status" || event.type === "session.execution.started") {
     return undefined;
@@ -537,9 +574,6 @@ function matchesRoot(
 ) {
   const key: QueryKey = query.queryKey;
   if (key[0] !== "opencode" || key[1] !== connectionId) return false;
-  if (root === "sessions" && key[2] === "archived-session") {
-    return sessionId === undefined || key[3] === sessionId;
-  }
   if (root === "sessions" && key[2] === "project") return key[4] === "sessions";
   if (root === "sessions" && key[2] === "followed-project-sessions") return true;
   if (

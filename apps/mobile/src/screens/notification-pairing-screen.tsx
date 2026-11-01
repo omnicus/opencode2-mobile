@@ -6,10 +6,10 @@ import { createOpenCodeClient, normalizeOpenCodeBaseUrl } from "@opencode2-mobil
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useSQLiteContext } from "expo-sqlite";
 import { StatusBar } from "expo-status-bar";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
-  KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/button";
+import { useAnnouncement } from "../components/use-announcement";
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import type { ConnectionCredential } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
@@ -47,6 +48,9 @@ import {
   typeRamp,
   typography,
 } from "../theme";
+import { FormKeyboardAvoidingView } from "./form-keyboard-avoiding-view";
+
+const openCodeTimeoutMs = 10_000;
 
 export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
   const db = useSQLiteContext();
@@ -55,14 +59,48 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
   const [manualCode, setManualCode] = useState("");
   const [scanning, setScanning] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string>();
+  const [scanError, setScanError] = useState<string>();
+  const [cameraBlocked, setCameraBlocked] = useState(false);
   const [preview, setPreview] = useState<PairingPreview>();
+  const [now, setNow] = useState(Date.now);
   const pairingMaterial = useRef<ReturnType<typeof createNotificationPairingMaterial> | undefined>(
     undefined,
   );
+  const attempt = useRef<AbortController | undefined>(undefined);
+  const mounted = useRef(true);
+  const lastScan = useRef<string | undefined>(undefined);
+  const expiresAtMs = preview?.kind === "notification" ? preview.code.expiresAtMs : undefined;
+  const secondsLeft =
+    expiresAtMs === undefined ? undefined : Math.max(0, Math.ceil((expiresAtMs - now) / 1_000));
+  const expired = secondsLeft === 0;
+  useAnnouncement(error);
+  useAnnouncement(scanError);
 
-  function inspect(value = manualCode) {
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      attempt.current?.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (expiresAtMs === undefined) return;
+    setNow(Date.now());
+    const interval = setInterval(() => {
+      const current = Date.now();
+      setNow(current);
+      if (current >= expiresAtMs) clearInterval(interval);
+    }, 1_000);
+    return () => clearInterval(interval);
+  }, [expiresAtMs]);
+
+  function inspect(value = manualCode, source: "manual" | "scan" = "manual") {
+    const report = source === "scan" ? setScanError : setError;
     setError(undefined);
+    setScanError(undefined);
     pairingMaterial.current = undefined;
     try {
       const code = parseNotificationPairingCode(value.trim());
@@ -78,7 +116,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         setScanning(false);
       } catch (openCodeError) {
         setPreview(undefined);
-        setError(
+        report(
           pairingErrorMessage(
             caught instanceof Error && caught.message === "PAIRING_CODE_EXPIRED"
               ? caught
@@ -89,29 +127,74 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
     }
   }
 
+  function scanned(data: string) {
+    if (busy || data === lastScan.current) return;
+    lastScan.current = data;
+    inspect(data, "scan");
+  }
+
   async function openScanner() {
     setError(undefined);
+    setScanError(undefined);
+    lastScan.current = undefined;
     if (!cameraPermission?.granted) {
       const next = await requestCameraPermission();
       if (!next.granted) {
-        setError("Camera access was denied. Paste the pairing code instead.");
+        setCameraBlocked(!next.canAskAgain);
+        setError(
+          next.canAskAgain
+            ? "Camera access was denied. Paste the pairing code instead."
+            : "Camera access is off for this app. Turn it on in Settings, or paste the pairing code instead.",
+        );
         return;
       }
     }
+    setCameraBlocked(false);
     setScanning(true);
+  }
+
+  function closeScanner() {
+    setScanning(false);
+    setScanError(undefined);
+  }
+
+  function beginAttempt() {
+    attempt.current?.abort();
+    const controller = new AbortController();
+    attempt.current = controller;
+    setCancelling(false);
+    setBusy(true);
+    setError(undefined);
+    return controller.signal;
+  }
+
+  function cancelAttempt() {
+    setCancelling(true);
+    attempt.current?.abort();
+  }
+
+  function finishAttempt(signal: AbortSignal) {
+    if (attempt.current?.signal !== signal) return;
+    attempt.current = undefined;
+    setBusy(false);
+    setCancelling(false);
   }
 
   async function pairWithoutNotifications() {
     if (preview?.kind !== "opencode" || busy) return;
-    await connectDirectly(preview.prepared);
+    const signal = beginAttempt();
+    try {
+      await connectDirectly(preview.prepared, signal);
+    } finally {
+      finishAttempt(signal);
+    }
   }
 
   async function connectDirectly(
     prepared: ReturnType<typeof prepareOpenCodeDevicePairing>,
+    signal: AbortSignal,
     notificationFallback = false,
   ) {
-    setBusy(true);
-    setError(undefined);
     let stage: PairingStage = "opencode-validation";
     try {
       const credential: ConnectionCredential = {
@@ -126,10 +209,8 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         baseUrl,
         fetch: boundedOpenCodeFetch,
       });
-      const [health] = await Promise.all([
-        client.server.status(),
-        client.session.list({ limit: 1, order: "desc" }),
-      ]);
+      const health = await checkOpenCode(client, signal);
+      throwIfCancelled(signal);
       stage = "connection-save";
       await connections.save({
         credential,
@@ -147,18 +228,15 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           "Notification setup was unavailable. Connected without notifications.",
         );
       }
-      onDone();
+      if (mounted.current) onDone();
     } catch (caught) {
-      setError(pairingErrorMessage(caught, stage));
-    } finally {
-      setBusy(false);
+      if (!signal.aborted) setError(pairingErrorMessage(caught, stage));
     }
   }
 
   async function pair() {
-    if (!preview || busy) return;
-    setBusy(true);
-    setError(undefined);
+    if (!preview || busy || expired) return;
+    const signal = beginAttempt();
     let pendingRevocation:
       | Awaited<ReturnType<typeof stagePendingNotificationRevocation>>
       | undefined;
@@ -166,11 +244,13 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
     let stage: PairingStage = "push-registration";
     try {
       const push = await registerForOpenCodePushNotifications();
+      throwIfCancelled(signal);
       stage = "broker-issue";
       const code =
         preview.kind === "notification"
           ? preview.code
-          : await issueNotificationPairingFromOpenCode(preview.prepared);
+          : await issueNotificationPairingFromOpenCode(preview.prepared, signal);
+      throwIfCancelled(signal);
       pairingMaterial.current ??= createNotificationPairingMaterial();
       stage = "secure-storage";
       pendingRevocation = await stagePendingNotificationRevocation(db, {
@@ -178,6 +258,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         brokerOrigin: code.brokerOrigin,
         deviceKey: pairingMaterial.current.deviceKey,
       });
+      throwIfCancelled(signal);
       stage = "broker-registration";
       const registered = await completeNotificationPairing(
         code,
@@ -188,7 +269,9 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           platform: push.platform,
         },
         pairingMaterial.current.deviceKey,
+        signal,
       );
+      throwIfCancelled(signal);
       const credential = bootstrapCredential(registered.bootstrap.auth);
       const baseUrl = normalizeOpenCodeBaseUrl(registered.bootstrap.baseUrl);
       const client = createOpenCodeClient({
@@ -197,10 +280,8 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         fetch: boundedOpenCodeFetch,
       });
       stage = "opencode-validation";
-      const [health] = await Promise.all([
-        client.server.status(),
-        client.session.list({ limit: 1, order: "desc" }),
-      ]);
+      const health = await checkOpenCode(client, signal);
+      throwIfCancelled(signal);
       stage = "connection-save";
       const connectionId = await connections.save({
         ...(credential ? { credential } : {}),
@@ -226,7 +307,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
         deviceKey: registered.deviceKey,
       });
       pairingMaterial.current = undefined;
-      onDone();
+      if (mounted.current) onDone();
     } catch (caught) {
       let connectionRollbackFailed = false;
       if (pendingRevocation && pairingMaterial.current) {
@@ -253,6 +334,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           connectionRollbackFailed = true;
         }
       }
+      if (signal.aborted && !connectionRollbackFailed) return;
       if (
         preview.kind === "opencode" &&
         !savedConnectionId &&
@@ -261,7 +343,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           stage === "secure-storage" ||
           stage === "broker-registration")
       ) {
-        await connectDirectly(preview.prepared, true);
+        await connectDirectly(preview.prepared, signal, true);
         return;
       }
       setError(
@@ -270,7 +352,7 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           : pairingErrorMessage(caught, stage),
       );
     } finally {
-      setBusy(false);
+      finishAttempt(signal);
     }
   }
 
@@ -279,57 +361,63 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={styles.flex}
-      >
+      <View style={styles.header}>
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.navTitle}
+          numberOfLines={1}
+          style={styles.headerTitle}
+        >
+          Pair this phone
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          android_ripple={
+            Platform.OS === "android"
+              ? { borderless: true, color: "rgba(255,255,255,0.12)" }
+              : undefined
+          }
+          onPress={onDone}
+          style={({ pressed }) => [
+            styles.doneButton,
+            pressed && Platform.OS === "ios" && styles.pressed,
+          ]}
+        >
+          <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.doneLabel}>
+            Done
+          </Text>
+        </Pressable>
+      </View>
+      <FormKeyboardAvoidingView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <View style={styles.headerRow}>
-            <View style={styles.headerCopy}>
-              <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
-                Secure setup
-              </Text>
-              <Text
-                accessibilityRole="header"
-                dynamicTypeRamp={typeRamp.largeTitle}
-                style={styles.title}
-              >
-                Pair this phone
-              </Text>
-            </View>
-            <Pressable
-              accessibilityRole="button"
-              android_ripple={
-                Platform.OS === "android"
-                  ? { borderless: true, color: "rgba(255,255,255,0.12)" }
-                  : undefined
-              }
-              onPress={onDone}
-              style={({ pressed }) => [
-                styles.doneButton,
-                pressed && Platform.OS === "ios" && styles.pressed,
-              ]}
-            >
-              <Text dynamicTypeRamp={typeRamp.navTitle} style={styles.doneLabel}>
-                Done
-              </Text>
-            </Pressable>
-          </View>
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-            Scan an OpenCode /pair code to connect. Notifications are set up when available;
-            otherwise the app connects without them. Credentials are stored in the device keychain.
+            Run /pair in OpenCode on your computer, then scan the code it shows. Notifications are
+            set up when available; otherwise the app connects without them. Credentials are stored
+            in the device keychain.
           </Text>
 
           {scanning ? (
             <View style={styles.cameraFrame}>
               <CameraView
                 barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
-                onBarcodeScanned={({ data }) => inspect(data)}
+                onBarcodeScanned={({ data }) => scanned(data)}
                 style={styles.camera}
               />
-              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cameraHint}>
-                Center the terminal QR code in the frame.
-              </Text>
+              <View style={styles.cameraFooter}>
+                <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cameraHint}>
+                  Center the terminal QR code in the frame.
+                </Text>
+                {scanError ? (
+                  <Text
+                    accessibilityLiveRegion="polite"
+                    dynamicTypeRamp={typeRamp.subheadline}
+                    style={styles.scanError}
+                  >
+                    {scanError}
+                  </Text>
+                ) : null}
+                <Button fullWidth label="Cancel scan" onPress={closeScanner} />
+              </View>
             </View>
           ) : (
             <Button
@@ -342,6 +430,14 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
               variant="primary"
             />
           )}
+          {cameraBlocked ? (
+            <Button
+              fullWidth
+              label="Open Settings"
+              onPress={() => void Linking.openSettings()}
+              style={styles.checkAction}
+            />
+          ) : null}
 
           <View style={styles.dividerRow}>
             <View style={styles.divider} />
@@ -391,17 +487,21 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
               </Text>
               <Text dynamicTypeRamp={typeRamp.footnote} style={styles.previewMeta}>
                 {preview.kind === "notification"
-                  ? `Authentication: ${preview.code.authMode} | Expires in ${Math.max(
-                      0,
-                      Math.ceil((preview.code.expiresAtMs - Date.now()) / 1_000),
-                    )} seconds`
-                  : `OpenCode /pair | Authentication: basic${
-                      preview.prepared.allowDevelopmentHttp ? " | Approves HTTP transport" : ""
+                  ? `${authModeDescription(preview.code.authMode)} ${
+                      expired
+                        ? "This code expired. Create a new one on the server."
+                        : `Expires in ${secondsLeft} seconds.`
+                    }`
+                  : `${authModeDescription("basic")}${
+                      preview.prepared.allowDevelopmentHttp
+                        ? " Uses HTTP, which is not encrypted."
+                        : ""
                     }`}
               </Text>
               <View style={styles.previewActions}>
                 <Button
                   busy={busy}
+                  disabled={expired}
                   fullWidth
                   label={approvesHttp ? "Approve HTTP and pair" : "Pair and save"}
                   onPress={() => void pair()}
@@ -419,6 +519,16 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
                     onPress={() => void pairWithoutNotifications()}
                   />
                 ) : null}
+                {busy ? (
+                  <Button
+                    disabled={cancelling}
+                    fullWidth
+                    label={cancelling ? "Cancelling…" : "Cancel"}
+                    onPress={cancelAttempt}
+                    variant="text"
+                    align="center"
+                  />
+                ) : null}
               </View>
             </View>
           ) : null}
@@ -432,9 +542,43 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
             </Text>
           ) : null}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </FormKeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+async function checkOpenCode(client: ReturnType<typeof createOpenCodeClient>, signal: AbortSignal) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, openCodeTimeoutMs);
+  const abort = () => controller.abort();
+  signal.addEventListener("abort", abort);
+  try {
+    const options = { signal: controller.signal };
+    const [health] = await Promise.all([
+      client.server.status(options),
+      client.session.list({ limit: 1, order: "desc" }, options),
+    ]);
+    return health;
+  } catch (caught) {
+    throw timedOut ? new Error("PAIRING_OPENCODE_TIMEOUT") : caught;
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", abort);
+  }
+}
+
+function throwIfCancelled(signal: AbortSignal) {
+  if (signal.aborted) throw new Error("PAIRING_CANCELLED");
+}
+
+function authModeDescription(mode: NotificationPairingCode["authMode"]) {
+  if (mode === "basic") return "Signs in with a username and password.";
+  if (mode === "bearer") return "Signs in with a token.";
+  return "No sign-in needed.";
 }
 
 function bootstrapCredential(
@@ -468,6 +612,9 @@ function pairingErrorMessage(error: unknown, stage?: PairingStage) {
   if (code === "PAIRING_CODE_EXPIRED" || code === "PAIRING_UNAVAILABLE") {
     return "This pairing code expired or was already used. Create a new code on the server.";
   }
+  if (code === "PAIRING_OPENCODE_TIMEOUT") {
+    return "The OpenCode server did not respond within 10 seconds. Check that it is running and reachable.";
+  }
   if (code === "PAIRING_OPENCODE_UNAUTHORIZED") {
     return "The OpenCode server rejected the credentials in this pairing code.";
   }
@@ -490,7 +637,9 @@ function pairingErrorMessage(error: unknown, stage?: PairingStage) {
     return "The OpenCode address points to this phone. Use the server's LAN or Tailscale address.";
   }
   if (code.includes("HTTP")) return "The pairing code did not approve this unencrypted address.";
-  if (code.includes("INVALID_PAIRING")) return "The pairing code is malformed or was altered.";
+  if (/^INVALID_(OPENCODE_)?PAIRING/.test(code)) {
+    return "The pairing code is malformed or was altered.";
+  }
   if (stage === "push-registration") {
     if (code === "EAS_PROJECT_ID_MISSING") {
       return "Push registration requires an EAS project ID in the app deployment configuration.";
@@ -540,12 +689,8 @@ const styles = StyleSheet.create({
     marginTop: space.lg,
     overflow: "hidden",
   },
-  cameraHint: {
-    ...typography.subheadline,
-    color: palette.dim,
-    padding: space.md,
-    textAlign: "center",
-  },
+  cameraFooter: { gap: space.sm, padding: space.md },
+  cameraHint: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
   checkAction: { marginTop: space.sm },
   codeInput: {
     ...typography.code,
@@ -559,7 +704,7 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   content: { padding: space.md, paddingBottom: space.xl },
-  copy: { ...typography.subheadline, color: palette.dim, marginTop: space.md },
+  copy: { ...typography.subheadline, color: palette.dim },
   divider: { backgroundColor: palette.border, flex: 1, height: StyleSheet.hairlineWidth },
   dividerLabel: { ...typography.footnote, color: palette.dim },
   dividerRow: {
@@ -573,14 +718,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     minHeight: minTouchTarget,
     minWidth: minTouchTarget,
-    paddingLeft: space.md,
+    paddingLeft: space.sm,
   },
   doneLabel: { ...typography.navTitle, color: palette.signal },
   error: { ...typography.subheadline, color: palette.danger, marginTop: space.md },
-  eyebrow: { ...typography.sectionLabel, color: palette.dim },
   flex: { flex: 1 },
-  headerCopy: { flex: 1 },
-  headerRow: { alignItems: "flex-start", flexDirection: "row" },
+  header: {
+    alignItems: "center",
+    borderBottomColor: palette.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    minHeight: 64,
+    paddingHorizontal: space.md,
+  },
+  headerTitle: { ...typography.navTitle, color: palette.ink, flex: 1 },
   pressed: { opacity: pressedOpacity },
   previewActions: { gap: space.sm, marginTop: space.lg },
   previewCard: { ...cardSurface, marginTop: space.lg },
@@ -590,5 +741,5 @@ const styles = StyleSheet.create({
   previewOrigin: { ...typography.subheadline, color: palette.ink, marginTop: space.xs },
   safeArea: { backgroundColor: palette.background, flex: 1 },
   scanAction: { marginTop: space.lg },
-  title: { ...typography.largeTitle, color: palette.ink, marginTop: space.xs },
+  scanError: { ...typography.subheadline, color: palette.danger, textAlign: "center" },
 });

@@ -36,3 +36,12 @@ test("copies exact text and reports a failed write without claiming success", as
   await screen.findByText("Copied");
   expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith("  first\n\nsecond\n");
 });
+
+test("uses footnote text and a full touch target", () => {
+  render(<CopyTextButton text="example" label="Copy code" />);
+  expect(screen.getByRole("button", { name: "Copy code" })).toHaveStyle({
+    minHeight: 48,
+    minWidth: 48,
+  });
+  expect(screen.getByText("Copy code")).toHaveStyle({ fontSize: 13 });
+});

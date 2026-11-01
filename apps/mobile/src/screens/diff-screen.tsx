@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 import { Button } from "../components/button";
+import { CopyTextButton } from "../components/copy-text-button";
 import { ModalSheet } from "../components/modal-sheet";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -169,7 +170,9 @@ export function SessionChanges({
         maxToRenderPerBatch={60}
         refreshControl={
           <RefreshControl
+            colors={[palette.signal]}
             onRefresh={() => void query.refetch()}
+            progressBackgroundColor={palette.card}
             refreshing={query.isRefetching}
             tintColor={palette.signal}
           />
@@ -179,14 +182,7 @@ export function SessionChanges({
             <DiffFileHeader
               buttonRef={focus?.file === item.file ? fileTriggerRef : undefined}
               row={item}
-              expanded={expanded.has(item.file)}
-              onPress={() => {
-                setExpansion({
-                  scope,
-                  files: new Set(),
-                });
-                setFocus({ scope, file: item.file, open: true });
-              }}
+              onPress={() => setFocus({ scope, file: item.file, open: true })}
             />
           ) : (
             <DiffLine row={item} />
@@ -205,17 +201,22 @@ export function SessionChanges({
         returnFocusRef={fileTriggerRef}
       >
         {focusedFile ? (
-          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
-              +{focusedFile.additions}
+          <View style={styles.focusedSummary}>
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.totals}>
+              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.additions}>
+                +{focusedFile.additions}
+              </Text>
+              {"  "}
+              <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
+                -{focusedFile.deletions}
+              </Text>
+              {" · "}
+              {focusedFile.status}
             </Text>
-            {"  "}
-            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.deletions}>
-              -{focusedFile.deletions}
-            </Text>
-            {" · "}
-            {focusedFile.status}
-          </Text>
+            {focusedFile.patch.trim() ? (
+              <CopyTextButton label="Copy patch" text={focusedFile.patch} />
+            ) : null}
+          </View>
         ) : null}
         <FlatList
           accessibilityLabel="Focused file diff"
@@ -233,12 +234,10 @@ export function SessionChanges({
 
 function DiffFileHeader({
   row,
-  expanded,
   onPress,
   buttonRef,
 }: {
   row: Extract<DiffRow, { type: "file" }>;
-  expanded: boolean;
   onPress: () => void;
   buttonRef?: RefObject<View | null> | undefined;
 }) {
@@ -247,9 +246,8 @@ function DiffFileHeader({
   return (
     <Pressable
       ref={buttonRef}
-      accessibilityHint="Opens a focused diff for this file"
+      accessibilityHint="Opens the changes for this file"
       accessibilityRole="button"
-      accessibilityState={{ expanded }}
       accessibilityLabel={`${row.status} file, ${path}, ${row.additions} additions, ${row.deletions} deletions`}
       android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
       onPress={onPress}
@@ -265,12 +263,6 @@ function DiffFileHeader({
         {path.slice(separator + 1)}
       </Text>
       <View style={styles.fileMeta}>
-        <Feather
-          accessible={false}
-          color={palette.dim}
-          name={expanded ? "chevron-down" : "chevron-right"}
-          size={14}
-        />
         <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.fileStatus}>
           {row.status.charAt(0).toLocaleUpperCase() + row.status.slice(1)}
         </Text>
@@ -280,6 +272,13 @@ function DiffFileHeader({
         <Text dynamicTypeRamp={typeRamp.footnote} style={[styles.count, styles.deletions]}>
           -{row.deletions}
         </Text>
+        <Feather
+          accessible={false}
+          color={palette.dim}
+          name="chevron-right"
+          size={16}
+          style={styles.fileOpen}
+        />
       </View>
     </Pressable>
   );
@@ -403,7 +402,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: 12,
   },
-  fileMeta: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  fileMeta: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  focusedSummary: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: space.sm,
+    justifyContent: "space-between",
+  },
+  fileOpen: { marginLeft: "auto" },
   fileParent: { color: palette.dim },
   fileName: { ...typography.code, color: palette.ink },
   fileStatus: { ...typography.sectionLabel, color: palette.dim },

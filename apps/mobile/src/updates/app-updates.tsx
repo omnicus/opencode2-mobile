@@ -11,6 +11,7 @@ import { ActivityIndicator, AppState, Modal, StyleSheet, Text, View } from "reac
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../components/button";
+import { useAnnouncement } from "../components/use-announcement";
 import { cardSurface, palette, space, typeRamp, typography } from "../theme";
 import { AppUpdateController } from "./app-update-controller";
 import { prepareAppReload } from "./prepare-app-reload";
@@ -50,6 +51,7 @@ export function AppUpdatesProvider({ children }: { children: ReactNode }) {
 
 function RestartOverlay({ controller }: { controller: AppUpdateController }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  useAnnouncement(state.phase === "restarting" && "Saving drafts and restarting…");
   return (
     <Modal
       animationType="none"
@@ -98,7 +100,7 @@ function UpdateControls({
   const busy = ["checking", "downloading", "restarting"].includes(state.phase);
   if (compact && !ready && state.phase !== "restarting") return null;
   const copy = {
-    disabled: "App updates are available in a signed build with EAS Update enabled.",
+    disabled: "This build of the app doesn't receive updates.",
     idle: "Get compatibility fixes without connecting to your OpenCode server.",
     checking: "Checking for an app update…",
     downloading: "Downloading an app update…",
@@ -147,7 +149,7 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.md,
   },
-  card: { ...cardSurface, gap: space.sm },
+  card: { ...cardSurface, borderWidth: StyleSheet.hairlineWidth, gap: space.sm },
   title: { ...typography.headline, color: palette.ink },
   copy: { ...typography.subheadline, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },

@@ -23,8 +23,18 @@ import {
 } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
+import { SearchField } from "../components/search-field";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
-import { palette, radius, space, typeRamp, typography } from "../theme";
+import {
+  disabledOpacity,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import {
   type CatalogState,
   type FavoriteControls,
@@ -47,6 +57,8 @@ import {
 } from "./session-composer-model";
 
 const maximumDraftLength = 32_000;
+// A second tap on Send lands where Stop appears once the session starts, so keep Send for a moment.
+const stopAfterSendDelayMs = 600;
 
 export function SessionComposer({
   active,
@@ -127,6 +139,7 @@ export function SessionComposer({
   const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [justSent, setJustSent] = useState(false);
   const agentPickerOpen = optionsPage === "agent";
   const variantPickerOpen = optionsPage === "variant";
   const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
@@ -165,7 +178,13 @@ export function SessionComposer({
     !slashCatalogUnavailable &&
     draft.trim().length > 0 &&
     (!active || delivery === "queue" || delivery === "steer");
-  const showStop = active && draft.trim().length === 0 && Boolean(onInterrupt);
+  const showStop = active && draft.trim().length === 0 && Boolean(onInterrupt) && !justSent;
+
+  useEffect(() => {
+    if (!justSent) return;
+    const timer = setTimeout(() => setJustSent(false), stopAfterSendDelayMs);
+    return () => clearTimeout(timer);
+  }, [justSent]);
 
   useEffect(() => {
     if (!focusOnMount || !editable) return;
@@ -199,6 +218,7 @@ export function SessionComposer({
     inputRef.current?.blur();
     setFocused(false);
     Keyboard.dismiss();
+    setJustSent(true);
     onSubmit(submitIntent);
   }
 
@@ -301,7 +321,7 @@ export function SessionComposer({
                 />
               ))
             ) : (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionState}>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.completionState}>
                 {completionLoading
                   ? "Loading commands"
                   : completionUnavailable
@@ -329,7 +349,7 @@ export function SessionComposer({
               />
             ))}
             {mentionCompletions.length === 0 || mentionLoading || mentionUnavailable ? (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionState}>
+              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.completionState}>
                 {mentionLoading
                   ? "Searching files, skills, and agents"
                   : mentionUnavailable
@@ -385,7 +405,7 @@ export function SessionComposer({
                 }}
               />
               {draft.length >= maximumDraftLength * 0.9 ? (
-                <Text dynamicTypeRamp={typeRamp.caption} style={styles.count}>
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.count}>
                   {draft.length.toLocaleString()} / {maximumDraftLength.toLocaleString()}
                 </Text>
               ) : null}
@@ -395,7 +415,7 @@ export function SessionComposer({
       </View>
 
       {error ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.control} style={styles.error}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
           {error}
         </Text>
       ) : null}
@@ -418,16 +438,11 @@ export function SessionComposer({
       >
         {agentPickerOpen ? (
           <>
-            <TextInput
-              keyboardAppearance="dark"
+            <SearchField
               accessibilityLabel="Search agents"
               onChangeText={setAgentSearch}
               placeholder="Search agents"
-              placeholderTextColor={palette.dim}
-              style={styles.searchInput}
               value={agentSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
             />
             {agentCatalog?.error ? (
               <PickerNotice text="Agents could not be loaded." retry={agentCatalog.retry} />
@@ -540,12 +555,12 @@ function CompletionButton({
         <Text dynamicTypeRamp={typeRamp.control} numberOfLines={1} style={styles.completionName}>
           /{completion.name}
         </Text>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.completionKind}>
           Command
         </Text>
       </View>
       {completion.label !== completion.name || completion.description ? (
-        <Text dynamicTypeRamp={typeRamp.caption} numberOfLines={2} style={styles.completionDetail}>
+        <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={2} style={styles.completionDetail}>
           {[
             completion.label !== completion.name ? completion.label : undefined,
             completion.description,
@@ -587,12 +602,12 @@ function MentionButton({
         <Text dynamicTypeRamp={typeRamp.control} numberOfLines={1} style={styles.completionName}>
           @{value}
         </Text>
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.completionKind}>
+        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.completionKind}>
           {completion.type.charAt(0).toLocaleUpperCase() + completion.type.slice(1)}
         </Text>
       </View>
       {completion.label !== value || completion.description ? (
-        <Text dynamicTypeRamp={typeRamp.caption} numberOfLines={2} style={styles.completionDetail}>
+        <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={2} style={styles.completionDetail}>
           {[completion.label !== value ? completion.label : undefined, completion.description]
             .filter(Boolean)
             .join(" / ")}
@@ -612,7 +627,7 @@ function mentionCompletionKey(completion: MentionCompletion) {
 
 function EmptyResults({ label }: { label: string }) {
   return (
-    <Text dynamicTypeRamp={typeRamp.control} style={styles.emptyResults}>
+    <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyResults}>
       {label}
     </Text>
   );
@@ -717,7 +732,7 @@ function SelectorButton({
       ]}
     >
       <Text
-        dynamicTypeRamp={typeRamp.control}
+        dynamicTypeRamp={typeRamp.footnote}
         numberOfLines={1}
         style={[styles.selectorLabel, compact && styles.modelChipLabel]}
       >
@@ -754,14 +769,22 @@ function OptionButton({
         pressed && styles.pressed,
       ]}
     >
-      <Text dynamicTypeRamp={typeRamp.control} style={styles.optionLabel}>
-        {selected ? "✓ " : ""}
-        {label}
-      </Text>
-      {description ? (
-        <Text dynamicTypeRamp={typeRamp.caption} numberOfLines={2} style={styles.optionDescription}>
-          {description}
+      <View style={styles.optionCopy}>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.optionLabel}>
+          {label}
         </Text>
+        {description ? (
+          <Text
+            dynamicTypeRamp={typeRamp.footnote}
+            numberOfLines={2}
+            style={styles.optionDescription}
+          >
+            {description}
+          </Text>
+        ) : null}
+      </View>
+      {selected ? (
+        <Feather accessible={false} name="check" size={20} color={palette.signal} />
       ) : null}
     </Pressable>
   );
@@ -779,8 +802,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     paddingHorizontal: space.sm,
   },
-  modelChipLabel: { ...typography.compactControl, color: palette.ink },
-  selectorDisabled: { opacity: 0.5 },
+  modelChipLabel: { ...typography.footnote, color: palette.ink },
+  selectorDisabled: { opacity: disabledOpacity },
   optionsContent: { gap: space.sm },
   completion: {
     backgroundColor: palette.background,
@@ -792,22 +815,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: 7,
   },
-  completionDetail: { ...typography.caption, color: palette.dim },
+  completionDetail: { ...typography.footnote, color: palette.dim },
   completionHeading: { alignItems: "center", flexDirection: "row", gap: space.xs },
-  completionKind: { ...typography.label, color: palette.dim },
+  completionKind: { ...typography.sectionLabel, color: palette.dim },
   completionList: { maxHeight: 220 },
   completionListContent: { gap: 4 },
   completionName: { ...typography.control, color: palette.ink, flex: 1 },
-  completionState: { color: palette.dim, paddingVertical: space.sm, textAlign: "center" },
+  completionState: {
+    ...typography.footnote,
+    color: palette.dim,
+    paddingVertical: space.sm,
+    textAlign: "center",
+  },
   count: {
-    ...typography.caption,
+    ...typography.footnote,
     alignSelf: "center",
     color: palette.dim,
     paddingHorizontal: space.xs,
   },
   editorRow: { alignItems: "center", flexDirection: "row", minWidth: 0 },
   editorRowExpanded: { alignItems: "stretch" },
-  emptyResults: { color: palette.dim, paddingVertical: space.lg, textAlign: "center" },
+  emptyResults: {
+    ...typography.subheadline,
+    color: palette.dim,
+    paddingVertical: space.lg,
+    textAlign: "center",
+  },
   error: { ...typography.subheadline, color: palette.danger },
   input: {
     ...typography.chatBody,
@@ -825,45 +858,40 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
     borderRadius: radius.md,
     borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
     minHeight: 58,
     padding: space.md,
   },
   optionCompact: { marginLeft: space.md, minHeight: 50, paddingVertical: space.sm },
-  optionDescription: { ...typography.caption, color: palette.dim, marginTop: 3 },
+  optionCopy: { flex: 1, minWidth: 0 },
+  optionDescription: { ...typography.footnote, color: palette.dim, marginTop: 3 },
   optionLabel: { ...typography.headline, color: palette.ink },
   optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
   optionSeparator: { height: space.xs },
   pickerList: { flex: 1 },
   pickerListContent: { flexGrow: 1, justifyContent: "flex-start" },
-  pressed: { opacity: 0.62 },
-  searchInput: {
-    ...typography.subheadline,
-    borderColor: palette.border,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    color: palette.ink,
-    minHeight: 48,
-    paddingHorizontal: space.md,
-  },
+  pressed: { opacity: pressedOpacity },
   selectorButton: {
     alignItems: "center",
     flexDirection: "row",
     gap: 5,
     maxWidth: 180,
-    minHeight: 44,
+    minHeight: minTouchTarget,
     paddingHorizontal: 4,
   },
-  selectorLabel: { ...typography.compactControl, color: palette.dim, flexShrink: 1 },
+  selectorLabel: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
   selectorRow: { alignItems: "center", gap: space.xs, paddingRight: space.xs },
   selectorScroller: { flex: 1 },
   sendButton: {
     alignSelf: "flex-end",
     marginLeft: space.sm,
     alignItems: "center",
-    borderRadius: 22,
+    borderRadius: minTouchTarget / 2,
     justifyContent: "center",
-    height: 44,
-    width: 44,
+    height: minTouchTarget,
+    width: minTouchTarget,
   },
   sendVisual: {
     height: 36,
@@ -888,8 +916,9 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     boxShadow: "0px 4px 16px rgba(0, 0, 0, 0.35)",
     paddingLeft: 16,
-    paddingRight: 4,
-    paddingVertical: 4,
+    // The send target is 48pt around a 36pt circle; trimmed padding keeps the pill 52pt tall.
+    paddingRight: 2,
+    paddingVertical: 2,
   },
   surfaceExpanded: {
     borderRadius: 22,

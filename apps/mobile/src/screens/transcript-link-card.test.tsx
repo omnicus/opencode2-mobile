@@ -1,6 +1,7 @@
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
+import { radius, typography } from "../theme";
 import {
   describeTranscriptLink,
   parseTranscriptLink,
@@ -45,6 +46,29 @@ test("opens the exact destination and exposes copy through link options", async 
     fireEvent.press(screen.getByRole("button", { name: "Copy link" }));
     await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith(href));
     expect(screen.queryByText(/Merged|Draft|Open pull request/)).toBeNull();
+  } finally {
+    view.unmount();
+  }
+});
+
+test("open link closes the options sheet before handing off", () => {
+  const href = "https://example.test/docs";
+  const open = jest.fn();
+  const view = render(<TranscriptLinkCard href={href} onOpenLink={open} />);
+  try {
+    const card = screen.getByRole("link", { name: "External link: example.test/docs" });
+    expect(screen.getByText("example.test/docs")).toHaveStyle(typography.subheadline);
+    let frame = card.parent;
+    while (frame && typeof frame.type !== "string") frame = frame.parent;
+    expect(frame).toHaveStyle({ borderRadius: radius.sm, borderWidth: 1 });
+    expect(screen.getByRole("button", { name: "Link options for example.test/docs" })).toHaveStyle({
+      minHeight: 48,
+      width: 48,
+    });
+    fireEvent(card, "longPress");
+    fireEvent.press(screen.getByRole("button", { name: "Open link" }));
+    expect(open).toHaveBeenCalledWith(href);
+    expect(screen.queryByRole("button", { name: "Open link" })).toBeNull();
   } finally {
     view.unmount();
   }

@@ -27,25 +27,20 @@ export type SessionAncestryResult = {
 
 export type FollowedInboxSection = "needs-you" | "recent" | "working";
 
-export type FollowedInboxChild = {
-  active: boolean;
-  attentionCount: number;
-  attentionLabel?: string;
-  session: SessionInfo;
-};
-
+// Child sessions never get their own row. Their activity marks the root as working, and their
+// requests make the root row open the owning child.
 export type FollowedInboxRow = {
   active: boolean;
-  activeChildCount: number;
   attentionCount: number;
   attentionLabel?: string;
   attentionOwnerSessionID?: string;
-  children: FollowedInboxChild[];
+  projectIcon?: NonNullable<ProjectListOutput[number]["icon"]>;
   projectLabel: string;
   section: FollowedInboxSection;
   session: SessionInfo;
   targetLocation: LocationRef;
   targetSessionID: string;
+  worktreeLabel?: string;
 };
 
 export type FollowedInboxSections = {
@@ -222,46 +217,23 @@ export function buildFollowedInboxSections(input: {
     const attention = attentionByRoot.get(session.id) ?? [];
     const active = activeByRoot.get(session.id) ?? new Set<string>();
     const ownerSessionID = attention[0]?.sessionID;
-    const childSessionIDs = new Set([
-      ...[...active].filter((sessionID) => sessionID !== session.id),
-      ...attention
-        .map((interaction) => interaction.sessionID)
-        .filter((sessionID) => sessionID !== session.id),
-    ]);
-    const children = [...childSessionIDs]
-      .flatMap((sessionID) => {
-        const child = sessions.get(sessionID);
-        return child
-          ? [
-              {
-                active: active.has(sessionID),
-                attentionCount: attention.filter(
-                  (interaction) => interaction.sessionID === sessionID,
-                ).length,
-                attentionLabel: requestReason(
-                  attention.filter((interaction) => interaction.sessionID === sessionID),
-                ),
-                session: child,
-              },
-            ]
-          : [];
-      })
-      .sort((first, second) => compareSessions(first.session, second.session));
     const section: FollowedInboxSection =
       attention.length > 0 ? "needs-you" : active.size > 0 ? "working" : "recent";
     const targetSession = ownerSessionID ? (sessions.get(ownerSessionID) ?? session) : session;
+    const project = projects.get(session.projectID);
+    const worktreeLabel = labelWorktree(project, session.location.directory);
     const row: FollowedInboxRow = {
       active: active.size > 0,
-      activeChildCount: [...active].filter((sessionID) => sessionID !== session.id).length,
       attentionCount: attention.length,
       attentionLabel: requestReason(attention),
       ...(ownerSessionID ? { attentionOwnerSessionID: ownerSessionID } : {}),
-      children,
-      projectLabel: labelProject(projects.get(session.projectID), session.projectID),
+      ...(project?.icon ? { projectIcon: project.icon } : {}),
+      projectLabel: labelProject(project, session.projectID),
       section,
       session,
       targetLocation: targetSession.location,
       targetSessionID: targetSession.id,
+      ...(worktreeLabel ? { worktreeLabel } : {}),
     };
     if (section === "needs-you") sections.needsYou.push(row);
     else if (section === "working") sections.working.push(row);
@@ -327,6 +299,11 @@ function labelProject(project: ProjectListOutput[number] | undefined, fallback: 
   return (
     project.name?.trim() || project.canonical.split(/[\\/]/).filter(Boolean).at(-1) || project.id
   );
+}
+
+function labelWorktree(project: ProjectListOutput[number] | undefined, directory: string) {
+  if (!project || directory === project.canonical) return undefined;
+  return directory.split(/[\\/]/).filter(Boolean).at(-1);
 }
 
 function compareSessions(first: SessionInfo, second: SessionInfo) {

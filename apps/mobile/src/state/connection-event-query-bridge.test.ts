@@ -56,10 +56,6 @@ test("coalesces session metadata invalidations", () => {
   );
   queryClient.setQueryData(messageKey, []);
   queryClient.setQueryData(followedKey, []);
-  const archiveKey = openCodeQueryKeys.archivedSession("connection-1", "session-1");
-  const otherArchiveKey = openCodeQueryKeys.archivedSession("connection-2", "session-1");
-  queryClient.setQueryData(archiveKey, {});
-  queryClient.setQueryData(otherArchiveKey, {});
 
   bridge.apply(sessionRenamedEvent("event-1"));
   bridge.apply(sessionRenamedEvent("event-2"));
@@ -72,12 +68,6 @@ test("coalesces session metadata invalidations", () => {
   const followedQuery = queryClient.getQueryCache().find({ queryKey: followedKey });
   expect(messageQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(messageQuery)).toBe(false);
   expect(followedQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(followedQuery)).toBe(true);
-  const archiveQuery = queryClient.getQueryCache().find({ queryKey: archiveKey });
-  const otherArchiveQuery = queryClient.getQueryCache().find({ queryKey: otherArchiveKey });
-  expect(archiveQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(archiveQuery)).toBe(true);
-  expect(otherArchiveQuery && invalidate.mock.calls[0]?.[0]?.predicate?.(otherArchiveQuery)).toBe(
-    false,
-  );
   queryClient.clear();
 });
 
@@ -305,6 +295,41 @@ test("invalidates VCS information only for the affected location", () => {
   const other = queryClient.getQueryCache().find({ queryKey: otherKey });
   expect(affected && predicate?.(affected)).toBe(true);
   expect(other && predicate?.(other)).toBe(false);
+  queryClient.clear();
+});
+
+test("project updates replace the cached project or refetch only the project list", () => {
+  const queryClient = new QueryClient();
+  const invalidate = jest.spyOn(queryClient, "invalidateQueries");
+  const bridge = new ConnectionEventQueryBridge(queryClient, "connection-1", (callback) =>
+    callback(),
+  );
+  const projectsKey = openCodeQueryKeys.projects("connection-1");
+  const project = {
+    canonical: "/workspace",
+    id: "project-1",
+    sandboxes: [],
+    time: { created: 1, updated: 1 },
+  };
+  const other = { ...project, canonical: "/other", id: "project-2" };
+  queryClient.setQueryData(projectsKey, [project, other]);
+  const updated = { ...project, icon: { color: "pink" }, time: { created: 1, updated: 2 } };
+  const event = (data: unknown, id: string) =>
+    ({ created: 2, data, id, type: "project.updated" }) as unknown as OpenCodeEvent;
+
+  bridge.apply(event(updated, "event-project-1"));
+  bridge.apply(event(updated, "event-project-1"));
+
+  expect(queryClient.getQueryData(projectsKey)).toEqual([updated, other]);
+  expect(invalidate).not.toHaveBeenCalled();
+
+  bridge.apply(event({ ...project, canonical: "/new", id: "project-3" }, "event-project-2"));
+  bridge.apply(event({ id: "project-1" }, "event-project-3"));
+
+  expect(invalidate).toHaveBeenCalledTimes(2);
+  for (const [filters] of invalidate.mock.calls) {
+    expect(filters).toEqual({ exact: true, queryKey: projectsKey });
+  }
   queryClient.clear();
 });
 

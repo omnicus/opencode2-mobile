@@ -3,7 +3,7 @@ import type { FileDiffInfo } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react-native";
 
-import { diffPalette } from "../theme";
+import { diffPalette, palette } from "../theme";
 import { buildDiffRows, DiffScreen } from "./diff-screen";
 
 const mockGetDiff =
@@ -105,6 +105,40 @@ test("offers bounded expand all and keeps unavailable patches explicit", async (
   fireEvent.press(await screen.findByRole("button", { name: "Expand all" }));
   expect(screen.getByText("+new")).toBeOnTheScreen();
   expect(screen.getByText("Diff unavailable for this file.")).toBeOnTheScreen();
+});
+
+test("opening a file keeps the other files expanded and offers its patch to copy", async () => {
+  mockGetDiff.mockResolvedValue({
+    data: [
+      { file: "one.ts", status: "added", additions: 1, deletions: 0, patch: "+one" },
+      { file: "two.ts", status: "added", additions: 1, deletions: 0, patch: "+two" },
+    ],
+  });
+  renderDiffScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "Expand all" }));
+  const header = screen.getByRole("button", {
+    name: "added file, one.ts, 1 additions, 0 deletions",
+  });
+  expect(header.props.accessibilityHint).toBe("Opens the changes for this file");
+  expect(header.props.accessibilityState?.expanded).toBeUndefined();
+  fireEvent.press(header);
+  expect(screen.getByRole("button", { name: "Copy patch" })).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Close File changes" }));
+  expect(screen.getByText("+one")).toBeOnTheScreen();
+  expect(screen.getByText("+two")).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Collapse all" })).toBeOnTheScreen();
+});
+
+test("pull to refresh is styled for the dark theme on Android", async () => {
+  mockGetDiff.mockResolvedValue({
+    data: [{ file: "one.ts", status: "added", additions: 1, deletions: 0, patch: "+one" }],
+  });
+  renderDiffScreen();
+  await screen.findByText("one.ts");
+  const list = screen.getByLabelText("Current working tree changes");
+  const refresh = list.props.refreshControl;
+  expect(refresh.props.colors).toEqual([palette.signal]);
+  expect(refresh.props.progressBackgroundColor).toBe(palette.card);
 });
 
 test("shows empty and mismatched-connection states", async () => {

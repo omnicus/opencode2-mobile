@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useState } from "react";
 import {
@@ -7,38 +8,40 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { Button } from "../components/button";
 import { managementStyles } from "../components/management-layout";
+import { ProjectAvatar } from "../components/project-avatar";
+import { useAnnouncement } from "../components/use-announcement";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { cardSurface, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
-import { ShellFrame } from "./app-shell";
+import { isTabletShell, navigateToSection, ShellFrame } from "./app-shell";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "FollowedProjects">;
 
+const saveError = "The followed project selection could not be saved. Try again.";
+
 export function FollowedProjectsScreen({ navigation }: Props) {
   const selection = useWorkspaceSelection();
+  const { fontScale, width } = useWindowDimensions();
   const [error, setError] = useState(false);
+  // Fixed on first render with projects so a tapped row stays under the finger and screen
+  // reader focus. Earlier and Later reorder followed rows explicitly.
+  const [initialOrder, setInitialOrder] = useState<string[]>();
   const followed = new Set(selection.followedProjectIds);
-  const projectOrder = new Map(
-    selection.followedProjectIds.map((projectID, index) => [projectID, index]),
+  if (!initialOrder && selection.projects.length > 0 && !selection.preferencesLoading) {
+    setInitialOrder(sortProjectIDs(selection.projects, selection.followedProjectIds));
+  }
+  const projects = orderProjects(
+    selection.projects,
+    selection.followedProjectIds,
+    initialOrder ?? [],
   );
-  const projects = selection.projects
-    .map((project, serverIndex) => ({ project, serverIndex }))
-    .sort((first, second) => {
-      const firstPosition = projectOrder.get(first.project.id);
-      const secondPosition = projectOrder.get(second.project.id);
-      if (firstPosition !== undefined && secondPosition !== undefined) {
-        return firstPosition - secondPosition;
-      }
-      if (firstPosition !== undefined) return -1;
-      if (secondPosition !== undefined) return 1;
-      return first.serverIndex - second.serverIndex;
-    })
-    .map(({ project }) => project);
+  useAnnouncement(error && saveError);
 
   async function save(projectIDs: string[]) {
     setError(false);
@@ -73,20 +76,34 @@ export function FollowedProjectsScreen({ navigation }: Props) {
   return (
     <ShellFrame
       active="Settings"
-      navigate={(section) =>
-        section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section)
-      }
+      hideConnectionBar={!isTabletShell(width)}
+      navigate={(section) => navigateToSection(navigation, section)}
     >
       <ScrollView contentContainerStyle={managementStyles.content}>
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.copy}>
-          Choose the projects in your session inbox. Following is saved on this device only and does
-          not change server projects.
-        </Text>
+        {error ? (
+          <Text
+            accessibilityLiveRegion="polite"
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.subheadline}
+            style={styles.error}
+          >
+            {saveError}
+          </Text>
+        ) : null}
+        <View style={styles.intro}>
+          <Text dynamicTypeRamp={typeRamp.footnote} style={[styles.copy, styles.introCopy]}>
+            Choose the projects shown in Sessions and Needs you. Following is saved on this device
+            only and does not change projects on the server.
+          </Text>
+          {selection.preferencesSaving ? (
+            <ActivityIndicator accessibilityLabel="Saving" color={palette.signal} />
+          ) : null}
+        </View>
         {selection.preferencesLoading || selection.projectsLoading ? (
           <View style={styles.state}>
             <ActivityIndicator accessibilityLabel="Loading projects" color={palette.signal} />
             <Text dynamicTypeRamp={typeRamp.footnote} style={styles.copy}>
-              Loading known projects
+              Loading projects
             </Text>
           </View>
         ) : selection.projectsError ? (
@@ -128,9 +145,10 @@ export function FollowedProjectsScreen({ navigation }: Props) {
               return (
                 <View key={project.id} style={[styles.project, selected && styles.projectSelected]}>
                   <Pressable
-                    accessibilityLabel={`${projectLabel(project)}, ${selected ? "Following" : "Not followed"}`}
+                    accessibilityLabel={projectLabel(project)}
                     accessibilityRole="checkbox"
                     accessibilityState={{
+                      busy: selection.preferencesSaving,
                       checked: selected,
                       disabled: selection.preferencesSaving,
                     }}
@@ -144,23 +162,37 @@ export function FollowedProjectsScreen({ navigation }: Props) {
                       pressed && Platform.OS === "ios" && styles.pressed,
                     ]}
                   >
-                    <Text dynamicTypeRamp={typeRamp.headline} style={styles.projectTitle}>
-                      {projectLabel(project)}
-                    </Text>
-                    <Text
-                      dynamicTypeRamp={typeRamp.footnote}
-                      numberOfLines={2}
-                      selectable
-                      style={styles.projectPath}
-                    >
-                      {path}
-                    </Text>
-                    <Text
-                      dynamicTypeRamp={typeRamp.sectionLabel}
-                      style={[styles.followState, selected && styles.followStateSelected]}
-                    >
-                      {selected ? "✓ Following" : "Not followed"}
-                    </Text>
+                    <Feather
+                      accessibilityElementsHidden
+                      color={selected ? palette.signal : palette.dim}
+                      importantForAccessibility="no-hide-descendants"
+                      name={selected ? "check-square" : "square"}
+                      size={22}
+                      style={styles.checkbox}
+                    />
+                    <View style={styles.projectText}>
+                      <View style={styles.projectTitleRow}>
+                        <ProjectAvatar
+                          icon={project.icon}
+                          lineHeight={typography.headline.lineHeight * fontScale}
+                          name={projectLabel(project)}
+                        />
+                        <Text
+                          dynamicTypeRamp={typeRamp.headline}
+                          style={[styles.projectTitle, styles.projectTitleText]}
+                        >
+                          {projectLabel(project)}
+                        </Text>
+                      </View>
+                      <Text
+                        dynamicTypeRamp={typeRamp.footnote}
+                        numberOfLines={2}
+                        selectable
+                        style={styles.projectPath}
+                      >
+                        {path}
+                      </Text>
+                    </View>
                   </Pressable>
                   {selected ? (
                     <View style={styles.orderActions}>
@@ -206,18 +238,48 @@ export function FollowedProjectsScreen({ navigation }: Props) {
             ))}
           </View>
         )}
-        {error ? (
-          <Text
-            accessibilityRole="alert"
-            dynamicTypeRamp={typeRamp.subheadline}
-            style={styles.error}
-          >
-            The followed project selection could not be saved.
-          </Text>
-        ) : null}
       </ScrollView>
     </ShellFrame>
   );
+}
+
+type ListedProject = ReturnType<typeof useWorkspaceSelection>["projects"][number];
+
+function sortProjectIDs(projects: ListedProject[], followedProjectIDs: string[]) {
+  const projectOrder = new Map(followedProjectIDs.map((projectID, index) => [projectID, index]));
+  return projects
+    .map((project, serverIndex) => ({ project, serverIndex }))
+    .sort((first, second) => {
+      const firstPosition = projectOrder.get(first.project.id);
+      const secondPosition = projectOrder.get(second.project.id);
+      if (firstPosition !== undefined && secondPosition !== undefined) {
+        return firstPosition - secondPosition;
+      }
+      if (firstPosition !== undefined) return -1;
+      if (secondPosition !== undefined) return 1;
+      return first.serverIndex - second.serverIndex;
+    })
+    .map(({ project }) => project.id);
+}
+
+// Rows keep the slots they had when the screen opened. Followed rows fill the followed slots in
+// the saved order, so Earlier and Later still move them; new server projects go last.
+function orderProjects(projects: ListedProject[], followedProjectIDs: string[], initial: string[]) {
+  const byID = new Map(projects.map((project) => [project.id, project]));
+  const followed = new Set(followedProjectIDs);
+  const slots = initial.filter((projectID) => byID.has(projectID));
+  const followedInSlots = followedProjectIDs.filter(
+    (projectID) => byID.has(projectID) && slots.includes(projectID),
+  );
+  let nextFollowed = 0;
+  const ordered = slots.map((projectID) =>
+    followed.has(projectID) ? (followedInSlots[nextFollowed++] ?? projectID) : projectID,
+  );
+  const placed = new Set(ordered);
+  return [
+    ...ordered,
+    ...projects.map((project) => project.id).filter((projectID) => !placed.has(projectID)),
+  ].flatMap((projectID) => byID.get(projectID) ?? []);
 }
 
 function projectLabel(project: { canonical: string; id: string; name?: string }) {
@@ -229,8 +291,9 @@ function projectLabel(project: { canonical: string; id: string; name?: string })
 const styles = StyleSheet.create({
   copy: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
-  followState: { ...typography.sectionLabel, color: palette.dim },
-  followStateSelected: { color: palette.signal },
+  checkbox: { marginTop: 1 },
+  intro: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  introCopy: { flex: 1 },
   list: { gap: space.sm },
   orderActions: {
     flexDirection: "row",
@@ -241,10 +304,19 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: pressedOpacity },
   project: { ...cardSurface, overflow: "hidden", padding: 0 },
-  projectMain: { gap: 4, minHeight: 72, padding: space.md },
+  projectMain: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: 72,
+    padding: space.md,
+  },
   projectPath: { ...typography.footnote, color: palette.dim },
-  projectSelected: { borderColor: palette.border },
+  projectSelected: { borderColor: palette.signal },
+  projectText: { flex: 1, gap: 4, minWidth: 0 },
   projectTitle: { ...typography.headline, color: palette.ink },
+  projectTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
+  projectTitleText: { flex: 1, minWidth: 0 },
   state: { gap: space.sm, paddingVertical: space.xl },
   unavailableProject: { ...cardSurface, borderColor: palette.warm, gap: space.sm },
 });

@@ -2,6 +2,7 @@ import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from
 
 import {
   disabledOpacity,
+  minTouchTarget,
   palette,
   pressedOpacity,
   typeRamp,
@@ -15,6 +16,7 @@ export type SegmentedOption<T extends string> = {
   accessibilityLabel?: string;
 };
 
+// Compact segments keep their 32pt visual height; the slop brings them to the touch minimum.
 const compactHitSlop = { top: 8, bottom: 8 };
 
 export function SegmentedControl<T extends string>({
@@ -104,7 +106,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     flex: 1,
     justifyContent: "center",
-    minHeight: 42,
+    minHeight: minTouchTarget,
     overflow: "hidden",
   },
   segmentCompact: { borderRadius: 7, minHeight: 32, paddingHorizontal: 14 },

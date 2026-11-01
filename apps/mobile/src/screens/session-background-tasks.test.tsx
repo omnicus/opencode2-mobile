@@ -24,9 +24,13 @@ test("background chip opens known child tasks without repeating transcript conte
   const onOpenChild = jest.fn();
   render(<SessionBackgroundTasks messages={[taskMessage("running")]} onOpenChild={onOpenChild} />);
   expect(screen.queryByText("Private task content")).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "1 subagent running in background" }));
+  const chip = screen.getByRole("button", { name: "1 subagent running in background" });
+  expect(chip).toHaveStyle({ minHeight: 36 });
+  expect(chip.props.hitSlop).toBe(6);
+  fireEvent.press(chip);
   expect(screen.getByText("Background tasks")).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Open child session for subagent 1" }));
+  expect(screen.getByText("Subagent 1")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Open Subagent 1" }));
   expect(onOpenChild).toHaveBeenCalledWith("ses_child");
 });
 
@@ -92,4 +96,42 @@ test("background launches count while their child sessions are active", () => {
   expect(
     screen.getByRole("button", { name: "2 subagents running in background" }),
   ).toBeOnTheScreen();
+});
+
+test("the task sheet names each subagent by its task", () => {
+  const onOpenChild = jest.fn();
+  render(
+    <SessionBackgroundTasks
+      messages={[
+        {
+          id: "msg_launch",
+          type: "assistant",
+          agent: "build",
+          model: { id: "model", providerID: "provider" },
+          time: { created: 1, completed: 1 },
+          content: [
+            {
+              id: "tool_launch",
+              name: "subagent",
+              type: "tool",
+              time: { created: 1 },
+              state: {
+                status: "completed",
+                input: { background: true, description: "Review settings screen" },
+                metadata: { sessionID: "ses_settings", status: "running" },
+                content: [{ type: "text", text: "The subagent is working in the background." }],
+              },
+            },
+          ],
+        },
+      ]}
+      onOpenChild={onOpenChild}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "1 subagent running in background" }));
+  expect(screen.getByText("Review settings screen")).toBeOnTheScreen();
+  expect(screen.getByText("Running")).toBeOnTheScreen();
+  expect(screen.queryByText(/Subagent 1/)).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Open Review settings screen" }));
+  expect(onOpenChild).toHaveBeenCalledWith("ses_settings");
 });

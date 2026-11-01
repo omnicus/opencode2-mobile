@@ -3,6 +3,7 @@ import { afterEach, expect, jest, test } from "@jest/globals";
 import {
   getOpenCodeLocation,
   getOpenCodeSession,
+  getOpenCodeVcs,
   interruptOpenCodeSession,
   listOpenCodeAgents,
   listOpenCodeMessages,
@@ -17,11 +18,14 @@ import type { ReactElement, ReactNode } from "react";
 import {
   AccessibilityInfo,
   Alert,
+  BackHandler,
   Dimensions,
   FlatList,
+  Keyboard,
   Platform,
   RefreshControl,
 } from "react-native";
+import { WorkingIndicator } from "../components/working-indicator";
 import { ConnectionEventQueryBridge } from "../state/connection-event-query-bridge";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { WorkspaceSelectionProvider } from "../state/workspace-selection-context";
@@ -64,16 +68,15 @@ let mockWorkspaceNeedsAttention = false;
 let mockWorkspaceDirectory = "/workspace";
 let mockAttentionFreshness: "current" | "reconciling" | "stale" = "current";
 let mockAttentionCompleteness: "complete" | "incomplete" = "complete";
-let mockArchivedIds: string[] = [];
-let mockArchiveWriteFailure = false;
 const mockSessionNow = Date.now();
-let mockOldSession = false;
-let mockRestoredAt: Record<string, number> = {};
+let mockWorkingCount = 0;
+let mockAttentionOwner: string | undefined;
 let mockHasNextSessionPage = false;
-let mockAllSessionsOld = false;
 let mockSessionsFetchingNextPage = false;
 let mockSessionsError = false;
 let mockRuntimeStatus: "connected" | "reconnecting" = "connected";
+let mockFollowedProjectIds = ["project-1"];
+let mockEmptyInbox = false;
 const mockFetchNextSessionPage = jest.fn(async () => undefined);
 afterEach(() => {
   mockWorkspaceActive = false;
@@ -82,15 +85,14 @@ afterEach(() => {
   mockAttentionFreshness = "current";
   mockAttentionCompleteness = "complete";
   mockWorkspacePermissions = [];
-  mockArchivedIds = [];
-  mockArchiveWriteFailure = false;
-  mockOldSession = false;
-  mockRestoredAt = {};
+  mockWorkingCount = 0;
+  mockAttentionOwner = undefined;
   mockHasNextSessionPage = false;
-  mockAllSessionsOld = false;
   mockSessionsFetchingNextPage = false;
   mockSessionsError = false;
   mockRuntimeStatus = "connected";
+  mockFollowedProjectIds = ["project-1"];
+  mockEmptyInbox = false;
 });
 function mockWorkspaceRow(index: number) {
   const session = {
@@ -98,55 +100,33 @@ function mockWorkspaceRow(index: number) {
     id: `ses_${index}`,
     location: { directory: mockWorkspaceDirectory },
     projectID: "project-1",
-    time: {
-      created: mockSessionNow - index,
-      updated:
-        mockAllSessionsOld || (mockOldSession && index === 0)
-          ? mockSessionNow - 31 * 24 * 60 * 60 * 1_000
-          : mockSessionNow - index,
-    },
+    time: { created: mockSessionNow - index, updated: mockSessionNow - index },
     title: `Session ${index}`,
     tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
   };
+  const attentionCount = mockWorkspaceNeedsAttention && index === 0 ? 1 : 0;
+  const active = mockWorkspaceActive || index < mockWorkingCount;
+  const targetSessionID =
+    attentionCount > 0 && mockAttentionOwner ? mockAttentionOwner : session.id;
   return {
-    active: mockWorkspaceActive,
-    activeChildCount: 0,
-    attentionCount: mockWorkspaceNeedsAttention && index === 0 ? 1 : 0,
-    attentionLabel: mockWorkspaceNeedsAttention && index === 0 ? "Permission required" : "",
-    children: [],
+    active,
+    attentionCount,
+    attentionLabel: attentionCount > 0 ? "Permission required" : "",
     projectLabel: "Workspace",
-    section: mockWorkspaceActive ? "working" : "recent",
+    section: attentionCount > 0 ? "needs-you" : active ? "working" : "recent",
     session,
-    targetLocation: session.location,
-    targetSessionID: session.id,
+    targetLocation: targetSessionID === session.id ? session.location : { directory: "/child" },
+    targetSessionID,
+    ...(mockWorkspaceDirectory === "/workspace" ? {} : { worktreeLabel: "workspace-tree" }),
   };
 }
+function mockWorkspaceRows() {
+  return Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index));
+}
 const mockDraftDb = {
-  getAllAsync: jest.fn(async (sql: string) =>
-    sql.includes("session_archives")
-      ? [
-          ...mockArchivedIds.map((session_id) => ({ session_id, restored_at_ms: null })),
-          ...Object.entries(mockRestoredAt).map(([session_id, restored_at_ms]) => ({
-            session_id,
-            restored_at_ms,
-          })),
-        ]
-      : [],
-  ),
+  getAllAsync: jest.fn(async () => []),
   getFirstAsync: jest.fn(async () => undefined),
-  runAsync: jest.fn(async (sql: string, ...args: unknown[]) => {
-    if (sql.includes("session_archives")) {
-      if (mockArchiveWriteFailure) throw new Error("disk");
-      const id = args[1] as string;
-      if (args[2] == null) {
-        mockArchivedIds = [...new Set([...mockArchivedIds, id])];
-        delete mockRestoredAt[id];
-      } else {
-        mockArchivedIds = mockArchivedIds.filter((value) => value !== id);
-        mockRestoredAt[id] = args[2] as number;
-      }
-    }
-  }),
+  runAsync: jest.fn(async () => undefined),
   withExclusiveTransactionAsync: jest.fn(async (task: (txn: unknown) => Promise<void>) =>
     task(mockDraftDb),
   ),
@@ -297,27 +277,22 @@ jest.mock("../state/workspace-selection-context", () => ({
     },
     blockedSessionIds: new Set(mockWorkspacePermissions.map((request) => request.sessionID)),
     fetchNextPage: mockFetchNextSessionPage,
-    followedProjectIds: ["project-1"],
+    followedProjectIds: mockFollowedProjectIds,
     formLocations: new Map(),
     forms: [],
     hasNextPage: mockHasNextSessionPage,
     sessionsFetchingNextPage: mockSessionsFetchingNextPage,
     inbox: {
       needsYou: mockWorkspaceNeedsAttention ? [mockWorkspaceRow(0)] : [],
-      recent: mockWorkspaceActive
-        ? []
-        : Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index)).filter(
-            (row) => row.attentionCount === 0,
-          ),
+      recent: mockEmptyInbox ? [] : mockWorkspaceRows().filter((row) => row.section === "recent"),
       unmatchedSessionIDs: [],
       working: mockWorkspaceActive
-        ? Array.from({ length: 120 }, (_, index) => mockWorkspaceRow(index))
-        : [],
+        ? mockWorkspaceRows()
+        : mockWorkspaceRows().filter((row) => row.section === "working"),
     },
     interactionsError: false,
     interactionsLoading: false,
     pendingCount: mockWorkspaceNeedsAttention ? 1 : mockWorkspacePermissions.length,
-    permissionReplyError: false,
     permissions: mockWorkspacePermissions,
     preferencesLoading: false,
     preferencesSaving: false,
@@ -648,7 +623,7 @@ test("shows a permission blocking the open session and can reply", async () => {
   }
 });
 
-test("attention section owns requests, with a shortcut only when search or archives hide it", async () => {
+test("attention rows own requests, with a shortcut only when search hides them", async () => {
   mockWorkspaceNeedsAttention = true;
   const navigate = jest.fn();
   const queryClient = new QueryClient({
@@ -664,16 +639,17 @@ test("attention section owns requests, with a shortcut only when search or archi
   );
   try {
     expect(await screen.findByText("Permission required")).toBeOnTheScreen();
-    expect(screen.getAllByText("Needs you")).toHaveLength(1);
+    expect(
+      screen.getByTestId("session-row-attention-marker", { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "1 known request" })).toBeNull();
     expect(screen.queryByText("Needs you 1")).toBeNull();
-    fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+    openSearch("Session");
     expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "1 known request" }));
     expect(navigate).toHaveBeenCalledWith("Pending");
     fireEvent.press(screen.getByRole("button", { name: "Clear session search" }));
     await waitFor(() => expect(screen.queryByText("Needs you 1")).toBeNull());
-    fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
-    expect(await screen.findByText("Needs you 1")).toBeOnTheScreen();
   } finally {
     view.unmount();
     queryClient.clear();
@@ -682,7 +658,7 @@ test("attention section owns requests, with a shortcut only when search or archi
 
 test.each([
   ["stale", "complete", "Request status is stale. Reconnect to check pending requests."],
-  ["current", "incomplete", "Some request locations could not be checked. Pull to refresh."],
+  ["current", "incomplete", "Some request locations could not be checked."],
 ] satisfies ["current" | "reconciling" | "stale", "complete" | "incomplete", string][])(
   "keeps %s attention coverage explicit",
   async (freshness, completeness, copy) => {
@@ -708,8 +684,106 @@ test.each([
   },
 );
 
+function openSearch(text: string) {
+  fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+  fireEvent.changeText(screen.getByLabelText("Search sessions"), text);
+}
+
+function renderWorkspace(navigate = jest.fn()) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>,
+  );
+  return {
+    cleanup() {
+      view.unmount();
+      queryClient.clear();
+    },
+  };
+}
+
+test("with no followed projects, offers Choose projects and New session", async () => {
+  mockFollowedProjectIds = [];
+  mockEmptyInbox = true;
+  const navigate = jest.fn();
+  const view = renderWorkspace(navigate);
+  try {
+    expect(
+      await screen.findByRole("header", { name: "No projects followed yet" }),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText(/Sessions from the projects you follow show up here/),
+    ).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Choose projects" }));
+    expect(navigate).toHaveBeenCalledWith("FollowedProjects");
+    fireEvent.press(screen.getByRole("button", { name: "New session" }));
+    expect(navigate).toHaveBeenCalledWith("NewSession");
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("a session load failure offers Retry and announces the error on iOS", async () => {
+  mockSessionsError = true;
+  mockEmptyInbox = true;
+  mockWorkspaceRefetch.mockClear();
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  const view = renderWorkspace();
+  try {
+    expect(await screen.findByText("Sessions could not be loaded.")).toBeOnTheScreen();
+    expect(announce).toHaveBeenCalledWith("Sessions could not be loaded.");
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(mockWorkspaceRefetch).toHaveBeenCalledTimes(1));
+  } finally {
+    announce.mockRestore();
+    view.cleanup();
+  }
+});
+
+test("incomplete request coverage offers Retry", async () => {
+  mockAttentionCompleteness = "incomplete";
+  mockWorkspaceRefetch.mockClear();
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Some request locations could not be checked.", {}, { timeout: 2000 });
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(mockWorkspaceRefetch).toHaveBeenCalledTimes(1));
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("rows and the delete prompt use readable names without section headers", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(screen.queryByRole("header")).toBeNull();
+    expect(screen.queryByText("Recent")).toBeNull();
+    const row = screen.getByRole("button", {
+      name: "Open session Session 0. Workspace. Updated just now",
+    });
+    fireEvent(row, "accessibilityAction", { nativeEvent: { actionName: "delete" } });
+    expect(alert).toHaveBeenCalledWith(
+      "Delete session?",
+      expect.stringContaining("Project: Workspace\n"),
+      expect.anything(),
+    );
+    expect(alert.mock.calls[0]?.[1]).not.toContain("project-1");
+  } finally {
+    alert.mockRestore();
+    view.cleanup();
+  }
+});
+
 test("brief request reconciliation and history fetches do not flash banners or footers", async () => {
-  mockAllSessionsOld = true;
   const queryClient = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
   });
@@ -722,7 +796,8 @@ test("brief request reconciliation and history fetches do not flash banners or f
     </QueryClientProvider>
   );
   const view = render(content());
-  await screen.findByTestId("session-archive-footer");
+  await screen.findByText("Session 0");
+  const footer = () => screen.UNSAFE_getByType(FlatList).props.ListFooterComponent;
   jest.useFakeTimers();
   try {
     mockAttentionFreshness = "reconciling";
@@ -732,7 +807,8 @@ test("brief request reconciliation and history fetches do not flash banners or f
     expect(screen.queryByText("Checking request status. More sessions may need you.")).toBeNull();
     expect(screen.queryByLabelText("Checking older session history")).toBeNull();
     expect(screen.queryByText("Waiting for current server data.")).toBeNull();
-    expect(screen.getByTestId("session-archive-footer")).toBeOnTheScreen();
+    expect(footer()).toBeNull();
+    expect(screen.queryByLabelText("Loading sessions")).toBeNull();
     act(() => jest.advanceTimersByTime(500));
     mockAttentionFreshness = "current";
     mockSessionsFetchingNextPage = false;
@@ -748,7 +824,8 @@ test("brief request reconciliation and history fetches do not flash banners or f
     act(() => jest.advanceTimersByTime(1000));
     expect(screen.queryByText("Checking request status. More sessions may need you.")).toBeNull();
     expect(screen.queryByLabelText("Checking older session history")).toBeNull();
-    expect(screen.getByTestId("session-archive-footer")).toBeOnTheScreen();
+    expect(footer()).toBeNull();
+    expect(screen.queryByLabelText("Loading sessions")).toBeNull();
     expect(screen.getByText("Waiting for current server data.")).toBeOnTheScreen();
   } finally {
     view.unmount();
@@ -773,7 +850,7 @@ test("long pressing a session opens grouped management actions", async () => {
     await screen.findByText("Session 0");
     fireEvent(screen.getByRole("button", { name: /^Session 0/ }), "longPress");
     expect(await screen.findByRole("button", { name: "Rename" })).toBeOnTheScreen();
-    expect(screen.getByRole("button", { name: "Archive" })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Archive" })).toBeNull();
     expect(screen.getByRole("button", { name: "Delete" })).toBeOnTheScreen();
   } finally {
     view.unmount();
@@ -781,280 +858,87 @@ test("long pressing a session opens grouped management actions", async () => {
   }
 });
 
-test.each([
-  [false, false],
-  [true, false],
-  [false, true],
-])(
-  "shows branch context only when working %s or outside canonical location %s",
-  async (active, worktree) => {
-    mockWorkspaceActive = active;
-    if (worktree) mockWorkspaceDirectory = "/workspace-tree";
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-    });
-    const view = render(
-      <QueryClientProvider client={queryClient}>
-        <WorkspaceScreen
-          navigation={{ navigate: jest.fn() } as never}
-          route={{ key: "workspace", name: "Workspace" } as never}
-        />
-      </QueryClientProvider>,
-    );
-    try {
-      await act(async () => {
-        await queryClient.refetchQueries({
-          queryKey: openCodeQueryKeys.vcs("connection-1", location),
-        });
-        // Query notifications run on a zero-delay timer. Flush them inside act
-        // before capturing a row, including on slower CI runners.
-        await new Promise<void>((resolve) => setTimeout(resolve, 0));
-      });
-      const row = within(screen.getByRole("button", { name: /^Open session Session 0\./ }));
-      if (active || worktree) {
-        expect(row.getByText("docs/mobile-workflow-screenshots")).toBeOnTheScreen();
-        expect(row.UNSAFE_getByType(Feather).props).toMatchObject({
-          accessibilityElementsHidden: true,
-          importantForAccessibility: "no-hide-descendants",
-          name: "git-branch",
-        });
-      } else {
-        expect(row.queryByText("docs/mobile-workflow-screenshots")).toBeNull();
-      }
-      expect(row.queryByText("/workspace")).not.toBeOnTheScreen();
-      if (active) {
-        expect(
-          screen.getByRole("button", { name: /^Open session Session 0\. Workspace\. Working/ }),
-        ).toBeOnTheScreen();
-      }
-    } finally {
-      view.unmount();
-      queryClient.clear();
+function sessionKeys(view: ReturnType<typeof render>) {
+  return view.UNSAFE_getByType(FlatList).props.data.map((item: { key: string }) => item.key);
+}
+
+test("shows the 20 newest finished sessions with no paging or archive controls", async () => {
+  mockHasNextSessionPage = true;
+  mockFetchNextSessionPage.mockClear();
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findByText("Session 0");
+    expect(sessionKeys(view)).toEqual([
+      "group:finished",
+      ...Array.from({ length: 20 }, (_, index) => `ses_${index}`),
+    ]);
+    expect(screen.getByRole("button", { name: "Finished, 20 sessions" })).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "Load older sessions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Archived" })).toBeNull();
+    expect(screen.queryByText(/archive/i)).toBeNull();
+    expect(mockFetchNextSessionPage).not.toHaveBeenCalled();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("groups rows under Needs you, Working, and Finished separators", async () => {
+  mockWorkspaceNeedsAttention = true;
+  mockWorkingCount = 3;
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findByText("Session 0");
+    expect(sessionKeys(view)).toEqual([
+      "group:needs-you",
+      "ses_0",
+      "group:working",
+      "ses_1",
+      "ses_2",
+      "group:finished",
+      ...Array.from({ length: 17 }, (_, index) => `ses_${index + 3}`),
+    ]);
+    for (const [name, testID] of [
+      ["Needs you, 1 session", "session-list-group-needs-you"],
+      ["Working, 2 sessions", "session-list-group-working"],
+      ["Finished, 17 sessions", "session-list-group-finished"],
+    ] as const) {
+      const separator = screen.getByRole("button", { name });
+      expect(separator).toBe(screen.getByTestId(testID));
+      expect(separator).toBeExpanded();
     }
-  },
-);
-
-test("Load older sessions reveals already loaded inbox rows", async () => {
-  mockHasNextSessionPage = true;
-  mockFetchNextSessionPage.mockClear();
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-  });
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>,
-  );
-  await screen.findByText("Session 0");
-  expect(screen.queryByText("Session 20")).not.toBeOnTheScreen();
-  expect(screen.queryByTestId("session-archive-footer")).not.toBeOnTheScreen();
-  expect(
-    screen.queryByText("Idle sessions archive automatically after 30 days without updates."),
-  ).not.toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Load older sessions" }));
-  expect(view.UNSAFE_getByType(FlatList).props.data).toEqual(
-    expect.arrayContaining([expect.objectContaining({ key: "ses_20", type: "session" })]),
-  );
-  expect(mockFetchNextSessionPage).not.toHaveBeenCalled();
-  for (let index = 0; index < 4; index++)
-    fireEvent.press(screen.getByRole("button", { name: "Load older sessions" }));
-  expect(
-    view
-      .UNSAFE_getByType(FlatList)
-      .props.data.filter((item: { type: string }) => item.type === "session"),
-  ).toHaveLength(120);
-  await waitFor(() => expect(mockFetchNextSessionPage).toHaveBeenCalledTimes(1));
-  expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
-  expect(screen.queryByTestId("session-archive-footer")).not.toBeOnTheScreen();
-  view.unmount();
-  queryClient.clear();
-  mockHasNextSessionPage = false;
-});
-
-test("does not offer older Inbox sessions when remaining history is archived", async () => {
-  mockAllSessionsOld = true;
-  mockHasNextSessionPage = true;
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-  });
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>,
-  );
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
-  view.unmount();
-  queryClient.clear();
-  mockAllSessionsOld = false;
-  mockHasNextSessionPage = false;
-});
-
-test("Inbox lookahead waits for pending pages, reveals eligible rows, and stops on errors", async () => {
-  mockAllSessionsOld = true;
-  mockHasNextSessionPage = true;
-  mockSessionsFetchingNextPage = true;
-  mockFetchNextSessionPage.mockClear();
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-  });
-  const content = () => (
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>
-  );
-  const view = render(content());
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  expect(mockFetchNextSessionPage).not.toHaveBeenCalled();
-  expect(screen.queryByTestId("session-archive-footer")).not.toBeOnTheScreen();
-  mockSessionsFetchingNextPage = false;
-  mockSessionsError = true;
-  view.rerender(content());
-  expect(mockFetchNextSessionPage).not.toHaveBeenCalled();
-  mockSessionsError = false;
-  view.rerender(content());
-  await waitFor(() => expect(mockFetchNextSessionPage).toHaveBeenCalledTimes(1));
-  mockAllSessionsOld = false;
-  mockHasNextSessionPage = false;
-  view.rerender(content());
-  expect(screen.getByRole("button", { name: "Load older sessions" })).toBeOnTheScreen();
-  expect(mockFetchNextSessionPage).toHaveBeenCalledTimes(1);
-  view.unmount();
-  queryClient.clear();
-});
-
-test("hides Load older sessions once all rows are visible and the server is exhausted", async () => {
-  mockHasNextSessionPage = false;
-  mockFetchNextSessionPage.mockClear();
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-  });
-  const view = render(
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>,
-  );
-  await screen.findByText("Session 0");
-  expect(screen.queryByTestId("session-archive-footer")).not.toBeOnTheScreen();
-  for (let index = 0; index < 5; index++)
-    fireEvent.press(screen.getByRole("button", { name: "Load older sessions" }));
-  expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
-  expect(mockFetchNextSessionPage).not.toHaveBeenCalled();
-  const footer = await screen.findByTestId("session-archive-footer");
-  expect(
-    within(footer).getByText("Idle sessions archive automatically after 30 days without updates."),
-  ).toBeOnTheScreen();
-  expect(view.UNSAFE_getByType(FlatList).props.ListFooterComponent.props.testID).toBe(
-    "session-archive-footer",
-  );
-  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
-  expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
-  expect(
-    within(screen.getByTestId("session-archive-footer")).getByText(
-      /Archived on this device only\. Restore/,
-    ),
-  ).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("radio", { name: "Inbox" }));
-  expect(screen.queryByRole("button", { name: "Load older sessions" })).not.toBeOnTheScreen();
-  view.unmount();
-  queryClient.clear();
-});
-
-test("auto archives sessions after 30 days and Restore survives a remount", async () => {
-  mockOldSession = true;
-  mockRestoredAt = {};
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { gcTime: Infinity, retry: false },
-      mutations: { gcTime: Infinity },
-    },
-  });
-  const content = () => (
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>
-  );
-  let view = render(content());
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  expect(screen.queryByRole("button", { name: "Keep latest 10" })).not.toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
-  const oldSession = await screen.findByRole("button", { name: /^Open session Session 0\./ });
-  fireEvent(oldSession, "accessibilityAction", { nativeEvent: { actionName: "archive" } });
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("radio", { name: "Inbox" }));
-  expect(await screen.findByText("Session 0")).toBeOnTheScreen();
-  expect(mockRestoredAt.ses_0).toBeGreaterThan(0);
-  view.unmount();
-  queryClient.clear();
-  view = render(content());
-  await screen.findByText("Session 0");
-  await waitFor(() =>
     expect(
-      screen.getByRole("button", { name: /^Open session Session 0\./ }).props.accessibilityActions,
-    ).toEqual(expect.arrayContaining([expect.objectContaining({ name: "archive" })])),
-  );
-  expect(screen.getByText("Session 0")).toBeOnTheScreen();
-  view.unmount();
-  queryClient.clear();
-  mockOldSession = false;
-  mockRestoredAt = {};
+      screen.getByRole("button", { name: /^Open session Session 1\. Workspace\. Working\./ }),
+    ).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
 });
 
-test("old working sessions remain visible and auto archive when they become idle", async () => {
-  mockOldSession = true;
+test("keeps every ongoing session past the limit and hides the empty Finished group", async () => {
   mockWorkspaceActive = true;
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { gcTime: Infinity, retry: false },
-      mutations: { gcTime: Infinity },
-    },
-  });
-  const content = () => (
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>
-  );
-  const view = render(content());
-  await screen.findByText("Session 0");
-  mockWorkspaceActive = false;
-  view.rerender(content());
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
-  expect(await screen.findByText("Session 0")).toBeOnTheScreen();
-  view.unmount();
-  queryClient.clear();
-  mockOldSession = false;
-});
-
-test("a recently restored session outside the loaded pages returns to Inbox", async () => {
-  mockRestoredAt = { ses_restored_older: Date.now() };
-  jest.mocked(getOpenCodeSession).mockResolvedValueOnce({
-    cost: 0,
-    id: "ses_restored_older",
-    location: { directory: "/workspace" },
-    projectID: "project-1",
-    title: "Restored older session",
-    time: { created: 1, updated: Date.now() - 31 * 24 * 60 * 60 * 1_000 },
-    tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
-  });
   const queryClient = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
   });
@@ -1066,66 +950,77 @@ test("a recently restored session outside the loaded pages returns to Inbox", as
       />
     </QueryClientProvider>,
   );
-  expect(await screen.findByText("Restored older session")).toBeOnTheScreen();
-  expect(
-    screen.getByRole("button", { name: /^Open session Restored older session\./ }).props
-      .accessibilityLabel,
-  ).not.toContain("Archived");
-  view.unmount();
-  queryClient.clear();
-  mockRestoredAt = {};
+  try {
+    await screen.findByText("Session 0");
+    expect(sessionKeys(view)).toHaveLength(121);
+    expect(sessionKeys(view)[0]).toBe("group:working");
+    expect(sessionKeys(view)).not.toContain("group:finished");
+    expect(sessionKeys(view)).not.toContain("group:needs-you");
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
 });
 
-test("archives from the list, restores from Archived, and survives a remount", async () => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { gcTime: Infinity, retry: false },
-      mutations: { gcTime: Infinity },
-    },
-  });
-  const renderWorkspace = () =>
-    render(
-      <QueryClientProvider client={queryClient}>
-        <WorkspaceScreen
-          navigation={{ navigate: jest.fn() } as never}
-          route={{ key: "workspace", name: "Workspace" } as never}
-        />
-      </QueryClientProvider>,
+test("a row whose child needs input opens the owning child session", async () => {
+  mockWorkspaceNeedsAttention = true;
+  mockAttentionOwner = "ses_child";
+  const navigate = jest.fn();
+  const view = renderWorkspace(navigate);
+  try {
+    const row = await screen.findByRole("button", {
+      name: /^Open session Session 0\. Workspace\. Permission required\./,
+    });
+    expect(screen.queryByText("ses_child")).toBeNull();
+    fireEvent.press(row);
+    expect(navigate).toHaveBeenCalledWith("Session", {
+      connectionId: "connection-1",
+      location: { directory: "/child" },
+      sessionID: "ses_child",
+    });
+  } finally {
+    view.cleanup();
+  }
+});
+
+test.each([
+  ["/workspace", "Workspace"],
+  ["/workspace-tree", "Workspace · workspace-tree"],
+])("rows in %s show only the project line, with no branch", async (directory, projectLine) => {
+  mockWorkspaceDirectory = directory;
+  mockWorkspaceActive = true;
+  jest.mocked(getOpenCodeVcs).mockClear();
+  const view = renderWorkspace();
+  try {
+    const row = within(
+      await screen.findByRole("button", { name: /^Open session Session 0\. Workspace\./ }),
     );
-  let view = renderWorkspace();
-  const session = screen.getByRole("button", { name: /^Open session Session 0\./ });
-  await waitFor(() =>
-    expect(session.props.accessibilityActions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "archive" })]),
-    ),
-  );
-  fireEvent(session, "accessibilityAction", { nativeEvent: { actionName: "archive" } });
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  expect(mockArchivedIds).toContain("ses_0");
-  view.unmount();
-  queryClient.clear();
-  view = renderWorkspace();
-  await screen.findByText("Session 1");
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("radio", { name: "Archived" }));
-  const archived = await screen.findByRole("button", { name: /^Open session Session 0\./ });
-  fireEvent(archived, "accessibilityAction", { nativeEvent: { actionName: "archive" } });
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  fireEvent.press(screen.getByRole("radio", { name: "Inbox" }));
-  expect(await screen.findByText("Session 0")).toBeOnTheScreen();
-  expect(mockArchivedIds).not.toContain("ses_0");
-  view.unmount();
-  queryClient.clear();
+    expect(row.getByText(projectLine)).toBeOnTheScreen();
+    expect(row.queryByText("docs/mobile-workflow-screenshots")).toBeNull();
+    expect(
+      row.UNSAFE_queryAllByType(Feather).filter((icon) => icon.props.name === "git-branch"),
+    ).toHaveLength(0);
+    expect(row.queryByText(/background task/)).toBeNull();
+    expect(getOpenCodeVcs).not.toHaveBeenCalled();
+    if (directory !== "/workspace") {
+      expect(
+        screen.getByRole("button", {
+          name: /^Open session Session 0\. Workspace\. Worktree workspace-tree\. Working\./,
+        }),
+      ).toBeOnTheScreen();
+    }
+  } finally {
+    view.cleanup();
+  }
 });
 
-test("failed archive writes keep the session in the inbox", async () => {
-  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
-  mockArchiveWriteFailure = true;
+test("search shows a flat list and pages with Load more results", async () => {
+  mockWorkspaceNeedsAttention = true;
+  mockWorkingCount = 3;
+  mockHasNextSessionPage = true;
+  mockFetchNextSessionPage.mockClear();
   const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { gcTime: Infinity, retry: false },
-      mutations: { gcTime: Infinity },
-    },
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
   });
   const view = render(
     <QueryClientProvider client={queryClient}>
@@ -1135,55 +1030,18 @@ test("failed archive writes keep the session in the inbox", async () => {
       />
     </QueryClientProvider>,
   );
-  const session = screen.getByRole("button", { name: /^Open session Session 0\./ });
-  await waitFor(() =>
-    expect(session.props.accessibilityActions).toEqual(
-      expect.arrayContaining([expect.objectContaining({ name: "archive" })]),
-    ),
-  );
-  fireEvent(session, "accessibilityAction", { nativeEvent: { actionName: "archive" } });
-  await waitFor(() =>
-    expect(alert).toHaveBeenCalledWith("Archive preference not saved", expect.any(String)),
-  );
-  expect(screen.getByText("Session 0")).toBeOnTheScreen();
-  mockArchiveWriteFailure = false;
-  alert.mockRestore();
-  view.unmount();
-  queryClient.clear();
-});
-
-test("an archived working session stays in the inbox until it becomes idle", async () => {
-  mockArchivedIds = ["ses_0"];
-  mockWorkspaceActive = true;
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
-  });
-  const content = (
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>
-  );
-  const view = render(content);
-  expect(await screen.findByText("Archived on this device")).toBeOnTheScreen();
-  expect(
-    screen.getByRole("button", { name: /^Open session Session 0\. Workspace\. Working/ }),
-  ).toBeOnTheScreen();
-  mockWorkspaceActive = false;
-  view.rerender(
-    <QueryClientProvider client={queryClient}>
-      <WorkspaceScreen
-        navigation={{ navigate: jest.fn() } as never}
-        route={{ key: "workspace", name: "Workspace" } as never}
-      />
-    </QueryClientProvider>,
-  );
-  await waitFor(() => expect(screen.queryByText("Session 0")).not.toBeOnTheScreen());
-  mockArchivedIds = [];
-  view.unmount();
-  queryClient.clear();
+  try {
+    await screen.findByText("Session 0");
+    openSearch("Session");
+    await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
+    expect(sessionKeys(view)).toEqual(Array.from({ length: 120 }, (_, index) => `ses_${index}`));
+    expect(screen.queryByTestId(/^session-list-group-/)).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Load more results" }));
+    expect(mockFetchNextSessionPage).toHaveBeenCalledTimes(1);
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
 });
 
 test("publishes an unchanged resolved location only once", async () => {
@@ -1331,24 +1189,22 @@ test("keeps connection management and new-session controls out of the phone list
   expect(screen.queryByRole("header", { name: "Sessions" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Filter" })).toBeNull();
   expect(screen.queryByLabelText(/Change new session location/)).toBeNull();
-  expect(screen.getByLabelText("Session list").props.accessibilityRole).toBe("radiogroup");
-  expect(screen.getByRole("radio", { name: "Inbox" })).toBeChecked();
-  expect(screen.getByRole("radio", { name: "Archived" })).not.toBeChecked();
-  expect(screen.getByText("Recent")).toBeOnTheScreen();
+  expect(screen.queryByLabelText("Session list")).toBeNull();
+  expect(screen.queryByRole("radio")).toBeNull();
   const list = screen.UNSAFE_getByType(FlatList);
   expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(
     20,
   );
-  expect(screen.getByText("20")).toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: "Load older" })).toBeNull();
-  expect(screen.getByRole("button", { name: "Load older sessions" })).toBeOnTheScreen();
-  fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+  expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+  expect(screen.queryByText("20")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Load older sessions" })).toBeNull();
+  openSearch("Session");
   await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
   expect(list.props.data.filter((item: { type: string }) => item.type === "session")).toHaveLength(
     120,
   );
   fireEvent.press(screen.getByRole("button", { name: "Clear session search" }));
-  await waitFor(() => expect(screen.getByText("Recent")).toBeOnTheScreen());
+  await waitFor(() => expect(screen.queryByText("Search results")).toBeNull());
   expect(screen.queryByText("Succeeded")).toBeNull();
 
   expect(screen.queryByRole("button", { name: "New" })).toBeNull();
@@ -1359,7 +1215,7 @@ test("keeps connection management and new-session controls out of the phone list
   queryClient.clear();
 });
 
-test("retains the in-content Sessions title in the tablet shell", async () => {
+test("shows the connection header and new-session action in the tablet shell", async () => {
   const navigate = jest.fn();
   const originalScreen = Dimensions.get("screen");
   const originalWindow = Dimensions.get("window");
@@ -1387,13 +1243,181 @@ test("retains the in-content Sessions title in the tablet shell", async () => {
       </QueryClientProvider>,
     );
 
-    expect(await screen.findByRole("header", { name: "Sessions" })).toBeOnTheScreen();
+    expect(
+      await screen.findByRole("button", { name: "Connection Test server, connected" }),
+    ).toBeOnTheScreen();
+    expect(screen.queryByRole("header", { name: "Sessions" })).toBeNull();
     fireEvent.press(screen.getByRole("button", { name: "New session" }));
     expect(navigate).toHaveBeenCalledWith("NewSession");
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    expect(screen.getByLabelText("Search sessions")).toBeOnTheScreen();
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
   } finally {
     view?.unmount();
     queryClient.clear();
     Dimensions.set({ screen: originalScreen, window: originalWindow });
+  }
+});
+
+test("the header names the connection with its status and opens Connections", async () => {
+  const navigate = jest.fn();
+  const view = renderWorkspace(navigate);
+  try {
+    const connection = await screen.findByRole("button", {
+      name: "Connection Test server, connected",
+    });
+    expect(connection).toHaveProp("accessibilityHint", "Opens connections");
+    expect(within(connection).getByText("Test server")).toHaveProp("numberOfLines", 1);
+    expect(
+      screen.getByTestId("workspace-connection-status", { includeHiddenElements: true }),
+    ).toHaveStyle({ backgroundColor: palette.success });
+    fireEvent.press(connection);
+    expect(navigate).toHaveBeenCalledWith("Connections");
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("search expands over the header, and Close search clears and collapses it", async () => {
+  const dismiss = jest.spyOn(Keyboard, "dismiss");
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    const field = screen.getByPlaceholderText("Search all sessions");
+    expect(field).toHaveProp("autoFocus", true);
+    fireEvent(field, "focus");
+    expect(screen.queryByRole("button", { name: /^Connection / })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
+    fireEvent.changeText(field, "Session 4");
+    await waitFor(() => expect(screen.getByText("Search results")).toBeOnTheScreen());
+    fireEvent.press(screen.getByRole("button", { name: "Close search" }));
+    expect(dismiss).toHaveBeenCalled();
+    expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+    expect(screen.getByRole("button", { name: "Connection Test server, connected" })).toBeTruthy();
+    // The field unmounts without a blur event; the floating controls must still return.
+    expect(screen.getByRole("button", { name: "New session" })).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: /^Settings/ })).toBeOnTheScreen();
+    await waitFor(() => expect(screen.queryByText("Search results")).toBeNull());
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    expect(screen.getByPlaceholderText("Search all sessions")).toHaveProp("value", "");
+  } finally {
+    dismiss.mockRestore();
+    view.cleanup();
+  }
+});
+
+test("Android back collapses an open search instead of leaving", async () => {
+  const handlers: Array<() => boolean | null | undefined> = [];
+  const add = jest.spyOn(BackHandler, "addEventListener").mockImplementation((_event, handler) => {
+    handlers.push(handler);
+    return {
+      remove: () => {
+        handlers.splice(handlers.indexOf(handler), 1);
+      },
+    };
+  });
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(handlers).toHaveLength(0);
+    openSearch("Session");
+    expect(handlers).toHaveLength(1);
+    let handled: boolean | null | undefined;
+    act(() => {
+      handled = handlers[0]?.();
+    });
+    expect(handled).toBe(true);
+    expect(screen.queryByPlaceholderText("Search all sessions")).toBeNull();
+    expect(handlers).toHaveLength(0);
+  } finally {
+    add.mockRestore();
+    view.cleanup();
+  }
+});
+
+test("rows lead with the project avatar and show work or time on the trailing side", async () => {
+  mockWorkspaceNeedsAttention = true;
+  mockWorkingCount = 2;
+  const view = renderWorkspace();
+  try {
+    const blocked = within(
+      await screen.findByRole("button", { name: /^Open session Session 0\./ }),
+    );
+    const working = within(screen.getByRole("button", { name: /^Open session Session 1\./ }));
+    const finished = within(screen.getByRole("button", { name: /^Open session Session 2\./ }));
+    for (const row of [blocked, working, finished]) {
+      expect(row.getByTestId("project-avatar", { includeHiddenElements: true })).toBeTruthy();
+      expect(row.getByText("W", { includeHiddenElements: true })).toBeTruthy();
+    }
+
+    const blockedTrailing = blocked.getByTestId("session-row-trailing");
+    expect(
+      within(blockedTrailing).getByTestId("session-row-attention-marker", {
+        includeHiddenElements: true,
+      }),
+    ).toBeTruthy();
+    expect(within(blockedTrailing).getByText("Permission required")).toBeOnTheScreen();
+
+    const workingTrailing = within(working.getByTestId("session-row-trailing"));
+    expect(workingTrailing.UNSAFE_queryAllByType(WorkingIndicator)).toHaveLength(1);
+    expect(workingTrailing.queryByText("Now")).toBeNull();
+
+    const finishedTrailing = within(finished.getByTestId("session-row-trailing"));
+    expect(finishedTrailing.UNSAFE_queryAllByType(WorkingIndicator)).toHaveLength(0);
+    expect(finishedTrailing.getByText("Now")).toBeOnTheScreen();
+    expect(finished.getByText("Workspace")).toBeOnTheScreen();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("group separators collapse and expand their rows and announce it on iOS", async () => {
+  mockWorkingCount = 2;
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const content = () => (
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>
+  );
+  const view = render(content());
+  try {
+    await screen.findByText("Session 0");
+    const working = screen.getByRole("button", { name: "Working, 2 sessions" });
+    expect(working).toHaveProp("accessibilityHint", "Collapses the group");
+    fireEvent.press(working);
+    expect(sessionKeys(view).slice(0, 3)).toEqual(["group:working", "group:finished", "ses_2"]);
+    expect(screen.queryByText("Session 0")).toBeNull();
+    const collapsed = screen.getByRole("button", { name: "Working, 2 sessions" });
+    expect(collapsed).toBeCollapsed();
+    expect(collapsed).toHaveProp("accessibilityHint", "Expands the group");
+    expect(
+      within(collapsed)
+        .UNSAFE_getAllByType(Feather)
+        .map((icon) => icon.props.name),
+    ).toEqual(["chevron-down"]);
+    expect(announce).toHaveBeenCalledWith("Working collapsed");
+
+    // Collapse state survives the screen remounting for the same connection.
+    view.unmount();
+    const remounted = render(content());
+    await screen.findByText("Session 2");
+    expect(screen.queryByText("Session 0")).toBeNull();
+    fireEvent.press(screen.getByRole("button", { name: "Working, 2 sessions" }));
+    expect(await screen.findByText("Session 0")).toBeOnTheScreen();
+    expect(screen.getByRole("button", { name: "Working, 2 sessions" })).toBeExpanded();
+    expect(announce).toHaveBeenCalledWith("Working expanded");
+    remounted.unmount();
+  } finally {
+    announce.mockRestore();
+    queryClient.clear();
   }
 });
 
@@ -2036,7 +2060,9 @@ test("shows running background subagents and opens their child sessions", async 
   );
 
   expect(await screen.findByText("Inspect event handling")).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Open child" }));
+  fireEvent.press(
+    screen.getByRole("button", { name: /^Background subagent, Inspect event handling/ }),
+  );
   expect(push).toHaveBeenCalledWith("Session", {
     connectionId: "connection-1",
     location: { directory: "/workspace" },

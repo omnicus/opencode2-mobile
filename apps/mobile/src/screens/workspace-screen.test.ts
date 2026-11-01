@@ -1,10 +1,13 @@
 import { expect, test } from "@jest/globals";
 
+import type { FollowedInboxRow, FollowedInboxSections } from "../state/followed-project-inbox";
 import {
   flattenSessionPages,
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
   projectDirectories,
+  searchResultItems,
+  workspaceInboxItems,
 } from "./workspace-screen-model";
 
 test("measures the keyboard dock once per physical screen size", () => {
@@ -61,6 +64,86 @@ test("keeps a large paginated list stable and accepts an empty response", () => 
   expect(flattenSessionPages(pages)).toEqual(sessions);
   expect(flattenSessionPages([{ cursor: {}, data: [] }])).toEqual([]);
 });
+
+test("keeps stabilized order while picking the newest finished rows for the remaining slots", () => {
+  const inbox = sections({
+    needsYou: [row("ses_blocked", 1)],
+    // Stabilized order: ses_streaming moved to the newest timestamp without jumping to the top.
+    recent: [row("ses_a", 50), row("ses_streaming", 90), row("ses_b", 40), row("ses_old", 1)],
+    working: [row("ses_working", 2)],
+  });
+
+  expect(keys(workspaceInboxItems(inbox, 5))).toEqual([
+    "group:needs-you",
+    "ses_blocked",
+    "group:working",
+    "ses_working",
+    "group:finished",
+    "ses_a",
+    "ses_streaming",
+    "ses_b",
+  ]);
+  expect(keys(workspaceInboxItems(inbox, 2))).toEqual([
+    "group:needs-you",
+    "ses_blocked",
+    "group:working",
+    "ses_working",
+  ]);
+  expect(keys(workspaceInboxItems(sections({ recent: inbox.recent }), 2))).toEqual([
+    "group:finished",
+    "ses_a",
+    "ses_streaming",
+  ]);
+});
+
+test("collapsed groups keep their separator and count but hide their rows", () => {
+  const inbox = sections({
+    recent: [row("ses_a", 50), row("ses_b", 40)],
+    working: [row("ses_working", 2)],
+  });
+
+  const items = workspaceInboxItems(inbox, 20, new Set(["finished"]));
+  expect(keys(items)).toEqual(["group:working", "ses_working", "group:finished"]);
+  expect(items.at(-1)).toEqual({
+    collapsed: true,
+    count: 2,
+    group: "finished",
+    key: "group:finished",
+    type: "group",
+  });
+  expect(items[0]).toMatchObject({ collapsed: false, count: 1, group: "working" });
+});
+
+test("search results are one list ordered by recency", () => {
+  const inbox = sections({
+    needsYou: [row("ses_blocked", 1)],
+    recent: [row("ses_a", 50), row("ses_b", 90)],
+    working: [row("ses_working", 60)],
+  });
+
+  expect(keys(searchResultItems(inbox))).toEqual(["ses_b", "ses_working", "ses_a", "ses_blocked"]);
+});
+
+function keys(items: readonly { key: string }[]) {
+  return items.map((item) => item.key);
+}
+
+function sections(input: Partial<FollowedInboxSections>): FollowedInboxSections {
+  return { needsYou: [], recent: [], unmatchedSessionIDs: [], working: [], ...input };
+}
+
+function row(id: string, updated: number): FollowedInboxRow {
+  const item = session(id, updated);
+  return {
+    active: false,
+    attentionCount: 0,
+    projectLabel: "Project",
+    section: "recent",
+    session: item,
+    targetLocation: item.location,
+    targetSessionID: item.id,
+  };
+}
 
 function session(id: string, updated: number) {
   return {

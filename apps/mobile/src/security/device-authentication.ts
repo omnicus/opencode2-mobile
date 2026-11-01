@@ -4,19 +4,17 @@ import { applicationName } from "../application-name";
 
 type LocalAuthenticationApi = Pick<
   typeof LocalAuthentication,
-  "authenticateAsync" | "hasHardwareAsync" | "isEnrolledAsync"
+  "authenticateAsync" | "getEnrolledLevelAsync"
 >;
 
 export type DeviceAuthenticationResult = "AUTHENTICATED" | "CANCELLED" | "UNAVAILABLE";
 
+// Biometrics are optional: a device with only a passcode, PIN, or pattern can still unlock.
 export async function authenticateDeviceOwner(
   api: LocalAuthenticationApi = LocalAuthentication,
 ): Promise<DeviceAuthenticationResult> {
-  const [hasHardware, isEnrolled] = await Promise.all([
-    api.hasHardwareAsync(),
-    api.isEnrolledAsync(),
-  ]);
-  if (!hasHardware || !isEnrolled) return "UNAVAILABLE";
+  const level = await api.getEnrolledLevelAsync();
+  if (level === LocalAuthentication.SecurityLevel.NONE) return "UNAVAILABLE";
 
   const result = await api.authenticateAsync({
     biometricsSecurityLevel: "strong",
@@ -25,5 +23,8 @@ export async function authenticateDeviceOwner(
     fallbackLabel: "Use Device Passcode",
     promptMessage: `Unlock ${applicationName}`,
   });
-  return result.success ? "AUTHENTICATED" : "CANCELLED";
+  if (result.success) return "AUTHENTICATED";
+  return result.error === "not_enrolled" || result.error === "passcode_not_set"
+    ? "UNAVAILABLE"
+    : "CANCELLED";
 }

@@ -149,3 +149,26 @@ test("rejects a broker challenge for a server the user did not approve", async (
     "PAIRING_ISSUE_MISMATCH",
   );
 });
+
+test("cancelling a pairing aborts the broker request", async () => {
+  const prepared = prepareOpenCodeDevicePairing({
+    password: "secret",
+    urls: ["https://code.example.test:4096"],
+    username: "opencode",
+  });
+  let requestSignal: AbortSignal | undefined;
+  globalThis.fetch = jest.fn(
+    (_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        requestSignal = init.signal ?? undefined;
+        requestSignal?.addEventListener("abort", () => reject(new Error("Aborted")));
+      }),
+  ) as unknown as typeof globalThis.fetch;
+  const cancel = new AbortController();
+
+  const pairing = issueNotificationPairingFromOpenCode(prepared, cancel.signal);
+  cancel.abort();
+
+  await expect(pairing).rejects.toThrow("Aborted");
+  expect(requestSignal?.aborted).toBe(true);
+});

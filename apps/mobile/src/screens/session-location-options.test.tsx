@@ -306,3 +306,54 @@ test("does not confuse a failed connection with a switched-off server", async ()
     screen.getByRole("button", { name: "Retry connection to MCP server docs" }),
   ).toBeOnTheScreen();
 });
+
+test("background polling keeps switches usable and only a user refresh says Refreshing", async () => {
+  mockList.mockResolvedValue({ data: [{ name: "docs", status: { status: "connected" } }] });
+  const { client } = setup();
+  const toggle = await screen.findByRole("switch", { name: "MCP server docs for this location" });
+  let finishPoll: (() => void) | undefined;
+  mockList.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishPoll = () => resolve({ data: [{ name: "docs", status: { status: "connected" } }] });
+      }),
+  );
+  act(() => {
+    void client.refetchQueries({
+      queryKey: openCodeQueryKeys.mcpServers("connection-1", location),
+    });
+  });
+  await waitFor(() => expect(finishPoll).toBeDefined());
+  expect(toggle).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Refresh MCP servers" })).toBeEnabled();
+  await act(async () => finishPoll?.());
+
+  let finishRefresh: (() => void) | undefined;
+  mockList.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRefresh = () =>
+          resolve({ data: [{ name: "docs", status: { status: "connected" } }] });
+      }),
+  );
+  fireEvent.press(screen.getByRole("button", { name: "Refresh MCP servers" }));
+  expect(await screen.findByRole("button", { name: "Refreshing MCP servers" })).toBeDisabled();
+  await act(async () => finishRefresh?.());
+  expect(await screen.findByRole("button", { name: "Refresh MCP servers" })).toBeEnabled();
+});
+
+test("the copied label returns to Copy branch name after two seconds", async () => {
+  setup();
+  await screen.findByText("No MCP servers configured for this location.");
+  jest.useFakeTimers();
+  try {
+    await act(async () => {
+      fireEvent.press(screen.getByRole("button", { name: "Copy branch name" }));
+    });
+    expect(screen.getByRole("button", { name: "Copied" })).toBeOnTheScreen();
+    act(() => jest.advanceTimersByTime(2_000));
+    expect(screen.getByRole("button", { name: "Copy branch name" })).toBeOnTheScreen();
+  } finally {
+    jest.useRealTimers();
+  }
+});

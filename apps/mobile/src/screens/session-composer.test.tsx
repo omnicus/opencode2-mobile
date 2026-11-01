@@ -67,12 +67,13 @@ test("keeps the native prompt multiline and submits through an explicit control"
 test("active composer switches Stop to send on text and back when cleared", () => {
   const onInterrupt = jest.fn();
   const onSubmit = jest.fn();
+  jest.useFakeTimers();
   render(<ComposerHarness active onInterrupt={onInterrupt} onSubmit={onSubmit} />);
   const editor = within(screen.getByLabelText("Prompt editor"));
   expect(editor.getByRole("button", { name: "Stop" })).toHaveStyle({
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   });
   fireEvent.press(editor.getByRole("button", { name: "Stop" }));
   expect(onInterrupt).toHaveBeenCalledTimes(1);
@@ -80,15 +81,39 @@ test("active composer switches Stop to send on text and back when cleared", () =
   fireEvent.changeText(screen.getByLabelText("Prompt"), "Follow up");
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   expect(editor.getByRole("button", { name: "Steer" })).toHaveStyle({
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   });
   fireEvent.press(editor.getByRole("button", { name: "Steer" }));
   expect(onSubmit).toHaveBeenCalledTimes(1);
   expect(onInterrupt).toHaveBeenCalledTimes(1);
   fireEvent.changeText(screen.getByLabelText("Prompt"), " \n ");
+  act(() => jest.advanceTimersByTime(600));
   expect(editor.getByRole("button", { name: "Stop" })).toBeEnabled();
+  jest.useRealTimers();
+});
+
+test("a quick second tap after sending cannot stop the session", () => {
+  jest.useFakeTimers();
+  try {
+    const onInterrupt = jest.fn();
+    render(<ComposerHarness active onInterrupt={onInterrupt} onSubmit={jest.fn()} clearOnSubmit />);
+    fireEvent.changeText(screen.getByLabelText("Prompt"), "Follow up");
+    fireEvent.press(screen.getByRole("button", { name: "Steer" }));
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    const send = screen.getByRole("button", { name: "Steer" });
+    expect(send).toBeDisabled();
+    fireEvent.press(send);
+    expect(onInterrupt).not.toHaveBeenCalled();
+    act(() => jest.advanceTimersByTime(599));
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    act(() => jest.advanceTimersByTime(1));
+    fireEvent.press(screen.getByRole("button", { name: "Stop" }));
+    expect(onInterrupt).toHaveBeenCalledTimes(1);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("idle composer never offers Stop", () => {
@@ -96,9 +121,9 @@ test("idle composer never offers Stop", () => {
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Send" })).toHaveStyle({
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
   });
   expect(screen.getByTestId("composer-submit-visual")).toHaveStyle({
     width: 36,
@@ -107,14 +132,16 @@ test("idle composer never offers Stop", () => {
   });
 });
 
-test("composer chips use compact type without shrinking chat or touch targets", () => {
+test("composer chips use footnote type without shrinking chat or touch targets", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
   fireEvent(screen.getByLabelText("Prompt"), "focus");
-  for (const label of ["Choose model", "Default", "Choose agent"])
-    expect(screen.getByText(label)).toHaveStyle({ fontSize: 12, lineHeight: 18 });
+  for (const label of ["Choose model", "Default", "Choose agent"]) {
+    expect(screen.getByText(label)).toHaveStyle(typography.footnote);
+    expect(screen.getByText(label).props.dynamicTypeRamp).toBe("footnote");
+  }
   for (const prefix of ["Model", "Variant", "Agent"])
     expect(screen.getByRole("button", { name: new RegExp(`^${prefix}:`) })).toHaveStyle({
-      minHeight: 44,
+      minHeight: 48,
     });
   expect(screen.getByLabelText("Prompt")).toHaveStyle({ fontSize: 17 });
 });
@@ -367,6 +394,12 @@ test("selects a variant separately and can return to the model default", () => {
   fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
   fireEvent.press(screen.getByRole("button", { name: /Model One/ }));
   fireEvent.press(screen.getByRole("button", { name: "Variant: Default" }));
+  // The variant chip also shows the text "Default", so match the option by its label.
+  const defaultOption = screen.getByLabelText("Default");
+  expect(defaultOption).toBeSelected();
+  expect(within(defaultOption).queryByText(/✓/)).toBeNull();
+  expect(within(defaultOption).getByText("Default")).toHaveStyle(typography.headline);
+  expect(within(defaultOption).getByText("Default").props.dynamicTypeRamp).toBe("headline");
   fireEvent.press(screen.getByRole("button", { name: "deep" }));
   expect(screen.getByRole("button", { name: "Variant: deep" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Model: Model One" })).toBeOnTheScreen();
@@ -469,6 +502,7 @@ function ComposerHarness({
   active = false,
   completionLoading = false,
   completionUnavailable = false,
+  clearOnSubmit = false,
   onSubmit,
   onInterrupt = jest.fn(),
   interruptDisabled = false,
@@ -478,6 +512,7 @@ function ComposerHarness({
   active?: boolean;
   completionLoading?: boolean;
   completionUnavailable?: boolean;
+  clearOnSubmit?: boolean;
   onSubmit: (intent: ComposerSubmitIntent) => void;
   onInterrupt?: () => void;
   interruptDisabled?: boolean;
@@ -515,7 +550,10 @@ function ComposerHarness({
       }}
       onModelChange={setModel}
       onMentionSearchChange={jest.fn()}
-      onSubmit={onSubmit}
+      onSubmit={(intent) => {
+        if (clearOnSubmit) setDraft("");
+        onSubmit(intent);
+      }}
       skills={skills}
     />
   );

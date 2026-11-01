@@ -13,24 +13,19 @@ import {
   type SessionMessagesResponse,
 } from "@opencode2-mobile/opencode-adapter";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useSQLiteContext } from "expo-sqlite";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  AppState,
+  BackHandler,
   Dimensions,
   FlatList,
   Keyboard,
   type KeyboardEvent,
+  LayoutAnimation,
   type LayoutChangeEvent,
   type NativeScrollEvent,
   type NativeSyntheticEvent,
@@ -39,16 +34,16 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  type TextInput,
   useWindowDimensions,
   View,
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, { LinearTransition } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../components/button";
-import { SearchField } from "../components/search-field";
-import { SegmentedControl } from "../components/segmented-control";
+import { ProjectAvatar } from "../components/project-avatar";
+import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { WorkingIndicator } from "../components/working-indicator";
@@ -65,12 +60,10 @@ import {
 } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useModelFavorites } from "../state/use-model-favorites";
-import { useSessionArchives } from "../state/use-session-archives";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import {
   disabledOpacity,
-  displayTitleMaxFontSizeMultiplier,
   minTouchTarget,
   palette,
   pressedOpacity,
@@ -80,16 +73,10 @@ import {
   typography,
   usesLargeTextLayout,
 } from "../theme";
-import { ActionButton, isTabletShell, ShellFrame } from "./app-shell";
+import { ActionButton, getConnectionPresentation, isTabletShell, ShellFrame } from "./app-shell";
 import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
 import { SessionActionSheet } from "./session-action-sheet";
-import {
-  addArchivedSessions,
-  resolveSessionArchiveIds,
-  selectSessionArchiveView,
-  sessionAutoArchiveAgeMs,
-} from "./session-archive-model";
 import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
@@ -111,17 +98,23 @@ import {
 import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
+import { WorkspaceListHeader } from "./workspace-list-header";
 import { WorkspaceNewSessionAction } from "./workspace-new-session-action";
 import {
   getComposerDockKeyboardOffset,
   needsComposerDockMeasurement,
+  searchResultItems,
+  type WorkspaceGroup,
+  type WorkspaceInboxItem,
+  workspaceGroupLabels,
+  workspaceInboxItems,
 } from "./workspace-screen-model";
 
 type WorkspaceProps = NativeStackScreenProps<RootStackParamList, "Workspace">;
 type SessionProps = NativeStackScreenProps<RootStackParamList, "Session">;
 
 const messagePageSize = 40;
-const recentSessionLimit = 20;
+const sessionListLimit = 20;
 const maxTranscriptPages = 5;
 const iosKeyboardTransparentTopInset = 32;
 const liveEdgeThreshold = 2;
@@ -134,10 +127,12 @@ const liveEdgeRowTransition = LinearTransition.springify().mass(1).stiffness(289
 const userScrollSettleMs = 160;
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
-const archiveViewOptions = [
-  { label: "Inbox", value: "inbox" },
-  { label: "Archived", value: "archived" },
-] as const;
+const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const borderlessRipple =
+  Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
+const noCollapsedGroups: ReadonlySet<WorkspaceGroup> = new Set();
+// Collapsed groups last for the app session, per connection, and are never persisted.
+const collapsedGroupsByConnection = new Map<string, ReadonlySet<WorkspaceGroup>>();
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const db = useSQLiteContext();
@@ -146,6 +141,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const connections = useConnections();
   const queryClient = useQueryClient();
   const { fontScale, width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const reducedMotion = useReducedMotion();
   const largeText = usesLargeTextLayout(fontScale);
   const tablet = isTabletShell(width);
   const connectionId = runtime.connectionId;
@@ -153,29 +150,13 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>();
   const [selectedDirectory, setSelectedDirectory] = useState<string>();
   const [sessionSearch, setSessionSearch] = useState("");
-  const [archivedView, setArchivedView] = useState(false);
-  const [visibleRecentLimit, setVisibleRecentLimit] = useState(recentSessionLimit);
-  useEffect(() => {
-    void connectionId;
-    void runtime.connectionUpdatedAtMs;
-    setVisibleRecentLimit(recentSessionLimit);
-  }, [connectionId, runtime.connectionUpdatedAtMs]);
-  const archives = useSessionArchives(connectionId, runtime.connectionUpdatedAtMs);
-  const [archiveNow, setArchiveNow] = useState(Date.now);
-  useEffect(() => {
-    const timer = setInterval(() => setArchiveNow(Date.now()), 60_000);
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active") setArchiveNow(Date.now());
-    });
-    return () => {
-      clearInterval(timer);
-      subscription.remove();
-    };
-  }, []);
-  const searchInputRef = useRef<TextInput>(null);
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [screenFocused, setScreenFocused] = useState(() => navigation.isFocused?.() ?? true);
   const [actionSession, setActionSession] = useState<SessionInfo>();
   const presentationScope = connectionId ?? "unselected";
+  const [collapsedGroups, setCollapsedGroups] = useState(
+    () => collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups,
+  );
   const showAttentionNotice = useDelayedVisibility(
     workspaceSelection.attentionCoverage.freshness === "stale" ||
       (workspaceSelection.attentionCoverage.freshness === "current" &&
@@ -196,11 +177,36 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setSelectedProjectId(undefined);
     setSelectedDirectory(undefined);
     setSessionSearch("");
+    setSearchOpen(false);
     setActionSession(undefined);
-    setArchivedView(false);
     refreshGenerationRef.current += 1;
     setRefreshing(false);
   }, [connectionId]);
+
+  useEffect(() => {
+    setCollapsedGroups(collapsedGroupsByConnection.get(presentationScope) ?? noCollapsedGroups);
+  }, [presentationScope]);
+
+  useEffect(() => {
+    const focus = navigation.addListener?.("focus", () => setScreenFocused(true));
+    const blur = navigation.addListener?.("blur", () => setScreenFocused(false));
+    return () => {
+      focus?.();
+      blur?.();
+    };
+  }, [navigation]);
+
+  // Android back closes an open search before it can leave the screen.
+  useEffect(() => {
+    if (!searchOpen || !screenFocused) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      setSessionSearch("");
+      setSearchOpen(false);
+      Keyboard.dismiss();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [screenFocused, searchOpen]);
 
   const projectsQuery = useQuery({
     enabled: Boolean(client && connectionId),
@@ -279,78 +285,35 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     workspaceSelection.setLocation(location);
   }, [location, workspaceSelection.setLocation]);
 
-  const loadedSessionIds = new Set(
-    [
-      ...workspaceSelection.inbox.needsYou,
-      ...workspaceSelection.inbox.working,
-      ...workspaceSelection.inbox.recent,
-    ].map((row) => row.session.id),
-  );
-  const archivedSessionQueries = useQueries({
-    queries: [...new Set([...archives.ids, ...Object.keys(archives.restoredAt)])].map(
-      (sessionID) => ({
-        enabled: Boolean(
-          (archivedView ||
-            (archives.restoredAt[sessionID] ?? 0) >= archiveNow - sessionAutoArchiveAgeMs) &&
-            client &&
-            connectionId &&
-            !loadedSessionIds.has(sessionID),
-        ),
-        queryKey: openCodeQueryKeys.archivedSession(connectionId ?? "unselected", sessionID),
-        queryFn: ({ signal }: { signal: AbortSignal }) => {
-          if (!client) throw new Error("CONNECTION_NOT_READY");
-          return getOpenCodeSession(client, sessionID, { signal });
-        },
-      }),
-    ),
-  });
-  const archiveInbox = addArchivedSessions(
-    workspaceSelection.inbox,
-    archivedSessionQueries.flatMap((query) => (query.data ? [query.data] : [])),
-    new Map(
-      projects
-        .filter((project) => workspaceSelection.followedProjectIds.includes(project.id))
-        .map((project) => [
-          project.id,
-          project.name ?? project.canonical.split("/").filter(Boolean).at(-1) ?? "Project",
-        ]),
-    ),
-    deferredSessionSearch,
-  );
-  const archivedIds =
-    !archives.loaded || archives.error
-      ? archives.ids
-      : resolveSessionArchiveIds(archiveInbox, archives.ids, archives.restoredAt, archiveNow);
-  const visibleInbox = selectSessionArchiveView(
-    archiveInbox,
-    archivedIds,
-    archivedView,
-    archives.restoredAt,
-  );
-  const needsInboxLookahead =
-    !archivedView &&
-    !deferredSessionSearch &&
-    archives.loaded &&
-    !archives.error &&
-    !workspaceSelection.sessionsLoading &&
-    !workspaceSelection.sessionsError &&
-    workspaceSelection.hasNextPage &&
-    !workspaceSelection.sessionsFetchingNextPage &&
-    visibleInbox.recent.length <= visibleRecentLimit;
-  useEffect(() => {
-    if (needsInboxLookahead) void workspaceSelection.fetchNextPage().catch(() => undefined);
-  }, [needsInboxLookahead, workspaceSelection.fetchNextPage]);
-  const inboxItems = workspaceInboxItems(
-    visibleInbox,
-    archivedView || Boolean(deferredSessionSearch),
-    archives.restoredAt,
-    visibleRecentLimit,
-  );
-  const sessionCount =
-    visibleInbox.needsYou.length + visibleInbox.working.length + visibleInbox.recent.length;
+  const inbox = workspaceSelection.inbox;
+  const inboxItems: WorkspaceInboxItem[] = deferredSessionSearch
+    ? searchResultItems(inbox)
+    : workspaceInboxItems(inbox, sessionListLimit, collapsedGroups);
+  const sessionCount = inbox.needsYou.length + inbox.working.length + inbox.recent.length;
   const selectedConnection = connections.profiles.find(
     (profile) => profile.id === connections.selectedProfileId,
   );
+  const connectionPresentation = getConnectionPresentation(
+    runtime.status,
+    runtime.reconnectAttempt,
+  );
+
+  function closeSearch() {
+    setSessionSearch("");
+    setSearchOpen(false);
+    Keyboard.dismiss();
+  }
+
+  function toggleGroup(group: WorkspaceGroup) {
+    const collapsing = !collapsedGroups.has(group);
+    const next = new Set(collapsedGroups);
+    if (collapsing) next.add(group);
+    else next.delete(group);
+    collapsedGroupsByConnection.set(presentationScope, next);
+    if (!reducedMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setCollapsedGroups(next);
+    announceOnIOS(`${workspaceGroupLabels[group]} ${collapsing ? "collapsed" : "expanded"}`);
+  }
 
   const removeMutation = useMutation({
     mutationFn: async (session: SessionInfo) => {
@@ -405,7 +368,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       void queryClient.invalidateQueries({
         queryKey: openCodeQueryKeys.connection(connectionId),
       });
-      void queryClient.invalidateQueries({ queryKey: ["device-session-archives", connectionId] });
       if (!cleanupSucceeded) {
         Alert.alert(
           "Local cleanup incomplete",
@@ -425,8 +387,6 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     setRefreshing(true);
     try {
       await Promise.all([
-        archives.refetch(),
-        ...(archivedView ? archivedSessionQueries.map((query) => query.refetch()) : []),
         workspaceSelection.refetch(),
         ...(requestedLocation ? [locationQuery.refetch()] : []),
       ]);
@@ -444,14 +404,14 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     });
   }
 
-  function confirmDelete(session: SessionInfo) {
+  function confirmDelete(session: SessionInfo, projectLabel: string) {
     const host = selectedConnection?.name ?? "selected server";
     const childWarning = session.parentID
       ? "This is a child session."
       : "Deleting a parent also deletes all child sessions.";
     Alert.alert(
       "Delete session?",
-      `Host: ${host}\nProject: ${session.projectID}\nLocation: ${session.location.directory}\n\n${childWarning}`,
+      `Host: ${host}\nProject: ${projectLabel}\nLocation: ${session.location.directory}\n\n${childWarning}`,
       [
         { style: "cancel", text: "Cancel" },
         { onPress: () => removeMutation.mutate(session), style: "destructive", text: "Delete" },
@@ -459,41 +419,27 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
     );
   }
 
-  async function toggleArchive(session: SessionInfo) {
-    try {
-      await archives.setArchived(session.id, !archivedIds.includes(session.id));
-    } catch {
-      Alert.alert("Archive preference not saved", "The list has not changed. Try again.");
-    }
-  }
+  const attentionNotice = showAttentionNotice
+    ? workspaceSelection.attentionCoverage.freshness === "stale"
+      ? "Request status is stale. Reconnect to check pending requests."
+      : "Some request locations could not be checked."
+    : undefined;
+  const connectionNotice = showConnectionNotice
+    ? runtime.cacheMetadata
+      ? "Showing saved data until the server reconnects."
+      : "Waiting for current server data."
+    : undefined;
+  useAnnouncement(attentionNotice);
+  useAnnouncement(connectionNotice);
+  useAnnouncement(workspaceSelection.sessionsError && "Sessions could not be loaded.");
 
   const header = (
-    <View style={[styles.homeHeader, !tablet && styles.homeHeaderPhone]}>
-      {tablet ? (
-        <View style={[styles.homeTitleRow, largeText && styles.homeTitleRowLargeText]}>
-          <View style={styles.homeTitleCopy}>
-            <Text
-              accessibilityRole="header"
-              dynamicTypeRamp={typeRamp.largeTitle}
-              maxFontSizeMultiplier={displayTitleMaxFontSizeMultiplier}
-              style={styles.homeTitle}
-            >
-              Sessions
-            </Text>
-          </View>
-          <WorkspaceHeaderActions
-            navigate={(destination) => navigation.navigate(destination)}
-            onNewSession={() => navigation.navigate("NewSession")}
-          />
-        </View>
-      ) : null}
-
+    <View style={styles.homeHeader}>
       {!tablet &&
       workspaceSelection.pendingCount > 0 &&
-      (archivedView ||
-        Boolean(sessionSearch) ||
+      (Boolean(sessionSearch) ||
         workspaceSelection.pendingCount >
-          visibleInbox.needsYou.reduce((sum, row) => sum + row.attentionCount, 0)) ? (
+          inbox.needsYou.reduce((sum, row) => sum + row.attentionCount, 0)) ? (
         <View style={styles.workspaceActions}>
           <HeaderAction
             accessibilityHint="Opens permission and form requests"
@@ -508,79 +454,31 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           />
         </View>
       ) : null}
-      {showAttentionNotice ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          dynamicTypeRamp={typeRamp.footnote}
-          style={styles.connectionNotice}
-        >
-          {workspaceSelection.attentionCoverage.freshness === "stale"
-            ? "Request status is stale. Reconnect to check pending requests."
-            : "Some request locations could not be checked. Pull to refresh."}
-        </Text>
-      ) : null}
-      {showConnectionNotice ? (
-        <Text
-          accessibilityLiveRegion="polite"
-          dynamicTypeRamp={typeRamp.footnote}
-          style={styles.connectionNotice}
-        >
-          {runtime.cacheMetadata
-            ? "Showing cached shell data until the server reconnects."
-            : "Waiting for current server data."}
-        </Text>
-      ) : null}
-      <SearchField
-        accessibilityLabel="Search sessions"
-        clearAccessibilityLabel="Clear session search"
-        editable={workspaceSelection.followedProjectIds.length > 0}
-        onBlur={() => setSearchFocused(false)}
-        onChangeText={setSessionSearch}
-        onFocus={() => setSearchFocused(true)}
-        placeholder="Search all sessions"
-        ref={searchInputRef}
-        returnKeyType="search"
-        style={styles.searchField}
-        value={sessionSearch}
-      />
-
-      <View style={styles.archiveFilters}>
-        <SegmentedControl
-          accessibilityLabel="Session list"
-          onChange={(view) => setArchivedView(view === "archived")}
-          options={archiveViewOptions}
-          role="radiogroup"
-          value={archivedView ? "archived" : "inbox"}
-        />
-      </View>
-      {archives.error ? (
-        <Text
-          accessibilityRole="alert"
-          dynamicTypeRamp={typeRamp.footnote}
-          style={styles.connectionNotice}
-        >
-          Archive preferences could not be loaded. Pull to refresh.
-        </Text>
-      ) : null}
-      {archivedView && archivedSessionQueries.some((query) => query.isError) ? (
-        <Text
-          accessibilityRole="alert"
-          dynamicTypeRamp={typeRamp.footnote}
-          style={styles.connectionNotice}
-        >
-          Some archived sessions are unavailable. Pull to refresh to retry.
-        </Text>
-      ) : null}
-
-      {deferredSessionSearch ? (
-        <View style={styles.listSectionHeader}>
-          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.listSectionTitle}>
-            Search results
+      {attentionNotice ? (
+        <View style={styles.notice}>
+          <Text
+            accessibilityLiveRegion="polite"
+            dynamicTypeRamp={typeRamp.footnote}
+            style={styles.connectionNotice}
+          >
+            {attentionNotice}
           </Text>
-          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.countLabel}>
-            {sessionCount}
-          </Text>
+          {workspaceSelection.attentionCoverage.freshness !== "stale" ? (
+            <RetryButton busy={refreshing} onPress={() => void refresh()} />
+          ) : null}
         </View>
+      ) : null}
+      {connectionNotice ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.footnote}
+          style={styles.connectionNotice}
+        >
+          {connectionNotice}
+        </Text>
+      ) : null}
+      {deferredSessionSearch ? (
+        <ListSectionHeader count={sessionCount} label="Search results" />
       ) : null}
     </View>
   );
@@ -591,67 +489,50 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       hideConnectionBar
       navigate={(section) => navigation.navigate(section)}
     >
+      <WorkspaceListHeader
+        connection={connectionPresentation}
+        connectionName={selectedConnection?.name}
+        onChangeSearch={setSessionSearch}
+        onCloseSearch={closeSearch}
+        onOpenConnections={() => {
+          Keyboard.dismiss();
+          navigation.navigate("Connections");
+        }}
+        onOpenSearch={() => setSearchOpen(true)}
+        search={sessionSearch}
+        searchEditable={workspaceSelection.followedProjectIds.length > 0}
+        searchOpen={searchOpen}
+        topInset={tablet ? 0 : insets.top}
+        trailing={
+          tablet ? (
+            <WorkspaceHeaderActions
+              navigate={(destination) => navigation.navigate(destination)}
+              onNewSession={() => navigation.navigate("NewSession")}
+            />
+          ) : null
+        }
+      />
       <FlatList
         ListEmptyComponent={
           <SessionEmptyState
             error={workspaceSelection.sessionsError}
             hasLocation={workspaceSelection.followedProjectIds.length > 0}
-            loading={
-              workspaceSelection.sessionsLoading ||
-              (!archivedView &&
-                !deferredSessionSearch &&
-                workspaceSelection.sessionsFetchingNextPage) ||
-              archives.busy ||
-              (archivedView &&
-                archivedSessionQueries.some(
-                  (query) => query.isPending && query.fetchStatus === "fetching",
-                ))
-            }
+            loading={workspaceSelection.sessionsLoading}
             search={deferredSessionSearch}
-            archivedView={archivedView}
-            hasMore={
-              workspaceSelection.hasNextPage && Boolean(deferredSessionSearch) && !archivedView
-            }
+            onChooseProjects={() => navigation.navigate("FollowedProjects")}
+            onRetry={() => void refresh()}
+            refreshing={refreshing}
           />
         }
         ListFooterComponent={
-          (archivedView || deferredSessionSearch) && workspaceSelection.hasNextPage ? (
+          deferredSessionSearch && workspaceSelection.hasNextPage ? (
             <View style={styles.listFooter}>
               <ActionButton
-                label={archivedView ? "Load older sessions" : "Load older"}
+                busy={workspaceSelection.sessionsFetchingNextPage}
+                label="Load more results"
                 onPress={() => void workspaceSelection.fetchNextPage()}
                 secondary
               />
-            </View>
-          ) : !archivedView &&
-            !deferredSessionSearch &&
-            visibleInbox.recent.length > visibleRecentLimit ? (
-            <View style={styles.listFooter}>
-              <ActionButton
-                label="Load older sessions"
-                onPress={() => {
-                  setVisibleRecentLimit((limit) => limit + recentSessionLimit);
-                }}
-                secondary
-              />
-            </View>
-          ) : archives.loaded &&
-            !archives.busy &&
-            !archives.error &&
-            !workspaceSelection.sessionsLoading &&
-            !workspaceSelection.sessionsError &&
-            !workspaceSelection.hasNextPage &&
-            !archivedSessionQueries.some((query) => query.fetchStatus === "fetching") ? (
-            <View style={styles.listFooter} testID="session-archive-footer">
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionNotice}>
-                Idle sessions archive automatically after 30 days without updates.
-              </Text>
-              {archivedView ? (
-                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.connectionNotice}>
-                  Archived on this device only. Restore keeps a session in Inbox for another 30
-                  days. Working sessions and requests remain visible.
-                </Text>
-              ) : null}
             </View>
           ) : null
         }
@@ -672,37 +553,13 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           />
         }
         renderItem={({ item }) =>
-          item.type === "section" ? (
-            <View style={[styles.listSectionHeader, styles.inboxSectionHeader]}>
-              <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.listSectionTitle}>
-                {item.label}
-              </Text>
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.countLabel}>
-                {item.count}
-              </Text>
-            </View>
+          item.type === "group" ? (
+            <GroupSeparator item={item} onPress={() => toggleGroup(item.group)} />
           ) : (
             <SessionRow
               onActions={() => setActionSession(item.row.session)}
-              showBranch={
-                tablet ||
-                item.row.active ||
-                projects.find((project) => project.id === item.row.session.projectID)?.canonical !==
-                  item.row.session.location.directory
-              }
               largeText={largeText}
-              archived={archivedIds.includes(item.row.session.id)}
-              archiveDisabled={archives.busy || archives.error}
-              onArchive={() => void toggleArchive(item.row.session)}
-              onDelete={() => confirmDelete(item.row.session)}
-              onOpenChild={(child) => {
-                if (!connectionId) return;
-                navigation.navigate("Session", {
-                  connectionId,
-                  location: child.location,
-                  sessionID: child.id,
-                });
-              }}
+              onDelete={() => confirmDelete(item.row.session, item.row.projectLabel)}
               onPress={() => openSession(item.row)}
               row={item.row}
             />
@@ -712,9 +569,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
         windowSize={7}
       />
       <WorkspaceNewSessionAction
-        showSettings={!tablet && !searchFocused}
+        // The search field unmounts on close without a reliable blur, so key off searchOpen.
+        showSettings={!tablet && !searchOpen}
         onNavigate={(destination) => navigation.navigate(destination)}
-        eligible={!tablet && !searchFocused && workspaceSelection.followedProjectIds.length > 0}
+        eligible={!tablet && !searchOpen}
         onPress={() => navigation.navigate("NewSession")}
       />
       {actionSession && connectionId ? (
@@ -821,12 +679,17 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           accessibilityRole="button"
           accessibilityLabel="Session actions"
           accessibilityState={{ disabled: !sessionLocationReady }}
+          android_ripple={borderlessRipple}
           disabled={!sessionLocationReady}
           onPress={() => {
             Keyboard.dismiss();
             setActionsOpen(true);
           }}
-          style={{ width: 44, height: 44, alignItems: "center", justifyContent: "center" }}
+          style={({ pressed }) => [
+            styles.sessionActionsButton,
+            !sessionLocationReady && styles.disabled,
+            pressed && Platform.OS === "ios" && styles.pressed,
+          ]}
         >
           <Feather accessible={false} name="more-horizontal" size={20} color={palette.ink} />
         </Pressable>
@@ -1256,7 +1119,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         onBackground={execution.background}
         onReplyPermission={workspaceSelection.replyPermission}
         onSteerInbox={execution.steerInbox}
-        permissionReplyError={workspaceSelection.permissionReplyError}
+        failedPermissionReplyId={workspaceSelection.failedPermissionReplyId}
         permissions={sessionPermissions}
         projectedMessageIds={execution.projectedMessageIds}
         replyingPermissionId={workspaceSelection.replyingPermissionId}
@@ -1585,57 +1448,22 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 }
 
 function SessionRow({
-  showBranch,
-  archived,
-  archiveDisabled,
-  onArchive,
   largeText,
   onDelete,
   onActions,
-  onOpenChild,
   onPress,
   row,
 }: {
-  showBranch: boolean;
-  archived: boolean;
-  archiveDisabled: boolean;
-  onArchive: () => void;
   largeText: boolean;
   onDelete: () => void;
   onActions: () => void;
-  onOpenChild: (child: SessionInfo) => void;
   onPress: () => void;
   row: FollowedInboxRow;
 }) {
   const { session } = row;
-  const runtime = useConnectionRuntime();
-  const vcsQuery = useQuery({
-    enabled: Boolean(showBranch && runtime.restClient && runtime.connectionId),
-    queryFn: ({ signal }) => {
-      if (!runtime.restClient) throw new Error("CONNECTION_NOT_READY");
-      return getOpenCodeVcs(runtime.restClient, session.location, { signal });
-    },
-    queryKey: openCodeQueryKeys.vcs(runtime.connectionId ?? "unselected", session.location),
-    staleTime: 30_000,
-  });
-  const branchName = vcsQuery.data?.data.branch.current;
-  const branchLabel = branchName
-    ? branchName
-    : vcsQuery.isError || runtime.status !== "connected"
-      ? "Branch unavailable"
-      : vcsQuery.isPending
-        ? "Checking branch"
-        : "No branch";
   const { fontScale } = useWindowDimensions();
-  const active = row.active;
   const blocked = row.attentionCount > 0;
-  const showOutcome =
-    !active &&
-    !blocked &&
-    Boolean(session.outcome) &&
-    session.outcome?.toLocaleLowerCase() !== "succeeded";
-  const showMetadata =
-    row.activeChildCount > 0 || archived || Boolean(session.time.archived) || showOutcome;
+  const title = session.title || "Untitled session";
   return (
     <ReanimatedSwipeable
       containerStyle={styles.swipeContainer}
@@ -1645,207 +1473,158 @@ function SessionRow({
       }}
       overshootRight={false}
       renderRightActions={(_progress, _translation, swipeable) => (
-        <View style={styles.swipeActions}>
-          <Pressable
-            accessibilityLabel={`${archived ? "Restore" : "Archive"} ${session.title || "Untitled session"}`}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: archiveDisabled }}
-            disabled={archiveDisabled}
-            onPress={() => {
-              swipeable.close();
-              onArchive();
-            }}
-            style={[styles.swipeArchive, archiveDisabled && styles.archiveDisabled]}
-          >
-            <Feather
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-              color={palette.ink}
-              name={archived ? "corner-up-left" : "archive"}
-              size={20}
-            />
-            <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeArchiveLabel}>
-              {archived ? "Restore" : "Archive"}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityLabel={`Delete ${session.title || "Untitled session"}`}
-            accessibilityRole="button"
-            onPress={() => {
-              swipeable.close();
-              onDelete();
-            }}
-            style={styles.swipeDelete}
-          >
-            <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeDeleteLabel}>
-              Delete
-            </Text>
-          </Pressable>
-        </View>
-      )}
-    >
-      <View style={styles.sessionGroup}>
         <Pressable
-          accessibilityActions={[
-            { name: "activate" },
-            ...(!archiveDisabled
-              ? [{ label: archived ? "Restore session" : "Archive session", name: "archive" }]
-              : []),
-            { label: "Delete session", name: "delete" },
-            { label: "Session actions", name: "options" },
-          ]}
-          accessibilityHint="Opens the session. Long press for rename, archive, or delete"
-          accessibilityLabel={`${sessionAccessibilityLabel(row)}${archived ? ". Archived on this device" : ""}`}
+          accessibilityLabel={`Delete ${title}`}
           accessibilityRole="button"
-          onAccessibilityAction={({ nativeEvent }) => {
-            if (nativeEvent.actionName === "activate") onPress();
-            if (nativeEvent.actionName === "delete") onDelete();
-            if (nativeEvent.actionName === "archive" && !archiveDisabled) onArchive();
-            if (nativeEvent.actionName === "options") onActions();
+          android_ripple={rowRipple}
+          onPress={() => {
+            swipeable.close();
+            onDelete();
           }}
-          onPress={onPress}
-          onLongPress={onActions}
           style={({ pressed }) => [
-            styles.sessionRow,
-            largeText && styles.sessionRowLargeText,
-            pressed && styles.pressed,
+            styles.swipeDelete,
+            pressed && Platform.OS === "ios" && styles.pressed,
           ]}
         >
-          <View style={styles.sessionMain}>
-            <View style={styles.sessionTitleRow}>
-              {active && !blocked ? (
-                // One body line tall, so the indicator centers on the title's first line.
-                <View
-                  style={[
-                    styles.sessionIndicator,
-                    { height: typography.body.lineHeight * fontScale },
-                  ]}
-                >
-                  <WorkingIndicator />
-                </View>
-              ) : null}
-              <Text
-                dynamicTypeRamp={typeRamp.body}
-                numberOfLines={largeText ? 4 : 2}
-                style={styles.sessionTitle}
-              >
-                {session.title || "Untitled session"}
-              </Text>
-              <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
-                {formatSessionTime(session.time.updated)}
-              </Text>
-            </View>
-            <View style={styles.sessionMetadata}>
-              <Text
-                dynamicTypeRamp={typeRamp.footnote}
-                numberOfLines={largeText ? 2 : 1}
-                style={styles.sessionProject}
-              >
-                {row.projectLabel}
-              </Text>
-              {blocked ? (
-                <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sessionStatusBlocked}>
-                  {row.attentionLabel || "Needs input"}
-                </Text>
-              ) : null}
-            </View>
-            {showMetadata ? (
-              <View style={styles.sessionMetadata}>
-                {row.activeChildCount > 0 ? (
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
-                    {row.activeChildCount} background{" "}
-                    {row.activeChildCount === 1 ? "task" : "tasks"}
-                  </Text>
-                ) : null}
-                {archived ? (
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
-                    Archived on this device
-                  </Text>
-                ) : session.time.archived ? (
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
-                    Archived
-                  </Text>
-                ) : null}
-                {showOutcome && session.outcome ? (
-                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionMetaLabel}>
-                    {sentenceCase(session.outcome)}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-            {showBranch ? (
-              <View style={styles.sessionBranchRow}>
-                <Feather
-                  accessibilityElementsHidden
-                  color={palette.dim}
-                  importantForAccessibility="no-hide-descendants"
-                  name="git-branch"
-                  size={13 * fontScale}
-                />
-                <Text
-                  dynamicTypeRamp={typeRamp.caption}
-                  numberOfLines={largeText ? 2 : 1}
-                  style={styles.sessionBranchName}
-                >
-                  {branchLabel}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.swipeDeleteLabel}>
+            Delete
+          </Text>
         </Pressable>
-        {row.children.map((child) => (
-          <Pressable
-            accessibilityLabel={`${child.attentionCount > 0 ? `${child.attentionLabel || "Needs input"}: ` : child.active ? "Working: " : "Child: "}${child.session.title || "Untitled child session"}`}
-            accessibilityRole="button"
-            key={child.session.id}
-            onPress={() => onOpenChild(child.session)}
-            style={({ pressed }) => [styles.childRow, pressed && styles.pressed]}
-          >
-            <View style={styles.childBranch} />
-            {child.active && child.attentionCount === 0 ? <WorkingIndicator /> : null}
+      )}
+    >
+      <Pressable
+        accessibilityActions={[
+          { name: "activate" },
+          { label: "Delete session", name: "delete" },
+          { label: "Session actions", name: "options" },
+        ]}
+        accessibilityHint="Opens the session. Long press for rename or delete"
+        accessibilityLabel={sessionAccessibilityLabel(row)}
+        accessibilityRole="button"
+        android_ripple={rowRipple}
+        onAccessibilityAction={({ nativeEvent }) => {
+          if (nativeEvent.actionName === "activate") onPress();
+          if (nativeEvent.actionName === "delete") onDelete();
+          if (nativeEvent.actionName === "options") onActions();
+        }}
+        onPress={onPress}
+        onLongPress={onActions}
+        style={({ pressed }) => [
+          styles.sessionRow,
+          pressed && Platform.OS === "ios" && styles.pressed,
+        ]}
+      >
+        <ProjectAvatar
+          icon={row.projectIcon}
+          lineHeight={typography.body.lineHeight * fontScale}
+          name={row.projectLabel}
+        />
+        <View style={styles.sessionCopy}>
+          <View style={styles.sessionTitleRow}>
             <Text
-              dynamicTypeRamp={typeRamp.subheadline}
-              numberOfLines={2}
-              style={styles.childTitle}
+              dynamicTypeRamp={typeRamp.body}
+              numberOfLines={largeText ? 3 : 1}
+              style={styles.sessionTitle}
             >
-              {child.session.title || "Untitled child session"}
+              {title}
             </Text>
-            {child.attentionCount > 0 || !child.active ? (
-              <Text
-                dynamicTypeRamp={
-                  child.attentionCount > 0 ? typeRamp.sectionLabel : typeRamp.footnote
-                }
-                style={child.attentionCount > 0 ? styles.childAttention : styles.childState}
-              >
-                {child.attentionCount > 0 ? child.attentionLabel || "Needs input" : "Child"}
-              </Text>
-            ) : null}
-          </Pressable>
-        ))}
-      </View>
+            {/* One body line tall, so the trailing status centers on the title's first line. */}
+            <View
+              style={[styles.sessionTrailing, { height: typography.body.lineHeight * fontScale }]}
+              testID="session-row-trailing"
+            >
+              {blocked ? (
+                <>
+                  <View
+                    accessibilityElementsHidden
+                    importantForAccessibility="no-hide-descendants"
+                    style={styles.sessionAttentionMarker}
+                    testID="session-row-attention-marker"
+                  />
+                  <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sessionStatusBlocked}>
+                    {row.attentionLabel || "Needs input"}
+                  </Text>
+                </>
+              ) : row.active ? (
+                <WorkingIndicator />
+              ) : (
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
+                  {formatSessionTime(session.time.updated)}
+                </Text>
+              )}
+            </View>
+          </View>
+          <Text
+            dynamicTypeRamp={typeRamp.footnote}
+            numberOfLines={largeText ? 2 : 1}
+            style={styles.sessionProject}
+          >
+            {row.worktreeLabel ? `${row.projectLabel} · ${row.worktreeLabel}` : row.projectLabel}
+          </Text>
+        </View>
+      </Pressable>
     </ReanimatedSwipeable>
   );
 }
 
+function GroupSeparator({
+  item,
+  onPress,
+}: {
+  item: Extract<WorkspaceInboxItem, { type: "group" }>;
+  onPress: () => void;
+}) {
+  const label = workspaceGroupLabels[item.group];
+  return (
+    <Pressable
+      accessibilityHint={item.collapsed ? "Expands the group" : "Collapses the group"}
+      accessibilityLabel={`${label}, ${item.count} ${item.count === 1 ? "session" : "sessions"}`}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: !item.collapsed }}
+      android_ripple={rowRipple}
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.groupSeparator,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
+      testID={`session-list-group-${item.group}`}
+    >
+      <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.groupLabel}>
+        {label}
+      </Text>
+      <View style={styles.groupRule} />
+      <Feather
+        accessible={false}
+        color={palette.dim}
+        name={item.collapsed ? "chevron-down" : "chevron-up"}
+        size={16}
+      />
+    </Pressable>
+  );
+}
+
 function SessionEmptyState({
-  archivedView,
-  hasMore,
   error,
   hasLocation,
   loading,
+  onChooseProjects,
+  onRetry,
+  refreshing,
   search,
 }: {
-  archivedView: boolean;
-  hasMore: boolean;
   error: boolean;
   hasLocation: boolean;
   loading: boolean;
+  onChooseProjects: () => void;
+  onRetry: () => void;
+  refreshing: boolean;
   search: string;
 }) {
   if (error) {
     return (
       <View style={styles.emptyState}>
-        <InlineError message="Sessions could not be loaded. Pull to refresh and try again." />
+        <InlineError message="Sessions could not be loaded." />
+        <RetryButton busy={refreshing} onPress={onRetry} />
       </View>
     );
   }
@@ -1856,18 +1635,57 @@ function SessionEmptyState({
       </View>
     );
   }
+  if (!hasLocation) {
+    return (
+      <View style={styles.emptyState}>
+        <Feather accessible={false} color={palette.dim} name="folder" size={36} />
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.headline}
+          style={styles.emptyTitle}
+        >
+          No projects followed yet
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+          Sessions from the projects you follow show up here. You can also start a session in any
+          project on this server.
+        </Text>
+        <Button
+          align="center"
+          label="Choose projects"
+          onPress={onChooseProjects}
+          style={styles.emptyAction}
+          variant="primary"
+        />
+      </View>
+    );
+  }
   return (
     <View style={styles.emptyState}>
-      <Text dynamicTypeRamp={typeRamp.headline} style={styles.sectionTitle}>
-        {!hasLocation
-          ? "Follow a project to build this inbox."
-          : search
-            ? "No sessions match this search."
-            : archivedView
-              ? "No archived sessions."
-              : hasMore
-                ? "No inbox sessions on this page. Load older sessions below."
-                : "Inbox clear."}
+      <Text dynamicTypeRamp={typeRamp.headline} style={styles.emptyTitle}>
+        {search ? "No sessions match this search." : "No sessions yet."}
+      </Text>
+    </View>
+  );
+}
+
+function RetryButton({ busy, onPress }: { busy: boolean; onPress: () => void }) {
+  return <Button busy={busy} label="Retry" onPress={onPress} size="compact" />;
+}
+
+function ListSectionHeader({ count, label }: { count: number; label: string }) {
+  return (
+    <View
+      accessibilityLabel={`${label}, ${count}`}
+      accessibilityRole="header"
+      accessible
+      style={styles.listSectionHeader}
+    >
+      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.listSectionTitle}>
+        {label}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.countLabel}>
+        {count}
       </Text>
     </View>
   );
@@ -1945,65 +1763,34 @@ function locationsEqual(first: LocationRef, second: LocationRef) {
   );
 }
 
+function sessionTimeDescription(value: number) {
+  const elapsedMs = Date.now() - value;
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 60_000) return "Updated just now";
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 60) return `Updated ${minutes} ${minutes === 1 ? "minute" : "minutes"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Updated ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `Updated ${days} ${days === 1 ? "day" : "days"} ago`;
+  try {
+    return `Updated ${new Date(value).toLocaleDateString(undefined, { day: "numeric", month: "long" })}`;
+  } catch {
+    return "Updated earlier";
+  }
+}
+
 function sessionAccessibilityLabel(row: FollowedInboxRow) {
   const { session } = row;
   const states = [
     row.projectLabel,
+    row.worktreeLabel ? `Worktree ${row.worktreeLabel}` : undefined,
     row.active ? "Working" : undefined,
     row.attentionCount > 0 ? row.attentionLabel || "Needs input" : undefined,
-    row.activeChildCount > 0 ? `${row.activeChildCount} background tasks` : undefined,
     session.time.archived ? "Archived" : undefined,
     session.outcome ? sentenceCase(session.outcome) : undefined,
+    sessionTimeDescription(session.time.updated),
   ].filter(Boolean);
   return `Open session ${session.title || "Untitled session"}${states.length > 0 ? `. ${states.join(". ")}` : ""}`;
-}
-
-type WorkspaceInboxSection = "needs-you" | "recent" | "working";
-
-type WorkspaceInboxItem =
-  | { count: number; key: string; label: string; type: "section" }
-  | {
-      key: string;
-      row: FollowedInboxRow;
-      section: WorkspaceInboxSection;
-      type: "session";
-    };
-
-function workspaceInboxItems(
-  inbox: ReturnType<typeof useWorkspaceSelection>["inbox"],
-  flattenSections: boolean,
-  restoredAt: Readonly<Record<string, number>> = {},
-  recentLimit = recentSessionLimit,
-) {
-  const items: WorkspaceInboxItem[] = [];
-  const recentIDs = new Set(
-    [...inbox.recent]
-      .sort(
-        (first, second) =>
-          Math.max(second.session.time.updated, restoredAt[second.session.id] ?? 0) -
-          Math.max(first.session.time.updated, restoredAt[first.session.id] ?? 0),
-      )
-      .slice(0, recentLimit)
-      .map((row) => row.session.id),
-  );
-  for (const [key, label, rows] of [
-    ["needs-you", "Needs you", inbox.needsYou],
-    ["working", "Working", inbox.working],
-    [
-      "recent",
-      "Recent",
-      flattenSections ? inbox.recent : inbox.recent.filter((row) => recentIDs.has(row.session.id)),
-    ],
-  ] as const) {
-    if (rows.length === 0) continue;
-    if (!flattenSections) {
-      items.push({ count: rows.length, key: `section:${key}`, label, type: "section" });
-    }
-    items.push(
-      ...rows.map((row) => ({ key: row.session.id, row, section: key, type: "session" as const })),
-    );
-  }
-  return items;
 }
 
 function sentenceCase(value: string) {
@@ -2013,19 +1800,6 @@ function sentenceCase(value: string) {
 const styles = StyleSheet.create({
   composerDock: { bottom: 0, left: 0, position: "absolute", right: 0, zIndex: 20 },
   workingStatus: { paddingHorizontal: space.md },
-  childAttention: { ...typography.sectionLabel, color: palette.warm },
-  childBranch: { backgroundColor: palette.border, height: 1, width: 18 },
-  childRow: {
-    alignItems: "center",
-    borderTopColor: palette.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    flexDirection: "row",
-    gap: space.sm,
-    minHeight: minTouchTarget,
-    paddingHorizontal: space.md,
-  },
-  childState: { ...typography.footnote, color: palette.dim },
-  childTitle: { ...typography.subheadline, color: palette.ink, flex: 1 },
   connectionNotice: { ...typography.footnote, color: palette.warm, marginBottom: 2 },
   countLabel: { ...typography.footnote, color: palette.dim },
   disabled: { opacity: disabledOpacity },
@@ -2037,7 +1811,16 @@ const styles = StyleSheet.create({
   },
   detailContentLargeText: { paddingBottom: 140 },
   detailHeader: { paddingHorizontal: space.md, paddingTop: space.md },
-  emptyState: { alignItems: "center", minHeight: 160, padding: space.xl },
+  emptyAction: { marginTop: space.xs },
+  emptyCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  emptyState: {
+    alignItems: "center",
+    gap: space.sm,
+    minHeight: 160,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.xl,
+  },
+  emptyTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
   error: { ...typography.subheadline, color: palette.danger },
   headerAction: {
     alignItems: "center",
@@ -2052,12 +1835,16 @@ const styles = StyleSheet.create({
   headerActionAttention: { borderColor: palette.warm },
   headerActionLabel: { ...typography.control, color: palette.ink },
   headerActionLabelAttention: { color: palette.warm },
-  homeHeader: { paddingHorizontal: space.md, paddingTop: space.md },
-  homeHeaderPhone: { paddingTop: space.sm },
-  homeTitle: { ...typography.largeTitle, color: palette.ink, marginTop: 2 },
-  homeTitleCopy: { flex: 1, minWidth: 120 },
-  homeTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
-  homeTitleRowLargeText: { alignItems: "flex-start", flexDirection: "column" },
+  groupLabel: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
+  groupRule: { backgroundColor: palette.border, flex: 1, height: StyleSheet.hairlineWidth },
+  groupSeparator: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
+  },
+  homeHeader: { paddingHorizontal: space.md },
   latestButton: {
     alignItems: "center",
     alignSelf: "center",
@@ -2078,72 +1865,51 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   listFooter: { alignItems: "center", padding: space.lg },
-  inboxSectionHeader: { paddingHorizontal: space.md },
   listSectionHeader: {
     alignItems: "center",
     flexDirection: "row",
-    marginTop: 20,
-    paddingBottom: 8,
+    marginTop: space.lg,
+    paddingBottom: space.sm,
   },
   listSectionTitle: { ...typography.sectionLabel, color: palette.dim, flex: 1 },
   pressed: { opacity: pressedOpacity },
-  searchField: { marginTop: space.sm },
-  sectionTitle: {
-    ...typography.headline,
-    color: palette.ink,
-    marginTop: 3,
-  },
-  sessionMain: { flex: 1, minWidth: 0 },
-  sessionGroup: { backgroundColor: palette.card },
-  sessionBranchRow: {
+  notice: { alignItems: "flex-start", gap: space.xs, marginBottom: space.xs },
+  sessionActionsButton: {
     alignItems: "center",
-    flexDirection: "row",
-    gap: space.xs,
-    marginTop: 4,
+    height: minTouchTarget,
+    justifyContent: "center",
+    width: minTouchTarget,
   },
-  sessionBranchName: {
-    ...typography.caption,
-    color: palette.dim,
-    flexShrink: 1,
-    fontFamily: typography.code.fontFamily,
-    minWidth: 0,
-  },
-  sessionMetadata: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: 4 },
-  sessionMetaLabel: { ...typography.footnote, color: palette.dim },
   sessionProject: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
+  sessionAttentionMarker: {
+    backgroundColor: palette.warm,
+    borderRadius: radius.pill,
+    height: 7,
+    width: 7,
+  },
+  sessionCopy: { flex: 1, gap: space.xs / 2, minWidth: 0 },
   sessionRow: {
-    alignItems: "center",
+    alignItems: "flex-start",
     backgroundColor: palette.background,
     flexDirection: "row",
-    minHeight: 64,
-    paddingHorizontal: space.md,
-    paddingVertical: 12,
-  },
-  sessionRowLargeText: { alignItems: "flex-start" },
-  sessionStatusBlocked: { ...typography.sectionLabel, color: palette.warm },
-  sessionTime: { ...typography.footnote, color: palette.dim, marginLeft: space.sm },
-  sessionIndicator: { justifyContent: "center", flexShrink: 0 },
-  sessionTitleRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
     gap: space.sm,
-    marginTop: 4,
+    minHeight: minTouchTarget,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm,
   },
+  sessionStatusBlocked: { ...typography.sectionLabel, color: palette.warm },
+  sessionTime: { ...typography.footnote, color: palette.dim },
+  sessionTrailing: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexShrink: 0,
+    gap: space.xs,
+    justifyContent: "flex-end",
+  },
+  sessionTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },
   sessionTitle: { ...typography.body, color: palette.ink, flex: 1, minWidth: 0 },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
-  archiveFilters: { marginTop: space.sm },
-  archiveDisabled: { opacity: disabledOpacity },
-  swipeArchive: {
-    minWidth: 88,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: space.xs,
-    backgroundColor: palette.card,
-    paddingHorizontal: space.sm,
-  },
-  swipeArchiveLabel: { ...typography.sectionLabel, color: palette.ink },
-  swipeActions: { flexDirection: "row" },
   swipeContainer: { backgroundColor: palette.background },
   swipeDelete: {
     alignItems: "center",

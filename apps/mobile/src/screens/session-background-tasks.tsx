@@ -4,8 +4,10 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
 import { WorkingIndicator } from "../components/working-indicator";
-import { palette, space, typeRamp, typography } from "../theme";
-import { runningBackgroundSubagents } from "./session-transcript-model";
+import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import { runningBackgroundSubagents, sanitizeTranscriptText } from "./session-transcript-model";
+
+const chipHeight = 36;
 
 export function SessionBackgroundTasks({
   activeSessions,
@@ -34,7 +36,7 @@ export function SessionBackgroundTasks({
         accessibilityLabel={`${label} running in background`}
         accessibilityHint="Shows background tasks for this session"
         accessibilityState={{ expanded: visible }}
-        hitSlop={4}
+        hitSlop={(minTouchTarget - chipHeight) / 2}
         onPress={() => setVisible(true)}
         style={({ pressed }) => [styles.chip, pressed && styles.pressed]}
       >
@@ -51,32 +53,45 @@ export function SessionBackgroundTasks({
         onClose={() => setVisible(false)}
         returnFocusRef={triggerRef}
       >
-        {tasks.map((task, index) => (
-          <View key={task.key} style={styles.row}>
-            <Text dynamicTypeRamp={typeRamp.control} style={styles.label}>
-              Subagent {index + 1} · Running
-            </Text>
-            {task.childSessionID ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={`Open child session for subagent ${index + 1}`}
-                onPress={() => {
-                  setVisible(false);
-                  if (task.childSessionID) onOpenChild(task.childSessionID);
-                }}
-                style={styles.action}
-              >
-                <Text dynamicTypeRamp={typeRamp.control} style={styles.link}>
-                  Open child
+        {tasks.map((task, index) => {
+          const title = task.title
+            ? sanitizeTranscriptText(task.title, 256)
+            : `Subagent ${index + 1}`;
+          return (
+            <View key={task.key} style={styles.row}>
+              <View style={styles.copy}>
+                <Text dynamicTypeRamp={typeRamp.body} style={styles.title}>
+                  {title}
                 </Text>
-              </Pressable>
-            ) : (
-              <Text dynamicTypeRamp={typeRamp.caption} style={styles.muted}>
-                Child session unavailable
-              </Text>
-            )}
-          </View>
-        ))}
+                <View style={styles.status}>
+                  <WorkingIndicator />
+                  <Text dynamicTypeRamp={typeRamp.footnote} style={styles.muted}>
+                    Running
+                  </Text>
+                </View>
+              </View>
+              {task.childSessionID ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open ${title}`}
+                  onPress={() => {
+                    setVisible(false);
+                    if (task.childSessionID) onOpenChild(task.childSessionID);
+                  }}
+                  style={({ pressed }) => [styles.action, pressed && styles.pressed]}
+                >
+                  <Text dynamicTypeRamp={typeRamp.control} style={styles.link}>
+                    Open
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.muted}>
+                  Session unavailable
+                </Text>
+              )}
+            </View>
+          );
+        })}
       </ModalSheet>
     </View>
   );
@@ -95,10 +110,13 @@ const styles = StyleSheet.create({
     boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.3)",
     flexDirection: "row",
     gap: space.sm,
-    minHeight: 36,
+    minHeight: chipHeight,
     paddingHorizontal: 14,
   },
   label: { ...typography.control, color: palette.ink, flexShrink: 1 },
+  copy: { flex: 1, gap: 2, minWidth: 0 },
+  title: { ...typography.body, color: palette.ink },
+  status: { alignItems: "center", flexDirection: "row", gap: space.xs },
   row: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -107,8 +125,14 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingVertical: space.sm,
   },
-  action: { minHeight: 44, minWidth: 44, justifyContent: "center", paddingHorizontal: space.sm },
+  action: {
+    minHeight: minTouchTarget,
+    minWidth: minTouchTarget,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space.sm,
+  },
   link: { ...typography.control, color: palette.signal },
-  muted: { ...typography.caption, color: palette.dim },
-  pressed: { opacity: 0.62 },
+  muted: { ...typography.footnote, color: palette.dim },
+  pressed: { opacity: pressedOpacity },
 });

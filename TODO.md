@@ -194,8 +194,9 @@ until the version 1.0 split view is built.
       yet.
 - [x] Load newest-first sessions with cursor pagination.
 - [x] Add server-backed search and local filtering where appropriate.
-- [x] Display active, blocked, child, archived, and outcome state where
-      available. Queue state remains available only inside an open session.
+- [x] Display active, blocked, and outcome state where available. Queue state
+      remains available only inside an open session. Device-local archiving was
+      removed in favour of a 20-row list with search for older sessions.
 - [x] Create a session with optional title, agent, model, and location.
 - [x] Open, rename, and delete sessions.
 - [x] Warn that deleting a parent also deletes child sessions.
@@ -303,12 +304,14 @@ including recovery from an unknown prompt-admission outcome.
       existing explicit location-scoped operation separate.
 - [x] Load and merge paginated root sessions across followed projects without a
       global page that can be exhausted by unrelated projects.
-- [x] Build non-overlapping `Needs you`, `Working`, and `Recent` sections with
-      project identity on every row and stable ordering while work runs.
+- [x] Build non-overlapping `Needs you`, `Working`, and `Finished` groups with
+      collapsible separators, OpenCode project colours on every row, and stable
+      ordering while work runs.
 - [x] Keep attention, execution, lifecycle, transport freshness, and prompt
       admission as separate state facts with deterministic display priority.
-- [x] Keep child sessions under their parent, bubble child-owned interactions to
-      the parent row, and avoid double-counting background work.
+- [x] Keep child sessions out of the list, bubble child-owned interactions to
+      the parent row so it opens the owning child, and avoid double-counting
+      background work.
 - [x] Replace the phone bottom navigation with native Sessions-to-Session back
       navigation, a deep-link fallback, an attention action, and settings,
       connection, and followed-project overlays.

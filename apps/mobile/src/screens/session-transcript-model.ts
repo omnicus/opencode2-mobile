@@ -62,6 +62,7 @@ type SubagentState = {
   background: boolean;
   childSessionID?: string;
   state: SubagentPresentation["state"];
+  title?: string;
 };
 
 export type SubagentStates = ReadonlyMap<string, SubagentState>;
@@ -117,8 +118,10 @@ export function subagentStates(
   const states = new Map<string, Signal>();
   const record = (key: string, signal: Signal) => {
     const current = states.get(key);
-    if (current) current.background ||= signal.background;
-    else states.set(key, signal);
+    if (current) {
+      current.background ||= signal.background;
+      if (!current.title && signal.title) current.title = signal.title;
+    } else states.set(key, signal);
   };
 
   for (const message of messages) {
@@ -148,6 +151,7 @@ export function subagentStates(
         ...(presentation.childSessionID ? { childSessionID: presentation.childSessionID } : {}),
         notified: false,
         state: presentation.state,
+        title: presentation.title,
       });
     }
   }
@@ -172,7 +176,11 @@ export function runningBackgroundSubagents(
 ) {
   return [...subagentStates(messages, activeSessions, sessionID).entries()]
     .filter(([, subagent]) => subagent.background && subagent.state === "running")
-    .map(([key, subagent]) => ({ key, childSessionID: subagent.childSessionID }));
+    .map(([key, subagent]) => ({
+      key,
+      childSessionID: subagent.childSessionID,
+      title: subagent.title,
+    }));
 }
 
 export function countRunningBackgroundSubagents(
