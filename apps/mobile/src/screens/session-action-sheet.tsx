@@ -12,7 +12,6 @@ import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { useSessionArchives } from "../state/use-session-archives";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
 import { minTouchTarget, palette, radius, space, typeRamp, typography } from "../theme";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
@@ -36,8 +35,6 @@ export function SessionActionSheet({
   const runtime = useConnectionRuntime();
   const queryClient = useQueryClient();
   const db = useSQLiteContext();
-  const archives = useSessionArchives(connectionId, runtime.connectionUpdatedAtMs);
-  const archived = archives.ids.includes(session.id);
   const [page, setPage] = useState<"menu" | "rename" | "delete" | "devtools">("menu");
   const [title, setTitle] = useState(session.title ?? "");
   const [busy, setBusy] = useState(false);
@@ -60,11 +57,10 @@ export function SessionActionSheet({
 
   const canSaveName = connected && Boolean(title.trim()) && title.trim() !== session.title;
 
-  async function perform(action: "rename" | "archive" | "delete") {
+  async function perform(action: "rename" | "delete") {
     if (controllerRef.current || runtime.connectionId !== connectionId) return;
-    if (action !== "archive" && (!connected || !runtime.restClient)) return;
+    if (!connected || !runtime.restClient) return;
     if (action === "rename" && !title.trim()) return;
-    if (action === "archive" && (!archives.loaded || archives.busy || archives.error)) return;
     const controller = new AbortController();
     controllerRef.current = controller;
     setBusy(true);
@@ -75,7 +71,6 @@ export function SessionActionSheet({
         await renameOpenCodeSession(runtime.restClient, session.id, title.trim(), {
           signal: controller.signal,
         });
-      if (action === "archive") await archives.setArchived(session.id, !archived);
       if (action === "delete" && runtime.restClient) {
         const ids = await loadOpenCodeSessionTreeIds(
           runtime.restClient,
@@ -105,7 +100,6 @@ export function SessionActionSheet({
       }
       if (controller.signal.aborted) return;
       await queryClient.invalidateQueries({ queryKey: openCodeQueryKeys.connection(connectionId) });
-      await queryClient.invalidateQueries({ queryKey: ["device-session-archives", connectionId] });
       if (controller.signal.aborted) return;
       if (action === "delete") onDeleted();
       else onClose();
@@ -166,28 +160,12 @@ export function SessionActionSheet({
           <MenuGroup>
             <MenuRow
               icon="edit-2"
+              last
               label="Rename"
               disabled={busy || !connected}
               onPress={() => setPage("rename")}
             />
-            <MenuRow
-              icon="archive"
-              last
-              disclosure={false}
-              label={archived ? "Restore" : "Archive"}
-              disabled={
-                busy ||
-                runtime.connectionId !== connectionId ||
-                !archives.loaded ||
-                archives.busy ||
-                archives.error
-              }
-              onPress={() => void perform("archive")}
-            />
           </MenuGroup>
-          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.caption}>
-            Archive is a preference on this device. Working sessions and requests remain visible.
-          </Text>
           <MenuGroup>
             <MenuRow
               icon="tool"
@@ -281,6 +259,5 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
   },
   copy: { ...typography.subheadline, color: palette.ink },
-  caption: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
 });

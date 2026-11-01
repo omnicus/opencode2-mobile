@@ -954,7 +954,7 @@ function Capture() {
       </Text>
       {state.inbox.needsYou.map((row) => (
         <Text key={row.session.id}>
-          {row.projectLabel}:{row.targetSessionID}:{row.activeChildCount}:{row.attentionCount}
+          {row.projectLabel}:{row.targetSessionID}:{row.active ? 1 : 0}:{row.attentionCount}
         </Text>
       ))}
       {state.permissions[0] ? (
