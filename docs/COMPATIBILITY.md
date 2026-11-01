@@ -33,9 +33,13 @@ Dragging and Scroll to latest stop the glide, and Reduce Motion keeps
 corrections instant. Unit tests cover the spring and the rendered glide. Motion
 quality under heavy JavaScript load, and Android, still need checking on devices.
 
-That recording also showed the app returning to the foreground mid-stream
-without catching up on the missed reply until the session was reopened. That is
-not yet investigated.
+That recording also showed the app returning to the foreground mid-stream and
+not showing the missed reply until the session was reopened. A redacted
+transport report from a later foreground test showed each return reconnecting
+in about 0.15 seconds with a snapshot installed every time. Durable-gap
+reconnects resynchronized events missed in the background, and the full reply
+appeared on return without reopening the session. The earlier symptom matches
+the Reanimated glide leaving compensated rows below the visible edge.
 
 The same recording showed a fenced code block rendering as an empty box during
 and after streaming. Code blocks were the only use of the native selection
