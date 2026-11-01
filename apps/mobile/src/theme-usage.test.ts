@@ -26,22 +26,15 @@ const ignoredCapsWords = new Set([
 
 type Counts = { typography: number; allCaps: number };
 
-// Raw font literals and all-caps copy that predate the shared type scale. Restyling each
-// screen should shrink these to 0. A new entry needs a reason in a comment above it.
+// Use theme roles instead of raw font literals, and sentence case instead of all-caps copy.
+// Each exception needs a reason in a comment above it.
 const allowed: Record<string, Partial<Counts>> = {
-  "app.tsx": { typography: 8, allCaps: 1 },
-  "navigation/root-navigation.tsx": { typography: 6 },
-  "screens/app-shell.tsx": { typography: 25, allCaps: 11 },
-  "screens/connection-screen.tsx": { allCaps: 35 },
-  "screens/diff-screen.tsx": { typography: 4 },
-  "screens/model-picker.tsx": { typography: 2 },
-  "screens/notification-pairing-screen.tsx": { allCaps: 11 },
-  "screens/session-composer.tsx": { allCaps: 1 },
-  "screens/session-execution-panel.tsx": { allCaps: 2 },
-  "screens/session-transcript.tsx": { typography: 1, allCaps: 1 },
+  // React Navigation's Theme type requires literal font families and weights.
+  "app.tsx": { typography: 8 },
+  // The tool name in a chat activity row is medium weight, as in the OpenCode iOS app.
+  "screens/session-transcript.tsx": { typography: 1 },
+  // Markdown h1 to h3 sizes and bold/table weights inside chat text.
   "screens/transcript-markdown.tsx": { typography: 11 },
-  "screens/workspace-screen.tsx": { typography: 52, allCaps: 1 },
-  "security/app-lock-context.tsx": { allCaps: 3 },
 };
 
 const typographyLiterals = [

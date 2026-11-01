@@ -1,6 +1,13 @@
 import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
-import { palette, pressedOpacity, typeRamp, typography, usesLargeTextLayout } from "../theme";
+import {
+  disabledOpacity,
+  palette,
+  pressedOpacity,
+  typeRamp,
+  typography,
+  usesLargeTextLayout,
+} from "../theme";
 
 export type SegmentedOption<T extends string> = {
   value: T;
@@ -16,6 +23,8 @@ export function SegmentedControl<T extends string>({
   onChange,
   size = "regular",
   role = "radiogroup",
+  surface = "page",
+  disabled = false,
   accessibilityLabel,
 }: {
   options: readonly SegmentedOption<T>[];
@@ -23,6 +32,9 @@ export function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
   size?: "regular" | "compact";
   role?: "radiogroup" | "tablist";
+  // On a card, the track takes the page color so it stays visible.
+  surface?: "page" | "card";
+  disabled?: boolean;
   accessibilityLabel?: string;
 }) {
   const { fontScale } = useWindowDimensions();
@@ -32,7 +44,13 @@ export function SegmentedControl<T extends string>({
     <View
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
-      style={[styles.container, compact && styles.containerCompact, stacked && styles.stacked]}
+      style={[
+        styles.container,
+        surface === "card" && styles.containerOnCard,
+        compact && styles.containerCompact,
+        stacked && styles.stacked,
+        disabled && styles.disabled,
+      ]}
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -41,10 +59,13 @@ export function SegmentedControl<T extends string>({
             key={option.value}
             accessibilityRole={role === "tablist" ? "tab" : "radio"}
             accessibilityLabel={option.accessibilityLabel ?? option.label}
-            accessibilityState={role === "tablist" ? { selected } : { checked: selected }}
+            accessibilityState={
+              role === "tablist" ? { selected, disabled } : { checked: selected, disabled }
+            }
             android_ripple={
               Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined
             }
+            disabled={disabled}
             hitSlop={compact ? compactHitSlop : undefined}
             onPress={() => onChange(option.value)}
             style={({ pressed }) => [
@@ -75,6 +96,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: 3,
   },
+  containerOnCard: { backgroundColor: palette.background },
   containerCompact: { borderRadius: 9, padding: 2 },
   stacked: { flexDirection: "column" },
   segment: {
@@ -89,6 +111,7 @@ const styles = StyleSheet.create({
   segmentStacked: { flex: 0, paddingVertical: 6 },
   selected: { backgroundColor: palette.prompt },
   pressed: { opacity: pressedOpacity },
+  disabled: { opacity: disabledOpacity },
   label: {
     ...typography.control,
     color: palette.dim,

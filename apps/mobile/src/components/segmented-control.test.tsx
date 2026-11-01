@@ -83,3 +83,35 @@ test("large text stacks segments vertically", () => {
   });
   expect(screen.getByRole("radio", { name: "All" })).toHaveStyle({ flex: 0 });
 });
+
+test("a card surface uses the page color for the track", () => {
+  render(
+    <SegmentedControl
+      accessibilityLabel="Authentication"
+      options={options}
+      value="all"
+      surface="card"
+      onChange={() => {}}
+    />,
+  );
+  expect(screen.getByLabelText("Authentication")).toHaveStyle({
+    backgroundColor: palette.background,
+  });
+});
+
+test("disabled segments ignore presses and report the state", () => {
+  const change = jest.fn();
+  render(
+    <SegmentedControl
+      accessibilityLabel="Delivery"
+      options={options}
+      value="all"
+      disabled
+      onChange={change}
+    />,
+  );
+  const active = screen.getByRole("radio", { name: "Active sessions" });
+  expect(active).toBeDisabled();
+  fireEvent.press(active);
+  expect(change).not.toHaveBeenCalled();
+});
