@@ -15,14 +15,18 @@ import {
   readFollowedProjectIds,
   replaceFollowedProjectIds,
 } from "../storage/followed-project-repository";
-import { startSessionInbox, writeWorkingShelfExpanded } from "../storage/session-inbox-repository";
+import {
+  type CollapsibleInboxSection,
+  startSessionInbox,
+  writeInboxSectionExpanded,
+} from "../storage/session-inbox-repository";
 import {
   type InboxPreferenceState,
   inboxPreferencesFor,
   initialFollowedProjectID,
   type LocationSelection,
   nextLocationSelection,
-  withWorkingExpanded,
+  withSectionExpanded,
 } from "./followed-projects-model";
 
 type PreferenceState = {
@@ -135,7 +139,7 @@ export function useSessionInboxPreferences(
     const nowMs = Date.now();
     // A device that cannot store its inbox start still shows one, starting now.
     void startSessionInbox(db, connectionID, connectionUpdatedAtMs, nowMs)
-      .catch(() => ({ sinceMs: nowMs, workingExpanded: true }))
+      .catch(() => ({ archivedExpanded: true, sinceMs: nowMs, workingExpanded: true }))
       .then((preferences) => {
         if (active) setInboxPreferenceState({ connectionKey, preferences });
       });
@@ -145,22 +149,29 @@ export function useSessionInboxPreferences(
   }, [connectionID, connectionKey, connectionUpdatedAtMs, db]);
   const inboxPreferences = inboxPreferencesFor(inboxPreferenceState, connectionKey);
 
-  const setWorkingExpanded = useCallback(
-    (expanded: boolean) => {
+  const setSectionExpanded = useCallback(
+    (section: CollapsibleInboxSection, expanded: boolean) => {
       if (!connectionID || !connectionKey) return;
-      setInboxPreferenceState((current) => withWorkingExpanded(current, connectionKey, expanded));
-      if (connectionUpdatedAtMs === undefined) return;
-      // The shelf follows the tap even when the device cannot store it.
-      void writeWorkingShelfExpanded(db, connectionID, connectionUpdatedAtMs, expanded).catch(
-        () => undefined,
+      setInboxPreferenceState((current) =>
+        withSectionExpanded(current, connectionKey, section, expanded),
       );
+      if (connectionUpdatedAtMs === undefined) return;
+      // The section follows the tap even when the device cannot store it.
+      void writeInboxSectionExpanded(
+        db,
+        connectionID,
+        connectionUpdatedAtMs,
+        section,
+        expanded,
+      ).catch(() => undefined);
     },
     [connectionID, connectionKey, connectionUpdatedAtMs, db],
   );
 
   return {
+    archivedExpanded: inboxPreferences?.archivedExpanded ?? true,
     inboxSinceMs: inboxPreferences?.sinceMs,
-    setWorkingExpanded,
+    setSectionExpanded,
     workingExpanded: inboxPreferences?.workingExpanded ?? true,
   };
 }

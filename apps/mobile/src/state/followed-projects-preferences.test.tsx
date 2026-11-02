@@ -6,11 +6,11 @@ import type { SessionInboxPreferences } from "../storage/session-inbox-repositor
 import { useSessionInboxPreferences } from "./followed-projects-preferences";
 
 const mockStartSessionInbox = jest.fn<(...args: unknown[]) => Promise<SessionInboxPreferences>>();
-const mockWriteWorkingShelfExpanded = jest.fn<(...args: unknown[]) => Promise<void>>();
+const mockWriteInboxSectionExpanded = jest.fn<(...args: unknown[]) => Promise<void>>();
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({}));
 jest.mock("../storage/session-inbox-repository", () => ({
   startSessionInbox: (...args: unknown[]) => mockStartSessionInbox(...args),
-  writeWorkingShelfExpanded: (...args: unknown[]) => mockWriteWorkingShelfExpanded(...args),
+  writeInboxSectionExpanded: (...args: unknown[]) => mockWriteInboxSectionExpanded(...args),
 }));
 
 const db = {} as SQLiteDatabase;
@@ -31,12 +31,16 @@ function renderInboxPreferences(initialProps: Props) {
 
 beforeEach(() => {
   mockStartSessionInbox.mockReset();
-  mockWriteWorkingShelfExpanded.mockReset();
-  mockWriteWorkingShelfExpanded.mockResolvedValue(undefined);
+  mockWriteInboxSectionExpanded.mockReset();
+  mockWriteInboxSectionExpanded.mockResolvedValue(undefined);
 });
 
-test("starts the inbox for the connection and stores the Working shelf", async () => {
-  mockStartSessionInbox.mockResolvedValue({ sinceMs: 1_000, workingExpanded: false });
+test("starts the inbox for the connection and stores the Working and Archived sections", async () => {
+  mockStartSessionInbox.mockResolvedValue({
+    archivedExpanded: true,
+    sinceMs: 1_000,
+    workingExpanded: false,
+  });
   const view = renderInboxPreferences({
     connectionID: "connection-1",
     connectionKey: "connection-1\u00005",
@@ -44,20 +48,38 @@ test("starts the inbox for the connection and stores the Working shelf", async (
   });
   expect(view.result.current.inboxSinceMs).toBeUndefined();
   expect(view.result.current.workingExpanded).toBe(true);
+  expect(view.result.current.archivedExpanded).toBe(true);
 
   await waitFor(() => expect(view.result.current.inboxSinceMs).toBe(1_000));
   expect(view.result.current.workingExpanded).toBe(false);
   expect(mockStartSessionInbox).toHaveBeenCalledWith(db, "connection-1", 5, expect.any(Number));
 
-  act(() => view.result.current.setWorkingExpanded(true));
+  act(() => view.result.current.setSectionExpanded("working", true));
   expect(view.result.current.workingExpanded).toBe(true);
-  expect(mockWriteWorkingShelfExpanded).toHaveBeenCalledWith(db, "connection-1", 5, true);
+  expect(mockWriteInboxSectionExpanded).toHaveBeenCalledWith(
+    db,
+    "connection-1",
+    5,
+    "working",
+    true,
+  );
+
+  act(() => view.result.current.setSectionExpanded("archived", false));
+  expect(view.result.current.archivedExpanded).toBe(false);
+  expect(view.result.current.workingExpanded).toBe(true);
+  expect(mockWriteInboxSectionExpanded).toHaveBeenLastCalledWith(
+    db,
+    "connection-1",
+    5,
+    "archived",
+    false,
+  );
   view.unmount();
 });
 
 test("starts the inbox now when the device cannot store it", async () => {
   mockStartSessionInbox.mockRejectedValue(new Error("SESSION_INBOX_NOT_STARTED"));
-  mockWriteWorkingShelfExpanded.mockRejectedValue(new Error("CONNECTION_PROFILE_CHANGED"));
+  mockWriteInboxSectionExpanded.mockRejectedValue(new Error("CONNECTION_PROFILE_CHANGED"));
   const before = Date.now();
   const view = renderInboxPreferences({
     connectionID: "connection-1",
@@ -68,7 +90,7 @@ test("starts the inbox now when the device cannot store it", async () => {
   await waitFor(() => expect(view.result.current.inboxSinceMs).toBeGreaterThanOrEqual(before));
   expect(view.result.current.workingExpanded).toBe(true);
 
-  act(() => view.result.current.setWorkingExpanded(false));
+  act(() => view.result.current.setSectionExpanded("working", false));
   expect(view.result.current.workingExpanded).toBe(false);
   view.unmount();
 });
@@ -80,16 +102,16 @@ test("waits for a stored connection before starting the inbox", () => {
     connectionUpdatedAtMs: undefined,
   });
 
-  act(() => view.result.current.setWorkingExpanded(false));
+  act(() => view.result.current.setSectionExpanded("working", false));
   expect(view.result.current.inboxSinceMs).toBeUndefined();
   expect(view.result.current.workingExpanded).toBe(true);
   expect(mockStartSessionInbox).not.toHaveBeenCalled();
-  expect(mockWriteWorkingShelfExpanded).not.toHaveBeenCalled();
+  expect(mockWriteInboxSectionExpanded).not.toHaveBeenCalled();
 
   view.rerender({ connectionID: undefined, connectionKey: undefined, connectionUpdatedAtMs: 5 });
-  act(() => view.result.current.setWorkingExpanded(false));
+  act(() => view.result.current.setSectionExpanded("working", false));
   expect(mockStartSessionInbox).not.toHaveBeenCalled();
-  expect(mockWriteWorkingShelfExpanded).not.toHaveBeenCalled();
+  expect(mockWriteInboxSectionExpanded).not.toHaveBeenCalled();
   view.unmount();
 });
 
@@ -100,7 +122,11 @@ test("drops an inbox start that lands after the connection changes", async () =>
       finish = resolve;
     }),
   );
-  mockStartSessionInbox.mockResolvedValueOnce({ sinceMs: 2_000, workingExpanded: true });
+  mockStartSessionInbox.mockResolvedValueOnce({
+    archivedExpanded: true,
+    sinceMs: 2_000,
+    workingExpanded: true,
+  });
   const view = renderInboxPreferences({
     connectionID: "connection-1",
     connectionKey: "connection-1\u00005",
@@ -113,7 +139,9 @@ test("drops an inbox start that lands after the connection changes", async () =>
   });
   await waitFor(() => expect(view.result.current.inboxSinceMs).toBe(2_000));
 
-  await act(async () => finish({ sinceMs: 1_000, workingExpanded: false }));
+  await act(async () =>
+    finish({ archivedExpanded: false, sinceMs: 1_000, workingExpanded: false }),
+  );
   expect(view.result.current.inboxSinceMs).toBe(2_000);
   expect(view.result.current.workingExpanded).toBe(true);
   view.unmount();

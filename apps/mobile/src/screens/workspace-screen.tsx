@@ -63,6 +63,7 @@ import { recordTranscriptResidentSet } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useModelFavorites } from "../state/use-model-favorites";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
+import type { CollapsibleInboxSection } from "../storage/session-inbox-repository";
 import {
   disabledOpacity,
   minTouchTarget,
@@ -239,8 +240,15 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const inbox = workspaceSelection.inbox;
   const inboxItems: WorkspaceInboxItem[] = deferredSessionSearch
     ? searchResultItems(inbox)
-    : workspaceInboxItems(inbox);
-  const showWorkingSection = !deferredSessionSearch && inbox.working.length > 0;
+    : workspaceInboxItems(inbox, {
+        archived: workspaceSelection.archivedExpanded,
+        working: workspaceSelection.workingExpanded,
+      });
+  // With only running sessions, the idle state still says nothing needs you, above Working.
+  const onlyWorking =
+    !deferredSessionSearch &&
+    inbox.working.length > 0 &&
+    inbox.needsYou.length + inbox.recent.length + inbox.archived.length === 0;
   const sessionCount =
     inbox.needsYou.length + inbox.working.length + inbox.recent.length + inbox.archived.length;
   const branches = useInboxBranches(
@@ -334,6 +342,18 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       tablet={tablet}
     />
   );
+  const emptyState = (
+    <SessionEmptyState
+      error={workspaceSelection.sessionsError}
+      hasLocation={workspaceSelection.followedProjectIds.length > 0}
+      hasWorking={onlyWorking}
+      loading={workspaceSelection.sessionsLoading}
+      search={deferredSessionSearch}
+      onChooseProjects={() => navigation.navigate("FollowedProjects")}
+      onRetry={() => void refresh()}
+      refreshing={refreshing}
+    />
+  );
 
   return (
     <ShellFrame
@@ -367,40 +387,20 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
       {/* Chat stays mounted on the other tabs so its scroll position and groups survive. */}
       <View style={[styles.tabPanel, tab !== "chat" && styles.hiddenPanel]}>
         <FlatList
-          ListEmptyComponent={
-            <SessionEmptyState
-              error={workspaceSelection.sessionsError}
-              hasLocation={workspaceSelection.followedProjectIds.length > 0}
-              hasWorking={showWorkingSection}
-              loading={workspaceSelection.sessionsLoading}
-              search={deferredSessionSearch}
-              onChooseProjects={() => navigation.navigate("FollowedProjects")}
-              onRetry={() => void refresh()}
-              refreshing={refreshing}
-            />
+          ListEmptyComponent={emptyState}
+          ListFooterComponent={renderSearchResultsFooter({
+            busy: workspaceSelection.sessionsFetchingNextPage,
+            hasNextPage: workspaceSelection.hasNextPage,
+            onLoadMore: () => void workspaceSelection.fetchNextPage(),
+            search: deferredSessionSearch,
+          })}
+          ListHeaderComponent={
+            <>
+              {header}
+              {onlyWorking ? emptyState : null}
+            </>
           }
-          ListFooterComponent={
-            showWorkingSection ? (
-              <WorkingSection
-                expanded={workspaceSelection.workingExpanded}
-                onToggle={() => toggleWorkingSection(workspaceSelection, reducedMotion)}
-              >
-                {inbox.working.map(renderRow)}
-              </WorkingSection>
-            ) : (
-              renderSearchResultsFooter({
-                busy: workspaceSelection.sessionsFetchingNextPage,
-                hasNextPage: workspaceSelection.hasNextPage,
-                onLoadMore: () => void workspaceSelection.fetchNextPage(),
-                search: deferredSessionSearch,
-              })
-            )
-          }
-          // Working sits at the bottom of a short list and follows the last row of a long
-          // one, so the whole inbox scrolls as one list.
-          ListFooterComponentStyle={showWorkingSection ? styles.workingFooter : undefined}
-          ListHeaderComponent={header}
-          contentContainerStyle={[styles.listContent, showWorkingSection && styles.listContentFill]}
+          contentContainerStyle={styles.listContent}
           data={inboxItems}
           extraData={fontScale}
           keyboardShouldPersistTaps="handled"
@@ -419,8 +419,9 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             item.type === "header" ? (
               <InboxSectionHeader
                 count={item.count}
-                label={workspaceSectionLabels[item.section]}
-                spaced={item.section !== "needs-you"}
+                expanded={item.expanded}
+                onToggle={() => toggleInboxSection(workspaceSelection, item, reducedMotion)}
+                section={item.section}
               />
             ) : (
               renderRow(item.row)
@@ -721,14 +722,15 @@ function refetchWorkspace(
   ]);
 }
 
-function toggleWorkingSection(
-  workspaceSelection: Pick<WorkspaceSelection, "setWorkingExpanded" | "workingExpanded">,
+function toggleInboxSection(
+  workspaceSelection: Pick<WorkspaceSelection, "setSectionExpanded">,
+  { expanded, section }: { expanded: boolean; section: CollapsibleInboxSection },
   reducedMotion: boolean,
 ) {
-  const expanding = !workspaceSelection.workingExpanded;
+  const expanding = !expanded;
   if (!reducedMotion) LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-  workspaceSelection.setWorkingExpanded(expanding);
-  announceOnIOS(`${workspaceSectionLabels.working} ${expanding ? "expanded" : "collapsed"}`);
+  workspaceSelection.setSectionExpanded(section, expanding);
+  announceOnIOS(`${workspaceSectionLabels[section]} ${expanding ? "expanded" : "collapsed"}`);
 }
 
 function setSessionArchived(
@@ -2079,81 +2081,49 @@ function ComposerDock({ children, dock }: { children: ReactNode; dock: ComposerD
   );
 }
 
+// The separator above Working and Archived. It shows the section's count and collapses it.
 function InboxSectionHeader({
   count,
-  label,
-  spaced,
+  expanded,
+  onToggle,
+  section,
 }: {
-  count: number | undefined;
-  label: string;
-  spaced: boolean;
+  count: number;
+  expanded: boolean;
+  onToggle: () => void;
+  section: CollapsibleInboxSection;
 }) {
+  const label = workspaceSectionLabels[section];
+  const sessions = `${section} sessions`;
   return (
-    <View
-      accessibilityLabel={count === undefined ? label : `${label}, ${count}`}
-      accessibilityRole="header"
-      accessible
-      style={[styles.inboxSectionHeader, spaced && styles.inboxSectionHeaderSpaced]}
+    <Pressable
+      accessibilityHint={expanded ? `Hides ${sessions}` : `Shows ${sessions}`}
+      accessibilityLabel={`${label}, ${count} ${count === 1 ? "session" : "sessions"}`}
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      android_ripple={rowRipple}
+      onPress={onToggle}
+      style={({ pressed }) => [
+        styles.inboxSectionHeader,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
+      testID={`${section}-section-toggle`}
     >
       <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.inboxSectionLabel}>
         {label}
       </Text>
-      {count === undefined ? null : (
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.inboxSectionCount}>
-          {count}
-        </Text>
-      )}
-    </View>
-  );
-}
-
-// Working sessions close the list, below everything else, as on OpenCode desktop.
-function WorkingSection({
-  children,
-  expanded,
-  onToggle,
-}: {
-  children: ReactNode[];
-  expanded: boolean;
-  onToggle: () => void;
-}) {
-  const label = workspaceSectionLabels.working;
-  return (
-    <View style={styles.workingSection} testID="working-section">
-      <Pressable
-        accessibilityHint={expanded ? "Hides working sessions" : "Shows working sessions"}
-        accessibilityLabel={`${label}, ${children.length} ${children.length === 1 ? "session" : "sessions"}`}
-        accessibilityRole="button"
-        accessibilityState={{ expanded }}
-        android_ripple={rowRipple}
-        onPress={onToggle}
-        style={({ pressed }) => [
-          styles.workingSectionHeader,
-          pressed && Platform.OS === "ios" && styles.pressed,
-        ]}
-        testID="working-section-toggle"
-      >
-        <Text
-          dynamicTypeRamp={typeRamp.footnote}
-          numberOfLines={1}
-          style={styles.inboxSectionLabel}
-        >
-          {label}
-        </Text>
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.inboxSectionCount}>
-          {children.length}
-        </Text>
-        <View style={styles.workingSectionChevron}>
-          <Feather
-            accessible={false}
-            color={palette.dim}
-            name={expanded ? "chevron-down" : "chevron-right"}
-            size={16}
-          />
-        </View>
-      </Pressable>
-      {expanded ? children : null}
-    </View>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.inboxSectionCount}>
+        {count}
+      </Text>
+      <View style={styles.inboxSectionChevron}>
+        <Feather
+          accessible={false}
+          color={palette.dim}
+          name={expanded ? "chevron-down" : "chevron-right"}
+          size={16}
+        />
+      </View>
+    </Pressable>
   );
 }
 
@@ -2238,8 +2208,8 @@ function SessionEmptyState({
       </Text>
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
         {hasWorking
-          ? "Sessions show up here when they need your answer or finish a run. Running sessions are under Working."
-          : "Sessions show up here when they need your answer or finish a run. Start one with New session."}
+          ? "Sessions show up here when they're new, need your answer, or finish a run. Running sessions are under Working."
+          : "Sessions show up here when they're new, need your answer, or finish a run. Start one with New session."}
       </Text>
     </View>
   );
@@ -2357,15 +2327,16 @@ const styles = StyleSheet.create({
   headerActionLabelAttention: { color: palette.warm },
   hiddenPanel: { display: "none" },
   inboxSectionCount: { ...typography.footnote, color: palette.dim, opacity: 0.7 },
+  inboxSectionChevron: { marginLeft: "auto" },
   inboxSectionHeader: {
     alignItems: "center",
+    borderColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: space.xs,
-    paddingBottom: space.xs / 2,
+    minHeight: minTouchTarget,
     paddingHorizontal: space.md,
-    paddingTop: space.sm,
   },
-  inboxSectionHeaderSpaced: { paddingTop: space.lg },
   inboxSectionLabel: { ...typography.sectionLabel, color: palette.dim, flexShrink: 1 },
   homeHeader: { paddingHorizontal: space.md },
   latestButton: {
@@ -2387,7 +2358,6 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
     width: "100%",
   },
-  listContentFill: { flexGrow: 1 },
   listFooter: { alignItems: "center", padding: space.lg },
   listSectionHeader: {
     alignItems: "center",
@@ -2406,19 +2376,6 @@ const styles = StyleSheet.create({
   },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
   tabPanel: { flex: 1 },
-  workingFooter: { flexGrow: 1, justifyContent: "flex-end", paddingTop: space.sm },
-  workingSection: {
-    borderColor: palette.border,
-    borderTopWidth: StyleSheet.hairlineWidth,
-  },
-  workingSectionChevron: { marginLeft: "auto" },
-  workingSectionHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: space.xs,
-    minHeight: minTouchTarget,
-    paddingHorizontal: space.md,
-  },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   transcriptContainer: { flex: 1 },
   transcriptList: { flex: 1 },

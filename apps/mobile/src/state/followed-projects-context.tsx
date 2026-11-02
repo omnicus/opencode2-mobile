@@ -10,6 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useSQLiteContext } from "expo-sqlite";
 import { createContext, type ReactNode, use, useRef } from "react";
 
+import type { CollapsibleInboxSection } from "../storage/session-inbox-repository";
 import { useConnectionRuntime } from "./connection-runtime-context";
 import {
   buildFollowedInboxSections,
@@ -71,6 +72,7 @@ export type { AttentionCoverage, AttentionLocationFailure } from "./followed-pro
 
 type FollowedProjectsContextValue = {
   archiveSession: (session: SessionInfo, archived: boolean) => Promise<void>;
+  archivedExpanded: boolean;
   attentionCoverage: AttentionCoverage;
   blockedSessionIds: ReadonlySet<string>;
   fetchNextPage: () => Promise<unknown>;
@@ -101,7 +103,7 @@ type FollowedProjectsContextValue = {
   setFollowedProjectIds: (projectIDs: readonly string[]) => Promise<void>;
   setLocation: (location: LocationRef | undefined) => void;
   setSearch: (search: string) => void;
-  setWorkingExpanded: (expanded: boolean) => void;
+  setSectionExpanded: (section: CollapsibleInboxSection, expanded: boolean) => void;
   unavailableProjectIds: string[];
   workingExpanded: boolean;
 };
@@ -329,6 +331,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     <FollowedProjectsContext
       value={{
         archiveSession,
+        archivedExpanded: inboxPreferences.archivedExpanded,
         attentionCoverage,
         blockedSessionIds: new Set(blockedSessionIDs),
         fetchNextPage: visibleSessions.fetchNextPage,
@@ -374,7 +377,7 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
         setFollowedProjectIds,
         setLocation: preferences.setLocation,
         setSearch: preferences.setSearch,
-        setWorkingExpanded: inboxPreferences.setWorkingExpanded,
+        setSectionExpanded: inboxPreferences.setSectionExpanded,
         unavailableProjectIds,
         workingExpanded: inboxPreferences.workingExpanded,
       }}

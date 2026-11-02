@@ -389,31 +389,36 @@ header. Close search clears the query, hides the keyboard, and collapses the
 field, and Android back does the same while search is open. The list body has
 no search field of its own.
 
-The default inbox has the same layout as the OpenCode desktop Inbox sidebar
-(`packages/app/src/shell/titlebar/inbox.tsx` in OpenCode 2.2.5). A scrolling
+The default inbox draws its sections from the OpenCode desktop Inbox sidebar
+(`packages/app/src/shell/titlebar/inbox.tsx` in OpenCode 2.2.5). One scrolling
 list shows, in this order:
 
-1. "Needs attention" with its count: root sessions with a pending permission
+1. Needs attention, with no header: root sessions with a pending permission
    ("Approval") or form ("Question") anywhere in their family.
-2. "Recent": finished root sessions that are not archived. The header shows
-   only when Needs attention has rows.
-3. "Archived": finished root sessions whose `time.archived` is set.
+2. Recent, with no header: root sessions that are not archived, not running,
+   and not blocked.
+3. "Working": running root sessions.
+4. "Archived": root sessions whose `time.archived` is set.
 
-"Working" closes the list, after Archived. Its header shows the count and a
-chevron, is one 48-point button whose state says whether it is expanded, and
-collapses or expands the section. The device stores that state per connection.
-The change animates only when Reduce Motion is off. The section fills the space
-a short list leaves, so it sits at the bottom of the screen. A longer list
-pushes it below the last row, and the whole inbox scrolls as one list. With
-Needs attention, Recent, and Archived all empty, the list shows an idle state:
-"Nothing needs you right now", then "Sessions show up here when they need your
-answer or finish a run." It ends with "Running sessions are under Working." while
+Working and Archived each start under a header with a hairline separator above
+it. The header shows the section name, its count, and a chevron. It is one
+48-point button whose state says whether the section is expanded, and it
+collapses or expands the section. A collapsed section keeps its header and
+count. The device stores each section's state per connection, expanded by
+default. The change animates only when Reduce Motion is off. A section with no
+rows has no header. Working sits above Archived so a long archive never pushes
+running sessions out of reach. With Needs attention, Recent, and Archived all
+empty, the list shows an idle state: "Nothing needs you right now", then
+"Sessions show up here when they're new, need your answer, or finish a run." It
+ends with "Running sessions are under Working." above the Working section while
 Working has rows, and "Start one with New session." otherwise.
 
-Recent and Archived list only sessions whose last run finished
-(`time.idle`) at or after the device's inbox start. The device stores that start
+Recent and Archived list only sessions whose last run finished (`time.idle`),
+or that were created (`time.created`) with no finished run, at or after the
+device's inbox start. A session created on any client shows at once, before its
+first prompt. The device stores that start
 per connection the first time it shows the inbox, so the inbox starts empty and
-fills as sessions finish, as on desktop. Desktop keeps its own start, so the two
+fills as sessions are created or finish, as on desktop. Desktop keeps its own start, so the two
 lists differ only by sessions that finished between the two starts, and archiving
 one on either side clears it from both. The session list pages back per
 followed project until it passes the inbox start, up to four pages. The archived
@@ -460,7 +465,7 @@ the last run.
 Needs attention keeps its rows in place while their families stream. Working
 sorts by when each run started, so rows stay put while they stream and a
 session that starts working joins the end. Recent and Archived sort by the most
-recently finished run.
+recently finished run, or the creation time of a session with no finished run.
 
 Project avatars follow OpenCode desktop. The project's `icon.color` picks one of
 orange, yellow, cyan, green, red, pink, blue, purple, or gray. "mint" means
@@ -582,7 +587,7 @@ state rather than local transcript storage.
   connection.
 - Project, location, directory, and worktree selection for new sessions.
 - Cross-project session inbox in the OpenCode desktop Inbox layout: Needs
-  attention, Recent, Archived, and Working in one scrolling list, server-shared
+  attention, Recent, Working, and Archived in one scrolling list, server-shared
   archive and read state, and server search and pagination for older sessions.
 - Session transcript with stable live-follow and unread controls.
 - Composer with multiline native editing and model/agent controls.
