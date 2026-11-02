@@ -1867,7 +1867,7 @@ function SessionTranscriptList({
       keyboardShouldPersistTaps="handled"
       key={`session-transcript:${measureScope}`}
       keyExtractor={(message) => message.id}
-      ListEmptyComponent={renderTranscriptEmptyState(messagesQuery)}
+      ListEmptyComponent={renderTranscriptEmptyState(messagesQuery, execution.active)}
       ListFooterComponent={
         <TranscriptListFooter
           autoFillTranscript={autoFillTranscript}
@@ -1913,7 +1913,7 @@ function SessionTranscriptList({
   );
 }
 
-function renderTranscriptEmptyState(messagesQuery: SessionMessagesQuery) {
+function renderTranscriptEmptyState(messagesQuery: SessionMessagesQuery, active: boolean) {
   if (messagesQuery.isPending) {
     return (
       <View style={styles.transcriptState}>
@@ -1921,7 +1921,20 @@ function renderTranscriptEmptyState(messagesQuery: SessionMessagesQuery) {
       </View>
     );
   }
-  if (!messagesQuery.isError) return null;
+  if (!messagesQuery.isError) {
+    // A working session already shows its status in the list header.
+    if (active || !messagesQuery.isSuccess) return null;
+    return (
+      <View style={[styles.transcriptState, styles.transcriptEmpty]}>
+        <Text dynamicTypeRamp={typeRamp.headline} style={styles.transcriptEmptyTitle}>
+          No messages yet
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.transcriptEmptyCopy}>
+          Send a message to start. Type @ to mention a file or agent, or / for a command.
+        </Text>
+      </View>
+    );
+  }
   return (
     <View style={styles.transcriptState}>
       <InlineError message={transcriptLoadErrorMessage(messagesQuery.error)} />
@@ -2380,6 +2393,9 @@ const styles = StyleSheet.create({
   transcriptContainer: { flex: 1 },
   transcriptList: { flex: 1 },
   transcriptState: { alignItems: "center", minHeight: 140, padding: space.lg },
+  transcriptEmpty: { gap: space.xs, justifyContent: "center" },
+  transcriptEmptyCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  transcriptEmptyTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
   transcriptLimit: {
     ...typography.footnote,
     color: palette.dim,
