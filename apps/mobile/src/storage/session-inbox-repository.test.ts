@@ -1,8 +1,14 @@
 import { expect, jest, test } from "@jest/globals";
 import type { SQLiteDatabase } from "expo-sqlite";
-import { startSessionInbox, writeWorkingShelfExpanded } from "./session-inbox-repository";
+import {
+  type CollapsibleInboxSection,
+  startSessionInbox,
+  writeInboxSectionExpanded,
+} from "./session-inbox-repository";
 
-function fakeDb(stored: { since_ms: number; working_expanded: number } | null, updatedAt = 7) {
+type Stored = { archived_expanded: number; since_ms: number; working_expanded: number };
+
+function fakeDb(stored: Stored | null, updatedAt = 7) {
   const transaction = {
     getFirstAsync: jest.fn(async (sql: string) =>
       sql.includes("connection_profiles") ? { updated_at_ms: updatedAt } : stored,
@@ -17,8 +23,13 @@ function fakeDb(stored: { since_ms: number; working_expanded: number } | null, u
 }
 
 test("starts the inbox once and keeps the first start time", async () => {
-  const { db, transaction } = fakeDb({ since_ms: 1_000, working_expanded: 1 });
+  const { db, transaction } = fakeDb({
+    archived_expanded: 1,
+    since_ms: 1_000,
+    working_expanded: 1,
+  });
   await expect(startSessionInbox(db, "connection-a", 7, 5_000)).resolves.toEqual({
+    archivedExpanded: true,
     sinceMs: 1_000,
     workingExpanded: true,
   });
@@ -29,32 +40,42 @@ test("starts the inbox once and keeps the first start time", async () => {
   );
 });
 
-test("reads a collapsed Working shelf", async () => {
-  const { db } = fakeDb({ since_ms: 1_000, working_expanded: 0 });
+test("reads collapsed Working and Archived sections", async () => {
+  const { db } = fakeDb({ archived_expanded: 0, since_ms: 1_000, working_expanded: 0 });
   await expect(startSessionInbox(db, "connection-a", 7, 5_000)).resolves.toEqual({
+    archivedExpanded: false,
     sinceMs: 1_000,
     workingExpanded: false,
   });
 });
 
-test("writes the Working shelf state after checking the connection profile", async () => {
+test("writes each section's state after checking the connection profile", async () => {
   const { db, transaction } = fakeDb(null);
-  await writeWorkingShelfExpanded(db, "connection-a", 7, false);
+  await writeInboxSectionExpanded(db, "connection-a", 7, "working", false);
   expect(transaction.runAsync).toHaveBeenLastCalledWith(
     expect.stringContaining("SET working_expanded = ?"),
     0,
     "connection-a",
   );
+  await writeInboxSectionExpanded(db, "connection-a", 7, "archived", true);
+  expect(transaction.runAsync).toHaveBeenLastCalledWith(
+    expect.stringContaining("SET archived_expanded = ?"),
+    1,
+    "connection-a",
+  );
 });
 
 test("rejects invalid input and writes after the profile changed", async () => {
-  const { db, transaction } = fakeDb({ since_ms: 1, working_expanded: 1 }, 8);
+  const { db, transaction } = fakeDb({ archived_expanded: 1, since_ms: 1, working_expanded: 1 }, 8);
   await expect(startSessionInbox(db, "connection-a", 7, 5_000)).rejects.toThrow(
     "CONNECTION_PROFILE_CHANGED",
   );
-  await expect(writeWorkingShelfExpanded(db, "connection-a", 7, true)).rejects.toThrow(
+  await expect(writeInboxSectionExpanded(db, "connection-a", 7, "working", true)).rejects.toThrow(
     "CONNECTION_PROFILE_CHANGED",
   );
+  await expect(
+    writeInboxSectionExpanded(db, "connection-a", 8, "since_ms" as CollapsibleInboxSection, true),
+  ).rejects.toThrow("INVALID_SESSION_INBOX_SECTION");
   await expect(startSessionInbox(db, " ", 8, 5_000)).rejects.toThrow(
     "INVALID_SESSION_INBOX_CONNECTION",
   );

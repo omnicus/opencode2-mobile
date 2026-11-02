@@ -9,6 +9,7 @@ import type {
   FollowedInboxStatus,
 } from "../state/followed-project-inbox";
 import type { AttentionCoverage } from "../state/followed-projects-context";
+import type { CollapsibleInboxSection } from "../storage/session-inbox-repository";
 
 type Project = ProjectListOutput[number];
 
@@ -221,12 +222,8 @@ export function projectDirectories(
   ];
 }
 
-export type WorkspaceSection = "archived" | "needs-you" | "recent";
-
-export const workspaceSectionLabels: Record<WorkspaceSection | "working", string> = {
+export const workspaceSectionLabels: Record<CollapsibleInboxSection, string> = {
   archived: "Archived",
-  "needs-you": "Needs attention",
-  recent: "Recent",
   working: "Working",
 };
 
@@ -239,38 +236,42 @@ export const inboxStatusLabels: Record<Exclude<FollowedInboxStatus, "ready">, st
 };
 
 export type WorkspaceInboxItem =
-  | { count?: number; key: string; section: WorkspaceSection; type: "header" }
+  | {
+      count: number;
+      expanded: boolean;
+      key: string;
+      section: CollapsibleInboxSection;
+      type: "header";
+    }
   | { key: string; row: FollowedInboxRow; type: "session" };
 
 function sessionItem(row: FollowedInboxRow): WorkspaceInboxItem {
   return { key: row.session.id, row, type: "session" };
 }
 
-// The scrolling part of the OpenCode desktop inbox: Needs attention with its count, Recent
-// (headed only below Needs attention), then Archived. Working rows sit in their own shelf.
-export function workspaceInboxItems(inbox: FollowedInboxSections): WorkspaceInboxItem[] {
+function collapsibleSection(
+  section: CollapsibleInboxSection,
+  rows: readonly FollowedInboxRow[],
+  expanded: boolean,
+): WorkspaceInboxItem[] {
+  if (rows.length === 0) return [];
   return [
-    ...(inbox.needsYou.length > 0
-      ? [
-          {
-            count: inbox.needsYou.length,
-            key: "header:needs-you",
-            section: "needs-you" as const,
-            type: "header" as const,
-          },
-          ...inbox.needsYou.map(sessionItem),
-        ]
-      : []),
-    ...(inbox.recent.length > 0 && inbox.needsYou.length > 0
-      ? [{ key: "header:recent", section: "recent" as const, type: "header" as const }]
-      : []),
+    { count: rows.length, expanded, key: `header:${section}`, section, type: "header" },
+    ...(expanded ? rows.map(sessionItem) : []),
+  ];
+}
+
+// Sessions that need attention lead, then finished runs, both without a header. Working and
+// Archived follow under headers that collapse them, so a long archive never hides Working.
+export function workspaceInboxItems(
+  inbox: FollowedInboxSections,
+  expanded: Record<CollapsibleInboxSection, boolean>,
+): WorkspaceInboxItem[] {
+  return [
+    ...inbox.needsYou.map(sessionItem),
     ...inbox.recent.map(sessionItem),
-    ...(inbox.archived.length > 0
-      ? [
-          { key: "header:archived", section: "archived" as const, type: "header" as const },
-          ...inbox.archived.map(sessionItem),
-        ]
-      : []),
+    ...collapsibleSection("working", inbox.working, expanded.working),
+    ...collapsibleSection("archived", inbox.archived, expanded.archived),
   ];
 }
 

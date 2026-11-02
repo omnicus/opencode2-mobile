@@ -8,6 +8,7 @@ import type {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Pressable, Text } from "react-native";
+import type { SessionInboxPreferences } from "../storage/session-inbox-repository";
 import { ConnectionEventQueryBridge } from "./connection-event-query-bridge";
 import { FollowedProjectsProvider, useFollowedProjects } from "./followed-projects-context";
 import { openCodeQueryKeys } from "./open-code-query-keys";
@@ -86,8 +87,12 @@ const mockDb = {
 jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => mockDb }));
 // The inbox started before every fixture session finished.
 jest.mock("../storage/session-inbox-repository", () => ({
-  startSessionInbox: jest.fn(async () => ({ sinceMs: 0, workingExpanded: true })),
-  writeWorkingShelfExpanded: jest.fn(async () => undefined),
+  startSessionInbox: jest.fn(async () => ({
+    archivedExpanded: true,
+    sinceMs: 0,
+    workingExpanded: true,
+  })),
+  writeInboxSectionExpanded: jest.fn(async () => undefined),
 }));
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   archiveOpenCodeSession: (...args: unknown[]) => mockArchiveSession(...args),
@@ -993,9 +998,13 @@ test("lists archived roots under Archived and moves a row when it is archived", 
 
 test("Recent lists only runs that finished since the inbox started", async () => {
   const { startSessionInbox } = jest.requireMock<{
-    startSessionInbox: jest.Mock<() => Promise<{ sinceMs: number; workingExpanded: boolean }>>;
+    startSessionInbox: jest.Mock<() => Promise<SessionInboxPreferences>>;
   }>("../storage/session-inbox-repository");
-  startSessionInbox.mockResolvedValueOnce({ sinceMs: 3, workingExpanded: false });
+  startSessionInbox.mockResolvedValueOnce({
+    archivedExpanded: false,
+    sinceMs: 3,
+    workingExpanded: false,
+  });
   mockListProjectSessions.mockImplementation(async (_client, projectID, input) => ({
     cursor: {},
     data:
@@ -1020,6 +1029,7 @@ test("Recent lists only runs that finished since the inbox started", async () =>
   expect(await screen.findByText("recent:ses_new")).toBeOnTheScreen();
   expect(screen.queryByText("recent:ses_before")).toBeNull();
   expect(screen.getByText("working:collapsed")).toBeOnTheScreen();
+  expect(screen.getByText("archived:collapsed")).toBeOnTheScreen();
   // The session list pages back to the inbox start.
   expect(startSessionInbox).toHaveBeenCalledWith(mockDb, "connection-1", 1, expect.any(Number));
 
@@ -1032,6 +1042,7 @@ function ArchiveCapture() {
   return (
     <>
       <Text>working:{state.workingExpanded ? "expanded" : "collapsed"}</Text>
+      <Text>archived:{state.archivedExpanded ? "expanded" : "collapsed"}</Text>
       {[...state.inbox.recent, ...state.inbox.archived].map((row) => (
         <Pressable
           accessibilityLabel={`${row.archived ? "Unarchive" : "Archive"} ${row.session.id}`}

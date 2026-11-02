@@ -363,6 +363,8 @@ test("orders Working by when each run started, with unknown starts last", () => 
 test("lists only runs finished since the inbox started, newest first, split by archive", () => {
   const before = run(session("ses_before", 9, "project-a"), { idle: 999 });
   const never = session("ses_never", 8, "project-a");
+  // Created after the inbox started, before its first prompt.
+  const created = run(session("ses_created", 10, "project-a"), { created: 1_250, updated: 1_250 });
   const older = run(session("ses_older", 7, "project-a"), { idle: 1_100 });
   const newer = run(session("ses_newer", 6, "project-a"), { idle: 1_300 });
   const archived = run(session("ses_archived", 5, "project-a"), { archived: 1_400, idle: 1_200 });
@@ -376,18 +378,23 @@ test("lists only runs finished since the inbox started, newest first, split by a
     forms: [],
     permissions: [],
     projects: [],
-    rootSessions: [before, never, older, newer, archived, archivedBefore],
+    rootSessions: [before, never, created, older, newer, archived, archivedBefore],
   };
 
   const sections = buildFollowedInboxSections({ ...input, recentSince: 1_000 });
-  expect(sections.recent.map((row) => row.session.id)).toEqual(["ses_newer", "ses_older"]);
+  expect(sections.recent.map((row) => row.session.id)).toEqual([
+    "ses_newer",
+    "ses_created",
+    "ses_older",
+  ]);
+  expect(sections.recent[1]).toMatchObject({ section: "recent", status: "ready" });
   expect(sections.archived.map((row) => row.session.id)).toEqual(["ses_archived"]);
   expect(sections.archived[0]).toMatchObject({ archived: true, section: "archived" });
   // Until the device knows when its inbox started, nothing finished is listed.
   const unstarted = buildFollowedInboxSections({ ...input, recentSince: undefined });
   expect([...unstarted.recent, ...unstarted.archived]).toEqual([]);
   // Search lists every finished session.
-  expect(buildFollowedInboxSections({ ...input, recentSince: "all" }).recent).toHaveLength(4);
+  expect(buildFollowedInboxSections({ ...input, recentSince: "all" }).recent).toHaveLength(5);
 });
 
 test("finished rows are done, failed, or ready from the shared viewed time", () => {
@@ -532,6 +539,8 @@ test.each<{
         "ses_ready ready to:ses_ready@/project-a attention:0 project:project-a",
         "ses_failed failed to:ses_failed@/project-a attention:0 project:project-a",
         "ses_done done to:ses_done@/project-a attention:0 project:project-a",
+        // Never run, so it sorts by creation, and nothing in it is unread.
+        "ses_never ready to:ses_never@/project-a attention:0 project:project-a",
       ],
       working: ["ses_busy working to:ses_busy@/project-a attention:0 active project:project-a"],
     },

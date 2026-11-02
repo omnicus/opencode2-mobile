@@ -16,7 +16,7 @@ import {
   locationFailureSource,
   nextLocationSelection,
   requireClient,
-  withWorkingExpanded,
+  withSectionExpanded,
 } from "./followed-projects-model";
 
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({}));
@@ -44,16 +44,23 @@ test("rejects queries before the connection has a client", () => {
 });
 
 test("keeps inbox preferences to the connection that loaded them", () => {
-  const state = { connectionKey: "connection", preferences: { sinceMs: 1, workingExpanded: true } };
+  const state = {
+    connectionKey: "connection",
+    preferences: { archivedExpanded: true, sinceMs: 1, workingExpanded: true },
+  };
   expect(inboxPreferencesFor(state, "connection")).toBe(state.preferences);
   expect(inboxPreferencesFor(state, "other")).toBeUndefined();
   expect(inboxPreferencesFor(undefined, "connection")).toBeUndefined();
-  expect(withWorkingExpanded(state, "connection", false)).toEqual({
+  expect(withSectionExpanded(state, "connection", "working", false)).toEqual({
     connectionKey: "connection",
-    preferences: { sinceMs: 1, workingExpanded: false },
+    preferences: { archivedExpanded: true, sinceMs: 1, workingExpanded: false },
   });
-  expect(withWorkingExpanded(state, "other", false)).toBe(state);
-  expect(withWorkingExpanded(undefined, "connection", false)).toBeUndefined();
+  expect(withSectionExpanded(state, "connection", "archived", false)).toEqual({
+    connectionKey: "connection",
+    preferences: { archivedExpanded: false, sinceMs: 1, workingExpanded: true },
+  });
+  expect(withSectionExpanded(state, "other", "working", false)).toBe(state);
+  expect(withSectionExpanded(undefined, "connection", "working", false)).toBeUndefined();
 });
 
 test("limits the active list to the inbox start once it is known", () => {

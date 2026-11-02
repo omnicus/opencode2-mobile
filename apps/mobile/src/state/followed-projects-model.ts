@@ -9,7 +9,10 @@ import type {
 } from "@opencode2-mobile/opencode-adapter";
 import { hashKey, type QueryKey } from "@tanstack/react-query";
 
-import type { SessionInboxPreferences } from "../storage/session-inbox-repository";
+import type {
+  CollapsibleInboxSection,
+  SessionInboxPreferences,
+} from "../storage/session-inbox-repository";
 import {
   type FollowedSessionPageParam,
   locationKey,
@@ -110,13 +113,15 @@ export function inboxPreferencesFor(
   return state && state.connectionKey === connectionKey ? state.preferences : undefined;
 }
 
-export function withWorkingExpanded(
+export function withSectionExpanded(
   current: InboxPreferenceState | undefined,
   connectionKey: string,
+  section: CollapsibleInboxSection,
   expanded: boolean,
 ) {
+  const key = section === "archived" ? "archivedExpanded" : "workingExpanded";
   return current && current.connectionKey === connectionKey
-    ? { ...current, preferences: { ...current.preferences, workingExpanded: expanded } }
+    ? { ...current, preferences: { ...current.preferences, [key]: expanded } }
     : current;
 }
 

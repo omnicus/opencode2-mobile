@@ -83,9 +83,11 @@ let mockArchivedCount = 0;
 let mockRowCount = 120;
 let mockFinishedStatus: "done" | "failed" | "ready" = "ready";
 let mockWorkingExpanded = true;
+let mockArchivedExpanded = true;
 const mockArchiveSession = jest.fn(async (..._args: unknown[]) => undefined);
-const mockSetWorkingExpanded = jest.fn((expanded: boolean) => {
-  mockWorkingExpanded = expanded;
+const mockSetSectionExpanded = jest.fn((section: "archived" | "working", expanded: boolean) => {
+  if (section === "archived") mockArchivedExpanded = expanded;
+  else mockWorkingExpanded = expanded;
 });
 const mockMarkViewed = jest.fn(async (..._args: unknown[]) => undefined);
 let mockSelectionProjects: unknown[] = [];
@@ -115,8 +117,9 @@ afterEach(() => {
   mockRowCount = 120;
   mockFinishedStatus = "ready";
   mockWorkingExpanded = true;
+  mockArchivedExpanded = true;
   mockArchiveSession.mockClear();
-  mockSetWorkingExpanded.mockClear();
+  mockSetSectionExpanded.mockClear();
   mockMarkViewed.mockClear();
   mockSelectionProjects = [];
   mockListPullRequests.mockClear();
@@ -322,6 +325,7 @@ jest.mock("../state/workspace-selection-context", () => ({
     hasNextPage: mockHasNextSessionPage,
     sessionsFetchingNextPage: mockSessionsFetchingNextPage,
     archiveSession: mockArchiveSession,
+    archivedExpanded: mockArchivedExpanded,
     inbox: {
       archived: mockEmptyInbox
         ? []
@@ -350,7 +354,7 @@ jest.mock("../state/workspace-selection-context", () => ({
     setFollowedProjectIds: jest.fn(async () => undefined),
     setLocation: mockSetLocation,
     setSearch: jest.fn(),
-    setWorkingExpanded: mockSetWorkingExpanded,
+    setSectionExpanded: mockSetSectionExpanded,
     unavailableProjectIds: [],
     workingExpanded: mockWorkingExpanded,
   }),
@@ -695,7 +699,8 @@ test("attention rows own requests, with a shortcut only when search hides them",
     expect(screen.getByTestId("session-row-status-approval")).toHaveStyle({
       color: palette.warm,
     });
-    expect(screen.getByRole("header", { name: "Needs attention, 1" })).toBeOnTheScreen();
+    // Rows that need attention lead the list without a header.
+    expect(screen.queryByRole("header", { name: /^Needs attention/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "1 known request" })).toBeNull();
     expect(screen.queryByText("Needs you 1")).toBeNull();
     openSearch("Session");
@@ -1131,7 +1136,6 @@ test("lists every Recent row with no paging, then Archived under its own header"
       "ses_118",
       "ses_119",
     ]);
-    // Recent has no header while nothing needs attention, as on OpenCode desktop.
     expect(screen.queryByRole("header", { name: "Recent" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Load older sessions" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Load more results" })).toBeNull();
@@ -1142,55 +1146,86 @@ test("lists every Recent row with no paging, then Archived under its own header"
   }
 });
 
-test("lists Needs attention and Recent, then Working at the end of the same list", async () => {
+test("the Archived section collapses and expands, and stores it", async () => {
+  mockRowCount = 4;
+  mockArchivedCount = 2;
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const content = () => (
+    <QueryClientProvider client={queryClient}>
+      <WorkspaceScreen
+        navigation={{ navigate: jest.fn() } as never}
+        route={{ key: "workspace", name: "Workspace" } as never}
+      />
+    </QueryClientProvider>
+  );
+  const view = render(content());
+  try {
+    await screen.findByText("Session 0");
+    expect(sessionKeys(view)).toEqual(["ses_0", "ses_1", "header:archived", "ses_2", "ses_3"]);
+    const toggle = screen.getByRole("button", { name: "Archived, 2 sessions" });
+    expect(toggle).toBeExpanded();
+    expect(toggle).toHaveProp("accessibilityHint", "Hides archived sessions");
+    fireEvent.press(toggle);
+    expect(mockSetSectionExpanded).toHaveBeenCalledWith("archived", false);
+
+    // Collapsed, Archived keeps its header and count and drops its rows.
+    view.rerender(content());
+    expect(sessionKeys(view)).toEqual(["ses_0", "ses_1", "header:archived"]);
+    expect(screen.getByRole("button", { name: "Archived, 2 sessions" })).toBeCollapsed();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("lists Needs attention and Recent without headers, then Working above Archived", async () => {
   mockWorkspaceNeedsAttention = true;
   mockWorkingCount = 3;
+  mockArchivedCount = 2;
   const view = renderWorkspace();
   try {
     await screen.findByText("Session 0");
     const list = screen.UNSAFE_getByType(FlatList);
     expect(list.props.data.map((item: { key: string }) => item.key)).toEqual([
-      "header:needs-you",
       "ses_0",
-      "header:recent",
-      ...Array.from({ length: 117 }, (_, index) => `ses_${index + 3}`),
+      ...Array.from({ length: 115 }, (_, index) => `ses_${index + 3}`),
+      "header:working",
+      "ses_1",
+      "ses_2",
+      "header:archived",
+      "ses_118",
+      "ses_119",
     ]);
-    expect(screen.getByRole("header", { name: "Needs attention, 1" })).toBeOnTheScreen();
-    expect(screen.getByRole("header", { name: "Recent" })).toBeOnTheScreen();
-    // Working is the list's footer, so it scrolls with every other section. It fills the
-    // space left by a short list, which keeps it at the bottom of the screen.
-    expect(within(list).getByTestId("working-section")).toBeOnTheScreen();
-    expect(StyleSheet.flatten(list.props.contentContainerStyle)).toMatchObject({ flexGrow: 1 });
-    expect(list.props.ListFooterComponentStyle).toMatchObject({
-      flexGrow: 1,
-      justifyContent: "flex-end",
-    });
-    const working = within(screen.getByTestId("working-section"));
-    expect(working.getByRole("button", { name: "Working, 2 sessions" })).toBeExpanded();
-    expect(
-      working.getByRole("button", { name: /^Open session Session 1\. Workspace\. Working\./ }),
-    ).toBeOnTheScreen();
-    expect(working.getByText("Session 2")).toBeOnTheScreen();
-    expect(working.queryByText("Session 0")).toBeNull();
+    expect(screen.queryByRole("header", { name: /^Needs attention/ })).toBeNull();
+    expect(screen.queryByRole("header", { name: "Recent" })).toBeNull();
+    // Working is part of the list, so nothing reserves space for it below.
+    expect(list.props.ListFooterComponentStyle).toBeUndefined();
   } finally {
     view.cleanup();
   }
 });
 
-test("every working session sits under Working, and the idle list points to it", async () => {
+test("every working session sits under Working, and the idle state points to it", async () => {
   mockWorkspaceActive = true;
   const view = renderWorkspace();
   try {
     await screen.findByText("Session 0");
-    expect(screen.UNSAFE_getByType(FlatList).props.data).toEqual([]);
+    const data = screen.UNSAFE_getByType(FlatList).props.data as { key: string }[];
+    expect(data[0]).toMatchObject({ count: 120, key: "header:working", section: "working" });
+    expect(data).toHaveLength(121);
+    // The idle state sits above Working when nothing else is in the list.
     expect(screen.getByRole("header", { name: "Nothing needs you right now" })).toBeOnTheScreen();
     expect(
       screen.getByText(
-        "Sessions show up here when they need your answer or finish a run. Running sessions are under Working.",
+        "Sessions show up here when they're new, need your answer, or finish a run. Running sessions are under Working.",
       ),
     ).toBeOnTheScreen();
-    const working = within(screen.getByTestId("working-section"));
-    expect(working.getAllByRole("button", { name: /^Open session / })).toHaveLength(120);
+    expect(screen.getByRole("button", { name: "Working, 120 sessions" })).toBeExpanded();
+    expect(
+      screen.getByRole("button", { name: /^Open session Session 0\. Workspace\. Working\./ }),
+    ).toBeOnTheScreen();
   } finally {
     view.cleanup();
   }
@@ -1203,10 +1238,10 @@ test("an empty inbox says where sessions will appear, with no Working section", 
     expect(await screen.findByText("Nothing needs you right now")).toBeOnTheScreen();
     expect(
       screen.getByText(
-        "Sessions show up here when they need your answer or finish a run. Start one with New session.",
+        "Sessions show up here when they're new, need your answer, or finish a run. Start one with New session.",
       ),
     ).toBeOnTheScreen();
-    expect(screen.queryByTestId("working-section")).toBeNull();
+    expect(screen.queryByTestId("working-section-toggle")).toBeNull();
   } finally {
     view.cleanup();
   }
@@ -1729,6 +1764,7 @@ test("a failed archive keeps the row and says so", async () => {
 });
 
 test("the Working section collapses and expands, stores it, and announces it on iOS", async () => {
+  mockRowCount = 4;
   mockWorkingCount = 2;
   const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
   const queryClient = new QueryClient({
@@ -1748,7 +1784,7 @@ test("the Working section collapses and expands, stores it, and announces it on 
     const toggle = screen.getByRole("button", { name: "Working, 2 sessions" });
     expect(toggle).toHaveProp("accessibilityHint", "Hides working sessions");
     fireEvent.press(toggle);
-    expect(mockSetWorkingExpanded).toHaveBeenCalledWith(false);
+    expect(mockSetSectionExpanded).toHaveBeenCalledWith("working", false);
     expect(announce).toHaveBeenCalledWith("Working collapsed");
 
     // The provider stores the choice, so a re-render shows the collapsed section.
@@ -1765,7 +1801,7 @@ test("the Working section collapses and expands, stores it, and announces it on 
     ).toEqual(["chevron-right"]);
 
     fireEvent.press(collapsed);
-    expect(mockSetWorkingExpanded).toHaveBeenLastCalledWith(true);
+    expect(mockSetSectionExpanded).toHaveBeenLastCalledWith("working", true);
     view.rerender(content());
     expect(await screen.findByText("Session 0")).toBeOnTheScreen();
     expect(announce).toHaveBeenCalledWith("Working expanded");

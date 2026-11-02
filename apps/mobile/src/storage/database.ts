@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from "expo-sqlite";
 
 export const mobileDatabaseName = "opencode-mobile.db";
-export const mobileDatabaseSchemaVersion = 17;
+export const mobileDatabaseSchemaVersion = 18;
 
 const maxDraftCiphertextBytes = 256 * 1024 + 16;
 
@@ -326,5 +326,16 @@ const migrations: readonly Migration[] = [
       `,
     transactional: true,
     version: 17,
+  },
+  {
+    sql: `
+        BEGIN IMMEDIATE;
+        ALTER TABLE session_inbox_preferences
+          ADD COLUMN archived_expanded INTEGER NOT NULL DEFAULT 1 CHECK (archived_expanded IN (0, 1));
+        PRAGMA user_version = 18;
+        COMMIT;
+      `,
+    transactional: true,
+    version: 18,
   },
 ];

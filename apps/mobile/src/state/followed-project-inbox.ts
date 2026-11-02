@@ -214,7 +214,8 @@ export async function loadSessionAncestries(
 
 // Root sessions with the state a person acts on, in the OpenCode desktop inbox sections. Needs
 // you and Working list every blocked or running root. Recent and Archived list only roots whose
-// last run finished at or after `recentSince`; "all" lists every finished root (search).
+// last run finished, or that were created with no finished run, at or after `recentSince`;
+// "all" lists every finished root (search).
 // A root's own `time.archived` decides between Recent and Archived.
 export function buildFollowedInboxSections(input: {
   activeSessionIDs: readonly string[];
@@ -401,7 +402,13 @@ function inboxSection(
 function isOutsideRecentWindow(row: FollowedInboxRow, recentSince: number | "all" | undefined) {
   if (row.section !== "recent" && row.section !== "archived") return false;
   if (recentSince === "all") return false;
-  return recentSince === undefined || (row.session.time.idle ?? -1) < recentSince;
+  return recentSince === undefined || finishedOrCreated(row.session) < recentSince;
+}
+
+// When a session last finished a run, or when it was created if no run has finished yet. A new
+// session lists from its creation, before its first prompt, as on OpenCode desktop.
+function finishedOrCreated(session: SessionInfo) {
+  return session.time.idle ?? session.time.created;
 }
 
 // Search keeps finished rows in update order.
@@ -438,10 +445,10 @@ function compareWorking(first: FollowedInboxRow, second: FollowedInboxRow) {
   return (Number.isNaN(start) ? 0 : start) || first.session.id.localeCompare(second.session.id);
 }
 
-// The most recently finished session first.
+// The most recently finished or created session first.
 function compareFinished(first: FollowedInboxRow, second: FollowedInboxRow) {
   return (
-    (second.session.time.idle ?? 0) - (first.session.time.idle ?? 0) ||
+    finishedOrCreated(second.session) - finishedOrCreated(first.session) ||
     first.session.id.localeCompare(second.session.id)
   );
 }

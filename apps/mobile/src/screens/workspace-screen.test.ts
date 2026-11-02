@@ -85,36 +85,53 @@ test("keeps a large paginated list stable and accepts an empty response", () => 
   expect(flattenSessionPages([{ cursor: {}, data: [] }])).toEqual([]);
 });
 
-test("lists Needs attention with its count, then Recent and Archived, without Working", () => {
+const allExpanded = { archived: true, working: true };
+
+test("lists Needs attention and Recent without headers, then Working and Archived", () => {
   const inbox = sections({
     archived: [row("ses_archived", 3)],
     needsYou: [row("ses_blocked", 1)],
     recent: [row("ses_a", 50), row("ses_b", 40)],
-    working: [row("ses_working", 2)],
+    working: [row("ses_working", 2), row("ses_working_2", 1)],
   });
 
-  const items = workspaceInboxItems(inbox);
+  const items = workspaceInboxItems(inbox, allExpanded);
   expect(keys(items)).toEqual([
-    "header:needs-you",
     "ses_blocked",
-    "header:recent",
     "ses_a",
     "ses_b",
+    "header:working",
+    "ses_working",
+    "ses_working_2",
     "header:archived",
     "ses_archived",
   ]);
-  expect(items[0]).toEqual({
-    count: 1,
-    key: "header:needs-you",
-    section: "needs-you",
+  expect(items[3]).toEqual({
+    count: 2,
+    expanded: true,
+    key: "header:working",
+    section: "working",
     type: "header",
   });
-  expect(items[2]).not.toHaveProperty("count");
 });
 
-test("Recent has no header when nothing needs attention", () => {
-  expect(keys(workspaceInboxItems(sections({ recent: [row("ses_a", 50)] })))).toEqual(["ses_a"]);
-  expect(keys(workspaceInboxItems(sections({ working: [row("ses_working", 2)] })))).toEqual([]);
+test("collapsed sections keep their header and count but hide their rows", () => {
+  const inbox = sections({
+    archived: [row("ses_archived", 3)],
+    recent: [row("ses_a", 50)],
+    working: [row("ses_working", 2)],
+  });
+
+  const items = workspaceInboxItems(inbox, { archived: false, working: false });
+  expect(keys(items)).toEqual(["ses_a", "header:working", "header:archived"]);
+  expect(items[2]).toMatchObject({ count: 1, expanded: false, section: "archived" });
+});
+
+test("empty sections have no header", () => {
+  expect(keys(workspaceInboxItems(sections({ recent: [row("ses_a", 50)] }), allExpanded))).toEqual([
+    "ses_a",
+  ]);
+  expect(keys(workspaceInboxItems(sections({}), allExpanded))).toEqual([]);
 });
 
 test("formats compact elapsed time like the desktop inbox", () => {
