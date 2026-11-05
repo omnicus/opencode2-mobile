@@ -1812,6 +1812,33 @@ test("the Working section collapses and expands, stores it, and announces it on 
   }
 });
 
+test("a session with no messages explains how to start", async () => {
+  mockListMessages.mockImplementationOnce(async () => ({ cursor: {}, data: [] }));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "empty-session",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText("No messages yet")).toBeOnTheScreen();
+  expect(screen.getByText(/Type @ to mention a file or agent/)).toBeOnTheScreen();
+  view.unmount();
+  queryClient.clear();
+});
+
 test("compact mode groups consecutive tool calls across assistant messages", async () => {
   mockListMessages.mockImplementationOnce(async () => ({
     cursor: {},
