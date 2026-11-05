@@ -13,22 +13,26 @@
       "types": "./src/tui.ts",
       "import": "./dist/tui.js",
       "default": "./dist/tui.js"
-    }
+    },
+    "./gui-experimental": "./dist/gui-experimental.cjs"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && vite build --config vite.gui.config.ts",
     "coverage": "pnpm --filter @opencode2-mobile/notification-protocol build && vitest run --coverage --coverage.reporter=lcovonly --coverage.reportsDirectory=../../coverage/packages/opencode-notification-plugin",
     "test": "pnpm --filter @opencode2-mobile/notification-protocol build && vitest run",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@opencode/plugin": "2.0.27",
+    "@opencode/plugin": "2.2.5",
     "@opencode2-mobile/notification-protocol": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "26.0.0",
     "@vitest/coverage-v8": "4.1.10",
+    "solid-js": "1.9.18",
     "typescript": "7.0.2",
+    "vite": "8.3.5",
+    "vite-plugin-solid": "2.11.15",
     "vitest": "4.1.10"
   }
 }

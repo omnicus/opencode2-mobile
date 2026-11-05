@@ -5,7 +5,8 @@ import {
   parseNotificationPluginEvent,
 } from "@opencode2-mobile/notification-protocol";
 
-import { readBrokerAccess } from "./broker.js";
+import { readBrokerAccess, requestNotificationDeliveryState } from "./broker.js";
+import { MobileNotifications } from "./rpc.js";
 
 const queueStorageKey = "notification-outbox-v1";
 const droppedStorageKey = "notification-outbox-dropped-v1";
@@ -17,6 +18,16 @@ export default Plugin.define({
     const access = await readBrokerAccess(ctx.options);
     let queue = parseStoredQueue(await ctx.storage.get(queueStorageKey));
     let droppedEvents = parseDroppedCount(await ctx.storage.get(droppedStorageKey));
+    const changeDelivery = async (operation: "enable" | "pause") => {
+      const state = await requestNotificationDeliveryState(access, operation);
+      await rpc.events.emit("changed", state);
+      return state;
+    };
+    const rpc = await ctx.rpc.register(MobileNotifications, {
+      enable: () => changeDelivery("enable"),
+      pause: () => changeDelivery("pause"),
+      status: () => requestNotificationDeliveryState(access, "status"),
+    });
     let stopped = false;
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
     let serial = Promise.resolve();
@@ -99,6 +110,7 @@ export default Plugin.define({
     return async () => {
       stopped = true;
       if (flushTimer) clearTimeout(flushTimer);
+      await rpc.dispose();
       controller.abort();
       await iterator.return?.();
       await Promise.race([consume, new Promise((resolve) => setTimeout(resolve, 1_000))]);

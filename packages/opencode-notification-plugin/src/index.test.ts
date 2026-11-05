@@ -1,6 +1,54 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const { requestNotificationDeliveryState } = vi.hoisted(() => ({
+  requestNotificationDeliveryState: vi.fn(),
+}));
+
+vi.mock("./broker.js", () => ({
+  readBrokerAccess: async () => ({ brokerOrigin: "http://127.0.0.1:37101", ingestToken: "token" }),
+  requestNotificationDeliveryState,
+}));
 
 import notificationPlugin, { normalizeOpenCodeNotificationEvent } from "./index.js";
+
+describe("notification delivery RPC", () => {
+  it("forwards delivery changes to the broker and broadcasts them", async () => {
+    const emit = vi.fn();
+    const dispose = vi.fn();
+    const register = vi.fn(async () => ({ dispose, events: { emit } }));
+    const paused = { enabled: false, updatedAtMs: 1_000, v: 1 };
+    requestNotificationDeliveryState.mockResolvedValue(paused);
+
+    const cleanup = await notificationPlugin.setup({
+      event: {
+        subscribe: () => ({
+          [Symbol.asyncIterator]: () => ({
+            next: async () => ({ done: true, value: undefined }),
+            return: async () => ({ done: true, value: undefined }),
+          }),
+        }),
+      },
+      options: {},
+      rpc: { register },
+      storage: { get: async () => undefined, set: async () => undefined },
+    } as never);
+    const handlers = (
+      register.mock.calls[0] as unknown as [unknown, Record<string, () => unknown>]
+    )[1];
+
+    await expect(handlers.pause?.()).resolves.toEqual(paused);
+    expect(requestNotificationDeliveryState).toHaveBeenLastCalledWith(expect.anything(), "pause");
+    expect(emit).toHaveBeenCalledWith("changed", paused);
+
+    emit.mockClear();
+    await handlers.status?.();
+    expect(requestNotificationDeliveryState).toHaveBeenLastCalledWith(expect.anything(), "status");
+    expect(emit).not.toHaveBeenCalled();
+
+    await (cleanup as () => Promise<void>)();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+});
 
 describe("notification plugin projection", () => {
   it("defines the server notification plugin", () => {
