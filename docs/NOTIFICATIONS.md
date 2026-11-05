@@ -95,7 +95,7 @@ OpenCode.
 }
 ```
 
-The package is pinned to `@opencode/plugin@2.0.27`, matching OpenCode `2.0.27`.
+The package is pinned to `@opencode/plugin@2.2.5`, matching OpenCode `2.2.5`.
 The old beta SDK is incompatible with this server's bundled Effect runtime and
 fails during import, before plugin setup. It subscribes to
 `permission.asked`, `permission.replied`, `form.created`, `form.replied`,
@@ -125,10 +125,15 @@ For controls in a locally installed OpenCode TUI, add the compiled plugin direct
 }
 ```
 
+OpenCode Desktop reads plugins only from `opencode.json`, so the server entry
+above also gives it controls. The Desktop part needs no extra configuration.
+
 The local source package directory has no root `index.js` and is not a valid
-plugin entry. Configure the compiled `dist` directory, which contains both
-`index.js` and `tui.js`. Rebuild after changes, restart the OpenCode service for
-server-plugin changes, and reopen the TUI for TUI-plugin changes.
+plugin entry. Configure the compiled `dist` directory, which contains
+`index.js`, `tui.js`, and the Desktop bundle `gui-experimental.cjs`. Rebuild
+after changes, restart the OpenCode service for server-plugin changes, and
+reopen the TUI for TUI-plugin changes. Desktop reloads the plugin's Desktop part
+after each rebuild.
 
 After rebuilding and reloading the server plugin, run `pnpm notifications:smoke`
 from this checkout to verify that the configured plugin is active in the live
@@ -241,10 +246,19 @@ fnm exec --using=26.7.0 pnpm notifications:broker -- revoke DEVICE_ID_PREFIX
 ```
 
 The broker owns one persisted delivery switch shared by OpenCode2 Mobile and the
-OpenCode TUI plugin. The mobile Settings screen reads and changes it for the
-selected paired connection. In the TUI, use `/notifications-status`,
-`/notifications-pause`, or `/notifications-enable`, or run the matching command
-from the command palette. Pausing discards pushes that have not yet been sent and
+OpenCode plugin. The mobile Settings screen reads and changes it for the
+selected paired connection. In the TUI or OpenCode Desktop, use
+`/notifications-status`, `/notifications-pause`, or `/notifications-enable`, or
+run the matching command from the command palette. Desktop also shows a
+notifications pill in the titlebar, or in the tab list footer with vertical
+tabs. The pill is green while delivery is enabled and yellow while it is paused,
+and clicking it switches the state. It is hidden while the broker is
+unreachable. Desktop calls the broker through the server plugin's
+`opencode-mobile-notifications` RPC, because a Desktop window cannot read the
+token file. The pill's color comes from a stylesheet that matches the Desktop
+app's titlebar markup, so a Desktop release that changes that markup leaves the
+pill in the default color. The Desktop part checks the state every 60 seconds to
+pick up changes made with the broker CLI. Pausing discards pushes that have not yet been sent and
 does not replay requests after notifications are enabled again. A push already
 submitted to Expo, APNs, or FCM cannot be recalled.
 
