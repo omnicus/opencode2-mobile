@@ -23,7 +23,7 @@ import {
 
 import { ensurePromiseWithResolvers } from "./promise-with-resolvers";
 
-export const openCodeClientContractVersion = "2.2.5";
+export const openCodeClientContractVersion = "2.2.6";
 
 export type OpenCodeClientOptions = {
   authorization?: string;
