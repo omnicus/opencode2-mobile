@@ -8,7 +8,14 @@ import type {
   ModelRef,
   SkillInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import { type RefObject, useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   FlatList,
   Keyboard,
@@ -202,6 +209,19 @@ export function SessionComposer({
     inputRef.current?.focus();
   }
 
+  const actionButton = (
+    <ComposerActionButton
+      active={active}
+      canSubmit={canSubmit}
+      delivery={delivery}
+      disabledHint={submitHint}
+      showStop={showStop}
+      stopDisabled={interruptDisabled || stopping}
+      stopping={stopping}
+      onPress={showStop ? () => onInterrupt?.() : submit}
+    />
+  );
+
   return (
     <View accessibilityLabel="Session composer" style={styles.shell}>
       <View style={[styles.surface, expanded && styles.surfaceExpanded]}>
@@ -220,16 +240,8 @@ export function SessionComposer({
             onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
             selection={selection}
           />
-          <ComposerActionButton
-            active={active}
-            canSubmit={canSubmit}
-            delivery={delivery}
-            disabledHint={submitHint}
-            showStop={showStop}
-            stopDisabled={interruptDisabled || stopping}
-            stopping={stopping}
-            onPress={showStop ? () => onInterrupt?.() : submit}
-          />
+          {/* Collapsed, send sits beside the text; expanded, it joins the toolbar so text gets the full width. */}
+          {expanded ? null : actionButton}
         </View>
 
         {expanded ? (
@@ -278,6 +290,7 @@ export function SessionComposer({
                 setOptionsPage("variant");
               }}
               selectedModel={selectedModel}
+              trailing={actionButton}
               variantSelectorRef={variantSelectorRef}
             />
           </>
@@ -532,6 +545,7 @@ function ComposerToolbar({
   onModelPress,
   onVariantPress,
   selectedModel,
+  trailing,
   variantSelectorRef,
 }: {
   agent: string | undefined;
@@ -544,6 +558,7 @@ function ComposerToolbar({
   onModelPress: () => void;
   onVariantPress: () => void;
   selectedModel: ModelInfo | undefined;
+  trailing: ReactNode;
   variantSelectorRef: RefObject<View | null>;
 }) {
   const selectedAgent = agents.find((candidate) => candidate.id === agent);
@@ -568,6 +583,7 @@ function ComposerToolbar({
           onPress={onAgentPress}
         />
         <SelectorButton
+          chevron={false}
           emphasis
           label={modelLabel(selectedModel, model)}
           onPress={onModelPress}
@@ -577,6 +593,7 @@ function ComposerToolbar({
         {/* Most models have no variants; the chip appears only when there is a choice or a saved one. */}
         {selectedModel?.variants.length || model?.variant ? (
           <SelectorButton
+            chevron={false}
             label={model?.variant ?? "Default"}
             prefix="Variant"
             buttonRef={variantSelectorRef}
@@ -590,6 +607,7 @@ function ComposerToolbar({
           </Text>
         ) : null}
       </ScrollView>
+      {trailing}
     </View>
   );
 }
@@ -922,6 +940,7 @@ function ComposerActionButton({
 }
 
 function SelectorButton({
+  chevron = true,
   emphasis = false,
   buttonRef,
   disabled = false,
@@ -929,6 +948,8 @@ function SelectorButton({
   onPress,
   prefix,
 }: {
+  // Only the agent keeps a chevron; model and variant read as one phrase, "Opus 5.5 High".
+  chevron?: boolean;
   // The model reads in ink; agent and variant stay dim around it.
   emphasis?: boolean;
   buttonRef?: RefObject<View | null>;
@@ -958,7 +979,9 @@ function SelectorButton({
       >
         {label}
       </Text>
-      <Feather accessible={false} color={palette.dim} name="chevron-down" size={12} />
+      {chevron ? (
+        <Feather accessible={false} color={palette.dim} name="chevron-down" size={12} />
+      ) : null}
     </Pressable>
   );
 }

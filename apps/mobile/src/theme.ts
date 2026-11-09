@@ -15,6 +15,8 @@ export const palette = {
   prompt: "#3a3a3a",
   // The one fill for a chosen tab, option, or row on a card or sheet.
   selected: "#3a3a3a",
+  // Danger at 16% over the card: a tinted fill whose red label still clears 4.5:1.
+  dangerFill: "#3f2a2e",
   signal: "#ffffff",
   success: "#7bd88f",
   warm: "#f6c85f",

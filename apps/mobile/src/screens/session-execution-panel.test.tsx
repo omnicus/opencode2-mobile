@@ -343,7 +343,7 @@ test("renders active execution and mutable queued inbox work", async () => {
   });
   expect(screen.getByText("Queued")).toHaveStyle({ ...typography.label, color: palette.dim });
   expect(screen.getByRole("button", { name: "Cancel" })).toHaveStyle({
-    borderColor: palette.border,
+    backgroundColor: palette.selected,
   });
   fireEvent.press(screen.getByRole("button", { name: "Steer now" }));
   expect(callbacks.onSteerInbox).toHaveBeenCalledWith("msg_queued");

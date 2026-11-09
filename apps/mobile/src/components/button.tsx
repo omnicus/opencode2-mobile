@@ -17,6 +17,7 @@ import {
   minTouchTarget,
   palette,
   pressedOpacity,
+  radius,
   rippleColor,
   space,
   typeRamp,
@@ -90,7 +91,8 @@ export function Button({
         size === "compact" && styles.compact,
         variant === "text" && styles.text,
         variant === "primary" && styles.primary,
-        (variant === "secondary" || variant === "danger") && styles.outlined,
+        variant === "secondary" && styles.secondary,
+        variant === "danger" && styles.danger,
         alignStyles[alignment],
         style,
         pressed && Platform.OS === "ios" && styles.pressed,
@@ -107,8 +109,10 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
+  // Capsules with filled, tinted variants, so every button reads as a control on any surface.
   button: {
     ...control,
+    borderRadius: radius.pill,
     minHeight: minTouchTarget,
     alignItems: "center",
     flexDirection: "row",
@@ -119,7 +123,8 @@ const styles = StyleSheet.create({
   compact: { paddingHorizontal: space.sm },
   text: { minWidth: minTouchTarget, paddingHorizontal: 0 },
   primary: { backgroundColor: palette.signal },
-  outlined: { borderColor: palette.border, borderWidth: 1 },
+  secondary: { backgroundColor: palette.selected },
+  danger: { backgroundColor: palette.dangerFill },
   pressed: { opacity: pressedOpacity },
   disabled: { opacity: disabledOpacity },
   label: {
