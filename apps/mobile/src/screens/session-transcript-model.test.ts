@@ -182,7 +182,7 @@ function backgroundLaunch(childSessionID: string, created = 1): SessionMessageIn
 
 function subagentNotification(
   childSessionID: string,
-  state: "completed" | "cancelled",
+  state: "completed" | "cancelled" | "failed",
   created = 2,
 ): SessionMessageInfo {
   return {
