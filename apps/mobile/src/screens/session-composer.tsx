@@ -556,8 +556,15 @@ function ComposerToolbar({
         showsHorizontalScrollIndicator={false}
         style={styles.selectorScroller}
       >
+        {/* Agent, then model, then its variant, so "Build  Opus 5.5  High" reads as one phrase. */}
         <SelectorButton
-          compact
+          label={selectedAgent?.name ?? agent ?? "Choose agent"}
+          prefix="Agent"
+          buttonRef={agentSelectorRef}
+          onPress={onAgentPress}
+        />
+        <SelectorButton
+          emphasis
           label={modelLabel(selectedModel, model)}
           onPress={onModelPress}
           prefix="Model"
@@ -566,7 +573,6 @@ function ComposerToolbar({
         {/* Most models have no variants; the chip appears only when there is a choice or a saved one. */}
         {selectedModel?.variants.length || model?.variant ? (
           <SelectorButton
-            compact
             label={model?.variant ?? "Default"}
             prefix="Variant"
             buttonRef={variantSelectorRef}
@@ -574,13 +580,6 @@ function ComposerToolbar({
             onPress={onVariantPress}
           />
         ) : null}
-        <SelectorButton
-          compact
-          label={selectedAgent?.name ?? agent ?? "Choose agent"}
-          prefix="Agent"
-          buttonRef={agentSelectorRef}
-          onPress={onAgentPress}
-        />
         {draftLength >= maximumDraftLength * 0.9 ? (
           <Text dynamicTypeRamp={typeRamp.footnote} style={styles.count}>
             {draftLength.toLocaleString()} / {maximumDraftLength.toLocaleString()}
@@ -899,14 +898,15 @@ function ComposerActionButton({
 }
 
 function SelectorButton({
-  compact = false,
+  emphasis = false,
   buttonRef,
   disabled = false,
   label,
   onPress,
   prefix,
 }: {
-  compact?: boolean;
+  // The model reads in ink; agent and variant stay dim around it.
+  emphasis?: boolean;
   buttonRef?: RefObject<View | null>;
   disabled?: boolean;
   label: string;
@@ -923,7 +923,6 @@ function SelectorButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.selectorButton,
-        compact && styles.modelChip,
         disabled && styles.selectorDisabled,
         pressed && styles.pressed,
       ]}
@@ -931,7 +930,7 @@ function SelectorButton({
       <Text
         dynamicTypeRamp={typeRamp.footnote}
         numberOfLines={1}
-        style={[styles.selectorLabel, compact && styles.modelChipLabel]}
+        style={[styles.selectorLabel, emphasis && styles.selectorLabelEmphasis]}
       >
         {label}
       </Text>
@@ -1000,13 +999,7 @@ function modelLabel(model: ModelInfo | undefined, ref: ModelRef | undefined) {
 }
 
 const styles = StyleSheet.create({
-  modelChip: {
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.sm,
-  },
-  modelChipLabel: { ...typography.footnote, color: palette.ink },
+  selectorLabelEmphasis: { color: palette.ink },
   selectorDisabled: { opacity: disabledOpacity },
   optionsContent: { gap: 2 },
   completion: {

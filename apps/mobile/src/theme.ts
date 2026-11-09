@@ -65,6 +65,17 @@ export const projectAvatarPalette = {
   },
 } as const;
 
+// Settings row icon tiles. White glyphs sit on each fill at 3:1 or more.
+export const iconTilePalette = {
+  amber: "#b7791f",
+  blue: "#2f6fdb",
+  gray: "#636366",
+  green: "#2f9a57",
+  indigo: "#5856d6",
+  red: "#d0434f",
+  teal: "#1f8a9e",
+} as const;
+
 export const space = {
   xs: 6,
   sm: 10,

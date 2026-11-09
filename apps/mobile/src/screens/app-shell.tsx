@@ -30,12 +30,14 @@ import {
   type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { applicationBuild, applicationName, applicationVersion } from "../application-name";
 import { Button } from "../components/button";
 import {
   FullScreenState,
   FullScreenStateError,
   fullScreenStateStyles,
 } from "../components/full-screen-state";
+import { IconTile } from "../components/icon-tile";
 import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
 import { MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
@@ -578,19 +580,25 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
         <AppUpdateCard grouped />
 
         <SettingsGroup title="Support">
-          <View style={styles.managementAction}>
-            <SettingText
-              description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
-              title="Diagnostics report"
-            />
-            <ActionButton
-              label="Share diagnostics"
-              onPress={() => void shareDiagnostics()}
-              secondary
-              style={styles.inlineAction}
-            />
-          </View>
+          <SettingsRow last>
+            <IconTile icon="activity" tint="gray" />
+            <View style={styles.settingText}>
+              <SettingText
+                description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
+                title="Diagnostics report"
+              />
+              <ActionButton
+                label="Share diagnostics"
+                onPress={() => void shareDiagnostics()}
+                secondary
+                style={styles.inlineAction}
+              />
+            </View>
+          </SettingsRow>
         </SettingsGroup>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.versionFooter}>
+          {applicationName} {applicationVersion} ({applicationBuild})
+        </Text>
       </ScrollView>
     </ShellFrame>
   );
@@ -618,19 +626,22 @@ function WorkspaceSettings({
         icon="inbox"
         label="Needs you"
         onPress={() => navigate("Pending")}
+        tint="amber"
       />
       <MenuRow
         description="Choose projects shown in Sessions and Needs you"
         icon="folder"
         label="Followed projects"
         onPress={onFollowedProjects}
+        tint="blue"
       />
       <MenuRow
-        description={connectionName ?? "No connection selected"}
         icon="server"
         label="Connections"
         last
         onPress={() => navigate("Connections")}
+        tint="green"
+        value={connectionName ?? "No connection selected"}
       />
     </SettingsGroup>
   );
@@ -645,6 +656,7 @@ function TranscriptSettings({
     <>
       <SettingsGroup title="Transcript">
         <SettingsRow>
+          <IconTile icon="corner-down-right" tint="indigo" />
           <View style={styles.settingText}>
             <SettingText
               description="Steer updates the current work. Queue waits until it finishes."
@@ -665,6 +677,7 @@ function TranscriptSettings({
         </SettingsRow>
 
         <SettingsRow>
+          <IconTile icon="list" tint="teal" />
           <View style={styles.settingText}>
             <SettingText
               description={
@@ -684,6 +697,7 @@ function TranscriptSettings({
           />
         </SettingsRow>
         <SettingsRow last>
+          <IconTile icon="zap" tint="indigo" />
           <View style={styles.settingText}>
             <SettingText
               description="Display model reasoning when provided by the server."
@@ -727,6 +741,7 @@ function SecuritySettings({
     <>
       <SettingsGroup title="Security and notifications">
         <SettingsRow>
+          <IconTile icon="lock" tint="gray" />
           <View style={styles.settingText}>
             <SettingText
               description="Require device authentication after the app leaves the foreground."
@@ -784,6 +799,7 @@ function NotificationSettingRow({
   const setting = { ...notifications, connectionID };
   return (
     <SettingsRow last>
+      <IconTile icon="bell" tint="red" />
       <View style={styles.settingText}>
         <SettingText
           description={notificationSettingDescription(setting)}
@@ -1592,6 +1608,7 @@ const styles = StyleSheet.create({
   deliveryOptions: { marginTop: space.sm },
   errorText: { ...typography.footnote, color: palette.danger },
   emptyCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  versionFooter: { ...typography.footnote, color: palette.dim, textAlign: "center" },
   ownedRequest: { gap: space.xs },
   owner: { alignItems: "center", flexDirection: "row", gap: space.xs, paddingHorizontal: 2 },
   ownerProject: { color: palette.ink },
@@ -1613,11 +1630,6 @@ const styles = StyleSheet.create({
   locationFailure: { ...cardSurface, gap: space.xs },
   locationPath: { ...typography.code, color: palette.ink },
   main: { flex: 1, minWidth: 0 },
-  managementAction: {
-    gap: 2,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
   navigationItem: {
     alignItems: "center",
     borderRadius: radius.sm,
