@@ -191,6 +191,14 @@ function sessionScreenOptions(
               })}
               onBack={() => backToWorkspace(navigation)}
               title={options.title ?? "Session"}
+              titleView={
+                typeof options.headerTitle === "function"
+                  ? options.headerTitle({
+                      children: options.title ?? "Session",
+                      tintColor: palette.ink,
+                    })
+                  : undefined
+              }
             />
           ),
         }
@@ -239,24 +247,31 @@ function ManagementDoneButton({ onPress }: { onPress: () => void }) {
 function WorkspaceHeader({
   onBack,
   title,
+  titleView,
   rightActions,
 }: {
   onBack?: () => void;
   title: string;
+  // A custom title from the screen, such as the session title with its project.
+  titleView?: ReactNode;
   rightActions?: ReactNode;
 }) {
   return (
     <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
       <View style={styles.header}>
         {onBack ? <SessionBackButton onPress={onBack} /> : <View style={styles.headerSide} />}
-        <Text
-          accessibilityRole="header"
-          dynamicTypeRamp={typeRamp.navTitle}
-          numberOfLines={1}
-          style={styles.headerTitle}
-        >
-          {title}
-        </Text>
+        {titleView ? (
+          <View style={styles.headerTitleView}>{titleView}</View>
+        ) : (
+          <Text
+            accessibilityRole="header"
+            dynamicTypeRamp={typeRamp.navTitle}
+            numberOfLines={1}
+            style={styles.headerTitle}
+          >
+            {title}
+          </Text>
+        )}
         {rightActions ?? <View style={styles.headerSide} />}
       </View>
     </SafeAreaView>
@@ -316,6 +331,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 44,
   },
+  headerTitleView: { alignItems: "center", flex: 1, minWidth: 0 },
   headerTitle: {
     ...typography.navTitle,
     color: palette.ink,

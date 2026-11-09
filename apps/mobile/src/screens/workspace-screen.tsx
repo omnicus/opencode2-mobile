@@ -55,9 +55,10 @@ import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
+import { SessionHeaderTitle } from "../navigation/session-header-title";
 import { WorkspaceHeaderActions } from "../navigation/workspace-header-actions";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
-import { type FollowedInboxRow, locationKey } from "../state/followed-project-inbox";
+import { type FollowedInboxRow, labelProject, locationKey } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { recordTranscriptResidentSet } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
@@ -934,8 +935,14 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     enabled: screenFocused,
     session,
   });
+  const sessionProject = session
+    ? workspaceSelection.projects.find((project) => project.id === session.projectID)
+    : undefined;
   useSessionHeaderOptions({
     navigation,
+    projectName: sessionProject
+      ? labelProject(sessionProject, session?.projectID ?? "")
+      : undefined,
     routeSessionScope,
     sessionLocationReady,
     sessionTitle,
@@ -1271,12 +1278,14 @@ function useSessionRecord({
 
 function useSessionHeaderOptions({
   navigation,
+  projectName,
   routeSessionScope,
   sessionLocationReady,
   sessionTitle,
   setActionsOpen,
 }: {
   navigation: SessionNavigation;
+  projectName: string | undefined;
   routeSessionScope: string;
   sessionLocationReady: boolean;
   sessionTitle: string | undefined;
@@ -1285,6 +1294,14 @@ function useSessionHeaderOptions({
   useEffect(() => {
     navigation.setOptions({ title: sessionTitle || "Untitled session" });
   }, [navigation, sessionTitle]);
+  // The project sits under the title, so a session is never ambiguous about where it runs.
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: ({ children }) => (
+        <SessionHeaderTitle subtitle={projectName} title={String(children)} />
+      ),
+    });
+  }, [navigation, projectName]);
   useEffect(() => {
     void routeSessionScope;
     setActionsOpen(false);
