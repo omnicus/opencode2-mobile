@@ -52,7 +52,11 @@ export function WorkspaceHeaderActions({
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             testID="workspace-attention-indicator"
-            style={[styles.attentionDot, count === 0 && styles.attentionDotUncertain]}
+            style={[
+              styles.attentionDot,
+              styles.settingsAttentionDot,
+              count === 0 && styles.attentionDotUncertain,
+            ]}
           />
         ) : null}
       </Pressable>
@@ -113,6 +117,8 @@ const styles = StyleSheet.create({
     backgroundColor: palette.warm,
   },
   attentionDotUncertain: { backgroundColor: palette.dim },
+  // On the gear's top-right corner rather than floating in the touch target.
+  settingsAttentionDot: { left: undefined, right: 10, top: 10 },
   actions: {
     alignItems: "center",
     flexDirection: "row",

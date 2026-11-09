@@ -1249,6 +1249,7 @@ function DiffAction({ onPress }: { onPress: () => void }) {
       <Text dynamicTypeRamp={typeRamp.control} style={styles.diffActionLabel}>
         Review current changes
       </Text>
+      <Feather accessible={false} color={palette.signal} name="chevron-right" size={16} />
     </Pressable>
   );
 }
@@ -1625,7 +1626,8 @@ function SubagentCardFooter({
         <Feather
           accessible={false}
           color={palette.signal}
-          name={expanded ? "chevron-down" : "chevron-right"}
+          // Inline expansion below, so up/down; the card title already uses right for navigation.
+          name={expanded ? "chevron-up" : "chevron-down"}
           size={16}
         />
       </Pressable>
@@ -2351,7 +2353,10 @@ const styles = StyleSheet.create({
   },
   disclosureLabelLargeText: { flex: 0, width: "100%" },
   diffAction: {
+    alignItems: "center",
     alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
     minHeight: minTouchTarget,
     paddingRight: space.md,

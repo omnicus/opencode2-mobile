@@ -1,10 +1,11 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { PermissionReply, PermissionRequest } from "@opencode2-mobile/opencode-adapter";
-import { useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import {
   Alert,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   type TextLayoutEventData,
@@ -50,6 +51,7 @@ export function PermissionRequestCard({
   onReply: (requestID: string, sessionID: string, reply: PermissionReply) => void;
 }) {
   const [details, setDetails] = useState(false);
+  const detailsRef = useRef<View>(null);
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
   // The card previews short patterns; Details and the confirmation show them in full.
@@ -102,7 +104,7 @@ export function PermissionRequestCard({
         >
           {action}
         </Text>
-        <DetailsButton onPress={() => setDetails(true)} />
+        <DetailsButton buttonRef={detailsRef} onPress={() => setDetails(true)} />
       </View>
       {shell ? (
         <CommandPreview command={command} onShowFull={() => setDetails(true)} />
@@ -111,23 +113,36 @@ export function PermissionRequestCard({
       )}
       <ReplyStatus error={error} replying={replying} />
       {actions}
-      <ModalSheet title="Permission details" visible={details} onClose={() => setDetails(false)}>
-        <Text dynamicTypeRamp={typeRamp.headline} style={styles.title}>
-          {action}
-        </Text>
-        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sectionLabel}>
-          {shell ? "Full command" : "Requested resources"}
-        </Text>
-        {request.resources.map((resource) => (
-          <View key={resource} style={[styles.commandBox, styles.commandBoxSheet]}>
-            <Text selectable style={[styles.command, styles.commandPadding]}>
-              {sanitizeTranscriptText(resource, resource.length)}
-            </Text>
-          </View>
-        ))}
-        <SavedPatterns patterns={fullPatterns} />
-        <ActionExplanation explanation={permissionActionExplanation(request.action)} />
-        {actions}
+      <ModalSheet
+        onClose={() => setDetails(false)}
+        returnFocusRef={detailsRef}
+        scrollable={false}
+        title="Permission details"
+        visible={details}
+      >
+        <ScrollView
+          contentContainerStyle={styles.detailsContent}
+          keyboardShouldPersistTaps="handled"
+          style={styles.detailsScroll}
+        >
+          <Text dynamicTypeRamp={typeRamp.headline} style={styles.title}>
+            {action}
+          </Text>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sectionLabel}>
+            {shell ? "Full command" : "Requested resources"}
+          </Text>
+          {request.resources.map((resource) => (
+            <View key={resource} style={[styles.commandBox, styles.commandBoxSheet]}>
+              <Text selectable style={[styles.command, styles.commandPadding]}>
+                {sanitizeTranscriptText(resource, resource.length)}
+              </Text>
+            </View>
+          ))}
+          <SavedPatterns patterns={fullPatterns} />
+          <ActionExplanation explanation={permissionActionExplanation(request.action)} />
+        </ScrollView>
+        {/* Pinned like the form answer sheet, so the choice stays reachable past long commands. */}
+        <View style={styles.detailsActions}>{actions}</View>
       </ModalSheet>
     </View>
   );
@@ -175,9 +190,16 @@ function useCommandPreview(resources: string[], shell: boolean) {
   return { commandCutOff, commandPreview, measureCommand };
 }
 
-function DetailsButton({ onPress }: { onPress: () => void }) {
+function DetailsButton({
+  buttonRef,
+  onPress,
+}: {
+  buttonRef: RefObject<View | null>;
+  onPress: () => void;
+}) {
   return (
     <Pressable
+      ref={buttonRef}
       accessibilityRole="button"
       accessibilityLabel="Details"
       accessibilityHint="Opens the full request, saved permission patterns, and explanation"
@@ -404,6 +426,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   commandPadding: { gap: 2, padding: space.sm },
+  detailsActions: {
+    borderTopColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space.sm,
+  },
+  detailsContent: { gap: space.md, paddingBottom: space.md },
+  detailsScroll: { flex: 1 },
   // The Details sheet sits on the page color, so its code boxes use the card color instead.
   commandBoxSheet: { backgroundColor: palette.card },
   command: { ...typography.code, color: markdownPalette.code },

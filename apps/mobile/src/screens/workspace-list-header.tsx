@@ -180,6 +180,6 @@ const styles = StyleSheet.create({
     width: minTouchTarget,
   },
   pressed: { opacity: pressedOpacity },
-  searchField: { flex: 1, marginLeft: space.sm },
+  searchField: { flex: 1, marginLeft: space.sm, minWidth: 0 },
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },
 });

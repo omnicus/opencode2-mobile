@@ -97,6 +97,8 @@ const styles = StyleSheet.create({
     color: palette.ink,
     flex: 1,
     includeFontPadding: false,
+    // Lets the field shrink so the clear button stays inside it.
+    minWidth: 0,
     minHeight: minTouchTarget - 2,
     paddingVertical: 0,
   },

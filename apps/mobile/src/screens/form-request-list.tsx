@@ -1,5 +1,5 @@
 import type { FormInfo, LocationRef, OpenCodeClient } from "@opencode2-mobile/opencode-adapter";
-import { Fragment, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { space } from "../theme";
@@ -39,7 +39,7 @@ export function FormRequestList({
       style={styles.list}
     >
       {interactions.forms.map((form) => (
-        <Fragment key={`${form.sessionID}:${form.id}`}>
+        <View key={`${form.sessionID}:${form.id}`} style={styles.item}>
           {renderOwner?.(form.sessionID)}
           <FormRequestCard
             allowFocus={focusSingle && interactions.forms.length === 1}
@@ -58,7 +58,7 @@ export function FormRequestList({
             onCancel={() => interactions.cancelForm(form)}
             onSubmit={(answer) => interactions.replyForm(form, answer)}
           />
-        </Fragment>
+        </View>
       ))}
     </View>
   );
@@ -66,4 +66,6 @@ export function FormRequestList({
 
 const styles = StyleSheet.create({
   list: { gap: space.md },
+  // The owner line sits close to its own card, like pooled permission cards.
+  item: { gap: space.xs },
 });
