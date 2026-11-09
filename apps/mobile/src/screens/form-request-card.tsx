@@ -672,7 +672,10 @@ export function openExternalFormUrl(url: string) {
     [
       { style: "cancel", text: "Cancel" },
       {
-        onPress: () => void Linking.openURL(parsed.toString()).catch(() => undefined),
+        onPress: () =>
+          void Linking.openURL(parsed.toString()).catch(() =>
+            Alert.alert("Couldn't open link", "No app on this device could open the link."),
+          ),
         text: "Open",
       },
     ],

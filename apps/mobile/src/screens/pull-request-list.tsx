@@ -10,6 +10,7 @@ import { useQueries } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Linking,
   Platform,
@@ -528,7 +529,11 @@ function PullRequestRow({
       accessibilityLabel={label}
       accessibilityRole="link"
       android_ripple={rowRipple}
-      onPress={() => void Linking.openURL(pullRequest.url).catch(() => undefined)}
+      onPress={() =>
+        void Linking.openURL(pullRequest.url).catch(() =>
+          Alert.alert("Couldn't open pull request", "No app on this device could open the link."),
+        )
+      }
       style={({ pressed }) => [styles.row, pressed && Platform.OS === "ios" && styles.pressed]}
     >
       <Feather
