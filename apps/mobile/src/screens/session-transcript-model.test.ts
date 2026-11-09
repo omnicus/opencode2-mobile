@@ -10,8 +10,8 @@ import {
   getSubagentPresentation,
   parseSubagentProtocolText,
   runningBackgroundSubagents,
-  sessionSubagents,
   sanitizeTranscriptText,
+  sessionSubagents,
   subagentStates,
 } from "./session-transcript-model";
 
@@ -364,7 +364,9 @@ test.each([
     { background: false, state: "streaming", title: "Delegated task" },
   ],
 ])("reads streaming subagent input from %s", (_name, input, expected) => {
-  expect(getSubagentPresentation(subagentTool({ input, status: "streaming" }))).toMatchObject(expected);
+  expect(getSubagentPresentation(subagentTool({ input, status: "streaming" }))).toMatchObject(
+    expected,
+  );
 });
 
 test("falls back across metadata session keys, titles, and agents", () => {

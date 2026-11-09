@@ -5,6 +5,7 @@ import {
   getOpenCodeLocation,
   getOpenCodeSession,
   getOpenCodeVcs,
+  interruptOpenCodeSession,
   type LocationRef,
   listOpenCodeMessages,
   listOpenCodeProjects,
@@ -101,7 +102,11 @@ import {
   type TranscriptListItem,
   TranscriptUpdatesGroup,
 } from "./session-transcript";
-import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
+import {
+  flattenTranscriptPages,
+  type SubagentAttentionMap,
+  subagentStates,
+} from "./session-transcript-model";
 import { useInboxBranches } from "./use-inbox-branches";
 import { useMarkSessionViewed } from "./use-mark-session-viewed";
 import { useSessionDraft } from "./use-session-draft";
@@ -996,9 +1001,15 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     sessionID,
   });
   const activeSessions = execution.activeSessions;
+  // Pending requests across followed projects, keyed by the session that asked, so a child
+  // subagent blocked on one reads as "Needs you" from its parent.
+  const subagentAttention = useMemo(
+    () => requestAttention(workspaceSelection.permissions, workspaceSelection.forms),
+    [workspaceSelection.forms, workspaceSelection.permissions],
+  );
   const transcriptSubagentStates = useMemo(
-    () => subagentStates(messages, activeSessions, sessionID),
-    [activeSessions, messages, sessionID],
+    () => subagentStates(messages, activeSessions, sessionID, subagentAttention),
+    [activeSessions, messages, sessionID, subagentAttention],
   );
   const transcriptItems: TranscriptListItem[] = [
     ...execution.pendingPrompts,
@@ -1095,6 +1106,14 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         )}
         onOpenChild={openSubagent}
         onReplyPermission={workspaceSelection.replyPermission}
+        onStopChild={
+          client && connected
+            ? async (childSessionID: string) => {
+                await interruptOpenCodeSession(client, childSessionID, false);
+              }
+            : undefined
+        }
+        subagentAttention={subagentAttention}
         permissions={sessionPermissions}
         replyingPermissionId={workspaceSelection.replyingPermissionId}
         routeSessionScope={routeSessionScope}
@@ -1669,6 +1688,17 @@ function SessionScreenActionSheet({
   );
 }
 
+function requestAttention(
+  permissions: WorkspaceSelection["permissions"],
+  forms: WorkspaceSelection["forms"],
+): SubagentAttentionMap {
+  const attention = new Map<string, "input" | "permission">();
+  for (const form of forms) attention.set(form.sessionID, "input");
+  // A permission is the more urgent ask, so it wins when a child has both.
+  for (const request of permissions) attention.set(request.sessionID, "permission");
+  return attention;
+}
+
 function SessionDockPanel({
   activeSessions,
   client,
@@ -1679,12 +1709,14 @@ function SessionDockPanel({
   messages,
   onOpenChild,
   onReplyPermission,
+  onStopChild,
   permissions,
   replyingPermissionId,
   routeSessionScope,
   sessionForms,
   sessionID,
   sessionLocation,
+  subagentAttention,
   tablet,
 }: {
   activeSessions: SessionExecution["activeSessions"];
@@ -1696,12 +1728,14 @@ function SessionDockPanel({
   messages: SessionMessages;
   onOpenChild: (sessionID: string) => void;
   onReplyPermission: WorkspaceSelection["replyPermission"];
+  onStopChild: ((sessionID: string) => Promise<void>) | undefined;
   permissions: WorkspaceSelection["permissions"];
   replyingPermissionId: WorkspaceSelection["replyingPermissionId"];
   routeSessionScope: string;
   sessionForms: WorkspaceSelection["forms"];
   sessionID: string;
   sessionLocation: LocationRef;
+  subagentAttention: SubagentAttentionMap;
   tablet: boolean;
 }) {
   return (
@@ -1709,9 +1743,11 @@ function SessionDockPanel({
       <SessionBackgroundTasks
         key={routeSessionScope}
         activeSessions={activeSessions}
+        attention={subagentAttention}
         sessionID={sessionID}
         messages={messages}
         onOpenChild={onOpenChild}
+        onStopChild={onStopChild}
       />
       <SessionExecutionPanel
         hideInterrupt
