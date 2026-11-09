@@ -940,20 +940,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     enabled: screenFocused,
     session,
   });
-  const sessionProject = session
-    ? workspaceSelection.projects.find((project) => project.id === session.projectID)
-    : undefined;
-  const projectName = sessionProject
-    ? labelProject(sessionProject, session?.projectID ?? "")
-    : undefined;
   useSessionHeaderOptions({
     navigation,
-    // A subagent's own session says so under its title, so it never reads as a root session.
-    projectName: session?.parentID
-      ? projectName
-        ? `Subagent · ${projectName}`
-        : "Subagent"
-      : projectName,
+    projectName: sessionHeaderSubtitle(session, workspaceSelection.projects),
     routeSessionScope,
     sessionLocationReady,
     sessionTitle,
@@ -1684,6 +1673,18 @@ function SessionScreenActionSheet({
       }}
     />
   );
+}
+
+// The project under the session title; a subagent's own session says so first.
+function sessionHeaderSubtitle(
+  session: SessionInfo | undefined,
+  projects: WorkspaceSelection["projects"],
+) {
+  if (!session) return undefined;
+  const project = projects.find((candidate) => candidate.id === session.projectID);
+  const name = project ? labelProject(project, session.projectID) : undefined;
+  if (!session.parentID) return name;
+  return name ? `Subagent · ${name}` : "Subagent";
 }
 
 function requestAttention(

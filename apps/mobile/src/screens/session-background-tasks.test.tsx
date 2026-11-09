@@ -225,3 +225,33 @@ test("a stale monitor hides the chip and keeps last-known rows without Stop", ()
   expect(screen.getByRole("button", { name: "Run tests, @review, Running" })).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Stop Run tests" })).toBeNull();
 });
+
+test("a failed stop explains itself and offers Stop again", async () => {
+  const onStopChild = jest.fn(async () => {
+    throw new Error("UNREACHABLE");
+  });
+  const alert = jest
+    .spyOn(Alert, "alert")
+    .mockImplementation((_title, _message, buttons?: AlertButton[]) =>
+      buttons?.find((button) => button.text === "Stop subagent")?.onPress?.(),
+    );
+  try {
+    render(
+      <SessionBackgroundTasks
+        messages={[launch("ses_tests", "Run tests")]}
+        onOpenChild={jest.fn()}
+        onStopChild={onStopChild}
+      />,
+    );
+    fireEvent.press(screen.getByRole("button", { name: "1 subagent, running in this session" }));
+    await act(async () => {
+      fireEvent.press(screen.getByRole("button", { name: "Stop Run tests" }));
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The subagent could not be stopped. Try again.",
+    );
+    expect(screen.getByRole("button", { name: "Stop Run tests" })).toBeEnabled();
+  } finally {
+    alert.mockRestore();
+  }
+});

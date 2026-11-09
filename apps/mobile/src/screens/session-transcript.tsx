@@ -20,11 +20,9 @@ import { applicationName } from "../application-name";
 import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
 import {
-  SubagentElapsed,
+  SubagentMetaLine,
   SubagentStatusGlyph,
-  subagentStateColor,
   subagentStateLabel,
-  subagentStatusStyles,
 } from "../components/subagent-status";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
@@ -1489,21 +1487,15 @@ function SubagentCard({
           >
             {title}
           </Text>
-          <Text
-            accessibilityLiveRegion="polite"
-            dynamicTypeRamp={typeRamp.footnote}
+          <SubagentMetaLine
+            agent={agent}
+            background={presentation.background}
+            finishedAt={presentation.finishedAt}
             numberOfLines={largeText ? undefined : 2}
-            style={subagentStatusStyles.meta}
-          >
-            {agent ? `${agent} · ` : ""}
-            {presentation.background ? "Background · " : ""}
-            <Text style={{ color: subagentStateColor(state) }}>{stateLabel}</Text>
-            <SubagentElapsed
-              finishedAt={presentation.finishedAt}
-              startedAt={presentation.startedAt}
-              state={state}
-            />
-          </Text>
+            startedAt={presentation.startedAt}
+            state={state}
+            waitingFor={waitingFor}
+          />
         </View>
         {canOpen ? (
           <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />

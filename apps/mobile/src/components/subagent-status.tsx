@@ -118,6 +118,45 @@ export function SubagentElapsed({
   );
 }
 
+// "@agent · Background · State · 1m 23s", with the state in its color. Optional suffix such
+// as " · Review" for rows that invite action.
+export function SubagentMetaLine({
+  agent,
+  background,
+  finishedAt,
+  numberOfLines,
+  startedAt,
+  state,
+  suffix,
+  waitingFor,
+}: {
+  agent?: string | undefined;
+  background: boolean;
+  finishedAt?: number | undefined;
+  numberOfLines?: number | undefined;
+  startedAt?: number | undefined;
+  state: SubagentState;
+  suffix?: string | undefined;
+  waitingFor?: SubagentAttention | undefined;
+}) {
+  return (
+    <Text
+      accessibilityLiveRegion="polite"
+      dynamicTypeRamp="footnote"
+      numberOfLines={numberOfLines}
+      style={subagentStatusStyles.meta}
+    >
+      {agent ? `${agent} · ` : ""}
+      {background ? "Background · " : ""}
+      <Text style={{ color: subagentStateColor(state) }}>
+        {subagentStateLabel(state, waitingFor)}
+      </Text>
+      <SubagentElapsed finishedAt={finishedAt} startedAt={startedAt} state={state} />
+      {suffix ?? ""}
+    </Text>
+  );
+}
+
 export const subagentStatusStyles = StyleSheet.create({
   meta: { ...typography.footnote, color: palette.dim },
 });

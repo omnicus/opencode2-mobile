@@ -6,11 +6,9 @@ import { Alert, Platform, Pressable, StyleSheet, Text, View } from "react-native
 import { Button } from "../components/button";
 import { ModalSheet } from "../components/modal-sheet";
 import {
-  SubagentElapsed,
+  SubagentMetaLine,
   SubagentStatusGlyph,
-  subagentStateColor,
   subagentStateLabel,
-  subagentStatusStyles,
 } from "../components/subagent-status";
 import { WorkingIndicator } from "../components/working-indicator";
 import {
@@ -212,44 +210,22 @@ function SubagentMonitorRow({
   onStop?: ((sessionID: string) => Promise<void>) | undefined;
   subagent: SessionSubagent;
 }) {
-  // Once a stop is sent the row stays "Stopping" until the refreshed state moves it out of
-  // Working, so a stale Running row never offers Stop again.
-  const [stopping, setStopping] = useState(false);
-  const [stopFailed, setStopFailed] = useState(false);
   const title = sanitizeTranscriptText(subagent.title, 256);
   const agent = subagent.agent ? `@${sanitizeTranscriptText(subagent.agent, 128)}` : "";
-  const stateLabel = subagentStateLabel(subagent.state, subagent.waitingFor);
   const childSessionID = subagent.childSessionID;
   // A child that needs you invites review, not stopping; it can still be stopped from inside.
   const waiting = subagent.state === "waiting";
-  const canStop = Boolean(
-    onStop && childSessionID && isSubagentInFlight(subagent.state) && !waiting,
+  const stop = useStopSubagent(
+    title,
+    childSessionID && onStop && isSubagentInFlight(subagent.state) && !waiting
+      ? () => onStop(childSessionID)
+      : undefined,
   );
-
-  function confirmStop() {
-    if (!childSessionID || !onStop) return;
-    Alert.alert(`Stop ${title}?`, "The parent session may continue without its result.", [
-      { style: "cancel", text: "Keep running" },
-      {
-        onPress: () => {
-          setStopping(true);
-          setStopFailed(false);
-          onStop(childSessionID).catch(() => {
-            setStopFailed(true);
-            setStopping(false);
-          });
-        },
-        style: "destructive",
-        text: "Stop subagent",
-      },
-    ]);
-  }
-
   return (
     <View style={[styles.row, !last && styles.separator]}>
       <Pressable
         accessibilityHint={childSessionID ? "Opens the subagent session" : undefined}
-        accessibilityLabel={`${title}${agent ? `, ${agent}` : ""}, ${stateLabel}`}
+        accessibilityLabel={`${title}${agent ? `, ${agent}` : ""}, ${subagentStateLabel(subagent.state, subagent.waitingFor)}`}
         accessibilityRole={childSessionID ? "button" : undefined}
         android_ripple={childSessionID ? rippleFeedback.row : undefined}
         disabled={!childSessionID}
@@ -266,22 +242,17 @@ function SubagentMonitorRow({
           <Text dynamicTypeRamp={typeRamp.body} numberOfLines={2} style={styles.title}>
             {title}
           </Text>
-          <Text
-            dynamicTypeRamp={typeRamp.footnote}
+          <SubagentMetaLine
+            agent={agent}
+            background={subagent.background}
+            finishedAt={subagent.finishedAt}
             numberOfLines={2}
-            style={subagentStatusStyles.meta}
-          >
-            {agent ? `${agent} · ` : ""}
-            {subagent.background ? "Background · " : ""}
-            <Text style={{ color: subagentStateColor(subagent.state) }}>{stateLabel}</Text>
-            <SubagentElapsed
-              finishedAt={subagent.finishedAt}
-              startedAt={subagent.startedAt}
-              state={subagent.state}
-            />
-            {waiting && childSessionID ? " · Review" : ""}
-          </Text>
-          {stopFailed ? (
+            startedAt={subagent.startedAt}
+            state={subagent.state}
+            suffix={waiting && childSessionID ? " · Review" : undefined}
+            waitingFor={subagent.waitingFor}
+          />
+          {stop.failed ? (
             <Text
               accessibilityRole="alert"
               dynamicTypeRamp={typeRamp.footnote}
@@ -292,17 +263,17 @@ function SubagentMonitorRow({
           ) : null}
         </View>
         {/* A Stop button already ends running rows; the chevron would crowd it. */}
-        {childSessionID && !canStop ? (
+        {childSessionID && !stop.available ? (
           <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
         ) : null}
       </Pressable>
-      {canStop ? (
+      {stop.available ? (
         <View style={styles.rowAction}>
           <Button
             accessibilityLabel={`Stop ${title}`}
-            busy={stopping}
-            label={stopping ? "Stopping" : "Stop"}
-            onPress={confirmStop}
+            busy={stop.stopping}
+            label={stop.stopping ? "Stopping" : "Stop"}
+            onPress={stop.confirm}
             size="compact"
             variant="danger"
           />
@@ -310,6 +281,32 @@ function SubagentMonitorRow({
       ) : null}
     </View>
   );
+}
+
+// Once a stop is sent the row stays "Stopping" until the refreshed state moves it out of
+// Working, so a stale Running row never offers Stop again. A failure re-enables it.
+function useStopSubagent(title: string, stop: (() => Promise<void>) | undefined) {
+  const [stopping, setStopping] = useState(false);
+  const [failed, setFailed] = useState(false);
+  function confirm() {
+    if (!stop) return;
+    Alert.alert(`Stop ${title}?`, "The parent session may continue without its result.", [
+      { style: "cancel", text: "Keep running" },
+      {
+        onPress: () => {
+          setStopping(true);
+          setFailed(false);
+          stop().catch(() => {
+            setFailed(true);
+            setStopping(false);
+          });
+        },
+        style: "destructive",
+        text: "Stop subagent",
+      },
+    ]);
+  }
+  return { available: Boolean(stop), confirm, failed, stopping };
 }
 
 const styles = StyleSheet.create({
