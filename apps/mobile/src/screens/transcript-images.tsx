@@ -124,9 +124,15 @@ export function TranscriptImages({ images }: { images: readonly TranscriptImage[
                 <TranscriptImageThumbnail grid image={image} onOpen={setViewing} />
               </View>
             ))}
-            {Array.from({ length: columns - row.length }, (_, index) => (
-              <View key={`empty:${index}`} style={styles.gridCell} />
-            ))}
+            {/* One spacer fills the empty columns so a short last row keeps cell widths. */}
+            {row.length < columns ? (
+              <View
+                style={{
+                  flex: columns - row.length,
+                  marginLeft: space.xs * (columns - row.length - 1),
+                }}
+              />
+            ) : null}
           </View>
         ))
       )}
