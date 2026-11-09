@@ -57,7 +57,10 @@ export function MenuRow({
       accessibilityLabel={label}
       accessibilityHint={description}
       accessibilityState={expanded === undefined ? { disabled } : { disabled, expanded }}
-      accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
+      // Screen readers hear the visible value unless a fuller description is given.
+      accessibilityValue={
+        accessibilityValue || value ? { text: accessibilityValue ?? value ?? "" } : undefined
+      }
       android_ripple={rippleFeedback.row}
       disabled={disabled}
       onPress={onPress}

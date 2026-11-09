@@ -81,3 +81,14 @@ test("a badge shows a short count and screen readers hear the value instead", ()
   expect(row).toHaveProp("accessibilityValue", { text: "3 requests need you, up to date" });
   expect(screen.getByText("3")).toHaveStyle({ fontSize: 13 });
 });
+
+test("a visible value is also the row's accessibility value", () => {
+  render(
+    <MenuGroup>
+      <MenuRow icon="server" label="Connections" last onPress={() => {}} value="Studio Mac" />
+    </MenuGroup>,
+  );
+  expect(screen.getByRole("button", { name: "Connections" })).toHaveProp("accessibilityValue", {
+    text: "Studio Mac",
+  });
+});

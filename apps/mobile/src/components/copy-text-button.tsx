@@ -64,8 +64,14 @@ export function CopyTextButton({
       accessibilityRole="button"
       accessibilityLabel={label}
       android_ripple={rippleFeedback.borderless}
+      // The icon keeps a 48pt target through hit slop, so it sits close to its neighbors.
+      hitSlop={iconOnly ? iconHitSlop : undefined}
       onPress={() => void copy()}
-      style={({ pressed }) => [styles.action, pressed && Platform.OS === "ios" && styles.pressed]}
+      style={({ pressed }) => [
+        styles.action,
+        iconOnly && styles.iconOnly,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
     >
       {iconOnly && !status ? (
         <Feather accessible={false} name="copy" size={14} color={palette.dim} />
@@ -78,7 +84,10 @@ export function CopyTextButton({
   );
 }
 
+const iconHitSlop = { bottom: 0, left: 10, right: 10, top: 0 };
+
 const styles = StyleSheet.create({
+  iconOnly: { alignItems: "center", minWidth: 28, paddingHorizontal: 0 },
   action: {
     minHeight: minTouchTarget,
     minWidth: minTouchTarget,

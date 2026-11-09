@@ -101,7 +101,11 @@ export function SessionAttentionMarker() {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       testID="session-attention-marker"
-      style={[styles.attentionDot, count === 0 && styles.attentionDotUncertain]}
+      style={[
+        styles.attentionDot,
+        styles.sessionAttentionDot,
+        count === 0 && styles.attentionDotUncertain,
+      ]}
     />
   );
 }
@@ -119,6 +123,8 @@ const styles = StyleSheet.create({
   attentionDotUncertain: { backgroundColor: palette.dim },
   // On the gear's top-right corner rather than floating in the touch target.
   settingsAttentionDot: { left: undefined, right: 10, top: 10 },
+  // Beside the back chevron's top edge rather than in the button's corner.
+  sessionAttentionDot: { left: undefined, right: 8, top: 8 },
   actions: {
     alignItems: "center",
     flexDirection: "row",

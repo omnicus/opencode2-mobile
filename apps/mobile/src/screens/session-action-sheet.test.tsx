@@ -51,10 +51,17 @@ jest.mock("../state/connection-runtime-context", () => ({
   useConnectionRuntime: () => mockRuntime,
 }));
 jest.mock("../state/workspace-selection-context", () => ({
-  useWorkspaceSelection: () => ({ archiveSession: mockArchive }),
+  useWorkspaceSelection: () => ({
+    archiveSession: mockArchive,
+    projects: [{ canonical: "/workspace", id: "project-1", name: "Orbit" }],
+  }),
+}));
+jest.mock("../connections/connections-context", () => ({
+  useConnections: () => ({ profiles: [{ id: "first", name: "Studio Mac" }] }),
 }));
 const session = {
   id: "ses_one",
+  projectID: "project-1",
   title: "Original",
   location: { directory: "/workspace" },
   time: { created: 1, updated: 1 },
@@ -259,6 +266,10 @@ test("titles each page and returns to the menu", () => {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByRole("header", { name: "Delete session?" })).toBeOnTheScreen();
     expect(screen.getByText("Cancel")).toBeOnTheScreen();
+    // The confirmation names the whole target before the destructive action.
+    expect(screen.getByText("Server: Studio Mac")).toBeOnTheScreen();
+    expect(screen.getByText("Project: Orbit")).toBeOnTheScreen();
+    expect(screen.getByText("/workspace")).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
     fireEvent.press(screen.getByRole("button", { name: "Rename" }));
     expect(screen.getByRole("header", { name: "Rename session" })).toBeOnTheScreen();

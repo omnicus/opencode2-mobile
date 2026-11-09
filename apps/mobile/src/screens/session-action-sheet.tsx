@@ -7,11 +7,13 @@ import {
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { type SQLiteDatabase, useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, Text, TextInput } from "react-native";
+import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "../components/button";
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
+import { useConnections } from "../connections/connections-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
+import { labelProject } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import { deleteSessionLocalState } from "../storage/prompt-admission-repository";
@@ -45,6 +47,11 @@ export function SessionActionSheet({
   branchStale?: boolean;
 }) {
   const runtime = useConnectionRuntime();
+  const connections = useConnections();
+  const selection = useWorkspaceSelection();
+  const serverName = connections.profiles.find((profile) => profile.id === connectionId)?.name;
+  const project = selection.projects.find((candidate) => candidate.id === session.projectID);
+  const projectName = project ? labelProject(project, session.projectID) : undefined;
   const archived = session.time.archived !== undefined;
   const [page, setPage] = useState<SessionSheetPage>("menu");
   const [title, setTitle] = useState(session.title ?? "");
@@ -110,6 +117,8 @@ export function SessionActionSheet({
           busy={busy}
           connected={connected}
           directory={session.location.directory}
+          projectName={projectName}
+          serverName={serverName}
           onConfirm={() => void perform("delete")}
         />
       ) : null}
@@ -369,21 +378,37 @@ function SessionDeletePage({
   connected,
   directory,
   onConfirm,
+  projectName,
+  serverName,
 }: {
   busy: boolean;
   connected: boolean;
   directory: string;
   onConfirm: () => void;
+  projectName: string | undefined;
+  serverName: string | undefined;
 }) {
   return (
     <>
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
         This deletes the remote session and its child sessions. It cannot be undone.
       </Text>
-      {/* Name the target location before the destructive action. */}
-      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.deletePath}>
-        {sanitizeTranscriptText(directory, 1_024)}
-      </Text>
+      {/* Name the full target, server, project, and location, before the destructive action. */}
+      <View style={styles.deleteTarget}>
+        {serverName ? (
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.deleteMeta}>
+            Server: {serverName}
+          </Text>
+        ) : null}
+        {projectName ? (
+          <Text dynamicTypeRamp={typeRamp.footnote} style={styles.deleteMeta}>
+            Project: {sanitizeTranscriptText(projectName, 256)}
+          </Text>
+        ) : null}
+        <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.deletePath}>
+          {sanitizeTranscriptText(directory, 1_024)}
+        </Text>
+      </View>
       <Button
         busy={busy}
         disabled={!connected}
@@ -409,6 +434,8 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
   },
   copy: { ...typography.subheadline, color: palette.ink },
+  deleteMeta: { ...typography.footnote, color: palette.ink },
+  deleteTarget: { gap: 2 },
   deletePath: {
     ...typography.footnote,
     color: palette.dim,

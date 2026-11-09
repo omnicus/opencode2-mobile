@@ -589,7 +589,7 @@ test("labels selectors from references missing in the catalogs", () => {
   );
   expect(screen.getByRole("button", { name: "Model: other/missing" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Variant: fast" })).toBeDisabled();
-  expect(screen.getByRole("button", { name: "Agent: ghost" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Agent: Ghost" })).toBeOnTheScreen();
 });
 
 test("labels selectors from catalog names", () => {

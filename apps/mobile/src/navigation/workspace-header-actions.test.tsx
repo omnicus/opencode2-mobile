@@ -63,7 +63,7 @@ test("session attention is a small circle rather than an approval-list action", 
   const view = render(<SessionAttentionMarker />);
   expect(
     screen.getByTestId("session-attention-marker", { includeHiddenElements: true }),
-  ).toHaveStyle({ width: 7, height: 7, borderRadius: 4, backgroundColor: palette.warm, left: 6 });
+  ).toHaveStyle({ width: 7, height: 7, borderRadius: 4, backgroundColor: palette.warm, right: 8 });
   expect(screen.queryByRole("button", { name: "Needs you" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Settings" })).toBeNull();
   jest.mocked(useWorkspaceSelection).mockReturnValue({

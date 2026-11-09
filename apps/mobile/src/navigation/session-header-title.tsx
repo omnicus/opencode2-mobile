@@ -1,8 +1,9 @@
-import { StyleSheet, Text, View } from "react-native";
+import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { palette, typeRamp, typography } from "../theme";
 
-// The session title with its project underneath, centered in the header.
+// The session title with its project underneath. iOS centers header titles; Android's native
+// header puts them at the leading edge, so both lines follow the platform.
 export function SessionHeaderTitle({
   subtitle,
   title,
@@ -29,8 +30,14 @@ export function SessionHeaderTitle({
   );
 }
 
+const centered = Platform.OS === "ios";
+
 const styles = StyleSheet.create({
-  name: { ...typography.navTitle, color: palette.ink, textAlign: "center" },
-  subtitle: { ...typography.footnote, color: palette.dim, textAlign: "center" },
-  title: { alignItems: "center", flexShrink: 1, minWidth: 0 },
+  name: { ...typography.navTitle, color: palette.ink, textAlign: centered ? "center" : "left" },
+  subtitle: {
+    ...typography.footnote,
+    color: palette.dim,
+    textAlign: centered ? "center" : "left",
+  },
+  title: { alignItems: centered ? "center" : "flex-start", flexShrink: 1, minWidth: 0 },
 });

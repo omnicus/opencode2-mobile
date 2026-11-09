@@ -558,7 +558,11 @@ function ComposerToolbar({
       >
         {/* Agent, then model, then its variant, so "Build  Opus 5.5  High" reads as one phrase. */}
         <SelectorButton
-          label={selectedAgent?.name ?? agent ?? "Choose agent"}
+          label={
+            selectedAgent || agent
+              ? agentDisplayName(selectedAgent?.name ?? agent ?? "")
+              : "Choose agent"
+          }
           prefix="Agent"
           buttonRef={agentSelectorRef}
           onPress={onAgentPress}
@@ -687,7 +691,7 @@ function AgentOptions({
         renderItem={({ item: candidate }) => (
           <OptionButton
             {...(candidate.description ? { description: candidate.description } : {})}
-            label={candidate.name}
+            label={agentDisplayName(candidate.name)}
             onPress={() => onSelect(candidate.id)}
             selected={candidate.id === agent}
           />
@@ -1005,6 +1009,11 @@ function OptionButton({
       ) : null}
     </Pressable>
   );
+}
+
+// Agent IDs are often lowercase ("build"); show them capitalized, like the transcript footer.
+function agentDisplayName(name: string) {
+  return name ? `${name[0]?.toLocaleUpperCase()}${name.slice(1)}` : name;
 }
 
 function findModel(models: ModelInfo[], model: ModelRef | undefined) {
