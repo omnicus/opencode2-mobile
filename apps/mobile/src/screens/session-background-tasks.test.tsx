@@ -121,9 +121,7 @@ test("rows name each subagent by its task and agent", () => {
   fireEvent.press(screen.getByRole("button", { name: "1 subagent, running in this session" }));
   expect(screen.getByText("Review settings screen")).toBeOnTheScreen();
   expect(screen.getByText(/@review · Background ·/)).toBeOnTheScreen();
-  fireEvent.press(
-    screen.getByRole("button", { name: "Review settings screen, @review, Running" }),
-  );
+  fireEvent.press(screen.getByRole("button", { name: "Review settings screen, @review, Running" }));
   expect(onOpenChild).toHaveBeenCalledWith("ses_settings");
 });
 
