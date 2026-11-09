@@ -1,9 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { openCodeClientContractVersion } from "@opencode2-mobile/opencode-adapter";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, type RefObject, useRef } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef } from "react";
 import {
   ActivityIndicator,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -21,6 +22,7 @@ import { managementStyles, SettingsGroup } from "../components/management-layout
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { SegmentedControl, type SegmentedOption } from "../components/segmented-control";
 import { useAnnouncement } from "../components/use-announcement";
+import { useReducedMotion } from "../components/use-reduced-motion";
 import type { ConnectionAuthMode, ConnectionProfile } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
 import { addressHostname, withInferredScheme } from "../connections/server-address";
@@ -74,13 +76,18 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   const probeActions = connectionProbeActions(state);
   const firstRun = connections.ready && connections.profiles.length === 0;
   const showHero = firstRun && !state.showDetails;
+  const scrollToDetails = useScrollToDetails(state.showDetails, state.editingProfileId);
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
       <StatusBar style="light" />
       <ScreenHeader onDone={onDone} showHero={showHero} />
       <FormKeyboardAvoidingView style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          ref={scrollToDetails.scrollRef}
+        >
           {connections.error ? <ErrorMessage>{connections.error}</ErrorMessage> : null}
 
           {showHero ? (
@@ -104,19 +111,41 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
           {state.error && !state.showDetails ? <ErrorMessage>{state.error}</ErrorMessage> : null}
 
           {state.showDetails ? (
-            <ConnectionDetails
-              connections={connections}
-              largeText={largeText}
-              probeActions={probeActions}
-              profileActions={profileActions}
-              runtime={runtime}
-              state={state}
-            />
+            <View onLayout={scrollToDetails.onDetailsLayout}>
+              <ConnectionDetails
+                connections={connections}
+                largeText={largeText}
+                probeActions={probeActions}
+                profileActions={profileActions}
+                runtime={runtime}
+                state={state}
+              />
+            </View>
           ) : null}
         </ScrollView>
       </FormKeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+// Add and Edit open the editor below the saved list. With several servers it can start
+// offscreen, so bring its heading into view once it lays out.
+function useScrollToDetails(showDetails: boolean, editingProfileId: string | undefined) {
+  const scrollRef = useRef<ScrollView>(null);
+  const pending = useRef(false);
+  const reducedMotion = useReducedMotion();
+  useEffect(() => {
+    pending.current = showDetails;
+  }, [showDetails, editingProfileId]);
+  return {
+    scrollRef,
+    onDetailsLayout: (event: LayoutChangeEvent) => {
+      if (!pending.current) return;
+      pending.current = false;
+      const y = Math.max(0, event.nativeEvent.layout.y - space.md);
+      scrollRef.current?.scrollTo({ animated: !reducedMotion, y });
+    },
+  };
 }
 
 function ScreenHeader({
@@ -366,8 +395,8 @@ function ConnectionDetails({
             {state.editingProfileId ? "Server details" : "New server"}
           </Text>
           <Button
-            accessibilityLabel="Hide connection details"
-            label="Hide"
+            accessibilityLabel="Close editor"
+            label="Close editor"
             onPress={() => state.setShowDetails(false)}
             size="compact"
             variant="text"

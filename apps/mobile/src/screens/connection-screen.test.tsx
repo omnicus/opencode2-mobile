@@ -185,7 +185,7 @@ test("opens first run on pairing and hides the empty server list", async () => {
     color: palette.ink,
   });
   expect(screen.queryByText("Saved servers")).toBeNull();
-  await fireEvent.press(screen.getByRole("button", { name: "Hide connection details" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Close editor" }));
   expect(screen.getByRole("header", { name: "Connect to OpenCode" })).toBeOnTheScreen();
 });
 
@@ -854,7 +854,7 @@ test("starts a new connection after removing the open profile", async () => {
   expect(
     screen.getByText("Connection and credentials removed from this device."),
   ).toBeOnTheScreen();
-  await fireEvent.press(screen.getByRole("button", { name: "Hide connection details" }));
+  await fireEvent.press(screen.getByRole("button", { name: "Close editor" }));
   expect(screen.queryByText("New server")).toBeNull();
   expect(
     screen.getByText("Connection and credentials removed from this device."),
