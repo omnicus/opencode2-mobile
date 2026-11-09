@@ -132,6 +132,7 @@ test("a child blocked on a request is counted, flagged, and listed first", () =>
       attention={new Map([["ses_blocked", "permission" as const]])}
       messages={[launch("ses_busy", "Run tests"), launch("ses_blocked", "Deploy preview")]}
       onOpenChild={jest.fn()}
+      onStopChild={jest.fn(async () => undefined)}
       sessionID="ses_parent"
     />,
   );
@@ -145,6 +146,10 @@ test("a child blocked on a request is counted, flagged, and listed first", () =>
   expect(
     screen.getByRole("button", { name: "Deploy preview, @review, Needs approval" }),
   ).toBeOnTheScreen();
+  // The blocked row invites review; only working rows offer Stop.
+  expect(screen.getByText(/@review · Background · Needs approval/)).toHaveTextContent(/· Review$/);
+  expect(screen.queryByRole("button", { name: "Stop Deploy preview" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Stop Run tests" })).toBeOnTheScreen();
 });
 
 test("stopping a running child asks first, then calls stop with its session", async () => {

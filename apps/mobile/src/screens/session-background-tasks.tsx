@@ -212,7 +212,11 @@ function SubagentMonitorRow({
   const agent = subagent.agent ? `@${sanitizeTranscriptText(subagent.agent, 128)}` : "";
   const stateLabel = subagentStateLabel(subagent.state, subagent.waitingFor);
   const childSessionID = subagent.childSessionID;
-  const canStop = Boolean(onStop && childSessionID && isSubagentInFlight(subagent.state));
+  // A child that needs you invites review, not stopping; it can still be stopped from inside.
+  const waiting = subagent.state === "waiting";
+  const canStop = Boolean(
+    onStop && childSessionID && isSubagentInFlight(subagent.state) && !waiting,
+  );
 
   function confirmStop() {
     if (!childSessionID || !onStop) return;
@@ -266,6 +270,7 @@ function SubagentMonitorRow({
               startedAt={subagent.startedAt}
               state={subagent.state}
             />
+            {waiting && childSessionID ? " · Review" : ""}
           </Text>
           {stopFailed ? (
             <Text
