@@ -24,6 +24,8 @@ export function subagentStateLabel(state: SubagentState, waitingFor?: SubagentAt
       return waitingFor === "input" ? "Needs answer" : "Needs approval";
     case "completed":
       return "Completed";
+    case "finished":
+      return "Finished";
     case "interrupted":
       return "Interrupted";
     case "error":
@@ -44,6 +46,7 @@ export function subagentStateColor(state: SubagentState) {
     case "error":
       return palette.danger;
     case "completed":
+    case "finished":
       return palette.dim;
   }
 }
@@ -69,9 +72,11 @@ export function SubagentStatusGlyph({
         : "lock"
       : state === "completed"
         ? "check-circle"
-        : state === "interrupted"
-          ? "minus-circle"
-          : "alert-circle";
+        : state === "finished"
+          ? "circle"
+          : state === "interrupted"
+            ? "minus-circle"
+            : "alert-circle";
   return (
     <View style={styles.glyph} testID={`subagent-glyph-${state}`}>
       <Feather

@@ -1106,17 +1106,16 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         execution={execution}
         failedPermissionReplyId={workspaceSelection.failedPermissionReplyId}
         formLocations={workspaceSelection.formLocations}
-        messages={visibleBackgroundMessages(
-          messages,
-          sessionLocationReady && connected,
-          messagesQuery.isError,
-        )}
+        messages={messages}
+        monitorStale={!(sessionLocationReady && connected) || messagesQuery.isError}
         onOpenChild={openSubagent}
         onReplyPermission={workspaceSelection.replyPermission}
         onStopChild={
           client && connected
             ? async (childSessionID: string) => {
                 await interruptOpenCodeSession(client, childSessionID, false);
+                // The REST snapshot, not the request, confirms the child stopped.
+                await execution.reconcile();
               }
             : undefined
         }
@@ -1636,14 +1635,6 @@ function navigateFromSession(navigation: SessionNavigation, section: ShellSectio
   return section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section);
 }
 
-function visibleBackgroundMessages(
-  messages: SessionMessages,
-  connectedAndReady: boolean,
-  messagesError: boolean,
-) {
-  return connectedAndReady && !messagesError ? messages : [];
-}
-
 function StaleSessionRoute({ navigation }: { navigation: SessionNavigation }) {
   return (
     <View style={styles.staleRoute}>
@@ -1714,6 +1705,7 @@ function SessionDockPanel({
   failedPermissionReplyId,
   formLocations,
   messages,
+  monitorStale,
   onOpenChild,
   onReplyPermission,
   onStopChild,
@@ -1733,6 +1725,7 @@ function SessionDockPanel({
   failedPermissionReplyId: WorkspaceSelection["failedPermissionReplyId"];
   formLocations: WorkspaceSelection["formLocations"];
   messages: SessionMessages;
+  monitorStale: boolean;
   onOpenChild: (sessionID: string) => void;
   onReplyPermission: WorkspaceSelection["replyPermission"];
   onStopChild: ((sessionID: string) => Promise<void>) | undefined;
@@ -1754,7 +1747,8 @@ function SessionDockPanel({
         sessionID={sessionID}
         messages={messages}
         onOpenChild={onOpenChild}
-        onStopChild={onStopChild}
+        onStopChild={monitorStale ? undefined : onStopChild}
+        stale={monitorStale}
       />
       <SessionExecutionPanel
         hideInterrupt

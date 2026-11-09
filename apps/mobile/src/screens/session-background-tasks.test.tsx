@@ -181,3 +181,47 @@ test("stopping a running child asks first, then calls stop with its session", as
     alert.mockRestore();
   }
 });
+
+test("after a stop is sent the row stays Stopping until the refreshed state moves it", async () => {
+  const onStopChild = jest.fn(async () => undefined);
+  const alert = jest
+    .spyOn(Alert, "alert")
+    .mockImplementation((_title, _message, buttons?: AlertButton[]) =>
+      buttons?.find((button) => button.text === "Stop subagent")?.onPress?.(),
+    );
+  try {
+    render(
+      <SessionBackgroundTasks
+        messages={[launch("ses_tests", "Run tests")]}
+        onOpenChild={jest.fn()}
+        onStopChild={onStopChild}
+      />,
+    );
+    fireEvent.press(screen.getByRole("button", { name: "1 subagent, running in this session" }));
+    await act(async () => {
+      fireEvent.press(screen.getByRole("button", { name: "Stop Run tests" }));
+    });
+    // Still Running in the snapshot, so the row must not offer Stop again.
+    expect(screen.getByRole("button", { name: "Stop Run tests" })).toBeDisabled();
+    expect(screen.getByText("Stopping")).toBeOnTheScreen();
+  } finally {
+    alert.mockRestore();
+  }
+});
+
+test("a stale monitor hides the chip and keeps last-known rows without Stop", () => {
+  const messages = [launch("ses_tests", "Run tests")];
+  const view = render(
+    <SessionBackgroundTasks
+      messages={messages}
+      onOpenChild={jest.fn()}
+      onStopChild={jest.fn(async () => undefined)}
+    />,
+  );
+  fireEvent.press(screen.getByRole("button", { name: "1 subagent, running in this session" }));
+  view.rerender(<SessionBackgroundTasks messages={messages} onOpenChild={jest.fn()} stale />);
+  expect(screen.queryByTestId("subagent-monitor-chip")).toBeNull();
+  expect(screen.getByText("Status unavailable · showing last known")).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Run tests, @review, Running" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Stop Run tests" })).toBeNull();
+});

@@ -95,7 +95,9 @@ export function Button({
         variant === "danger" && styles.danger,
         alignStyles[alignment],
         style,
-        pressed && Platform.OS === "ios" && styles.pressed,
+        // Filled buttons change their fill when pressed, so labels keep their contrast; text
+        // buttons have no fill and dim instead.
+        pressed && Platform.OS === "ios" && pressedStyles[variant],
         inactive && styles.disabled,
       ]}
     >
@@ -125,7 +127,6 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: palette.signal },
   secondary: { backgroundColor: palette.selected },
   danger: { backgroundColor: palette.dangerFill },
-  pressed: { opacity: pressedOpacity },
   disabled: { opacity: disabledOpacity },
   label: {
     ...typography.control,
@@ -133,6 +134,14 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlign: "center",
   },
+});
+
+// Pressed fills keep labels at 4.9:1 or better (danger 5.2:1, secondary 8.6:1, primary 13.4:1).
+const pressedStyles = StyleSheet.create({
+  primary: { backgroundColor: "#d6dbe6" },
+  secondary: { backgroundColor: "#3d4459" },
+  danger: { backgroundColor: "#4a2d42" },
+  text: { opacity: pressedOpacity },
 });
 
 const alignStyles = StyleSheet.create({

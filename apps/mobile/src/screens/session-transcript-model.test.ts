@@ -283,8 +283,9 @@ test("live session activity decides background subagents without a result", () =
   expect(runningBackgroundSubagents(messages, { ses_a: {} }, "ses_parent")).toEqual([
     { key: "ses_a", childSessionID: "ses_a", title: "Restyle" },
   ]);
+  // Leaving the active list proves the child stopped, not that it succeeded.
   expect(subagentStates(messages, { ses_a: {} }, "ses_parent").get("ses_b")?.state).toBe(
-    "completed",
+    "finished",
   );
   // A result beats stale activity, and a relaunch after a result is running again.
   expect(
@@ -445,4 +446,13 @@ test("presents protocol results, summaries, and errors from finished tools", () 
       subagentTool({ error: { message: "failed", type: "tool" }, input: {}, status: "error" }),
     ),
   ).toMatchObject({ background: false, state: "error", title: "Delegated task" });
+});
+
+test("a background launch acknowledgement never becomes the result", () => {
+  const launch = backgroundLaunch("ses_child");
+  const tool = launch.type === "assistant" ? launch.content[0] : undefined;
+  if (tool?.type !== "tool") throw new Error("expected tool");
+  const finished = subagentStates([subagentNotification("ses_child", "completed"), launch]);
+  expect(getSubagentPresentation(tool, finished)).toMatchObject({ state: "completed" });
+  expect(getSubagentPresentation(tool, finished)?.result).toBeUndefined();
 });

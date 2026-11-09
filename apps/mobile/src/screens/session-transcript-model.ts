@@ -7,7 +7,8 @@ type AssistantMessage = Extract<SessionMessageInfo, { type: "assistant" }>;
 type AssistantTool = Extract<AssistantMessage["content"][number], { type: "tool" }>;
 
 // "streaming" is a task call still being written (Preparing); "waiting" is a child blocked on
-// a permission or form; "interrupted" is a stop, not a failure.
+// a permission or form; "interrupted" is a stop, not a failure; "finished" means the child
+// stopped running but reported no outcome, so it is not shown as a success.
 export type SubagentPresentation = {
   agent?: string;
   background: boolean;
@@ -16,7 +17,7 @@ export type SubagentPresentation = {
   finishedAt?: number;
   result?: string;
   startedAt?: number;
-  state: "completed" | "error" | "interrupted" | "running" | "streaming" | "waiting";
+  state: "completed" | "error" | "finished" | "interrupted" | "running" | "streaming" | "waiting";
   title: string;
   waitingFor?: SubagentAttention;
 };
@@ -106,12 +107,14 @@ export function getSubagentPresentation(
   const base = background && known ? known.state : launched;
   const waiting = known?.waitingFor && isSubagentInFlight(base) ? known.waitingFor : undefined;
   const finishedAt = !background && !isSubagentInFlight(base) ? tool.time.completed : undefined;
+  // A background launch's own text only acknowledges the start; it never becomes the result.
+  const acknowledgement = background && launched === "running";
   return {
     ...(agent ? { agent } : {}),
     background,
     ...(childSessionID ? { childSessionID } : {}),
     ...(finishedAt !== undefined ? { finishedAt } : {}),
-    ...(result ? { result } : {}),
+    ...(result && !acknowledgement ? { result } : {}),
     startedAt: tool.time.ran ?? tool.time.created,
     state: waiting ? "waiting" : base,
     title: subagentTitle(input, metadata, protocol),
@@ -233,8 +236,9 @@ export function subagentStates(
       if (entry.notified || !entry.childSessionID) continue;
       if (activeSessions[entry.childSessionID]) entry.state = "running";
       // While the parent is still running, the child may not have reported busy yet.
+      // Gone from the active list while the parent is idle: it stopped, but nothing says how.
       else if (entry.state === "running" && !(sessionID && activeSessions[sessionID])) {
-        entry.state = "completed";
+        entry.state = "finished";
       }
     }
   }

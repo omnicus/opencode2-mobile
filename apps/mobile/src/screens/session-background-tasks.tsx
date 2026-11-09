@@ -44,6 +44,7 @@ export function SessionBackgroundTasks({
   onOpenChild,
   onStopChild,
   sessionID,
+  stale = false,
 }: {
   activeSessions?: Readonly<Record<string, unknown>> | undefined;
   attention?: SubagentAttentionMap | undefined;
@@ -51,19 +52,21 @@ export function SessionBackgroundTasks({
   onOpenChild: (sessionID: string) => void;
   onStopChild?: ((sessionID: string) => Promise<void>) | undefined;
   sessionID?: string;
+  // Disconnected or unable to load messages: keep the last-known rows but claim nothing live.
+  stale?: boolean;
 }) {
   const [visible, setVisible] = useState(false);
   const triggerRef = useRef<View>(null);
   const subagents = sessionSubagents(messages, activeSessions, sessionID, attention);
   const live = subagents.filter((subagent) => isSubagentInFlight(subagent.state));
   const waiting = live.filter((subagent) => subagent.state === "waiting").length;
-  if (live.length === 0 && !visible) return null;
+  if ((live.length === 0 || stale) && !visible) return null;
   const count = `${live.length} ${live.length === 1 ? "subagent" : "subagents"}`;
   const label =
     waiting > 0 ? `${count} · ${waiting} ${waiting === 1 ? "needs" : "need"} you` : count;
   return (
     <View style={styles.container}>
-      {live.length > 0 ? (
+      {live.length > 0 && !stale ? (
         <Pressable
           ref={triggerRef}
           accessibilityRole="button"
@@ -97,6 +100,7 @@ export function SessionBackgroundTasks({
         }}
         onStopChild={onStopChild}
         returnFocusRef={triggerRef}
+        stale={stale}
         subagents={subagents}
         visible={visible}
       />
@@ -109,6 +113,7 @@ function SubagentMonitorSheet({
   onOpenChild,
   onStopChild,
   returnFocusRef,
+  stale,
   subagents,
   visible,
 }: {
@@ -116,6 +121,7 @@ function SubagentMonitorSheet({
   onOpenChild: (sessionID: string) => void;
   onStopChild?: ((sessionID: string) => Promise<void>) | undefined;
   returnFocusRef: RefObject<View | null>;
+  stale: boolean;
   subagents: SessionSubagent[];
   visible: boolean;
 }) {
@@ -134,7 +140,7 @@ function SubagentMonitorSheet({
     <ModalSheet
       onClose={onClose}
       returnFocusRef={returnFocusRef}
-      subtitle="In this session"
+      subtitle={stale ? "Status unavailable · showing last known" : "In this session"}
       title="Subagents"
       visible={visible}
     >
@@ -206,6 +212,8 @@ function SubagentMonitorRow({
   onStop?: ((sessionID: string) => Promise<void>) | undefined;
   subagent: SessionSubagent;
 }) {
+  // Once a stop is sent the row stays "Stopping" until the refreshed state moves it out of
+  // Working, so a stale Running row never offers Stop again.
   const [stopping, setStopping] = useState(false);
   const [stopFailed, setStopFailed] = useState(false);
   const title = sanitizeTranscriptText(subagent.title, 256);
@@ -226,9 +234,10 @@ function SubagentMonitorRow({
         onPress: () => {
           setStopping(true);
           setStopFailed(false);
-          onStop(childSessionID)
-            .catch(() => setStopFailed(true))
-            .finally(() => setStopping(false));
+          onStop(childSessionID).catch(() => {
+            setStopFailed(true);
+            setStopping(false);
+          });
         },
         style: "destructive",
         text: "Stop subagent",

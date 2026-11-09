@@ -116,3 +116,15 @@ test("Android uses a ripple, borderless only for text buttons", () => {
     borderless: true,
   });
 });
+
+test("pressed filled buttons change fill instead of fading their label", () => {
+  const platform = jest.replaceProperty(Platform, "OS", "ios");
+  try {
+    render(<Button label="Reject" variant="danger" onPress={() => {}} />);
+    const button = screen.getByRole("button", { name: "Reject" });
+    fireEvent(button, "pressIn");
+    expect(button).not.toHaveStyle({ opacity: 0.6 });
+  } finally {
+    platform.restore();
+  }
+});
