@@ -11,6 +11,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import { applicationName } from "../application-name";
 import { Button } from "../components/button";
 import { ModalSheet } from "../components/modal-sheet";
 import { requestCardStyles } from "../components/request-card-styles";
@@ -118,7 +119,7 @@ export function PermissionRequestCard({
           {shell ? "Full command" : "Requested resources"}
         </Text>
         {request.resources.map((resource) => (
-          <View key={resource} style={styles.commandBox}>
+          <View key={resource} style={[styles.commandBox, styles.commandBoxSheet]}>
             <Text selectable style={[styles.command, styles.commandPadding]}>
               {sanitizeTranscriptText(resource, resource.length)}
             </Text>
@@ -126,9 +127,6 @@ export function PermissionRequestCard({
         ))}
         <SavedPatterns patterns={fullPatterns} />
         <ActionExplanation explanation={permissionActionExplanation(request.action)} />
-        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-          Reject may also reject other pending permission requests in this session.
-        </Text>
         {actions}
       </ModalSheet>
     </View>
@@ -285,6 +283,10 @@ function ReplyActions({
   const align = largeText ? "stretch" : "start";
   return (
     <View style={styles.replyGroup}>
+      {/* The spec asks for this before Reject, so it sits beside the action, not only in Details. */}
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footnote}>
+        Reject may also reject other requests in this session.
+      </Text>
       <View style={[styles.actions, largeText && styles.actionsLarge]}>
         <Button
           label="Reject"
@@ -354,23 +356,22 @@ function AlwaysAllowButton({
 function SavedPatterns({ patterns }: { patterns: string[] }) {
   if (patterns.length === 0) return null;
   return (
-    <>
-      <View style={styles.scope}>
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footnote}>
-          Always allow saves these patterns for future requests
-        </Text>
-        <View accessibilityLabel="Saved permission patterns">
-          {patterns.map((pattern) => (
-            <Text key={pattern} selectable style={styles.pattern}>
-              {pattern}
-            </Text>
-          ))}
-        </View>
-      </View>
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-        Always allow saves the displayed patterns, which can cover more than this request.
+    <View style={styles.scope}>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footnote}>
+        Always allow saves these patterns for future requests. They can cover more than this
+        request.
       </Text>
-    </>
+      <View
+        accessibilityLabel="Saved permission patterns"
+        style={[styles.commandBox, styles.commandBoxSheet]}
+      >
+        {patterns.map((pattern) => (
+          <Text key={pattern} selectable style={[styles.pattern, styles.commandPadding]}>
+            {pattern}
+          </Text>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -378,7 +379,7 @@ function ActionExplanation({ explanation }: { explanation: string | undefined })
   return explanation ? (
     <View style={styles.scope}>
       <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sectionLabel}>
-        OpenCode Mobile explanation
+        {applicationName} explanation
       </Text>
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
         {explanation}
@@ -403,6 +404,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   commandPadding: { gap: 2, padding: space.sm },
+  // The Details sheet sits on the page color, so its code boxes use the card color instead.
+  commandBoxSheet: { backgroundColor: palette.card },
   command: { ...typography.code, color: markdownPalette.code },
   scope: { gap: space.xs },
   pattern: {

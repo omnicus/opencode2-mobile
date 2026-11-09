@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { ProjectAvatar } from "../components/project-avatar";
+import { WorkingIndicator } from "../components/working-indicator";
 import { type FollowedInboxRow, workingSince } from "../state/followed-project-inbox";
 import {
   minTouchTarget,
@@ -206,7 +207,8 @@ function SessionStatus({ faded, row }: { faded: TextStyle | undefined; row: Foll
   return (
     <Text
       dynamicTypeRamp={typeRamp.footnote}
-      style={[styles.sessionStatus, statusStyles[row.status]]}
+      // Status hues fall below 4.5:1 at the archived 50% fade, so archived rows use ink.
+      style={[styles.sessionStatus, statusStyles[row.status], row.archived && faded]}
       testID={`session-row-status-${row.status}`}
     >
       {inboxStatusLabels[row.status]}
@@ -224,16 +226,19 @@ function WorkingStatus({ since }: { since: number | undefined }) {
     return () => clearInterval(timer);
   }, [since]);
   return (
-    <Text
-      accessibilityLabel={inboxStatusLabels.working}
-      dynamicTypeRamp={typeRamp.footnote}
-      style={[styles.sessionStatus, statusStyles.working]}
-      testID="session-row-status-working"
-    >
-      {since === undefined
-        ? inboxStatusLabels.working
-        : `${inboxStatusLabels.working} ${formatElapsed(now - since, true)}`}
-    </Text>
+    <View style={styles.workingStatus}>
+      <WorkingIndicator color={palette.info} />
+      <Text
+        accessibilityLabel={inboxStatusLabels.working}
+        dynamicTypeRamp={typeRamp.footnote}
+        style={[styles.sessionStatus, statusStyles.working]}
+        testID="session-row-status-working"
+      >
+        {since === undefined
+          ? inboxStatusLabels.working
+          : `${inboxStatusLabels.working} ${formatElapsed(now - since, true)}`}
+      </Text>
+    </View>
   );
 }
 
@@ -282,6 +287,7 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
   sessionWorking: { opacity: 0.7 },
+  workingStatus: { alignItems: "center", flexDirection: "row", gap: space.xs },
   swipeArchive: {
     alignItems: "center",
     backgroundColor: palette.accent,

@@ -237,26 +237,15 @@ function ReviewButton({
   reviewRef: RefObject<View | null>;
 }) {
   return (
-    <Pressable
-      ref={reviewRef}
-      accessibilityRole="button"
-      accessibilityLabel="Review input request"
+    <Button
       accessibilityHint="Opens the form with answer actions below the fields"
-      android_ripple={Platform.OS === "android" ? ripple : undefined}
+      accessibilityLabel="Review input request"
+      fullWidth
+      label="Review and answer"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        styles.buttonPrimary,
-        pressed && Platform.OS === "ios" && styles.pressed,
-      ]}
-    >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[styles.buttonLabel, styles.buttonPrimaryLabel]}
-      >
-        Review and answer
-      </Text>
-    </Pressable>
+      ref={reviewRef}
+      variant="primary"
+    />
   );
 }
 
@@ -701,10 +690,6 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: space.sm,
   },
-  button: requestCardStyles.button,
-  buttonPrimary: { backgroundColor: palette.signal, borderColor: palette.signal },
-  buttonPrimaryLabel: { color: palette.background },
-  buttonLabel: requestCardStyles.buttonLabel,
   card: requestCardStyles.card,
   choice: {
     borderColor: palette.border,
@@ -719,7 +704,7 @@ const styles = StyleSheet.create({
   },
   choiceLabel: { ...typography.control, color: palette.ink, flexShrink: 1 },
   choiceLabelSelected: { color: palette.signal },
-  choiceSelected: { backgroundColor: palette.selected, borderColor: palette.signal },
+  choiceSelected: { backgroundColor: palette.selected },
   description: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },

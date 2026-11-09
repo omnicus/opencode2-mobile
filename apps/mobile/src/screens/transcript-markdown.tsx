@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
   },
   codeLanguage: { ...typography.footnote, color: palette.dim },
   // Copy stays at the trailing edge even when the fence names no language.
-  codeCopy: { marginLeft: "auto" },
+  codeCopy: { marginLeft: "auto", marginRight: -space.xs, marginVertical: -space.sm },
   codeHeader: {
     flexDirection: "row",
     flexWrap: "wrap",

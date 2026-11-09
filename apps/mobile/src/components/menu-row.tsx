@@ -37,14 +37,13 @@ export function MenuRow({
   danger?: boolean;
   last?: boolean;
   disclosure?: boolean;
-  // Makes the row a disclosure toggle with an up/down chevron.
+  // Makes the row a disclosure toggle with a right/down chevron, like transcript disclosures.
   expanded?: boolean;
   // A short count shown before the chevron; describe it to screen readers in accessibilityValue.
   badge?: string | undefined;
   accessibilityValue?: string | undefined;
 }) {
-  const chevron =
-    expanded === undefined ? "chevron-right" : expanded ? "chevron-up" : "chevron-down";
+  const chevron = expanded === undefined || !expanded ? "chevron-right" : "chevron-down";
   return (
     <Pressable
       accessibilityRole="button"

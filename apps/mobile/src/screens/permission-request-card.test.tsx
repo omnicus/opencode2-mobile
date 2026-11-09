@@ -63,7 +63,7 @@ test("shell requests show six selectable lines and open the full command from th
   ).toBeOnTheScreen();
   expect(
     screen.getByText(
-      "Always allow saves the displayed patterns, which can cover more than this request.",
+      "Always allow saves these patterns for future requests. They can cover more than this request.",
     ),
   ).toBeOnTheScreen();
 });
@@ -304,14 +304,14 @@ test("Details explains known actions and lists resources without saved patterns"
   );
   fireEvent.press(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByText("Requested resources")).toBeOnTheScreen();
-  expect(screen.getByText("OpenCode Mobile explanation")).toBeOnTheScreen();
+  expect(screen.getByText("OpenCode2 Mobile explanation")).toBeOnTheScreen();
   expect(
     screen.getByText("Change project files. Edit, write, and patch use this permission."),
   ).toBeOnTheScreen();
   expect(screen.queryByLabelText("Saved permission patterns")).toBeNull();
   expect(
     screen.queryByText(
-      "Always allow saves the displayed patterns, which can cover more than this request.",
+      "Always allow saves these patterns for future requests. They can cover more than this request.",
     ),
   ).toBeNull();
 });
@@ -329,5 +329,5 @@ test("custom tools without resources show no preview or explanation", () => {
   expect(screen.queryByRole("button", { name: "Show full command" })).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Details" }));
   expect(screen.getByText("Requested resources")).toBeOnTheScreen();
-  expect(screen.queryByText("OpenCode Mobile explanation")).toBeNull();
+  expect(screen.queryByText("OpenCode2 Mobile explanation")).toBeNull();
 });

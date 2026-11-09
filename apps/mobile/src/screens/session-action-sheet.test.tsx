@@ -215,7 +215,7 @@ test("deletion requires confirmation and cleans up descendants after server succ
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(mockRemove).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     await waitFor(() => expect(view.onDeleted).toHaveBeenCalled());
     expect(mockRemove).toHaveBeenCalledWith({}, "ses_one", expect.anything());
     expect(mockCleanup).toHaveBeenCalledWith({}, "first", ["ses_one", "ses_child"]);
@@ -242,7 +242,7 @@ test("failed deletion retains the session and never removes local state", async 
   const view = mount();
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     expect(await screen.findByRole("alert")).not.toHaveTextContent("private server detail");
     expect(mockCleanup).not.toHaveBeenCalled();
     expect(view.onDeleted).not.toHaveBeenCalled();
@@ -307,7 +307,7 @@ test("reports incomplete local cleanup after the server deletes the session", as
   const view = mount();
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     await waitFor(() => expect(view.onDeleted).toHaveBeenCalled());
     expect(alert).toHaveBeenCalledWith("Local cleanup incomplete", expect.any(String));
     expect(view.onClose).not.toHaveBeenCalled();
@@ -385,7 +385,7 @@ test("closing the sheet aborts a deletion before the server removes anything", a
   const view = mount();
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     await waitFor(() => expect(load).toHaveBeenCalled());
     view.unmount();
     await act(async () => finish?.(["ses_one"]));

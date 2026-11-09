@@ -49,14 +49,14 @@ test("expandable rows report state and swap the chevron direction", () => {
   const chevron = () =>
     screen.UNSAFE_getAllByType(Feather).map((icon) => icon.props.name as string);
   expect(screen.getByRole("button", { name: "Advanced" })).toBeCollapsed();
-  expect(chevron()).toEqual(["activity", "chevron-down"]);
+  expect(chevron()).toEqual(["activity", "chevron-right"]);
   view.rerender(
     <MenuGroup>
       <MenuRow icon="activity" label="Advanced" expanded last onPress={() => {}} />
     </MenuGroup>,
   );
   expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
-  expect(chevron()).toEqual(["activity", "chevron-up"]);
+  expect(chevron()).toEqual(["activity", "chevron-down"]);
 });
 
 test("plain rows keep the forward chevron and no expanded state", () => {

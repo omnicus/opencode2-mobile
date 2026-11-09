@@ -1625,7 +1625,7 @@ function SubagentCardFooter({
         <Feather
           accessible={false}
           color={palette.signal}
-          name={expanded ? "chevron-up" : "chevron-down"}
+          name={expanded ? "chevron-down" : "chevron-right"}
           size={16}
         />
       </Pressable>

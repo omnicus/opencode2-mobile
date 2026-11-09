@@ -27,6 +27,7 @@ import {
 } from "./session-action-sheet-model";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
 import { SessionDevTools } from "./session-location-options";
+import { sanitizeTranscriptText } from "./session-transcript-model";
 
 export function SessionActionSheet({
   connectionId,
@@ -108,6 +109,7 @@ export function SessionActionSheet({
         <SessionDeletePage
           busy={busy}
           connected={connected}
+          directory={session.location.directory}
           onConfirm={() => void perform("delete")}
         />
       ) : null}
@@ -365,10 +367,12 @@ function SessionRenamePage({
 function SessionDeletePage({
   busy,
   connected,
+  directory,
   onConfirm,
 }: {
   busy: boolean;
   connected: boolean;
+  directory: string;
   onConfirm: () => void;
 }) {
   return (
@@ -376,11 +380,15 @@ function SessionDeletePage({
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
         This deletes the remote session and its child sessions. It cannot be undone.
       </Text>
+      {/* Name the target location before the destructive action. */}
+      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.deletePath}>
+        {sanitizeTranscriptText(directory, 1_024)}
+      </Text>
       <Button
         busy={busy}
         disabled={!connected}
         fullWidth
-        label={busy ? "Deleting" : "Confirm delete"}
+        label={busy ? "Deleting" : "Delete session"}
         onPress={onConfirm}
         variant="danger"
       />
@@ -401,5 +409,10 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
   },
   copy: { ...typography.subheadline, color: palette.ink },
+  deletePath: {
+    ...typography.footnote,
+    color: palette.dim,
+    fontFamily: typography.code.fontFamily,
+  },
   error: { ...typography.subheadline, color: palette.danger },
 });

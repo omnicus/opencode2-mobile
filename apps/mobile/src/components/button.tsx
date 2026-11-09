@@ -1,5 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
-import type { ComponentProps } from "react";
+import type { ComponentProps, Ref } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -7,6 +7,7 @@ import {
   type StyleProp,
   StyleSheet,
   Text,
+  type View,
   type ViewStyle,
 } from "react-native";
 
@@ -46,6 +47,7 @@ export function Button({
   accessibilityHint,
   accessibilityLabel,
   icon,
+  ref,
   style,
 }: {
   label: string;
@@ -60,6 +62,8 @@ export function Button({
   accessibilityHint?: string;
   accessibilityLabel?: string;
   icon?: ComponentProps<typeof Feather>["name"];
+  // For focus return from a sheet the button opened.
+  ref?: Ref<View>;
   // Layout only (margins, flexGrow); not colors or type.
   style?: StyleProp<ViewStyle>;
 }) {
@@ -80,6 +84,7 @@ export function Button({
       disabled={inactive}
       hitSlop={variant === "text" ? textHitSlop : undefined}
       onPress={onPress}
+      ref={ref}
       style={({ pressed }) => [
         styles.button,
         size === "compact" && styles.compact,
