@@ -21,11 +21,13 @@ import {
   Pressable,
   ScrollView,
   Share,
+  type StyleProp,
   StyleSheet,
   Switch,
   Text,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/button";
@@ -168,7 +170,7 @@ export function PendingInteractions({
               dynamicTypeRamp={typeRamp.largeTitle}
               style={styles.title}
             >
-              Requests that need you.
+              Requests that need you
             </Text>
             <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.lede}>
               Approvals and forms from followed projects appear here.
@@ -221,15 +223,26 @@ function PendingContent({
     );
   }
   if (selection.followedProjectIds.length === 0) {
+    // The same empty state as the Chat and PRs tabs, so switching tabs does not jump.
     return (
-      <View style={styles.summary}>
-        <View style={styles.summaryRow}>
-          <StatusIcon color={palette.dim} name="folder" />
-          <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
-            Follow a project to see requests that need you here.
-          </Text>
-        </View>
-        <Button label="Choose projects" onPress={() => onNavigate("FollowedProjects")} />
+      <View style={styles.emptyState}>
+        <Feather accessible={false} color={palette.dim} name="folder" size={36} />
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.headline}
+          style={styles.emptyTitle}
+        >
+          No projects followed yet
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+          Follow a project to see requests that need you here.
+        </Text>
+        <Button
+          align="center"
+          label="Choose projects"
+          onPress={() => onNavigate("FollowedProjects")}
+          variant="primary"
+        />
       </View>
     );
   }
@@ -377,10 +390,12 @@ function PartialResultsCard({
         {affectedProjectsText(coverage.failedProjects)}
         Showing requests found at the other locations.
       </Text>
-      {failedLocations.length > 0 ? (
-        <ActionButton label="Review locations" onPress={onReviewLocations} />
-      ) : null}
-      <ActionButton busy={retrying} label="Retry" onPress={onRetry} secondary />
+      <View style={styles.stateActions}>
+        {failedLocations.length > 0 ? (
+          <ActionButton label="Review locations" onPress={onReviewLocations} />
+        ) : null}
+        <ActionButton busy={retrying} label="Retry" onPress={onRetry} secondary />
+      </View>
     </View>
   );
 }
@@ -526,6 +541,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
               label="Share diagnostics"
               onPress={() => void shareDiagnostics()}
               secondary
+              style={styles.inlineAction}
             />
           </View>
         </SettingsGroup>
@@ -816,7 +832,12 @@ export function ConnectionStorageFailureScreen() {
       >
         {connections.error}
       </Text>
-      <ActionButton disabled={retrying} label={retrying ? "Retrying" : "Retry"} onPress={retry} />
+      <ActionButton
+        disabled={retrying}
+        label={retrying ? "Retrying" : "Retry"}
+        onPress={retry}
+        style={styles.inlineAction}
+      />
     </SafeAreaView>
   );
 }
@@ -1433,6 +1454,7 @@ export function ActionButton({
   label,
   onPress,
   secondary,
+  style,
 }: {
   accessibilityLabel?: string;
   busy?: boolean;
@@ -1441,6 +1463,8 @@ export function ActionButton({
   label: string;
   onPress: () => void | Promise<void>;
   secondary?: boolean;
+  // Parents own spacing with gap; pass a margin only where the parent has none.
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Button
@@ -1450,14 +1474,14 @@ export function ActionButton({
       fullWidth={Boolean(fullWidth)}
       label={label}
       onPress={() => void onPress()}
-      style={styles.actionButton}
+      style={[styles.actionButton, style]}
       variant={secondary ? "secondary" : "primary"}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  actionButton: { marginTop: space.md, maxWidth: "100%" },
+  actionButton: { maxWidth: "100%" },
   branchControl: {
     alignItems: "center",
     flex: 1,
@@ -1530,6 +1554,14 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   deliveryOptions: { marginTop: space.sm },
   errorText: { ...typography.footnote, color: palette.danger },
+  emptyCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  emptyState: {
+    alignItems: "center",
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.xl,
+  },
+  emptyTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
   failureCard: { ...cardSurface, borderColor: palette.danger, gap: space.xs },
   failureLabel: { ...typography.sectionLabel, color: palette.danger },
   heading: { gap: space.xs },
@@ -1592,7 +1624,7 @@ const styles = StyleSheet.create({
   settingText: { flexGrow: 1, flexShrink: 1, gap: 2 },
   settingTitle: { ...typography.body, color: palette.ink },
   shell: { flex: 1 },
-  stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.sm },
   stateCard: { ...cardSurface, alignItems: "center", flexDirection: "row", gap: space.md },
   stateCardText: { flex: 1, gap: space.xs },
   stateCardTitle: { ...typography.headline, color: palette.ink, flex: 1 },

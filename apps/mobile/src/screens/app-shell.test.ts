@@ -425,7 +425,7 @@ test.each([0, 1])(
       } as never),
     );
 
-    expect(screen.queryByRole("header", { name: "Requests that need you." })).toBeNull();
+    expect(screen.queryByRole("header", { name: "Requests that need you" })).toBeNull();
     expect(screen.getByText("1 location could not be checked.")).toBeOnTheScreen();
     expect(
       screen.getByText(
@@ -859,7 +859,7 @@ test("lists failed checks from a worktree and pads the phone Approvals tab", () 
   const view = render(
     createElement(PendingInteractions, { bottomInset: 80, heading: true, onNavigate }),
   );
-  expect(screen.getByRole("header", { name: "Requests that need you." })).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Requests that need you" })).toBeOnTheScreen();
   expect(screen.getByText("Checking 2 of 3 locations.")).toBeOnTheScreen();
   expect(
     screen.getByText("Affected project: Alpha. Showing requests found at the other locations."),

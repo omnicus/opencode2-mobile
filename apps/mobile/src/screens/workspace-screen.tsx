@@ -164,7 +164,7 @@ const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
 const rowRipple = rippleFeedback.row;
 const borderlessRipple = rippleFeedback.borderless;
-// Keeps the last rows of the Approvals tab clear of the floating bottom menu.
+// Keeps the last rows of every Sessions tab clear of the floating bottom menu.
 const bottomMenuInset = 96;
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
@@ -1604,7 +1604,11 @@ function StaleSessionRoute({ navigation }: { navigation: SessionNavigation }) {
   return (
     <View style={styles.staleRoute}>
       <InlineError message="This session belongs to a different connection." />
-      <ActionButton label="Back to workspace" onPress={() => navigation.popTo("Workspace")} />
+      <ActionButton
+        label="Back to sessions"
+        onPress={() => navigation.popTo("Workspace")}
+        style={styles.staleRouteAction}
+      />
     </View>
   );
 }
@@ -2202,8 +2206,16 @@ function SessionEmptyState({
   if (search) {
     return (
       <View style={styles.emptyState}>
-        <Text dynamicTypeRamp={typeRamp.headline} style={styles.emptyTitle}>
-          No sessions match this search.
+        <Feather accessible={false} color={palette.dim} name="search" size={36} />
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.headline}
+          style={styles.emptyTitle}
+        >
+          No matching sessions
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+          Search looks through sessions in the projects you follow. Try a different word.
         </Text>
       </View>
     );
@@ -2339,7 +2351,7 @@ const styles = StyleSheet.create({
   headerActionLabel: { ...typography.control, color: palette.ink },
   headerActionLabelAttention: { color: palette.warm },
   hiddenPanel: { display: "none" },
-  inboxSectionCount: { ...typography.footnote, color: palette.dim, opacity: 0.7 },
+  inboxSectionCount: { ...typography.footnote, color: palette.dim },
   inboxSectionChevron: { marginLeft: "auto" },
   inboxSectionHeader: {
     alignItems: "center",
@@ -2368,7 +2380,7 @@ const styles = StyleSheet.create({
   listContent: {
     alignSelf: "center",
     maxWidth: 760,
-    paddingBottom: 80,
+    paddingBottom: bottomMenuInset,
     width: "100%",
   },
   listFooter: { alignItems: "center", padding: space.lg },
@@ -2388,6 +2400,7 @@ const styles = StyleSheet.create({
     width: minTouchTarget,
   },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
+  staleRouteAction: { marginTop: space.md },
   tabPanel: { flex: 1 },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   transcriptContainer: { flex: 1 },

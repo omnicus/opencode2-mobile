@@ -217,11 +217,13 @@ test("unread titles are semibold, working rows and archived rows recede", () => 
   view.rerender(rowElement(row(), view.handlers));
   expect(title()).toMatchObject({ color: palette.dim });
 
+  // Faded rows start from brighter text so the composite still clears 4.5:1.
   view.rerender(rowElement(row({ status: "working" }), view.handlers));
-  expect(title()).toMatchObject({ color: palette.dim });
+  expect(title()).toMatchObject({ color: "#b0b0b0" });
   expect(copy()).toMatchObject({ opacity: 0.7 });
 
   view.rerender(rowElement(row({ archived: true }), view.handlers));
+  expect(title()).toMatchObject({ color: palette.ink });
   expect(copy()).toMatchObject({ opacity: 0.5 });
 });
 

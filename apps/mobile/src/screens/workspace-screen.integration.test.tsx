@@ -2835,7 +2835,7 @@ test("a session from another connection offers only the way back to the workspac
     expect(screen.getByText("This session belongs to a different connection.")).toBeOnTheScreen();
     expect(screen.queryByLabelText("Session transcript")).toBeNull();
     expect(mockGetSession).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole("button", { name: "Back to workspace" }));
+    fireEvent.press(screen.getByRole("button", { name: "Back to sessions" }));
     expect(navigation.popTo).toHaveBeenCalledWith("Workspace");
     const shell = screen.UNSAFE_getByType(ShellFrame);
     act(() => shell.props.navigate("Workspace"));

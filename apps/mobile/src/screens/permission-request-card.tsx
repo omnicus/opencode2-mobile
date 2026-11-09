@@ -51,7 +51,11 @@ export function PermissionRequestCard({
   const [details, setDetails] = useState(false);
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
+  // The card previews short patterns; Details and the confirmation show them in full.
   const patterns = (request.save ?? []).map((pattern) => sanitizeTranscriptText(pattern, 256));
+  const fullPatterns = (request.save ?? []).map((pattern) =>
+    sanitizeTranscriptText(pattern, pattern.length),
+  );
   const shell = request.action === "shell";
   const heading = permissionActionHeading(request.action, request.resources.length);
   const action = heading?.label ?? `Call tool ${sanitizeTranscriptText(request.action, 256)}`;
@@ -65,7 +69,7 @@ export function PermissionRequestCard({
   }
 
   function confirmAlways() {
-    Alert.alert("Always allow?", alwaysAllowMessage(patterns), [
+    Alert.alert("Always allow?", alwaysAllowMessage(fullPatterns), [
       { style: "cancel", text: "Cancel" },
       { onPress: () => reply("always"), text: "Always allow" },
     ]);
@@ -82,10 +86,11 @@ export function PermissionRequestCard({
   );
   return (
     <View style={styles.card}>
+      {/* Same shape as a form card: what kind of request in the eyebrow, what it does as the title. */}
       <View style={styles.eyebrowRow}>
         <Feather accessible={false} name={heading?.icon ?? "tool"} size={14} color={palette.warm} />
         <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
-          {action}
+          Permission required
         </Text>
       </View>
       <View style={styles.headingRow}>
@@ -94,7 +99,7 @@ export function PermissionRequestCard({
           dynamicTypeRamp={typeRamp.headline}
           style={[styles.title, styles.headingTitle]}
         >
-          Permission required
+          {action}
         </Text>
         <DetailsButton onPress={() => setDetails(true)} />
       </View>
@@ -119,7 +124,7 @@ export function PermissionRequestCard({
             </Text>
           </View>
         ))}
-        <SavedPatterns patterns={patterns} />
+        <SavedPatterns patterns={fullPatterns} />
         <ActionExplanation explanation={permissionActionExplanation(request.action)} />
         <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
           Reject may also reject other pending permission requests in this session.
@@ -135,7 +140,7 @@ function alwaysAllowMessage(patterns: string[]) {
     return "Future requests that match this one will be allowed without asking.";
   }
   const subject = patterns.length === 1 ? "this pattern" : "these patterns";
-  return `Future requests that match ${subject} will be allowed without asking:\n\n${patterns.join("\n")}`;
+  return `Future requests that match ${subject} will be allowed without asking. A pattern can cover more than this request.\n\n${patterns.join("\n")}`;
 }
 
 function alwaysAllowLabel(patterns: string[]) {
@@ -413,13 +418,17 @@ const styles = StyleSheet.create({
   actionsLarge: { flexDirection: "column" },
   reject: { minWidth: 104 },
   allowOnce: { flexGrow: 1 },
+  // A quiet outlined row, so the saved-permission choice reads as a control, not a caption.
   alwaysRow: {
     alignItems: "center",
-    borderRadius: radius.sm,
+    borderColor: palette.border,
+    borderRadius: radius.md,
+    borderWidth: 1,
     flexDirection: "row",
     gap: space.xs,
     minHeight: minTouchTarget,
     overflow: "hidden",
+    paddingHorizontal: space.md,
   },
   alwaysLabel: { ...typography.subheadline, color: palette.ink, flex: 1 },
   alwaysPattern: { fontFamily: typography.code.fontFamily, color: palette.dim },

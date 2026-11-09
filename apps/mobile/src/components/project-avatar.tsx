@@ -71,7 +71,7 @@ export function ProjectAvatar({
         ]}
         testID="project-avatar-letter"
       >
-        <Text allowFontScaling={false} style={styles.letter}>
+        <Text allowFontScaling={false} style={[styles.letter, letterSize(size)]}>
           {projectAvatarLetter(name)}
         </Text>
       </View>
@@ -87,6 +87,11 @@ export function ProjectAvatar({
       {avatar}
     </View>
   );
+}
+
+// The letter scales with the frame so a 16pt row avatar does not crowd its border.
+function letterSize(size: number) {
+  return size >= 20 ? undefined : { fontSize: Math.round(size * 0.62), lineHeight: size - 2 };
 }
 
 const styles = StyleSheet.create({

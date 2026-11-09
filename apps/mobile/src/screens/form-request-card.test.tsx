@@ -59,14 +59,14 @@ test("renders all field controls, conditional visibility, and a validated reply"
   fireEvent.press(screen.getByRole("radio", { name: "Yes" }));
   expect(screen.getByLabelText("Detail")).toBeOnTheScreen();
 
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
   expect(screen.getAllByRole("alert").length).toBeGreaterThan(0);
   expect(onSubmit).not.toHaveBeenCalled();
 
   fireEvent.changeText(screen.getByLabelText("name"), "Ada");
   fireEvent.changeText(screen.getByLabelText("Detail"), "Ship it");
   fireEvent.press(screen.getByRole("checkbox", { name: "Production" }));
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
 
   expect(onSubmit).toHaveBeenCalledWith({
     advanced: true,
@@ -143,7 +143,7 @@ test("focused form keeps its draft across dismissal and falls back inline withou
   view.rerender(<FormRequestCard {...props} allowFocus={false} />);
   expect(screen.queryByRole("button", { name: "Close Answer request" })).toBeNull();
   expect(screen.getByLabelText("name").props.value).toBe("Partial answer");
-  expect(screen.getByRole("button", { name: "Submit" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Send answers" })).toBeOnTheScreen();
 });
 
 test("question progress counts visible answers and explains multiple selection", () => {
@@ -192,7 +192,7 @@ test("other values keep spaces and new lines while typing and submit trimmed lin
   expect(screen.getByLabelText("Channels custom values").props.value).toBe(
     "Internal QA\n  Partner preview \n\n",
   );
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
   expect(onSubmit).toHaveBeenCalledWith({
     channels: ["stable", "Internal QA", "Partner preview", "beta"],
   });
@@ -250,7 +250,7 @@ test("VoiceOver hears submit progress, failed validation, and server errors", ()
   const props = { form, onCancel: jest.fn(), onSubmit: jest.fn() };
   const view = render(<FormRequestCard {...props} />);
   expect(announce).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
   expect(announce).toHaveBeenLastCalledWith("1 answer needs attention");
   fireEvent.changeText(screen.getByLabelText("name"), "Ada");
   expect(announce).toHaveBeenLastCalledWith("2 of 3 answered");
@@ -340,7 +340,7 @@ test("offers single-choice options with an optional custom value", () => {
   expect(screen.getByLabelText("Tier").props.value).toBe("free");
   fireEvent.changeText(screen.getByLabelText("Tier"), "enterprise");
   expect(screen.getByRole("radio", { name: "Free" })).not.toBeChecked();
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
 
   expect(onSubmit).toHaveBeenCalledWith({ region: "us-west", tier: "enterprise" });
 });
@@ -376,7 +376,7 @@ test("multiselect options toggle off again and keep custom values", () => {
   expect(screen.getByRole("checkbox", { name: "Production" })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: /Staging/ })).toBeChecked();
   expect(screen.getByText("Preview")).toBeOnTheScreen();
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
 
   expect(onSubmit).toHaveBeenCalledWith({ targets: ["staging", "canary"] });
 });
@@ -411,7 +411,7 @@ test("optional booleans can return to not set while required ones cannot", () =>
   fireEvent.press(screen.getByRole("radio", { name: "Not set" }));
   expect(screen.getByRole("radio", { name: "Not set" })).toBeChecked();
   fireEvent.press(confirm.getByRole("radio", { name: "Yes" }));
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
 
   expect(onSubmit).toHaveBeenCalledWith({ confirm: true });
 });
@@ -433,7 +433,7 @@ test("clearing an invalid optional answer removes its error", () => {
 
   fireEvent.press(screen.getByRole("radio", { name: "Not set" }));
   fireEvent.changeText(screen.getByLabelText("Count"), "1");
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
   expect(screen.getAllByRole("alert")).toHaveLength(1);
   fireEvent.changeText(screen.getByLabelText("Count"), "");
   expect(screen.queryByRole("alert")).toBeNull();
@@ -457,14 +457,14 @@ test("VoiceOver counts several answers that need attention", () => {
       onSubmit={jest.fn()}
     />,
   );
-  fireEvent.press(screen.getByRole("button", { name: "Submit" }));
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
   expect(announce).toHaveBeenLastCalledWith("2 answers need attention");
   jest.restoreAllMocks();
 });
 
 test("busy forms show progress on submit and disable cancel", () => {
   render(<FormRequestCard busy form={form} onCancel={jest.fn()} onSubmit={jest.fn()} />);
-  expect(screen.getByRole("button", { name: "Submitting" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Sending" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Cancel form" })).toBeDisabled();
 });
 

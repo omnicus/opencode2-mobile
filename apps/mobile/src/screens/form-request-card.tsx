@@ -123,7 +123,10 @@ export function FormRequestCard({
         </Text>
         {progress}
         {allowFocus ? (
-          <ReviewButton onPress={() => setFocused(true)} reviewRef={reviewRef} />
+          <>
+            <ReviewButton onPress={() => setFocused(true)} reviewRef={reviewRef} />
+            {focused ? null : <FieldError error={error} />}
+          </>
         ) : (
           <>
             {fields}
@@ -131,7 +134,6 @@ export function FormRequestCard({
           </>
         )}
       </View>
-      {allowFocus && !focused ? <FieldError error={error} /> : null}
       {allowFocus ? (
         <ModalSheet
           title="Answer request"
@@ -270,28 +272,24 @@ function FormActions({
   onSubmit: () => void;
 }) {
   return (
+    // Same order as permission cards: the destructive choice first, the primary one filling the row.
     <View style={[styles.actions, allowFocus && styles.focusedActions]}>
-      <Button
-        variant="primary"
-        busy={Boolean(busy)}
-        label={submitLabel(busy, allowFocus)}
-        onPress={onSubmit}
-        style={styles.actionButton}
-      />
       <Button
         variant="danger"
         disabled={Boolean(busy)}
         label="Cancel form"
         onPress={onCancel}
+        style={styles.cancelButton}
+      />
+      <Button
+        variant="primary"
+        busy={Boolean(busy)}
+        label={busy ? "Sending" : "Send answers"}
+        onPress={onSubmit}
         style={styles.actionButton}
       />
     </View>
   );
-}
-
-function submitLabel(busy: boolean | undefined, allowFocus: boolean) {
-  if (busy) return "Submitting";
-  return allowFocus ? "Send answers" : "Submit";
 }
 
 function FormControl({
@@ -694,6 +692,7 @@ const styles = StyleSheet.create({
   choiceHeading: { flexDirection: "row", gap: space.sm, alignItems: "center" },
   actions: requestCardStyles.actions,
   actionButton: { flexGrow: 1, maxWidth: "100%" },
+  cancelButton: { flexGrow: 0, maxWidth: "100%", minWidth: 104 },
   booleanOptions: {
     flexDirection: "row",
     flexWrap: "wrap",

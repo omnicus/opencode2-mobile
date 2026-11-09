@@ -93,6 +93,13 @@ export function WorkspaceListHeader({
             >
               {name}
             </Text>
+            <Feather
+              accessible={false}
+              color={palette.dim}
+              name="chevron-down"
+              size={16}
+              style={styles.connectionChevron}
+            />
           </Pressable>
           {showSearch ? (
             <IconButton
@@ -155,6 +162,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
     paddingHorizontal: space.sm,
   },
+  connectionChevron: { marginLeft: 4 },
   connectionName: { ...typography.navTitle, color: palette.ink, flexShrink: 1 },
   disabled: { opacity: disabledOpacity },
   header: {

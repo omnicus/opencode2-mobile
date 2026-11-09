@@ -42,10 +42,10 @@ export function WorkspaceHeaderActions({
       >
         <Feather
           accessibilityElementsHidden
-          color={palette.signal}
+          color={palette.ink}
           importantForAccessibility="no-hide-descendants"
           name="settings"
-          size={20}
+          size={22}
         />
         {count > 0 || freshness !== "current" || coverage === "incomplete" ? (
           <View
@@ -81,7 +81,7 @@ export function NewSessionButton({ onPress }: { onPress: () => void }) {
         color={palette.ink}
         importantForAccessibility="no-hide-descendants"
         name="edit"
-        size={24}
+        size={22}
       />
     </Pressable>
   );

@@ -34,11 +34,11 @@ function pressAlertButton(text: string) {
 
 test("permission messages use neutral headings and shared error typography", () => {
   render(<PermissionRequestCard request={request} replying={false} error onReply={jest.fn()} />);
-  expect(screen.getByText("Permission required")).toHaveStyle({
+  expect(screen.getByText("Run shell command")).toHaveStyle({
     ...typography.headline,
     color: palette.ink,
   });
-  expect(screen.getByText("Run shell command")).toHaveStyle({
+  expect(screen.getByText("Permission required")).toHaveStyle({
     ...typography.sectionLabel,
     color: palette.warm,
   });
@@ -283,7 +283,7 @@ test("a single saved pattern is named without a count", () => {
   fireEvent.press(always);
   expect(alert).toHaveBeenCalledWith(
     "Always allow?",
-    "Future requests that match this pattern will be allowed without asking:\n\npython3 *",
+    "Future requests that match this pattern will be allowed without asking. A pattern can cover more than this request.\n\npython3 *",
     expect.any(Array),
   );
 });
