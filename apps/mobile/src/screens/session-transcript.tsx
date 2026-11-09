@@ -1492,7 +1492,7 @@ function SubagentCard({
           <Text
             accessibilityLiveRegion="polite"
             dynamicTypeRamp={typeRamp.footnote}
-            numberOfLines={largeText ? undefined : 1}
+            numberOfLines={largeText ? undefined : 2}
             style={subagentStatusStyles.meta}
           >
             {agent ? `${agent} · ` : ""}

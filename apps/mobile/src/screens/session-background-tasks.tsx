@@ -255,7 +255,7 @@ function SubagentMonitorRow({
           </Text>
           <Text
             dynamicTypeRamp={typeRamp.footnote}
-            numberOfLines={1}
+            numberOfLines={2}
             style={subagentStatusStyles.meta}
           >
             {agent ? `${agent} · ` : ""}
@@ -277,7 +277,8 @@ function SubagentMonitorRow({
             </Text>
           ) : null}
         </View>
-        {childSessionID ? (
+        {/* A Stop button already ends running rows; the chevron would crowd it. */}
+        {childSessionID && !canStop ? (
           <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
         ) : null}
       </Pressable>
