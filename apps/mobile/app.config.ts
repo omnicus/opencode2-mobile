@@ -41,7 +41,7 @@ if (projectId) {
 const config: ExpoConfig = {
   name: appName,
   slug,
-  version: "0.1.5",
+  version: "0.1.6",
   newArchEnabled: true,
   platforms: ["ios", "android"],
   icon: "./assets/icon.png",
@@ -55,7 +55,7 @@ const config: ExpoConfig = {
     : { enabled: false },
   ios: {
     bundleIdentifier: iosBundleIdentifier,
-    buildNumber: "8",
+    buildNumber: "9",
     supportsTablet: true,
     config: {
       usesNonExemptEncryption: false,
@@ -71,7 +71,7 @@ const config: ExpoConfig = {
   android: {
     package: androidPackage,
     ...(googleServicesFile ? { googleServicesFile } : {}),
-    versionCode: 7,
+    versionCode: 8,
     allowBackup: false,
     predictiveBackGestureEnabled: false,
     softwareKeyboardLayoutMode: "resize",
