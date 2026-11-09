@@ -39,6 +39,7 @@ import {
 import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
 import { MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
+import { ProjectAvatar } from "../components/project-avatar";
 import { SegmentedControl } from "../components/segmented-control";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useConnections } from "../connections/connections-context";
@@ -47,6 +48,7 @@ import type { RootStackParamList } from "../navigation/root-navigation";
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
+import type { FollowedInboxRow } from "../state/followed-project-inbox";
 import type { AttentionCoverage } from "../state/followed-projects-model";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
@@ -272,6 +274,10 @@ function PendingContent({
       />
     );
   }
+  const owners =
+    selection.permissions.length > 0 || selection.forms.length > 0
+      ? requestOwners(selection.inbox)
+      : new Map<string, FollowedInboxRow>();
   return (
     <>
       {selection.interactionsError ? (
@@ -285,13 +291,15 @@ function PendingContent({
       ) : null}
       <PendingSummary count={selection.pendingCount} coverage={selection.attentionCoverage} />
       {selection.permissions.map((request) => (
-        <PermissionRequestCard
-          key={`permission:${request.id}`}
-          request={request}
-          replying={selection.replyingPermissionId === request.id}
-          error={selection.failedPermissionReplyId === request.id}
-          onReply={selection.replyPermission}
-        />
+        <View key={`permission:${request.id}`} style={styles.ownedRequest}>
+          <RequestOwner row={owners.get(request.sessionID)} />
+          <PermissionRequestCard
+            request={request}
+            replying={selection.replyingPermissionId === request.id}
+            error={selection.failedPermissionReplyId === request.id}
+            onReply={selection.replyPermission}
+          />
+        </View>
       ))}
       {selection.forms.length > 0 ? (
         <FormRequestList
@@ -300,9 +308,42 @@ function PendingContent({
           formLocations={selection.formLocations}
           forms={selection.forms}
           location={undefined}
+          renderOwner={(sessionID) => <RequestOwner row={owners.get(sessionID)} />}
         />
       ) : null}
     </>
+  );
+}
+
+// Requests pool across projects, so each names the project and session that asked. A request
+// whose session is not in the inbox shows no owner rather than a guess.
+function requestOwners(inbox: WorkspaceSelection["inbox"]) {
+  const owners = new Map<string, FollowedInboxRow>();
+  for (const row of [...inbox.needsYou, ...inbox.working, ...inbox.recent, ...inbox.archived]) {
+    for (const id of [row.attentionOwnerSessionID, row.targetSessionID, row.session.id]) {
+      if (id && !owners.has(id)) owners.set(id, row);
+    }
+  }
+  return owners;
+}
+
+function RequestOwner({ row }: { row: FollowedInboxRow | undefined }) {
+  const { fontScale } = useWindowDimensions();
+  if (!row) return null;
+  const title = row.session.title || "Untitled session";
+  return (
+    <View style={styles.owner} testID="request-owner">
+      <ProjectAvatar
+        icon={row.projectIcon}
+        lineHeight={typography.footnote.lineHeight * fontScale}
+        name={row.projectLabel}
+        size={16}
+      />
+      <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.ownerText}>
+        <Text style={styles.ownerProject}>{row.projectLabel}</Text>
+        {` · ${title}`}
+      </Text>
+    </View>
   );
 }
 
@@ -534,7 +575,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           onPair={() => navigation.navigate("Pairing")}
         />
 
-        <AppUpdateCard />
+        <AppUpdateCard grouped />
 
         <SettingsGroup title="Support">
           <View style={styles.managementAction}>
@@ -664,7 +705,7 @@ function TranscriptSettings({
           dynamicTypeRamp={typeRamp.footnote}
           style={styles.errorText}
         >
-          Message preferences could not be loaded or saved. Try changing the setting again.
+          Transcript preferences could not be loaded or saved. Try changing the setting again.
         </Text>
       ) : null}
     </>
@@ -1268,6 +1309,7 @@ function ShellDetailSheet({
   return (
     <ModalSheet
       onClose={onClose}
+      size="compact"
       title={detail === "branch" ? "Current branch" : "Server name"}
       visible={Boolean(detail && detailName)}
     >
@@ -1550,6 +1592,10 @@ const styles = StyleSheet.create({
   deliveryOptions: { marginTop: space.sm },
   errorText: { ...typography.footnote, color: palette.danger },
   emptyCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  ownedRequest: { gap: space.xs },
+  owner: { alignItems: "center", flexDirection: "row", gap: space.xs, paddingHorizontal: 2 },
+  ownerProject: { color: palette.ink },
+  ownerText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
   emptyState: {
     alignItems: "center",
     gap: space.sm,

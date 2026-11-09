@@ -11,6 +11,7 @@ import { ActivityIndicator, AppState, Modal, StyleSheet, Text, View } from "reac
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../components/button";
+import { SettingsGroup } from "../components/management-layout";
 import { useAnnouncement } from "../components/use-announcement";
 import { cardSurface, palette, space, typeRamp, typography } from "../theme";
 import { AppUpdateController } from "./app-update-controller";
@@ -73,9 +74,17 @@ function RestartOverlay({ controller }: { controller: AppUpdateController }) {
   );
 }
 
-export function AppUpdateCard() {
+// Settings passes grouped, so updates sit in the same section style as every other setting.
+export function AppUpdateCard({ grouped = false }: { grouped?: boolean }) {
   const controller = use(AppUpdateContext);
-  return controller ? <UpdateControls controller={controller} /> : null;
+  if (!controller) return null;
+  return grouped ? (
+    <SettingsGroup title="App updates">
+      <UpdateControls controller={controller} grouped />
+    </SettingsGroup>
+  ) : (
+    <UpdateControls controller={controller} />
+  );
 }
 
 export function AppUpdateBanner() {
@@ -90,10 +99,12 @@ function UpdateControls({
   bottomInset = 0,
   compact = false,
   controller,
+  grouped = false,
 }: {
   bottomInset?: number;
   compact?: boolean;
   controller: AppUpdateController;
+  grouped?: boolean;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ready = state.phase === "ready";
@@ -110,8 +121,13 @@ function UpdateControls({
   }[state.phase];
 
   return (
-    <View style={[styles.card, compact && { paddingBottom: Math.max(bottomInset, space.sm) }]}>
-      {!compact ? (
+    <View
+      style={[
+        grouped ? styles.grouped : styles.card,
+        compact && { paddingBottom: Math.max(bottomInset, space.sm) },
+      ]}
+    >
+      {!compact && !grouped ? (
         <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.title}>
           App updates
         </Text>
@@ -133,7 +149,7 @@ function UpdateControls({
           busy={busy}
           label={ready ? "Restart to apply update" : "Check for app updates"}
           onPress={() => void (ready ? controller.restart() : controller.check(true))}
-          variant="secondary"
+          variant={ready ? "primary" : "secondary"}
         />
       ) : null}
     </View>
@@ -150,6 +166,7 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   card: { ...cardSurface, borderWidth: StyleSheet.hairlineWidth, gap: space.sm },
+  grouped: { alignItems: "flex-start", gap: space.sm, padding: space.md },
   title: { ...typography.headline, color: palette.ink },
   copy: { ...typography.subheadline, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },

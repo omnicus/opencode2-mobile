@@ -229,7 +229,9 @@ function renderCodeBlock({ token, key }: Node) {
             {language}
           </Text>
         ) : null}
-        <CopyTextButton text={token.content} label="Copy code" />
+        <View style={styles.codeCopy}>
+          <CopyTextButton text={token.content} label="Copy code" />
+        </View>
       </View>
       {/* The native selection view's unwrapped mode left code blocks blank on
           iPhone; the standard text view lays out without a width callback. */}
@@ -363,6 +365,8 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   codeLanguage: { ...typography.footnote, color: palette.dim },
+  // Copy stays at the trailing edge even when the fence names no language.
+  codeCopy: { marginLeft: "auto" },
   codeHeader: {
     flexDirection: "row",
     flexWrap: "wrap",

@@ -37,13 +37,14 @@ export const markdownPalette = {
   strong: "#fafafa",
 } as const;
 
-// Code block syntax colors, sampled from the OpenCode iOS app's dark transcript.
+// Code block syntax colors, sampled from the OpenCode iOS app's dark transcript. Comments and
+// punctuation are lifted to about 5:1 on the code card so they stay readable.
 export const codePalette = {
-  comment: "#6e7681",
+  comment: "#8b949e",
   constant: "#7cc8d0",
   function: "#e48cb8",
   keyword: "#e48cb8",
-  punctuation: "#7a7a7a",
+  punctuation: "#9a9a9a",
   string: "#a5d6a7",
   type: "#9c94f0",
 } as const;

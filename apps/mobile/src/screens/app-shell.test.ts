@@ -298,6 +298,20 @@ test("allows a permission owned by a background child session from Pending", () 
     blockedSessionIds: new Set(["ses_child"]),
     forms: [],
     followedProjectIds: ["project-1"],
+    // The parent row owns the child's request, so the card names the parent's project and title.
+    inbox: {
+      archived: [],
+      needsYou: [
+        {
+          attentionOwnerSessionID: "ses_child",
+          projectLabel: "Workspace",
+          session: { id: "ses_parent", title: "Fix the login flow" },
+          targetSessionID: "ses_child",
+        },
+      ],
+      recent: [],
+      working: [],
+    },
     interactionsError: false,
     interactionsLoading: false,
     location: { directory: "/workspace" },
@@ -322,6 +336,7 @@ test("allows a permission owned by a background child session from Pending", () 
   );
 
   expect(screen.getByText("1 request")).toBeOnTheScreen();
+  expect(screen.getByTestId("request-owner")).toHaveTextContent("Workspace · Fix the login flow");
   expect(screen.getByText("redacted command")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(replyPermission).toHaveBeenCalledWith("per_test", "ses_child", "once");
@@ -848,6 +863,7 @@ test("lists failed checks from a worktree and pads the phone Approvals tab", () 
     followedProjectIds: ["project-1"],
     formLocations: new Map(),
     forms: [{ id: "form-1" }],
+    inbox: { archived: [], needsYou: [], recent: [], working: [] },
     interactionsError: true,
     interactionsLoading: false,
     pendingCount: 1,

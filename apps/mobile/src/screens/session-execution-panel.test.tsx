@@ -477,7 +477,7 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
   );
 
   expect(screen.getByText("Delivery unknown")).toBeOnTheScreen();
-  expect(screen.getByText(/server may have admitted this prompt/)).toHaveStyle({
+  expect(screen.getByText(/server may have received this prompt/)).toHaveStyle({
     ...typography.subheadline,
     color: palette.dim,
   });
