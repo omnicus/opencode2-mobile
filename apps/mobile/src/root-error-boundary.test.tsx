@@ -21,12 +21,12 @@ test("explains a render failure in plain words and recovers on retry", () => {
     </RootErrorBoundary>,
   );
 
-  expect(screen.getByRole("header", { name: "Something went wrong." })).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Something went wrong" })).toBeOnTheScreen();
   expect(screen.queryByText(/native shell/)).toBeNull();
   expect(screen.queryByText(/private render detail/)).toBeNull();
 
   mockShouldThrow = false;
-  fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
   expect(screen.getByText("Recovered 1")).toBeOnTheScreen();
   consoleError.mockRestore();
 });

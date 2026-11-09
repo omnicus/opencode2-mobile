@@ -122,7 +122,7 @@ export function RootNavigation() {
       <Stack.Screen
         component={DiffScreen}
         name="Diff"
-        options={{ headerShown: true, title: "Current changes" }}
+        options={{ headerShown: true, title: "Changes" }}
       />
       <Stack.Screen
         component={NewSessionScreen}

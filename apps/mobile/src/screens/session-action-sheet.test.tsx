@@ -147,7 +147,7 @@ test("dev tools open within the session menu without another overflow button", a
       await screen.findByText("No MCP servers configured for this location."),
     ).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Location options" })).toBeNull();
-    expect(screen.getByText(/MCP changes affect all sessions/)).toBeOnTheScreen();
+    expect(screen.getByText(/Changes affect all sessions at this location/)).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
     expect(screen.getByRole("button", { name: "Rename" })).toBeOnTheScreen();
   } finally {
@@ -262,7 +262,7 @@ test("titles each page and returns to the menu", () => {
     fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
     fireEvent.press(screen.getByRole("button", { name: "Rename" }));
     expect(screen.getByRole("header", { name: "Rename session" })).toBeOnTheScreen();
-    expect(screen.getByText("Close")).toBeOnTheScreen();
+    expect(screen.getByText("Cancel")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
     fireEvent.changeText(screen.getByLabelText("Session name"), "  ");
     expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();

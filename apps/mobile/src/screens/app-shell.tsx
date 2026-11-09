@@ -31,6 +31,11 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Button } from "../components/button";
+import {
+  FullScreenState,
+  FullScreenStateError,
+  fullScreenStateStyles,
+} from "../components/full-screen-state";
 import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
 import { MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
@@ -783,20 +788,15 @@ function SettingText({ description, title }: { description: string; title: strin
   );
 }
 
+// Local storage usually loads in a moment, so the loading state stays quiet instead of
+// flashing a large title before the app appears.
 export function ConnectionStorageLoadingScreen() {
   return (
-    <SafeAreaView style={styles.centeredState}>
+    <SafeAreaView style={styles.loadingState}>
       <StatusBar style="light" />
       <ActivityIndicator accessibilityLabel="Loading saved connections" color={palette.signal} />
-      <Text
-        accessibilityRole="header"
-        dynamicTypeRamp={typeRamp.largeTitle}
-        style={styles.stateTitle}
-      >
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.loadingCopy}>
         Loading saved connections
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
-        Reading the servers saved on this device.
       </Text>
     </SafeAreaView>
   );
@@ -813,32 +813,25 @@ export function ConnectionStorageFailureScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.centeredState}>
+    <>
       <StatusBar style="light" />
-      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.failureLabel}>
-        Local storage failure
-      </Text>
-      <Text
-        accessibilityRole="header"
-        dynamicTypeRamp={typeRamp.largeTitle}
-        style={styles.stateTitle}
+      <FullScreenState
+        eyebrow="Local storage failure"
+        title="Saved connections are unavailable"
+        tone="danger"
       >
-        Saved connections are unavailable.
-      </Text>
-      <Text
-        accessibilityRole="alert"
-        dynamicTypeRamp={typeRamp.subheadline}
-        style={styles.stateCopy}
-      >
-        {connections.error}
-      </Text>
-      <ActionButton
-        disabled={retrying}
-        label={retrying ? "Retrying" : "Retry"}
-        onPress={retry}
-        style={styles.inlineAction}
-      />
-    </SafeAreaView>
+        {connections.error ? (
+          <FullScreenStateError>{connections.error}</FullScreenStateError>
+        ) : null}
+        <View style={fullScreenStateStyles.actions}>
+          <ActionButton
+            disabled={retrying}
+            label={retrying ? "Retrying" : "Retry"}
+            onPress={retry}
+          />
+        </View>
+      </FullScreenState>
+    </>
   );
 }
 
@@ -1507,12 +1500,14 @@ const styles = StyleSheet.create({
   cacheLabel: { ...typography.sectionLabel, color: palette.warm },
   cardCopy: { ...typography.subheadline, color: palette.dim },
   cardTitle: { ...typography.headline, color: palette.ink },
-  centeredState: {
-    alignItems: "flex-start",
+  loadingCopy: { ...typography.footnote, color: palette.dim, textAlign: "center" },
+  loadingState: {
+    alignItems: "center",
     backgroundColor: palette.background,
     flex: 1,
+    gap: space.sm,
     justifyContent: "center",
-    padding: space.xl,
+    padding: space.lg,
   },
   connectionBar: {
     alignItems: "center",
@@ -1628,17 +1623,6 @@ const styles = StyleSheet.create({
   stateCard: { ...cardSurface, alignItems: "center", flexDirection: "row", gap: space.md },
   stateCardText: { flex: 1, gap: space.xs },
   stateCardTitle: { ...typography.headline, color: palette.ink, flex: 1 },
-  stateCopy: {
-    ...typography.subheadline,
-    color: palette.dim,
-    marginTop: space.sm,
-    maxWidth: 480,
-  },
-  stateTitle: {
-    ...typography.largeTitle,
-    color: palette.ink,
-    marginTop: space.sm,
-  },
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },
   summary: { gap: space.sm },
   summaryCopy: { ...typography.subheadline, color: palette.dim },

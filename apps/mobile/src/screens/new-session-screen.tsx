@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import {
   createOpenCodeSession,
   getDefaultOpenCodeLocation,
@@ -372,9 +373,7 @@ function NewSessionHeader({
           dynamicTypeRamp={typeRamp.footnote}
           style={[styles.subtitle, largeText && styles.headingTextLargeText]}
         >
-          {selectedProject
-            ? projectLabel(selectedProject)
-            : "Choose where this session should start."}
+          {selectedProject ? projectLabel(selectedProject) : "Choose a project"}
         </Text>
       </View>
       {largeText ? null : <View style={styles.headerSide} />}
@@ -730,7 +729,11 @@ function ChoiceRow({
       ]}
     >
       <View style={styles.projectCopy}>{children}</View>
-      {busy ? <ActivityIndicator color={palette.signal} /> : null}
+      {busy ? (
+        <ActivityIndicator color={palette.signal} />
+      ) : (
+        <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
+      )}
     </Pressable>
   );
 }
@@ -752,7 +755,7 @@ function RowSeparator() {
 const rowRipple = rippleFeedback.row;
 
 const styles = StyleSheet.create({
-  body: { flex: 1, gap: space.md, padding: space.lg, paddingTop: space.md },
+  body: { flex: 1, gap: space.md, padding: space.md },
   cancelButton: {
     justifyContent: "center",
     minHeight: minTouchTarget,
@@ -762,12 +765,12 @@ const styles = StyleSheet.create({
   disabled: { opacity: disabledOpacity },
   emptyState: { alignItems: "center", gap: space.xs, paddingVertical: space.xl },
   error: { ...typography.subheadline, color: palette.danger, textAlign: "center" },
-  followNote: { ...typography.footnote, color: palette.signal, marginTop: space.xs },
+  followNote: { ...typography.footnote, color: palette.info, marginTop: space.xs },
   followingCopy: { ...typography.subheadline, color: palette.dim },
   footerError: {
     ...typography.subheadline,
     color: palette.danger,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
     paddingVertical: space.md,
   },
   header: {
@@ -781,7 +784,7 @@ const styles = StyleSheet.create({
   },
   headerSide: { alignItems: "flex-start", flex: 1 },
   headerSideLargeText: { flex: 0 },
-  heading: { alignItems: "center", flexShrink: 1, maxWidth: "50%" },
+  heading: { alignItems: "center", flex: 2, minWidth: 0 },
   headingTextLargeText: { textAlign: "left" },
   headerLargeText: {
     alignItems: "flex-start",

@@ -129,7 +129,7 @@ function ScreenHeader({
   const centeredTitle = Platform.OS === "ios";
 
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, !showHero && styles.headerDivider]}>
       {centeredTitle ? <View style={styles.headerSide} /> : null}
       {showHero ? (
         <View style={styles.flex} />
@@ -174,7 +174,7 @@ function FirstRunHero({
     <View style={styles.firstRun}>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <Feather accessible={false} color={palette.ink} name="camera" size={40} />
+          <Feather accessible={false} color={palette.ink} name="monitor" size={40} />
         </View>
         <Text
           accessibilityRole="header"
@@ -188,8 +188,8 @@ function FirstRunHero({
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.inlineCode}>
             /pair
           </Text>{" "}
-          in OpenCode on your computer, then scan the code it shows to connect. Credentials are
-          stored in the device keychain.
+          in OpenCode on your computer, then scan the code it shows to connect. Credentials stay in
+          this device's secure storage.
         </Text>
       </View>
       {onPair ? (
@@ -478,7 +478,7 @@ function ConnectionFields({
         />
       </Field>
 
-      <View style={[styles.fieldRow, authMode !== "none" && styles.separator]}>
+      <View style={[styles.fieldRow, styles.segmentRow, authMode !== "none" && styles.separator]}>
         <Text
           accessibilityElementsHidden
           dynamicTypeRamp={typeRamp.footnote}
@@ -919,17 +919,23 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   firstRun: { gap: space.md, paddingTop: space.xl },
+  segmentRow: { gap: space.xs },
   flex: { flex: 1 },
   footer: {
     ...typography.footnote,
     color: palette.dim,
     textAlign: "center",
   },
+  // Same height and divider as the other modal headers (ModalSheet, Pairing, New session).
   header: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 44,
+    minHeight: 64,
     paddingHorizontal: space.md,
+  },
+  headerDivider: {
+    borderBottomColor: palette.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerSide: { flex: 1 },
   headerTrailing: { alignItems: "flex-end" },

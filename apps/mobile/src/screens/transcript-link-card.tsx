@@ -1,6 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
 import { useRef, useState } from "react";
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Button } from "../components/button";
 import { CopyTextButton } from "../components/copy-text-button";
 import { ModalSheet } from "../components/modal-sheet";
 import {
@@ -107,7 +108,6 @@ export function TranscriptLinkCard({
         onClose={() => setOptions(false)}
         returnFocusRef={triggerRef}
         size="compact"
-        closeLabel="Close"
       >
         <Text selectable dynamicTypeRamp={typeRamp.subheadline} style={styles.destination}>
           {url.toString()}
@@ -117,21 +117,17 @@ export function TranscriptLinkCard({
             Localhost points to this phone or tablet, not your OpenCode server.
           </Text>
         ) : null}
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open link"
+        <Button
+          fullWidth
+          icon="external-link"
+          label="Open link"
           onPress={() => {
             setOptions(false);
             onOpenLink(url.toString());
           }}
-          style={({ pressed }) => [styles.open, pressed && styles.pressed]}
-        >
-          <Feather accessible={false} name="external-link" size={18} color={palette.ink} />
-          <Text dynamicTypeRamp={typeRamp.body} style={styles.openLabel}>
-            Open link
-          </Text>
-        </Pressable>
-        <CopyTextButton text={url.toString()} label="Copy link" />
+          variant="primary"
+        />
+        <CopyTextButton appearance="button" label="Copy link" text={url.toString()} />
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subtitle}>
           Links open in your browser. No preview is fetched automatically.
         </Text>
@@ -170,7 +166,5 @@ const styles = StyleSheet.create({
   title: { ...typography.subheadline, color: palette.ink },
   subtitle: { ...typography.footnote, color: palette.dim },
   destination: { ...typography.subheadline, color: palette.ink },
-  open: { flexDirection: "row", alignItems: "center", gap: space.sm, minHeight: minTouchTarget },
-  openLabel: { ...typography.body, color: palette.ink },
   pressed: { opacity: pressedOpacity },
 });

@@ -69,7 +69,8 @@ export function SessionActionSheet({
         if (!controllerRef.current) onClose();
       }}
       size={sessionSheetSize(page)}
-      closeLabel={page === "delete" ? "Cancel" : "Close"}
+      // Done closes the menu; Cancel when closing abandons a rename or a delete.
+      closeLabel={page === "rename" || page === "delete" ? "Cancel" : "Done"}
     >
       {page !== "menu" ? (
         <Button

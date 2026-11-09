@@ -47,24 +47,31 @@ export function SessionDevTools({
   if (!visible) return null;
   return (
     <View style={styles.content}>
-      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
-        MCP changes affect all sessions at this location. They do not change saved configuration and
-        may reset when the server restarts.
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.path}>
-        {location.directory}
-      </Text>
+      <View style={styles.section}>
+        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
+          Location
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} selectable style={styles.path}>
+          {location.directory}
+        </Text>
+      </View>
       <BranchSection
         branch={branch}
         branchStale={branchStale}
         copyLabel={copy.label}
         onCopy={copy.copyBranch}
       />
-      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
-        MCP servers for this location
-      </Text>
+      <View style={styles.section}>
+        <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
+          MCP servers for this location
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
+          Changes affect all sessions at this location. They do not change saved configuration and
+          may reset when the server restarts.
+        </Text>
+      </View>
       {!available ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.error}>
           Reconnect to this session's server and wait for its location to load before changing MCP
           servers.
         </Text>
@@ -78,7 +85,7 @@ export function SessionDevTools({
         unsupported={unsupported}
       />
       {mutation.isError && !unsupported ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.error}>
           The MCP change could not be confirmed. Check the refreshed status before trying again.
         </Text>
       ) : null}
@@ -249,7 +256,7 @@ function BranchSection({
   onCopy: () => Promise<void>;
 }) {
   return (
-    <>
+    <View style={styles.section}>
       <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
         Current branch
       </Text>
@@ -261,8 +268,15 @@ function BranchSection({
           This branch may be outdated while the server reconnects.
         </Text>
       ) : null}
-      {branch ? <ActionButton secondary label={copyLabel} onPress={() => void onCopy()} /> : null}
-    </>
+      {branch ? (
+        <ActionButton
+          secondary
+          label={copyLabel}
+          onPress={() => void onCopy()}
+          style={styles.sectionAction}
+        />
+      ) : null}
+    </View>
   );
 }
 
@@ -290,13 +304,13 @@ function McpListStatus({
   if (query.isError)
     return (
       <View style={styles.errorBlock}>
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
+        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.footnote} style={styles.error}>
           MCP servers could not be refreshed. Their status may be outdated.
         </Text>
         <Button
           busy={refreshing}
           disabled={!available || mutationPending}
-          label="Try again"
+          label="Retry"
           onPress={() => void onRefresh()}
         />
       </View>
@@ -374,6 +388,10 @@ const styles = StyleSheet.create({
   heading: { ...typography.headline, color: palette.ink },
   name: { ...typography.body, color: palette.ink },
   note: { ...typography.footnote, color: palette.dim },
+  error: { ...typography.footnote, color: palette.danger },
+  // A heading with its body; sections are spaced by the page gap.
+  section: { gap: space.xs },
+  sectionAction: { marginTop: space.xs },
   errorBlock: { alignItems: "flex-start", gap: space.sm },
   path: { ...typography.footnote, color: palette.dim, fontFamily: typography.code.fontFamily },
   serverHeader: {

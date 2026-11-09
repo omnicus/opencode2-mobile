@@ -55,7 +55,7 @@ test("renders an authoritative working-tree diff", async () => {
   );
   expect(
     screen.getByText(
-      "Current working tree. This may include changes made after the selected tool call.",
+      "Uncommitted changes in the working tree right now, including edits made after any tool call.",
     ),
   ).toBeOnTheScreen();
   expect(screen.getByText("+new value")).toHaveStyle({
@@ -189,7 +189,7 @@ test("offers a retry when the first load fails", async () => {
   mockGetDiff.mockResolvedValue({
     data: [{ file: "a.ts", status: "added", additions: 1, deletions: 0, patch: "+a" }],
   });
-  fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
   expect(await screen.findByText("1 file")).toBeOnTheScreen();
   expect(mockGetDiff).toHaveBeenCalledTimes(2);
 });
@@ -251,7 +251,7 @@ test("collapses expanded files and focuses one file with its own totals", async 
     screen.getByRole("button", { name: "added file, docs/readme.md, 4 additions, 0 deletions" }),
   );
   expect(screen.getAllByText("docs/readme.md")).toHaveLength(2);
-  expect(screen.getByText(/· added/)).toBeOnTheScreen();
+  expect(screen.getByText(/· Added/)).toBeOnTheScreen();
   expect(screen.getByLabelText("Added line: +doc")).toBeOnTheScreen();
   expect(screen.queryByLabelText("Removed line: -old")).toBeNull();
 });
