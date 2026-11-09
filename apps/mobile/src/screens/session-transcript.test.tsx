@@ -1409,6 +1409,22 @@ test("background subagent launches stay running until the child reports a result
   expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.border });
   expect(announce).toHaveBeenCalledWith("Background subagent Restyle Sessions list completed");
   announce.mockRestore();
+
+  // Leaving the active list with no reported outcome is announced neutrally, never as success.
+  const inferred = (active: Record<string, unknown>) => (
+    <SessionSubagentStates.Provider value={subagentStates([launch], active, "ses_parent")}>
+      <SessionTranscriptRow message={launch} />
+    </SessionSubagentStates.Provider>
+  );
+  view.rerender(inferred({ ses_child: {} }));
+  const neutral = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  view.rerender(inferred({}));
+  expect(screen.getByText("Finished")).toBeOnTheScreen();
+  expect(neutral).toHaveBeenCalledWith(
+    "Background subagent Restyle Sessions list finished, outcome unknown",
+  );
+  expect(neutral).not.toHaveBeenCalledWith(expect.stringMatching(/completed$/));
+  neutral.mockRestore();
 });
 
 test("projects injected background results into subagent cards", () => {

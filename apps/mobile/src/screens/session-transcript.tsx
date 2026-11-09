@@ -1560,7 +1560,10 @@ function useSubagentTransitionAnnouncement(
           ? "failed"
           : state === "interrupted"
             ? "was interrupted"
-            : "completed";
+            : state === "finished"
+              ? // The child stopped without reporting how, so never claim success.
+                "finished, outcome unknown"
+              : "completed";
     announceOnIOS(`${kind} ${title} ${outcome}`);
   }, [kind, state, title]);
 }
