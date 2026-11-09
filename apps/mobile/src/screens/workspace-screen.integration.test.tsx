@@ -894,7 +894,7 @@ test("saved PR filters narrow the list, and only the chosen project is checked",
     expect(screen.getByRole("button", { name: "Status filter, Draft" })).toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("button", { name: "Status filter, Draft" }));
-    fireEvent.press(screen.getByRole("button", { name: "Review required" }));
+    fireEvent.press(screen.getByRole("radio", { name: "Review required" }));
     expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({
       projectID: "project-2",
       status: "review-required",
@@ -902,8 +902,8 @@ test("saved PR filters narrow the list, and only the chosen project is checked",
 
     fireEvent.press(screen.getByRole("button", { name: "Project filter, Other" }));
     // The chip's text also reads "Other", so pick the selected sheet option.
-    expect(screen.getByRole("button", { name: "Other", selected: true })).toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "All projects" }));
+    expect(screen.getByRole("radio", { name: "Other", checked: true })).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("radio", { name: "All projects" }));
     expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({ status: "draft" });
   } finally {
     view.cleanup();

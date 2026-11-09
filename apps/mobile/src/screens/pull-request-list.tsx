@@ -7,7 +7,7 @@ import {
   type ProjectListOutput,
 } from "@opencode2-mobile/opencode-adapter";
 import { useQueries } from "@tanstack/react-query";
-import { useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -176,6 +176,8 @@ export function PullRequestList({
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
   const [refreshing, setRefreshing] = useState(false);
+  const statusChipRef = useRef<View>(null);
+  const projectChipRef = useRef<View>(null);
   const [openFilter, setOpenFilter] = useState<"project" | "status">();
   const client = runtime.restClient;
   const connectionId = runtime.connectionId;
@@ -255,6 +257,7 @@ export function PullRequestList({
         >
           <FilterChip
             active={status !== "all"}
+            buttonRef={statusChipRef}
             disabled={!filters.loaded}
             label={statusFilterLabels[status]}
             name="Status"
@@ -262,6 +265,7 @@ export function PullRequestList({
           />
           <FilterChip
             active={Boolean(filteredProject)}
+            buttonRef={projectChipRef}
             disabled={!filters.loaded}
             label={projectLabel}
             name="Project"
@@ -318,6 +322,7 @@ export function PullRequestList({
       />
       <ModalSheet
         onClose={() => setOpenFilter(undefined)}
+        returnFocusRef={statusChipRef}
         size="compact"
         title="Status"
         visible={openFilter === "status"}
@@ -336,6 +341,7 @@ export function PullRequestList({
       </ModalSheet>
       <ModalSheet
         onClose={() => setOpenFilter(undefined)}
+        returnFocusRef={projectChipRef}
         size="compact"
         title="Project"
         visible={openFilter === "project"}
@@ -366,12 +372,14 @@ export function PullRequestList({
 
 function FilterChip({
   active,
+  buttonRef,
   disabled,
   label,
   name,
   onPress,
 }: {
   active: boolean;
+  buttonRef: RefObject<View | null>;
   disabled: boolean;
   label: string;
   name: string;
@@ -379,6 +387,7 @@ function FilterChip({
 }) {
   return (
     <Pressable
+      ref={buttonRef}
       accessibilityHint={`Opens ${name.toLocaleLowerCase()} choices`}
       accessibilityLabel={`${name} filter, ${label}`}
       accessibilityRole="button"
@@ -422,8 +431,9 @@ function FilterOption({
   return (
     <Pressable
       accessibilityLabel={label}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
+      // One choice per sheet, so the options are radio buttons.
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected }}
       android_ripple={rowRipple}
       onPress={onPress}
       style={({ pressed }) => [
