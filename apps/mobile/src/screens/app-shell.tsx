@@ -581,7 +581,7 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
 
         <SettingsGroup title="Support">
           <SettingsRow last>
-            <IconTile icon="activity" tint="gray" />
+            <IconTile align="top" icon="activity" tint="gray" />
             <View style={styles.settingText}>
               <SettingText
                 description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
@@ -656,7 +656,7 @@ function TranscriptSettings({
     <>
       <SettingsGroup title="Transcript">
         <SettingsRow>
-          <IconTile icon="corner-down-right" tint="indigo" />
+          <IconTile align="top" icon="corner-down-right" tint="indigo" />
           <View style={styles.settingText}>
             <SettingText
               description="Steer updates the current work. Queue waits until it finishes."

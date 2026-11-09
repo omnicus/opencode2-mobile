@@ -9,9 +9,12 @@ export type IconTileTint = keyof typeof iconTilePalette;
 // A white glyph on a rounded colored square, like iOS Settings, so each settings row is
 // recognizable at a glance.
 export function IconTile({
+  align = "center",
   icon,
   tint,
 }: {
+  // "top" pins the tile beside the title when a control sits under the row's text.
+  align?: "center" | "top";
   icon: ComponentProps<typeof Feather>["name"];
   tint: IconTileTint;
 }) {
@@ -19,7 +22,11 @@ export function IconTile({
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.tile, { backgroundColor: iconTilePalette[tint] }]}
+      style={[
+        styles.tile,
+        align === "top" && styles.top,
+        { backgroundColor: iconTilePalette[tint] },
+      ]}
       testID={`icon-tile-${tint}`}
     >
       <Feather color="#ffffff" name={icon} size={16} />
@@ -36,4 +43,5 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 30,
   },
+  top: { alignSelf: "flex-start" },
 });
