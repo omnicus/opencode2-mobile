@@ -450,11 +450,13 @@ const styles = StyleSheet.create({
   actionsLarge: { flexDirection: "column" },
   reject: { minWidth: 104 },
   allowOnce: { flexGrow: 1 },
-  // A filled capsule like the buttons above it, so the saved-permission choice reads as a control.
+  // An outlined capsule: clearly a control, but quieter than Reject and Allow once because it
+  // saves a broader permission.
   alwaysRow: {
     alignItems: "center",
-    backgroundColor: palette.selected,
+    borderColor: palette.border,
     borderRadius: radius.pill,
+    borderWidth: 1,
     flexDirection: "row",
     gap: space.xs,
     minHeight: minTouchTarget,

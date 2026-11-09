@@ -1185,5 +1185,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
   },
-  toolbar: { alignItems: "center", flexDirection: "row", gap: space.xs },
+  // The expanded surface pads 12pt; pulling the toolbar's end in keeps Send's circle at the
+  // same corner inset as in the collapsed pill.
+  toolbar: { alignItems: "center", flexDirection: "row", gap: space.xs, marginRight: -8 },
 });
