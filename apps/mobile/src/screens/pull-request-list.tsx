@@ -40,6 +40,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -79,7 +80,7 @@ const reviewLabels: Record<NonNullable<GitHubPullRequest["reviewDecision"]>, str
   CHANGES_REQUESTED: "Changes requested",
   REVIEW_REQUIRED: "Review required",
 };
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const rowRipple = rippleFeedback.row;
 
 export const statusFilterLabels: Record<PullRequestStatusFilter, string> = {
   all: "All statuses",
@@ -424,12 +425,18 @@ function FilterOption({
       accessibilityState={{ selected }}
       android_ripple={rowRipple}
       onPress={onPress}
-      style={({ pressed }) => [styles.option, pressed && Platform.OS === "ios" && styles.pressed]}
+      style={({ pressed }) => [
+        styles.option,
+        selected && styles.optionSelected,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
     >
       <Text dynamicTypeRamp={typeRamp.body} numberOfLines={2} style={styles.optionLabel}>
         {label}
       </Text>
-      {selected ? <Feather accessible={false} color={palette.ink} name="check" size={20} /> : null}
+      {selected ? (
+        <Feather accessible={false} color={palette.signal} name="check" size={20} />
+      ) : null}
     </Pressable>
   );
 }
@@ -564,7 +571,7 @@ function PullRequestRow({
                     ? styles.tagApproved
                     : pullRequest.reviewDecision === "CHANGES_REQUESTED"
                       ? styles.tagChanges
-                      : styles.tagDraft
+                      : styles.tagReview
                 }
               >
                 {review}
@@ -603,13 +610,18 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   filters: { paddingBottom: space.xs },
+  // Matches the composer pickers: inset rows with one selected fill.
   option: {
     alignItems: "center",
+    borderRadius: radius.md,
     flexDirection: "row",
     gap: space.sm,
     minHeight: minTouchTarget,
+    overflow: "hidden",
+    paddingHorizontal: space.sm,
     paddingVertical: space.xs,
   },
+  optionSelected: { backgroundColor: palette.selected },
   optionLabel: { ...typography.body, color: palette.ink, flex: 1 },
   count: { ...typography.footnote, color: palette.dim },
   details: { ...typography.footnote, color: palette.dim },
@@ -664,8 +676,10 @@ const styles = StyleSheet.create({
   },
   stateText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
   tagApproved: { ...typography.sectionLabel, color: palette.success },
-  tagChanges: { ...typography.sectionLabel, color: palette.warm },
+  // GitHub's review colors: approved green, changes requested red, waiting amber.
+  tagChanges: { ...typography.sectionLabel, color: palette.danger },
   tagDraft: { ...typography.sectionLabel, color: palette.dim },
+  tagReview: { ...typography.sectionLabel, color: palette.warm },
   tags: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   time: { ...typography.footnote, color: palette.dim, flexShrink: 0 },
   title: { ...typography.headline, color: palette.ink, textAlign: "center" },

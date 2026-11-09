@@ -33,6 +33,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -562,14 +563,17 @@ function ComposerToolbar({
           prefix="Model"
           buttonRef={modelSelectorRef}
         />
-        <SelectorButton
-          compact
-          label={model?.variant ?? "Default"}
-          prefix="Variant"
-          buttonRef={variantSelectorRef}
-          disabled={!selectedModel?.variants.length}
-          onPress={onVariantPress}
-        />
+        {/* Most models have no variants; the chip appears only when there is a choice or a saved one. */}
+        {selectedModel?.variants.length || model?.variant ? (
+          <SelectorButton
+            compact
+            label={model?.variant ?? "Default"}
+            prefix="Variant"
+            buttonRef={variantSelectorRef}
+            disabled={!selectedModel?.variants.length}
+            onPress={onVariantPress}
+          />
+        ) : null}
         <SelectorButton
           compact
           label={selectedAgent?.name ?? agent ?? "Choose agent"}
@@ -882,7 +886,12 @@ function ComposerActionButton({
             style={styles.stopIcon}
           />
         ) : (
-          <Feather accessible={false} color={palette.background} name="arrow-up" size={19} />
+          <Feather
+            accessible={false}
+            color={disabled ? palette.dim : palette.background}
+            name="arrow-up"
+            size={19}
+          />
         )}
       </View>
     </Pressable>
@@ -949,16 +958,17 @@ function OptionButton({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={label}
+      android_ripple={rippleFeedback.row}
       onPress={onPress}
       style={({ pressed }) => [
         styles.option,
         compact && styles.optionCompact,
         selected && styles.optionSelected,
-        pressed && styles.pressed,
+        pressed && Platform.OS === "ios" && styles.pressed,
       ]}
     >
       <View style={styles.optionCopy}>
-        <Text dynamicTypeRamp={typeRamp.headline} style={styles.optionLabel}>
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.optionLabel}>
           {label}
         </Text>
         {description ? (
@@ -998,7 +1008,7 @@ const styles = StyleSheet.create({
   },
   modelChipLabel: { ...typography.footnote, color: palette.ink },
   selectorDisabled: { opacity: disabledOpacity },
-  optionsContent: { gap: space.sm },
+  optionsContent: { gap: 2 },
   completion: {
     backgroundColor: palette.background,
     borderColor: palette.border,
@@ -1047,23 +1057,23 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   modelGroup: { gap: space.xs },
+  // Matches the model picker's rows, so all three composer pickers look alike.
   option: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
     alignItems: "center",
+    borderRadius: radius.md,
+    flexDirection: "row",
     gap: space.sm,
-    minHeight: 58,
-    padding: space.md,
+    minHeight: 56,
+    overflow: "hidden",
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
   },
-  optionCompact: { marginLeft: space.md, minHeight: 50, paddingVertical: space.sm },
+  optionCompact: { marginLeft: space.md, minHeight: minTouchTarget },
   optionCopy: { flex: 1, minWidth: 0 },
-  optionDescription: { ...typography.footnote, color: palette.dim, marginTop: 3 },
-  optionLabel: { ...typography.headline, color: palette.ink },
-  optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  optionSeparator: { height: space.xs },
+  optionDescription: { ...typography.footnote, color: palette.dim, marginTop: 2 },
+  optionLabel: { ...typography.body, color: palette.ink },
+  optionSelected: { backgroundColor: palette.selected },
+  optionSeparator: { height: 2 },
   pickerList: { flex: 1 },
   pickerListContent: { flexGrow: 1, justifyContent: "flex-start" },
   pressed: { opacity: pressedOpacity },
@@ -1095,7 +1105,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sendButtonDisabled: { backgroundColor: palette.border, opacity: 0.68 },
+  // A dim arrow on a raised circle reads as unavailable without vanishing into the pill.
+  sendButtonDisabled: { backgroundColor: palette.selected },
   stopIcon: { width: 12, height: 12, borderRadius: 2, backgroundColor: palette.background },
   // Collapsed, the composer floats as one pill like the OpenCode iOS app.
   shell: {

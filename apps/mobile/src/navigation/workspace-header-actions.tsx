@@ -1,10 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { minTouchTarget, palette, radius } from "../theme";
+import { minTouchTarget, palette, radius, rippleFeedback } from "../theme";
 import { attentionAccessibilityValue } from "./attention-labels";
 
-const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const ripple = rippleFeedback.row;
 
 type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Settings";
 

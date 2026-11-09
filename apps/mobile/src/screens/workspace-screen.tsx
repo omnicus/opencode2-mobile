@@ -70,6 +70,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -161,9 +162,8 @@ const iosKeyboardTransparentTopInset = 32;
 const liveEdgeRowTransition = LinearTransition.springify().mass(1).stiffness(289).damping(34);
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
-const borderlessRipple =
-  Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
+const rowRipple = rippleFeedback.row;
+const borderlessRipple = rippleFeedback.borderless;
 // Keeps the last rows of the Approvals tab clear of the floating bottom menu.
 const bottomMenuInset = 96;
 

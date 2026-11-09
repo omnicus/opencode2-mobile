@@ -16,6 +16,7 @@ import {
   minTouchTarget,
   palette,
   pressedOpacity,
+  rippleColor,
   space,
   typeRamp,
   typography,
@@ -73,7 +74,7 @@ export function Button({
       accessibilityState={{ disabled: inactive, busy }}
       android_ripple={
         Platform.OS === "android"
-          ? { color: "rgba(255,255,255,0.12)", borderless: variant === "text" }
+          ? { color: rippleColor, borderless: variant === "text" }
           : undefined
       }
       disabled={inactive}

@@ -1555,7 +1555,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
   },
   navigationItemLargeText: { paddingHorizontal: space.sm, paddingVertical: space.sm },
-  navigationItemActive: { backgroundColor: palette.signalDark },
+  navigationItemActive: { backgroundColor: palette.selected },
   navigationItemPressed: { opacity: pressedOpacity },
   navigationLabel: { ...typography.control, color: palette.dim, textAlign: "center" },
   navigationLabelActive: { color: palette.signal },

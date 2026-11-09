@@ -2,7 +2,15 @@ import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text } from "react-native";
 
-import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 
 export function CopyTextButton({
   text,
@@ -40,11 +48,7 @@ export function CopyTextButton({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      android_ripple={
-        Platform.OS === "android"
-          ? { color: "rgba(255,255,255,0.12)", borderless: true }
-          : undefined
-      }
+      android_ripple={rippleFeedback.borderless}
       onPress={() => void copy()}
       style={({ pressed }) => [styles.action, pressed && Platform.OS === "ios" && styles.pressed]}
     >

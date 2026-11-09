@@ -42,6 +42,7 @@ import {
   minTouchTarget,
   palette,
   pressedOpacity,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -347,11 +348,7 @@ function NewSessionHeader({
       <View style={[styles.headerSide, largeText && styles.headerSideLargeText]}>
         <Pressable
           accessibilityRole="button"
-          android_ripple={
-            Platform.OS === "android"
-              ? { color: "rgba(255,255,255,0.12)", borderless: true }
-              : undefined
-          }
+          android_ripple={rippleFeedback.borderless}
           onPress={onClose}
           style={({ pressed }) => [
             styles.cancelButton,
@@ -752,7 +749,7 @@ function StateMessage({ label, loading }: { label: string; loading?: boolean }) 
 function RowSeparator() {
   return <View style={styles.separator} />;
 }
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const rowRipple = rippleFeedback.row;
 
 const styles = StyleSheet.create({
   body: { flex: 1, gap: space.md, padding: space.lg, paddingTop: space.md },

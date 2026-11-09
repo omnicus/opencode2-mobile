@@ -23,6 +23,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
   space,
   typeRamp,
   typography,
@@ -623,7 +624,9 @@ function ChoiceButton({
       <View style={styles.choiceHeading}>
         <Feather
           accessible={false}
-          name={selected ? "check-circle" : radio ? "circle" : "square"}
+          name={
+            radio ? (selected ? "check-circle" : "circle") : selected ? "check-square" : "square"
+          }
           size={18}
           color={selected ? palette.signal : palette.dim}
         />
@@ -678,7 +681,7 @@ export function openExternalFormUrl(url: string) {
   );
 }
 
-const ripple = { color: "rgba(255,255,255,0.12)" };
+const ripple = { color: rippleColor };
 
 const styles = StyleSheet.create({
   focusedFields: { flex: 1 },
@@ -714,7 +717,7 @@ const styles = StyleSheet.create({
   },
   choiceLabel: { ...typography.control, color: palette.ink, flexShrink: 1 },
   choiceLabelSelected: { color: palette.signal },
-  choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
+  choiceSelected: { backgroundColor: palette.selected, borderColor: palette.signal },
   description: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },

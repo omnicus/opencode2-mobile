@@ -13,10 +13,18 @@ import {
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { ProjectAvatar } from "../components/project-avatar";
 import { type FollowedInboxRow, workingSince } from "../state/followed-project-inbox";
-import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { formatElapsed, inboxStatusLabels, sessionTimeDescription } from "./workspace-screen-model";
 
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const rowRipple = rippleFeedback.row;
 
 type SessionRowHandlers = {
   onActions: () => void;

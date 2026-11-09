@@ -23,6 +23,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -206,11 +207,7 @@ function PairingHeader({ onDone }: { onDone: () => void }) {
       </Text>
       <Pressable
         accessibilityRole="button"
-        android_ripple={
-          Platform.OS === "android"
-            ? { borderless: true, color: "rgba(255,255,255,0.12)" }
-            : undefined
-        }
+        android_ripple={rippleFeedback.borderless}
         onPress={onDone}
         style={({ pressed }) => [
           styles.doneButton,

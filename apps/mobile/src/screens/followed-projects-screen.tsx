@@ -17,7 +17,15 @@ import { ProjectAvatar } from "../components/project-avatar";
 import { useAnnouncement } from "../components/use-announcement";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { cardSurface, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  cardSurface,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { isTabletShell, navigateToSection, ShellFrame } from "./app-shell";
 import {
   moveFollowedProject,
@@ -196,7 +204,7 @@ function FollowedProjectRow({
           checked: selected,
           disabled: saving,
         }}
-        android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
+        android_ripple={rippleFeedback.row}
         disabled={saving}
         onPress={() => onToggle(project.id)}
         style={({ pressed }) => [
@@ -266,11 +274,13 @@ const styles = StyleSheet.create({
   introCopy: { flex: 1 },
   list: { gap: space.sm },
   orderActions: {
+    borderTopColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.xs,
     paddingHorizontal: space.md,
-    paddingBottom: space.md,
+    paddingVertical: space.sm,
   },
   pressed: { opacity: pressedOpacity },
   project: { ...cardSurface, overflow: "hidden", padding: 0 },
@@ -282,7 +292,8 @@ const styles = StyleSheet.create({
     padding: space.md,
   },
   projectPath: { ...typography.footnote, color: palette.dim },
-  projectSelected: { borderColor: palette.signal },
+  // The checkbox carries selection; a quiet border keeps a long followed list calm.
+  projectSelected: { borderColor: palette.dim },
   projectText: { flex: 1, gap: 4, minWidth: 0 },
   projectTitle: { ...typography.headline, color: palette.ink },
   projectTitleRow: { alignItems: "flex-start", flexDirection: "row", gap: space.sm },

@@ -19,7 +19,15 @@ import { ModalSheet } from "../components/modal-sheet";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { diffPalette, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  diffPalette,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Diff">;
@@ -310,7 +318,7 @@ function DiffFileHeader({
       accessibilityHint="Opens the changes for this file"
       accessibilityRole="button"
       accessibilityLabel={`${row.status} file, ${path}, ${row.additions} additions, ${row.deletions} deletions`}
-      android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
+      android_ripple={rippleFeedback.row}
       onPress={onPress}
       style={({ pressed }) => [
         styles.fileHeader,

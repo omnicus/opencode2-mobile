@@ -22,6 +22,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
   space,
   typeRamp,
   typography,
@@ -381,7 +382,7 @@ function ActionExplanation({ explanation }: { explanation: string | undefined })
   ) : null;
 }
 
-const ripple = { color: "rgba(255,255,255,0.12)" };
+const ripple = { color: rippleColor };
 
 const styles = StyleSheet.create({
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },

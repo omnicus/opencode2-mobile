@@ -13,10 +13,12 @@ import {
 import { attentionAccessibilityValue } from "../navigation/attention-labels";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
 import {
+  floatingShadow,
   minTouchTarget,
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -30,9 +32,8 @@ const tabs: { icon: ComponentProps<typeof Feather>["name"]; label: string; tab: 
   { icon: "git-pull-request", label: "PRs", tab: "pulls" },
   { icon: "check-circle", label: "Approvals", tab: "approvals" },
 ];
-const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
-const borderlessRipple =
-  Platform.OS === "android" ? { borderless: true, color: "rgba(255,255,255,0.12)" } : undefined;
+const ripple = rippleFeedback.row;
+const borderlessRipple = rippleFeedback.borderless;
 
 // The phone Sessions menu: the three list views, then New session apart on the right.
 export function WorkspaceBottomMenu({
@@ -185,8 +186,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: palette.signal,
     borderRadius: radius.pill,
-    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.2)",
-    elevation: 3,
+    ...floatingShadow,
     height: 56,
     justifyContent: "center",
     overflow: "hidden",
@@ -205,14 +205,13 @@ const styles = StyleSheet.create({
   },
   tabLabel: { ...typography.caption, color: palette.dim },
   tabLabelSelected: { color: palette.ink },
-  tabSelected: { backgroundColor: palette.border },
+  tabSelected: { backgroundColor: palette.selected },
   tabs: {
     backgroundColor: palette.card,
     borderColor: palette.border,
     borderRadius: radius.pill,
     borderWidth: 1,
-    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.2)",
-    elevation: 3,
+    ...floatingShadow,
     flex: 1,
     flexDirection: "row",
     minHeight: 56,

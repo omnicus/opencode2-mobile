@@ -13,8 +13,9 @@ export const palette = {
   ink: "#fafafa",
   raised: "#242424",
   prompt: "#3a3a3a",
+  // The one fill for a chosen tab, option, or row on a card or sheet.
+  selected: "#3a3a3a",
   signal: "#ffffff",
-  signalDark: "#242424",
   success: "#7bd88f",
   warm: "#f6c85f",
 } as const;
@@ -76,6 +77,24 @@ export const radius = {
   md: 12,
   lg: 18,
   pill: 999,
+} as const;
+
+// Android press feedback; iOS uses pressedOpacity instead.
+export const rippleColor = "rgba(255,255,255,0.12)";
+// Getters read the platform at use, so render-time callers follow a test's platform switch.
+export const rippleFeedback = {
+  get row() {
+    return Platform.OS === "android" ? { color: rippleColor } : undefined;
+  },
+  get borderless() {
+    return Platform.OS === "android" ? { borderless: true, color: rippleColor } : undefined;
+  },
+};
+
+// The one shadow for controls that float over content: bottom menu, composer, task chip.
+export const floatingShadow = {
+  boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.3)",
+  elevation: 3,
 } as const;
 
 export const pressedOpacity = 0.6;

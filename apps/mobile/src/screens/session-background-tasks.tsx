@@ -4,7 +4,16 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
 import { WorkingIndicator } from "../components/working-indicator";
-import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  floatingShadow,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  radius,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { runningBackgroundSubagents, sanitizeTranscriptText } from "./session-transcript-model";
 
 const chipHeight = 36;
@@ -105,9 +114,9 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start",
     backgroundColor: palette.card,
     borderColor: palette.border,
-    borderRadius: 18,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
-    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.3)",
+    ...floatingShadow,
     flexDirection: "row",
     gap: space.sm,
     minHeight: chipHeight,

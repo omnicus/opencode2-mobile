@@ -9,14 +9,14 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
 } from "../theme";
 
-const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
-const borderlessRipple =
-  Platform.OS === "android" ? { borderless: true, color: "rgba(255,255,255,0.12)" } : undefined;
+const ripple = rippleFeedback.row;
+const borderlessRipple = rippleFeedback.borderless;
 
 // The Sessions screen header: the connection name opens Connections, and the search button
 // expands a field over the full width until Close search collapses it.

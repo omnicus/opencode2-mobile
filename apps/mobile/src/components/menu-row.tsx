@@ -6,6 +6,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -51,7 +52,7 @@ export function MenuRow({
       accessibilityHint={description}
       accessibilityState={expanded === undefined ? { disabled } : { disabled, expanded }}
       accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
-      android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
+      android_ripple={rippleFeedback.row}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [

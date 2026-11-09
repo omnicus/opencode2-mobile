@@ -135,11 +135,11 @@ test("idle composer never offers Stop", () => {
 test("composer chips use footnote type without shrinking chat or touch targets", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
   fireEvent(screen.getByLabelText("Prompt"), "focus");
-  for (const label of ["Choose model", "Default", "Choose agent"]) {
+  for (const label of ["Choose model", "Choose agent"]) {
     expect(screen.getByText(label)).toHaveStyle(typography.footnote);
     expect(screen.getByText(label).props.dynamicTypeRamp).toBe("footnote");
   }
-  for (const prefix of ["Model", "Variant", "Agent"])
+  for (const prefix of ["Model", "Agent"])
     expect(screen.getByRole("button", { name: new RegExp(`^${prefix}:`) })).toHaveStyle({
       minHeight: 48,
     });
@@ -181,7 +181,7 @@ test("brief Stop unavailability does not flash its color but disables the action
     );
     act(() => jest.advanceTimersByTime(1000));
     expect(screen.getByTestId("composer-submit-visual")).toHaveStyle({
-      backgroundColor: palette.border,
+      backgroundColor: palette.selected,
     });
   } finally {
     view.unmount();
@@ -275,7 +275,8 @@ test("collapses to one pill and shows model, variant, and agent chips while expa
   expect(input).toHaveStyle({ minHeight: 58, maxHeight: 120 });
   expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: "Variant: Default" })).toBeDisabled();
+  // No model with variants is chosen, so the Variant chip stays out of the way.
+  expect(screen.queryByRole("button", { name: /^Variant:/ })).toBeNull();
   expect(screen.getByLabelText("Prompt").props.value).toBe("");
 });
 
@@ -398,8 +399,10 @@ test("selects a variant separately and can return to the model default", () => {
   const defaultOption = screen.getByLabelText("Default");
   expect(defaultOption).toBeSelected();
   expect(within(defaultOption).queryByText(/✓/)).toBeNull();
-  expect(within(defaultOption).getByText("Default")).toHaveStyle(typography.headline);
-  expect(within(defaultOption).getByText("Default").props.dynamicTypeRamp).toBe("headline");
+  // Picker rows match the model picker: body text and a selected fill.
+  expect(within(defaultOption).getByText("Default")).toHaveStyle(typography.body);
+  expect(within(defaultOption).getByText("Default").props.dynamicTypeRamp).toBe("body");
+  expect(defaultOption).toHaveStyle({ backgroundColor: palette.selected });
   fireEvent.press(screen.getByRole("button", { name: "deep" }));
   expect(screen.getByRole("button", { name: "Variant: deep" })).toBeOnTheScreen();
   expect(screen.getByRole("button", { name: "Model: Model One" })).toBeOnTheScreen();

@@ -17,8 +17,10 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   Text,
+  type TextStyle,
   View,
 } from "react-native";
 
@@ -35,6 +37,8 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -68,7 +72,6 @@ const maxAssistantParts = 64;
 const maxAttachments = 32;
 const maxToolOutputs = 32;
 const maxInlineReasoning = 240;
-const rippleColor = "rgba(255,255,255,0.12)";
 const subagentToggleHeight = 36;
 // Brings the shell output back to the newest line when the user is this close to it.
 const shellFollowThreshold = 24;
@@ -398,8 +401,13 @@ export function TranscriptActivityGroup({
         accessibilityLabel={`${item.count} tool calls`}
         accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. ${failureSummary ? `${failureSummary}. ` : ""}Expand or collapse execution details.`}
         accessibilityState={{ expanded }}
+        android_ripple={rippleFeedback.row}
         onPress={() => setExpanded((value) => !value)}
-        style={[styles.activityGroupHeader, largeText && styles.activityGroupHeaderLargeText]}
+        style={({ pressed }) => [
+          styles.activityGroupHeader,
+          largeText && styles.activityGroupHeaderLargeText,
+          pressed && Platform.OS === "ios" && styles.pressed,
+        ]}
       >
         <Text
           dynamicTypeRamp={typeRamp.body}
@@ -409,20 +417,24 @@ export function TranscriptActivityGroup({
         </Text>
         <Text
           dynamicTypeRamp={typeRamp.body}
-          style={[styles.toolProgress, failureSummary && styles.toolProgressFailed]}
+          style={[
+            styles.toolProgress,
+            failureSummary &&
+              (progressLabel === "Failed" ? styles.toolProgressFailed : styles.toolProgressStopped),
+          ]}
         >
           {progressLabel}
         </Text>
-        <Text
-          accessibilityElementsHidden
-          dynamicTypeRamp={typeRamp.body}
-          style={styles.disclosureAction}
-        >
-          {expanded ? "⌄" : "›"}
-        </Text>
+        <DisclosureChevron expanded={expanded} />
       </Pressable>
       {failureSummary && !expanded ? (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.activityFailureSummary}>
+        <Text
+          dynamicTypeRamp={typeRamp.caption}
+          style={[
+            styles.activityFailureSummary,
+            progressLabel !== "Failed" && styles.activityStoppedSummary,
+          ]}
+        >
           {failureSummary}. Expand for details.
         </Text>
       ) : null}
@@ -952,15 +964,16 @@ function SkillToolDisclosure({
         accessibilityState={content.length ? { expanded } : undefined}
         disabled={!content.length}
         onPress={onToggle}
-        style={styles.loadedSkill}
+        style={({ pressed }) => [styles.loadedSkill, pressed && styles.pressed]}
       >
-        <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.loadedSkillLabel}>
           {running ? "Loading" : "Loaded"}{" "}
           <Text style={styles.activityLabel}>
             {name ? sanitizeTranscriptText(name, 256) : "Skill"}
           </Text>
           {name ? " skill" : ""}
         </Text>
+        {content.length ? <DisclosureChevron expanded={expanded} /> : null}
       </Pressable>
       {expanded ? (
         <ScrollView
@@ -1285,12 +1298,10 @@ function ActivityHeader({
         ) : null}
       </View>
       {canExpand ? (
-        <Text
-          dynamicTypeRamp={typeRamp.body}
-          style={[styles.activityAction, largeText && styles.activityActionLargeText]}
-        >
-          {expanded ? "⌄" : "›"}
-        </Text>
+        <DisclosureChevron
+          expanded={expanded}
+          style={largeText ? styles.activityActionLargeText : undefined}
+        />
       ) : null}
     </Pressable>
   );
@@ -1600,9 +1611,7 @@ function SubagentCardFooter({
         accessibilityRole="button"
         accessibilityLabel={expanded ? "Hide result" : "Show result"}
         accessibilityState={{ expanded }}
-        android_ripple={
-          Platform.OS === "android" ? { color: rippleColor, borderless: true } : undefined
-        }
+        android_ripple={rippleFeedback.borderless}
         hitSlop={(minTouchTarget - subagentToggleHeight) / 2}
         onPress={onToggle}
         style={({ pressed: togglePressed }) => [
@@ -1621,6 +1630,26 @@ function SubagentCardFooter({
         />
       </Pressable>
     </View>
+  );
+}
+
+// One disclosure marker for every expandable transcript row.
+function DisclosureChevron({
+  expanded,
+  style,
+}: {
+  expanded: boolean;
+  style?: StyleProp<TextStyle> | undefined;
+}) {
+  return (
+    <Feather
+      accessible={false}
+      color={palette.dim}
+      name={expanded ? "chevron-down" : "chevron-right"}
+      size={18}
+      style={[styles.disclosureChevron, style]}
+      testID="disclosure-chevron"
+    />
   );
 }
 
@@ -1658,12 +1687,10 @@ function Disclosure({
           {sanitizeTranscriptText(label, 256)}
         </Text>
         {hasText ? (
-          <Text
-            dynamicTypeRamp={typeRamp.body}
-            style={[styles.disclosureAction, largeText && styles.disclosureActionLargeText]}
-          >
-            {expanded ? "Hide" : "Show"}
-          </Text>
+          <DisclosureChevron
+            expanded={expanded}
+            style={largeText ? styles.disclosureActionLargeText : undefined}
+          />
         ) : null}
       </Pressable>
       {expanded
@@ -2168,7 +2195,10 @@ function keyDisclosureText(entries: string[]) {
 
 const styles = StyleSheet.create({
   toolProgress: { ...typography.chatActivity, color: palette.dim, flexShrink: 0 },
-  toolProgressFailed: { color: palette.warm },
+  // Failed is an error; Interrupted is a stop the user may have asked for.
+  toolProgressFailed: { color: palette.danger },
+  toolProgressStopped: { color: palette.warm },
+  activityStoppedSummary: { color: palette.warm },
   activityFailureSummary: {
     ...typography.caption,
     color: palette.danger,
@@ -2229,12 +2259,17 @@ const styles = StyleSheet.create({
   activity: {
     paddingHorizontal: 0,
   },
-  loadedSkill: { minHeight: minTouchTarget, justifyContent: "center", paddingVertical: 4 },
-  activityAction: { ...typography.chatActivity, color: palette.dim },
+  loadedSkill: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: minTouchTarget,
+    paddingVertical: 4,
+  },
+  loadedSkillLabel: { ...typography.chatActivity, color: palette.dim, flex: 1 },
+  // Failed tools keep the same left edge as their neighbors.
   activityError: {
     borderBottomWidth: 0,
-    marginHorizontal: -space.sm,
-    paddingHorizontal: space.lg,
     paddingTop: space.xs,
     paddingBottom: space.md,
   },
@@ -2294,7 +2329,7 @@ const styles = StyleSheet.create({
   disclosure: {
     backgroundColor: "transparent",
   },
-  disclosureAction: { ...typography.chatActivity, color: palette.dim },
+  disclosureChevron: { flexShrink: 0 },
   disclosureActionLargeText: { alignSelf: "flex-start" },
   disclosureHeader: {
     alignItems: "center",

@@ -31,6 +31,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
   space,
   switchColors,
   typeRamp,
@@ -737,7 +738,7 @@ function RuntimeStatusCard({
   );
 }
 
-const ripple = { color: "rgba(255,255,255,0.12)" };
+const ripple = { color: rippleColor };
 const borderlessRipple = { ...ripple, borderless: true };
 const secretToggleHitSlop = { bottom: space.sm, top: space.sm };
 
