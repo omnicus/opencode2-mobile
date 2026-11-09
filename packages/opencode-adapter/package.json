@@ -19,7 +19,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@opencode/client": "2.2.5"
+    "@opencode/client": "2.2.6"
   },
   "devDependencies": {
     "@opencode2-mobile/test-fixtures": "workspace:*",
