@@ -132,20 +132,31 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
 // offscreen, so bring its heading into view once it lays out.
 function useScrollToDetails(showDetails: boolean, editingProfileId: string | undefined) {
   const scrollRef = useRef<ScrollView>(null);
+  const detailsY = useRef<number | undefined>(undefined);
   const pending = useRef(false);
   const reducedMotion = useReducedMotion();
-  // Re-arm when the editor opens or switches to another server.
+  const scrollTo = (y: number) =>
+    scrollRef.current?.scrollTo({ animated: !reducedMotion, y: Math.max(0, y - space.md) });
+  // Scroll when the editor opens or switches to another server. A switch may not change the
+  // editor's layout, so reuse its last measured position when there is one.
   const editorTarget = showDetails ? (editingProfileId ?? "new") : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs only when the editor target changes.
   useEffect(() => {
-    pending.current = editorTarget !== undefined;
+    if (editorTarget === undefined) {
+      detailsY.current = undefined;
+      pending.current = false;
+      return;
+    }
+    if (detailsY.current === undefined) pending.current = true;
+    else scrollTo(detailsY.current);
   }, [editorTarget]);
   return {
     scrollRef,
     onDetailsLayout: (event: LayoutChangeEvent) => {
+      detailsY.current = event.nativeEvent.layout.y;
       if (!pending.current) return;
       pending.current = false;
-      const y = Math.max(0, event.nativeEvent.layout.y - space.md);
-      scrollRef.current?.scrollTo({ animated: !reducedMotion, y });
+      scrollTo(detailsY.current);
     },
   };
 }

@@ -5,7 +5,7 @@ import {
   getOpenCodeLocation,
 } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
 import { AccessibilityInfo } from "react-native";
 
 import { projectAvatarPalette } from "../theme";
@@ -415,3 +415,18 @@ function renderScreen(navigation = mockNavigation()) {
     </QueryClientProvider>,
   );
 }
+
+test("rows show a plus when the tap creates and a chevron when a location choice follows", async () => {
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
+  const alphaRow = await screen.findByRole("button", { name: /Alpha, followed/ });
+  const betaRow = screen.getByRole("button", { name: /Beta, not followed/ });
+  expect(alphaRow).toHaveProp("accessibilityHint", "Creates a session here");
+  expect(within(alphaRow).getByTestId("choice-row-create")).toBeOnTheScreen();
+  expect(betaRow).toHaveProp("accessibilityHint", "Choose a location");
+  expect(within(betaRow).getByTestId("choice-row-next")).toBeOnTheScreen();
+
+  fireEvent.press(betaRow);
+  const location = await screen.findByRole("button", { name: /^beta-feature,/ });
+  expect(within(location).getByTestId("choice-row-create")).toBeOnTheScreen();
+});

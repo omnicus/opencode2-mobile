@@ -171,6 +171,9 @@ export function NewSessionScreen({ navigation }: Props) {
             followed={followed}
             onBrowseAll={() => setBrowseAll(true)}
             onChooseProject={chooseProject}
+            opensLocations={(project) =>
+              projectLocations(project, defaultLocationQuery.data).length !== 1
+            }
             onRetry={() => setError(undefined)}
             onSearch={setSearch}
             search={search}
@@ -446,6 +449,7 @@ function ProjectBrowser({
   onBrowseAll: () => void;
   onChooseProject: (project: Project) => void;
   onRetry: () => void;
+  opensLocations: (project: Project) => boolean;
   onSearch: (search: string) => void;
   search: string;
   selection: WorkspaceSelection;
@@ -518,6 +522,7 @@ function ProjectList({
   onBrowseAll,
   onChooseProject,
   onSearch,
+  opensLocations,
   projects,
   search,
 }: {
@@ -530,6 +535,7 @@ function ProjectList({
   onBrowseAll: () => void;
   onChooseProject: (project: Project) => void;
   onSearch: (search: string) => void;
+  opensLocations: (project: Project) => boolean;
   projects: Project[];
   search: string;
 }) {
@@ -573,6 +579,7 @@ function ProjectList({
             disabled={disabled}
             followed={followed}
             onChooseProject={onChooseProject}
+            opensLocations={opensLocations}
             row={item}
           />
         )}
@@ -589,12 +596,14 @@ function ProjectListRow({
   disabled,
   followed,
   onChooseProject,
+  opensLocations,
   row,
 }: {
   creatingProjectID: string | undefined;
   disabled: boolean;
   followed: ReadonlySet<string>;
   onChooseProject: (project: Project) => void;
+  opensLocations: (project: Project) => boolean;
   row: ProjectRow;
 }) {
   const project = row.project;
@@ -616,6 +625,7 @@ function ProjectListRow({
       disabled={disabled}
       followed={followed.has(project.id)}
       onPress={() => onChooseProject(project)}
+      opensLocations={opensLocations(project)}
       project={project}
     />
   );
@@ -626,12 +636,14 @@ function ProjectButton({
   disabled,
   followed,
   onPress,
+  opensLocations,
   project,
 }: {
   busy: boolean;
   disabled: boolean;
   followed: boolean;
   onPress: () => void;
+  opensLocations: boolean;
   project: Project;
 }) {
   const { fontScale } = useWindowDimensions();
@@ -639,10 +651,12 @@ function ProjectButton({
   const path = sanitizeTranscriptText(project.canonical, 1_024);
   return (
     <ChoiceRow
+      accessibilityHint={opensLocations ? "Choose a location" : "Creates a session here"}
       accessibilityLabel={`${label}, ${followed ? "followed" : "not followed, will be added to Sessions"}, ${path}`}
       busy={busy}
       disabled={disabled}
       onPress={onPress}
+      trailing={opensLocations ? "next" : "create"}
     >
       <View style={styles.projectTitleRow}>
         <ProjectAvatar
@@ -685,10 +699,12 @@ function LocationButton({
   const path = sanitizeTranscriptText(directory, 1_024);
   return (
     <ChoiceRow
+      accessibilityHint="Creates a session here"
       accessibilityLabel={`${label}, ${path}`}
       busy={busy}
       disabled={disabled}
       onPress={onPress}
+      trailing="create"
     >
       <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
         {label}
@@ -700,21 +716,27 @@ function LocationButton({
   );
 }
 
+// A chevron means another choice follows; a plus means the tap creates the session.
 function ChoiceRow({
+  accessibilityHint,
   accessibilityLabel,
   busy,
   children,
   disabled,
   onPress,
+  trailing,
 }: {
+  accessibilityHint: string;
   accessibilityLabel: string;
   busy: boolean;
   children: ReactNode;
   disabled: boolean;
   onPress: () => void;
+  trailing: "create" | "next";
 }) {
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={busy ? `${accessibilityLabel}, creating session` : accessibilityLabel}
       accessibilityLiveRegion={busy ? "polite" : "none"}
       accessibilityRole="button"
@@ -732,7 +754,13 @@ function ChoiceRow({
       {busy ? (
         <ActivityIndicator color={palette.signal} />
       ) : (
-        <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
+        <Feather
+          accessible={false}
+          color={palette.dim}
+          name={trailing === "next" ? "chevron-right" : "plus"}
+          size={18}
+          testID={`choice-row-${trailing}`}
+        />
       )}
     </Pressable>
   );
