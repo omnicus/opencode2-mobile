@@ -134,9 +134,11 @@ function useScrollToDetails(showDetails: boolean, editingProfileId: string | und
   const scrollRef = useRef<ScrollView>(null);
   const pending = useRef(false);
   const reducedMotion = useReducedMotion();
+  // Re-arm when the editor opens or switches to another server.
+  const editorTarget = showDetails ? (editingProfileId ?? "new") : undefined;
   useEffect(() => {
-    pending.current = showDetails;
-  }, [showDetails, editingProfileId]);
+    pending.current = editorTarget !== undefined;
+  }, [editorTarget]);
   return {
     scrollRef,
     onDetailsLayout: (event: LayoutChangeEvent) => {
