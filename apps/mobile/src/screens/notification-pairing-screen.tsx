@@ -63,56 +63,69 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
             secure storage.
           </Text>
 
-          <PairingScanner
-            busy={busy}
-            cameraBlocked={state.cameraBlocked}
-            onClose={actions.closeScanner}
-            onOpen={() => void actions.openScanner()}
-            onScanned={actions.scanned}
-            scanError={state.scanError}
-            scanning={state.scanning}
-          />
-
-          <View style={styles.dividerRow}>
-            <View style={styles.divider} />
-            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.dividerLabel}>
-              or paste
-            </Text>
-            <View style={styles.divider} />
-          </View>
-          <TextInput
-            accessibilityLabel="Pairing code"
-            keyboardAppearance="dark"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!busy}
-            multiline
-            onChangeText={actions.editCode}
-            placeholder="Pairing code"
-            placeholderTextColor={palette.dim}
-            style={styles.codeInput}
-            value={manualCode}
-          />
-          <Button
-            disabled={busy || manualCode.trim().length === 0}
-            fullWidth
-            label="Check code"
-            onPress={() => actions.inspect()}
-            style={styles.checkAction}
-          />
-
+          {/* Once a code is read, its review replaces the capture controls. */}
           {preview ? (
-            <PairingPreviewCard
-              busy={busy}
-              cancelling={state.cancelling}
-              expired={state.expired}
-              onCancel={actions.cancelAttempt}
-              onPair={() => void actions.pair()}
-              onPairWithoutNotifications={() => void actions.pairWithoutNotifications()}
-              preview={preview}
-              secondsLeft={state.secondsLeft}
-            />
-          ) : null}
+            <>
+              <PairingPreviewCard
+                busy={busy}
+                cancelling={state.cancelling}
+                expired={state.expired}
+                onCancel={actions.cancelAttempt}
+                onPair={() => void actions.pair()}
+                onPairWithoutNotifications={() => void actions.pairWithoutNotifications()}
+                preview={preview}
+                secondsLeft={state.secondsLeft}
+              />
+              <Button
+                align="center"
+                disabled={busy}
+                label="Use another code"
+                onPress={() => actions.editCode("")}
+                style={styles.scanAction}
+                variant="text"
+              />
+            </>
+          ) : (
+            <>
+              <PairingScanner
+                busy={busy}
+                cameraBlocked={state.cameraBlocked}
+                onClose={actions.closeScanner}
+                onOpen={() => void actions.openScanner()}
+                onScanned={actions.scanned}
+                scanError={state.scanError}
+                scanning={state.scanning}
+              />
+
+              <View style={styles.dividerRow}>
+                <View style={styles.divider} />
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.dividerLabel}>
+                  or paste
+                </Text>
+                <View style={styles.divider} />
+              </View>
+              <TextInput
+                accessibilityLabel="Pairing code"
+                keyboardAppearance="dark"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!busy}
+                multiline
+                onChangeText={actions.editCode}
+                placeholder="Pairing code"
+                placeholderTextColor={palette.dim}
+                style={styles.codeInput}
+                value={manualCode}
+              />
+              <Button
+                disabled={busy || manualCode.trim().length === 0}
+                fullWidth
+                label="Check code"
+                onPress={() => actions.inspect()}
+                style={styles.checkAction}
+              />
+            </>
+          )}
           {error ? (
             <Text
               accessibilityLiveRegion="polite"

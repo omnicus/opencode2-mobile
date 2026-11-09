@@ -333,3 +333,28 @@ test("shows why a pasted code cannot be used", async () => {
   expect(screen.getByText("The pairing code is malformed or was altered.")).toBeOnTheScreen();
   expect(screen.queryByText("Ready to pair")).toBeNull();
 });
+
+test("a read code replaces the capture controls until Use another code", async () => {
+  await render(<NotificationPairingScreen onDone={jest.fn()} />);
+  await fireEvent.changeText(
+    screen.getByPlaceholderText("Pairing code"),
+    JSON.stringify({
+      allowDevelopmentHttp: false,
+      authMode: "basic",
+      brokerOrigin: "https://broker.test",
+      challengeID: "challenge-2",
+      expiresAtMs: Date.now() + 60_000,
+      name: "Studio",
+      openCodeOrigin: "https://server.test",
+      pairingSecret: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      v: 1,
+    }),
+  );
+  await fireEvent.press(screen.getByText("Check code"));
+  expect(screen.getByText("Ready to pair")).toBeOnTheScreen();
+  expect(screen.queryByPlaceholderText("Pairing code")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Scan QR code" })).toBeNull();
+  await fireEvent.press(screen.getByRole("button", { name: "Use another code" }));
+  expect(screen.queryByText("Ready to pair")).toBeNull();
+  expect(screen.getByPlaceholderText("Pairing code")).toHaveProp("value", "");
+});
