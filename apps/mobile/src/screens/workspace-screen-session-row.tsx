@@ -7,16 +7,27 @@ import {
   Pressable,
   StyleSheet,
   Text,
+  type TextStyle,
   useWindowDimensions,
   View,
 } from "react-native";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 import { ProjectAvatar } from "../components/project-avatar";
+import { WorkingIndicator } from "../components/working-indicator";
 import { type FollowedInboxRow, workingSince } from "../state/followed-project-inbox";
-import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  fadedWorkingText,
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { formatElapsed, inboxStatusLabels, sessionTimeDescription } from "./workspace-screen-model";
 
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const rowRipple = rippleFeedback.row;
 
 type SessionRowHandlers = {
   onActions: () => void;
@@ -117,6 +128,13 @@ function SessionRowSummary({
   // Rows recede once read so unread results stand out, as on OpenCode desktop.
   const unread = row.status !== "ready" && row.status !== "working";
   const detail = branch ?? row.worktreeLabel;
+  // The spec fades working and archived rows. Their quiet text starts brighter so the faded
+  // result still clears 4.5:1 on the page background.
+  const faded = row.archived
+    ? styles.fadedArchivedText
+    : row.status === "working"
+      ? styles.fadedWorkingText
+      : undefined;
   return (
     <View
       style={[
@@ -134,17 +152,24 @@ function SessionRowSummary({
           name={row.projectLabel}
           size={16}
         />
-        <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.sessionProject}>
+        <Text
+          dynamicTypeRamp={typeRamp.footnote}
+          numberOfLines={1}
+          style={[styles.sessionProject, faded]}
+        >
           {row.projectLabel}
         </Text>
         <View style={styles.sessionTrailing} testID="session-row-trailing">
-          <SessionStatus row={row} />
+          <SessionStatus faded={faded} row={row} />
         </View>
       </View>
       <Text
         dynamicTypeRamp={typeRamp.body}
         numberOfLines={largeText ? 3 : 1}
-        style={[styles.sessionTitle, unread ? styles.sessionTitleUnread : styles.sessionTitleRead]}
+        style={[
+          styles.sessionTitle,
+          unread ? styles.sessionTitleUnread : [styles.sessionTitleRead, faded],
+        ]}
       >
         {title}
       </Text>
@@ -152,14 +177,14 @@ function SessionRowSummary({
         <View style={styles.sessionDetail} testID="session-row-branch">
           <Feather
             accessible={false}
-            color={palette.dim}
+            color={StyleSheet.flatten(faded)?.color ?? palette.dim}
             name="git-branch"
             size={13 * Math.min(fontScale, 2)}
           />
           <Text
             dynamicTypeRamp={typeRamp.footnote}
             numberOfLines={largeText ? 2 : 1}
-            style={styles.sessionDetailText}
+            style={[styles.sessionDetailText, faded]}
           >
             {detail}
           </Text>
@@ -171,11 +196,11 @@ function SessionRowSummary({
 
 // Waiting rows name what they wait for, working rows how long the run has taken, and finished
 // rows whether their last run was read.
-function SessionStatus({ row }: { row: FollowedInboxRow }) {
+function SessionStatus({ faded, row }: { faded: TextStyle | undefined; row: FollowedInboxRow }) {
   if (row.status === "working") return <WorkingStatus since={workingSince(row.session)} />;
   if (row.status === "ready") {
     return (
-      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.sessionTime}>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={[styles.sessionTime, faded]}>
         {formatElapsed(Date.now() - (row.session.time.idle ?? row.session.time.updated), false)}
       </Text>
     );
@@ -183,7 +208,8 @@ function SessionStatus({ row }: { row: FollowedInboxRow }) {
   return (
     <Text
       dynamicTypeRamp={typeRamp.footnote}
-      style={[styles.sessionStatus, statusStyles[row.status]]}
+      // Status hues fall below 4.5:1 at the archived 50% fade, so archived rows use ink.
+      style={[styles.sessionStatus, statusStyles[row.status], row.archived && faded]}
       testID={`session-row-status-${row.status}`}
     >
       {inboxStatusLabels[row.status]}
@@ -201,16 +227,19 @@ function WorkingStatus({ since }: { since: number | undefined }) {
     return () => clearInterval(timer);
   }, [since]);
   return (
-    <Text
-      accessibilityLabel={inboxStatusLabels.working}
-      dynamicTypeRamp={typeRamp.footnote}
-      style={[styles.sessionStatus, statusStyles.working]}
-      testID="session-row-status-working"
-    >
-      {since === undefined
-        ? inboxStatusLabels.working
-        : `${inboxStatusLabels.working} ${formatElapsed(now - since, true)}`}
-    </Text>
+    <View style={styles.workingStatus}>
+      <WorkingIndicator color={palette.info} />
+      <Text
+        accessibilityLabel={inboxStatusLabels.working}
+        dynamicTypeRamp={typeRamp.footnote}
+        style={[styles.sessionStatus, statusStyles.working]}
+        testID="session-row-status-working"
+      >
+        {since === undefined
+          ? inboxStatusLabels.working
+          : `${inboxStatusLabels.working} ${formatElapsed(now - since, true)}`}
+      </Text>
+    </View>
   );
 }
 
@@ -230,6 +259,9 @@ export function sessionAccessibilityLabel(row: FollowedInboxRow, branch: string 
 const styles = StyleSheet.create({
   pressed: { opacity: pressedOpacity },
   sessionArchived: { opacity: 0.5 },
+  // Composite on the page: ink at 50% is about 4.8:1; the faded working text at 70% about 5.4:1.
+  fadedArchivedText: { color: palette.ink },
+  fadedWorkingText: { color: fadedWorkingText },
   sessionCopy: { flex: 1, gap: 2, minWidth: 0 },
   sessionDetail: { alignItems: "center", flexDirection: "row", gap: space.xs / 2 },
   sessionDetailText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
@@ -256,6 +288,7 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
   sessionWorking: { opacity: 0.7 },
+  workingStatus: { alignItems: "center", flexDirection: "row", gap: space.xs },
   swipeArchive: {
     alignItems: "center",
     backgroundColor: palette.accent,

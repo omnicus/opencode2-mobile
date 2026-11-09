@@ -1,10 +1,11 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { Share, StyleSheet, Text, View } from "react-native";
-import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import { Share, StyleSheet, View } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { applicationName } from "./application-name";
 import { Button } from "./components/button";
-import { palette, space, typeRamp, typography } from "./theme";
+import { FullScreenState, fullScreenStateStyles } from "./components/full-screen-state";
+import { space } from "./theme";
 import { AppUpdateCard } from "./updates/app-updates";
 
 type ErrorBoundaryState = { failed: boolean };
@@ -26,27 +27,18 @@ export class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorB
     // This boundary sits outside the app's SafeAreaProvider, so it needs its own.
     return (
       <SafeAreaProvider>
-        <SafeAreaView style={styles.errorShell}>
-          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
-            App error
-          </Text>
-          <Text
-            accessibilityRole="header"
-            dynamicTypeRamp={typeRamp.largeTitle}
-            style={styles.errorTitle}
-          >
-            Something went wrong.
-          </Text>
-          <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.errorCopy}>
-            The app hit an error and couldn't show this screen. Try again, or share a report. The
-            report doesn't include any server or session content.
-          </Text>
+        <FullScreenState
+          copy="The app hit an error and couldn't show this screen. Retry, or share a report. The report doesn't include any server or session content."
+          eyebrow="App error"
+          title="Something went wrong"
+          tone="danger"
+        >
           <View style={styles.errorUpdate}>
             <AppUpdateCard />
           </View>
-          <View style={styles.errorActions}>
+          <View style={fullScreenStateStyles.actions}>
             <Button
-              label="Try again"
+              label="Retry"
               onPress={() => this.setState({ failed: false })}
               variant="primary"
             />
@@ -60,33 +52,12 @@ export class RootErrorBoundary extends Component<{ children: ReactNode }, ErrorB
               variant="text"
             />
           </View>
-        </SafeAreaView>
+        </FullScreenState>
       </SafeAreaProvider>
     );
   }
 }
 
 const styles = StyleSheet.create({
-  errorActions: { gap: space.sm, marginTop: space.lg },
-  errorCopy: {
-    ...typography.subheadline,
-    color: palette.dim,
-    marginTop: space.sm,
-  },
-  errorEyebrow: {
-    ...typography.sectionLabel,
-    color: palette.danger,
-  },
-  errorShell: {
-    backgroundColor: palette.background,
-    flex: 1,
-    justifyContent: "center",
-    padding: space.lg,
-  },
   errorUpdate: { marginTop: space.lg },
-  errorTitle: {
-    ...typography.largeTitle,
-    color: palette.ink,
-    marginTop: space.sm,
-  },
 });

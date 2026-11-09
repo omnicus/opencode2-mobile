@@ -424,3 +424,26 @@ test("draws the iOS 26 session header with the session's own actions", async () 
   expect(await screen.findByText("Workspace shell")).toBeOnTheScreen();
   expect(navigation.getRootState()?.routes.map((route) => route.name)).toEqual(["Workspace"]);
 });
+
+test("a subagent opened from its parent says where back goes", async () => {
+  mockConnections = { profiles: [{ id: "connection-1" }], ready: true };
+  const navigation = createNavigationContainerRef<RootStackParamList>();
+  render(
+    <NavigationContainer ref={navigation}>
+      <RootNavigation />
+    </NavigationContainer>,
+  );
+  await screen.findByText("Workspace shell");
+  act(() =>
+    navigation.navigate("Session", {
+      connectionId: "connection-1",
+      fromParent: true,
+      location: { directory: "/workspace" },
+      sessionID: "ses_child",
+    }),
+  );
+  expect(await screen.findByRole("button", { name: "Back to parent session" })).toHaveProp(
+    "accessibilityHint",
+    "Returns to the session that started this subagent",
+  );
+});

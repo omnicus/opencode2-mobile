@@ -298,6 +298,20 @@ test("allows a permission owned by a background child session from Pending", () 
     blockedSessionIds: new Set(["ses_child"]),
     forms: [],
     followedProjectIds: ["project-1"],
+    // The parent row owns the child's request, so the card names the parent's project and title.
+    inbox: {
+      archived: [],
+      needsYou: [
+        {
+          attentionOwnerSessionID: "ses_child",
+          projectLabel: "Workspace",
+          session: { id: "ses_parent", title: "Fix the login flow" },
+          targetSessionID: "ses_child",
+        },
+      ],
+      recent: [],
+      working: [],
+    },
     interactionsError: false,
     interactionsLoading: false,
     location: { directory: "/workspace" },
@@ -322,6 +336,7 @@ test("allows a permission owned by a background child session from Pending", () 
   );
 
   expect(screen.getByText("1 request")).toBeOnTheScreen();
+  expect(screen.getByTestId("request-owner")).toHaveTextContent(/Workspace · Fix the login flow$/);
   expect(screen.getByText("redacted command")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(replyPermission).toHaveBeenCalledWith("per_test", "ses_child", "once");
@@ -425,7 +440,7 @@ test.each([0, 1])(
       } as never),
     );
 
-    expect(screen.queryByRole("header", { name: "Requests that need you." })).toBeNull();
+    expect(screen.queryByRole("header", { name: "Requests that need you" })).toBeNull();
     expect(screen.getByText("1 location could not be checked.")).toBeOnTheScreen();
     expect(
       screen.getByText(
@@ -848,6 +863,7 @@ test("lists failed checks from a worktree and pads the phone Approvals tab", () 
     followedProjectIds: ["project-1"],
     formLocations: new Map(),
     forms: [{ id: "form-1" }],
+    inbox: { archived: [], needsYou: [], recent: [], working: [] },
     interactionsError: true,
     interactionsLoading: false,
     pendingCount: 1,
@@ -859,7 +875,7 @@ test("lists failed checks from a worktree and pads the phone Approvals tab", () 
   const view = render(
     createElement(PendingInteractions, { bottomInset: 80, heading: true, onNavigate }),
   );
-  expect(screen.getByRole("header", { name: "Requests that need you." })).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Requests that need you" })).toBeOnTheScreen();
   expect(screen.getByText("Checking 2 of 3 locations.")).toBeOnTheScreen();
   expect(
     screen.getByText("Affected project: Alpha. Showing requests found at the other locations."),

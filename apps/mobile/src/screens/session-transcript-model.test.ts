@@ -11,6 +11,7 @@ import {
   parseSubagentProtocolText,
   runningBackgroundSubagents,
   sanitizeTranscriptText,
+  sessionSubagents,
   subagentStates,
 } from "./session-transcript-model";
 
@@ -181,7 +182,7 @@ function backgroundLaunch(childSessionID: string, created = 1): SessionMessageIn
 
 function subagentNotification(
   childSessionID: string,
-  state: "completed" | "cancelled",
+  state: "completed" | "cancelled" | "failed",
   created = 2,
 ): SessionMessageInfo {
   return {
@@ -220,8 +221,55 @@ test("a background launch stays running until its child reports a result", () =>
       ?.title,
   ).toBe("Restyle");
 
+  // A stop is not a failure.
   const cancelled = subagentStates([subagentNotification("ses_child", "cancelled"), launch]);
-  expect(getSubagentPresentation(tool, cancelled)?.state).toBe("error");
+  expect(getSubagentPresentation(tool, cancelled)?.state).toBe("interrupted");
+  const failed = subagentStates([subagentNotification("ses_child", "failed"), launch]);
+  expect(getSubagentPresentation(tool, failed)?.state).toBe("error");
+});
+
+test("a child blocked on a request reads as waiting, even after leaving the active list", () => {
+  const launch = backgroundLaunch("ses_child");
+  const tool = launch.type === "assistant" ? launch.content[0] : undefined;
+  if (tool?.type !== "tool") throw new Error("expected tool");
+  const attention = new Map([["ses_child", "permission" as const]]);
+
+  // Absent from active sessions while the parent is idle would read as completed.
+  const states = subagentStates([launch], {}, "ses_parent", attention);
+  expect(states.get("ses_child")).toMatchObject({ state: "waiting", waitingFor: "permission" });
+  expect(getSubagentPresentation(tool, states)).toMatchObject({
+    state: "waiting",
+    waitingFor: "permission",
+  });
+
+  // A reported finish wins over a stale pending request.
+  const finished = subagentStates(
+    [subagentNotification("ses_child", "completed"), launch],
+    {},
+    "ses_parent",
+    attention,
+  );
+  expect(finished.get("ses_child")?.state).toBe("completed");
+});
+
+test("the monitor lists waiting, then working, then finished subagents", () => {
+  const messages = [
+    subagentNotification("ses_done", "completed"),
+    backgroundLaunch("ses_done"),
+    backgroundLaunch("ses_busy"),
+    backgroundLaunch("ses_blocked"),
+  ];
+  const list = sessionSubagents(
+    messages,
+    { ses_busy: {}, ses_blocked: {} },
+    "ses_parent",
+    new Map([["ses_blocked", "input" as const]]),
+  );
+  expect(list.map(({ key, state }) => [key, state])).toEqual([
+    ["ses_blocked", "waiting"],
+    ["ses_busy", "running"],
+    ["ses_done", "completed"],
+  ]);
 });
 
 test("live session activity decides background subagents without a result", () => {
@@ -235,8 +283,9 @@ test("live session activity decides background subagents without a result", () =
   expect(runningBackgroundSubagents(messages, { ses_a: {} }, "ses_parent")).toEqual([
     { key: "ses_a", childSessionID: "ses_a", title: "Restyle" },
   ]);
+  // Leaving the active list proves the child stopped, not that it succeeded.
   expect(subagentStates(messages, { ses_a: {} }, "ses_parent").get("ses_b")?.state).toBe(
-    "completed",
+    "finished",
   );
   // A result beats stale activity, and a relaunch after a result is running again.
   expect(
@@ -291,7 +340,7 @@ test("ignores tools that do not delegate", () => {
   ).toBeUndefined();
   expect(
     getSubagentPresentation(subagentTool({ input: {}, metadata: {}, status: "running" }, " Task ")),
-  ).toEqual({ background: false, state: "running", title: "Delegated task" });
+  ).toMatchObject({ background: false, state: "running", title: "Delegated task" });
 });
 
 test.each([
@@ -316,7 +365,9 @@ test.each([
     { background: false, state: "streaming", title: "Delegated task" },
   ],
 ])("reads streaming subagent input from %s", (_name, input, expected) => {
-  expect(getSubagentPresentation(subagentTool({ input, status: "streaming" }))).toEqual(expected);
+  expect(getSubagentPresentation(subagentTool({ input, status: "streaming" }))).toMatchObject(
+    expected,
+  );
 });
 
 test("falls back across metadata session keys, titles, and agents", () => {
@@ -325,7 +376,7 @@ test("falls back across metadata session keys, titles, and agents", () => {
 
   expect(
     running({ agent: " general ", sessionID: "bad id", task_id: "ses_task", title: "Meta" }),
-  ).toEqual({
+  ).toMatchObject({
     agent: "general",
     background: false,
     childSessionID: "ses_task",
@@ -358,7 +409,7 @@ test("presents protocol results, summaries, and errors from finished tools", () 
         status: "completed",
       }),
     ),
-  ).toEqual({
+  ).toMatchObject({
     background: false,
     childSessionID: "ses_child",
     result: "Done\n\nExtra",
@@ -377,7 +428,7 @@ test("presents protocol results, summaries, and errors from finished tools", () 
     input: { background: true },
     status: "error",
   });
-  expect(getSubagentPresentation(failed)).toEqual({
+  expect(getSubagentPresentation(failed)).toMatchObject({
     background: true,
     childSessionID: "ses_child",
     result: "Broke",
@@ -394,5 +445,14 @@ test("presents protocol results, summaries, and errors from finished tools", () 
     getSubagentPresentation(
       subagentTool({ error: { message: "failed", type: "tool" }, input: {}, status: "error" }),
     ),
-  ).toEqual({ background: false, state: "error", title: "Delegated task" });
+  ).toMatchObject({ background: false, state: "error", title: "Delegated task" });
+});
+
+test("a background launch acknowledgement never becomes the result", () => {
+  const launch = backgroundLaunch("ses_child");
+  const tool = launch.type === "assistant" ? launch.content[0] : undefined;
+  if (tool?.type !== "tool") throw new Error("expected tool");
+  const finished = subagentStates([subagentNotification("ses_child", "completed"), launch]);
+  expect(getSubagentPresentation(tool, finished)).toMatchObject({ state: "completed" });
+  expect(getSubagentPresentation(tool, finished)?.result).toBeUndefined();
 });

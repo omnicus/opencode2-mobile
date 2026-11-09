@@ -1,3 +1,4 @@
+import Feather from "@expo/vector-icons/Feather";
 import {
   createOpenCodeSession,
   getDefaultOpenCodeLocation,
@@ -42,6 +43,7 @@ import {
   minTouchTarget,
   palette,
   pressedOpacity,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -169,6 +171,9 @@ export function NewSessionScreen({ navigation }: Props) {
             followed={followed}
             onBrowseAll={() => setBrowseAll(true)}
             onChooseProject={chooseProject}
+            opensLocations={(project) =>
+              projectLocations(project, defaultLocationQuery.data).length !== 1
+            }
             onRetry={() => setError(undefined)}
             onSearch={setSearch}
             search={search}
@@ -347,11 +352,7 @@ function NewSessionHeader({
       <View style={[styles.headerSide, largeText && styles.headerSideLargeText]}>
         <Pressable
           accessibilityRole="button"
-          android_ripple={
-            Platform.OS === "android"
-              ? { color: "rgba(255,255,255,0.12)", borderless: true }
-              : undefined
-          }
+          android_ripple={rippleFeedback.borderless}
           onPress={onClose}
           style={({ pressed }) => [
             styles.cancelButton,
@@ -375,9 +376,7 @@ function NewSessionHeader({
           dynamicTypeRamp={typeRamp.footnote}
           style={[styles.subtitle, largeText && styles.headingTextLargeText]}
         >
-          {selectedProject
-            ? projectLabel(selectedProject)
-            : "Choose where this session should start."}
+          {selectedProject ? projectLabel(selectedProject) : "Choose a project"}
         </Text>
       </View>
       {largeText ? null : <View style={styles.headerSide} />}
@@ -450,6 +449,7 @@ function ProjectBrowser({
   onBrowseAll: () => void;
   onChooseProject: (project: Project) => void;
   onRetry: () => void;
+  opensLocations: (project: Project) => boolean;
   onSearch: (search: string) => void;
   search: string;
   selection: WorkspaceSelection;
@@ -522,6 +522,7 @@ function ProjectList({
   onBrowseAll,
   onChooseProject,
   onSearch,
+  opensLocations,
   projects,
   search,
 }: {
@@ -534,6 +535,7 @@ function ProjectList({
   onBrowseAll: () => void;
   onChooseProject: (project: Project) => void;
   onSearch: (search: string) => void;
+  opensLocations: (project: Project) => boolean;
   projects: Project[];
   search: string;
 }) {
@@ -577,6 +579,7 @@ function ProjectList({
             disabled={disabled}
             followed={followed}
             onChooseProject={onChooseProject}
+            opensLocations={opensLocations}
             row={item}
           />
         )}
@@ -593,12 +596,14 @@ function ProjectListRow({
   disabled,
   followed,
   onChooseProject,
+  opensLocations,
   row,
 }: {
   creatingProjectID: string | undefined;
   disabled: boolean;
   followed: ReadonlySet<string>;
   onChooseProject: (project: Project) => void;
+  opensLocations: (project: Project) => boolean;
   row: ProjectRow;
 }) {
   const project = row.project;
@@ -620,6 +625,7 @@ function ProjectListRow({
       disabled={disabled}
       followed={followed.has(project.id)}
       onPress={() => onChooseProject(project)}
+      opensLocations={opensLocations(project)}
       project={project}
     />
   );
@@ -630,12 +636,14 @@ function ProjectButton({
   disabled,
   followed,
   onPress,
+  opensLocations,
   project,
 }: {
   busy: boolean;
   disabled: boolean;
   followed: boolean;
   onPress: () => void;
+  opensLocations: boolean;
   project: Project;
 }) {
   const { fontScale } = useWindowDimensions();
@@ -643,10 +651,12 @@ function ProjectButton({
   const path = sanitizeTranscriptText(project.canonical, 1_024);
   return (
     <ChoiceRow
+      accessibilityHint={opensLocations ? "Choose a location" : "Creates a session here"}
       accessibilityLabel={`${label}, ${followed ? "followed" : "not followed, will be added to Sessions"}, ${path}`}
       busy={busy}
       disabled={disabled}
       onPress={onPress}
+      trailing={opensLocations ? "next" : "create"}
     >
       <View style={styles.projectTitleRow}>
         <ProjectAvatar
@@ -689,10 +699,12 @@ function LocationButton({
   const path = sanitizeTranscriptText(directory, 1_024);
   return (
     <ChoiceRow
+      accessibilityHint="Creates a session here"
       accessibilityLabel={`${label}, ${path}`}
       busy={busy}
       disabled={disabled}
       onPress={onPress}
+      trailing="create"
     >
       <Text dynamicTypeRamp={typeRamp.body} style={styles.projectTitle}>
         {label}
@@ -704,21 +716,27 @@ function LocationButton({
   );
 }
 
+// A chevron means another choice follows; a plus means the tap creates the session.
 function ChoiceRow({
+  accessibilityHint,
   accessibilityLabel,
   busy,
   children,
   disabled,
   onPress,
+  trailing,
 }: {
+  accessibilityHint: string;
   accessibilityLabel: string;
   busy: boolean;
   children: ReactNode;
   disabled: boolean;
   onPress: () => void;
+  trailing: "create" | "next";
 }) {
   return (
     <Pressable
+      accessibilityHint={accessibilityHint}
       accessibilityLabel={busy ? `${accessibilityLabel}, creating session` : accessibilityLabel}
       accessibilityLiveRegion={busy ? "polite" : "none"}
       accessibilityRole="button"
@@ -733,7 +751,17 @@ function ChoiceRow({
       ]}
     >
       <View style={styles.projectCopy}>{children}</View>
-      {busy ? <ActivityIndicator color={palette.signal} /> : null}
+      {busy ? (
+        <ActivityIndicator color={palette.signal} />
+      ) : (
+        <Feather
+          accessible={false}
+          color={palette.dim}
+          name={trailing === "next" ? "chevron-right" : "plus"}
+          size={18}
+          testID={`choice-row-${trailing}`}
+        />
+      )}
     </Pressable>
   );
 }
@@ -752,10 +780,10 @@ function StateMessage({ label, loading }: { label: string; loading?: boolean }) 
 function RowSeparator() {
   return <View style={styles.separator} />;
 }
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const rowRipple = rippleFeedback.row;
 
 const styles = StyleSheet.create({
-  body: { flex: 1, gap: space.md, padding: space.lg, paddingTop: space.md },
+  body: { flex: 1, gap: space.md, padding: space.md },
   cancelButton: {
     justifyContent: "center",
     minHeight: minTouchTarget,
@@ -765,12 +793,12 @@ const styles = StyleSheet.create({
   disabled: { opacity: disabledOpacity },
   emptyState: { alignItems: "center", gap: space.xs, paddingVertical: space.xl },
   error: { ...typography.subheadline, color: palette.danger, textAlign: "center" },
-  followNote: { ...typography.footnote, color: palette.signal, marginTop: space.xs },
+  followNote: { ...typography.footnote, color: palette.info, marginTop: space.xs },
   followingCopy: { ...typography.subheadline, color: palette.dim },
   footerError: {
     ...typography.subheadline,
     color: palette.danger,
-    paddingHorizontal: space.lg,
+    paddingHorizontal: space.md,
     paddingVertical: space.md,
   },
   header: {
@@ -784,7 +812,7 @@ const styles = StyleSheet.create({
   },
   headerSide: { alignItems: "flex-start", flex: 1 },
   headerSideLargeText: { flex: 0 },
-  heading: { alignItems: "center", flexShrink: 1, maxWidth: "50%" },
+  heading: { alignItems: "center", flex: 2, minWidth: 0 },
   headingTextLargeText: { textAlign: "left" },
   headerLargeText: {
     alignItems: "flex-start",

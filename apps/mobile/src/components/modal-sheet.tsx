@@ -19,6 +19,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -176,11 +177,7 @@ function ModalSheetHeader({
       <Pressable
         accessibilityLabel={`Close ${title}`}
         accessibilityRole="button"
-        android_ripple={
-          Platform.OS === "android"
-            ? { color: "rgba(255,255,255,0.12)", borderless: true }
-            : undefined
-        }
+        android_ripple={rippleFeedback.borderless}
         onPress={onClose}
         style={({ pressed }) => [
           styles.closeButton,

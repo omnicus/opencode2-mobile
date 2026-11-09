@@ -23,6 +23,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -53,61 +54,78 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
       <FormKeyboardAvoidingView style={styles.flex}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-            Run /pair in OpenCode on your computer, then scan the code it shows. Notifications are
-            set up when available; otherwise the app connects without them. Credentials are stored
-            in the device keychain.
+            Run{" "}
+            <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.inlineCode}>
+              /pair
+            </Text>{" "}
+            in OpenCode on your computer, then scan the code it shows. Notifications are set up when
+            available; otherwise the app connects without them. Credentials stay in this device's
+            secure storage.
           </Text>
 
-          <PairingScanner
-            busy={busy}
-            cameraBlocked={state.cameraBlocked}
-            onClose={actions.closeScanner}
-            onOpen={() => void actions.openScanner()}
-            onScanned={actions.scanned}
-            scanError={state.scanError}
-            scanning={state.scanning}
-          />
-
-          <View style={styles.dividerRow}>
-            <View style={styles.divider} />
-            <Text dynamicTypeRamp={typeRamp.footnote} style={styles.dividerLabel}>
-              or paste
-            </Text>
-            <View style={styles.divider} />
-          </View>
-          <TextInput
-            accessibilityLabel="Pairing code"
-            keyboardAppearance="dark"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!busy}
-            multiline
-            onChangeText={actions.editCode}
-            placeholder="Pairing code"
-            placeholderTextColor={palette.dim}
-            style={styles.codeInput}
-            value={manualCode}
-          />
-          <Button
-            disabled={busy || manualCode.trim().length === 0}
-            fullWidth
-            label="Check code"
-            onPress={() => actions.inspect()}
-            style={styles.checkAction}
-          />
-
+          {/* Once a code is read, its review replaces the capture controls. */}
           {preview ? (
-            <PairingPreviewCard
-              busy={busy}
-              cancelling={state.cancelling}
-              expired={state.expired}
-              onCancel={actions.cancelAttempt}
-              onPair={() => void actions.pair()}
-              onPairWithoutNotifications={() => void actions.pairWithoutNotifications()}
-              preview={preview}
-              secondsLeft={state.secondsLeft}
-            />
-          ) : null}
+            <>
+              <PairingPreviewCard
+                busy={busy}
+                cancelling={state.cancelling}
+                expired={state.expired}
+                onCancel={actions.cancelAttempt}
+                onPair={() => void actions.pair()}
+                onPairWithoutNotifications={() => void actions.pairWithoutNotifications()}
+                preview={preview}
+                secondsLeft={state.secondsLeft}
+              />
+              <Button
+                align="center"
+                disabled={busy}
+                label="Use another code"
+                onPress={() => actions.editCode("")}
+                style={styles.scanAction}
+                variant="text"
+              />
+            </>
+          ) : (
+            <>
+              <PairingScanner
+                busy={busy}
+                cameraBlocked={state.cameraBlocked}
+                onClose={actions.closeScanner}
+                onOpen={() => void actions.openScanner()}
+                onScanned={actions.scanned}
+                scanError={state.scanError}
+                scanning={state.scanning}
+              />
+
+              <View style={styles.dividerRow}>
+                <View style={styles.divider} />
+                <Text dynamicTypeRamp={typeRamp.footnote} style={styles.dividerLabel}>
+                  or paste
+                </Text>
+                <View style={styles.divider} />
+              </View>
+              <TextInput
+                accessibilityLabel="Pairing code"
+                keyboardAppearance="dark"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!busy}
+                multiline
+                onChangeText={actions.editCode}
+                placeholder="Pairing code"
+                placeholderTextColor={palette.dim}
+                style={styles.codeInput}
+                value={manualCode}
+              />
+              <Button
+                disabled={busy || manualCode.trim().length === 0}
+                fullWidth
+                label="Check code"
+                onPress={() => actions.inspect()}
+                style={styles.checkAction}
+              />
+            </>
+          )}
           {error ? (
             <Text
               accessibilityLiveRegion="polite"
@@ -206,11 +224,7 @@ function PairingHeader({ onDone }: { onDone: () => void }) {
       </Text>
       <Pressable
         accessibilityRole="button"
-        android_ripple={
-          Platform.OS === "android"
-            ? { borderless: true, color: "rgba(255,255,255,0.12)" }
-            : undefined
-        }
+        android_ripple={rippleFeedback.borderless}
         onPress={onDone}
         style={({ pressed }) => [
           styles.doneButton,
@@ -312,8 +326,11 @@ function PairingPreviewCard({
   const approvesHttp = pairingPreviewApprovesHttp(preview);
   return (
     <View style={styles.previewCard}>
-      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.previewEyebrow}>
-        Ready to pair
+      <Text
+        dynamicTypeRamp={typeRamp.sectionLabel}
+        style={[styles.previewEyebrow, expired && styles.previewEyebrowExpired]}
+      >
+        {expired ? "Pairing code expired" : "Ready to pair"}
       </Text>
       <Text dynamicTypeRamp={typeRamp.headline} style={styles.previewName}>
         {pairingPreviewName(preview)}
@@ -384,7 +401,15 @@ const styles = StyleSheet.create({
     padding: space.md,
     textAlignVertical: "top",
   },
-  content: { padding: space.md, paddingBottom: space.xl },
+  // Readable width on tablets and landscape, so the square camera never fills the screen.
+  content: {
+    alignSelf: "center",
+    maxWidth: 560,
+    padding: space.md,
+    paddingBottom: space.xl,
+    width: "100%",
+  },
+  inlineCode: { color: palette.ink, fontFamily: typography.code.fontFamily },
   copy: { ...typography.subheadline, color: palette.dim },
   divider: { backgroundColor: palette.border, flex: 1, height: StyleSheet.hairlineWidth },
   dividerLabel: { ...typography.footnote, color: palette.dim },
@@ -417,9 +442,15 @@ const styles = StyleSheet.create({
   previewActions: { gap: space.sm, marginTop: space.lg },
   previewCard: { ...cardSurface, marginTop: space.lg },
   previewEyebrow: { ...typography.sectionLabel, color: palette.success },
+  previewEyebrowExpired: { color: palette.warm },
   previewMeta: { ...typography.footnote, color: palette.dim, marginTop: space.sm },
   previewName: { ...typography.headline, color: palette.ink, marginTop: space.xs },
-  previewOrigin: { ...typography.subheadline, color: palette.ink, marginTop: space.xs },
+  previewOrigin: {
+    ...typography.subheadline,
+    color: palette.ink,
+    fontFamily: typography.code.fontFamily,
+    marginTop: space.xs,
+  },
   safeArea: { backgroundColor: palette.background, flex: 1 },
   scanAction: { marginTop: space.lg },
   scanError: { ...typography.subheadline, color: palette.danger, textAlign: "center" },

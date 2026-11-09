@@ -365,10 +365,10 @@ test("explains unsupported transcript data separately from other load failures",
     "This server returned unsupported transcript data.",
   );
   expect(transcriptLoadErrorMessage(new Error("UNREACHABLE"))).toBe(
-    "The transcript could not be loaded. Refresh and try again.",
+    "The transcript could not be loaded.",
   );
   expect(transcriptLoadErrorMessage("MALFORMED_MESSAGE_LIST")).toBe(
-    "The transcript could not be loaded. Refresh and try again.",
+    "The transcript could not be loaded.",
   );
 });
 

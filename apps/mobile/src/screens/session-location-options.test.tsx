@@ -107,7 +107,7 @@ test("loads on open, states the location-wide scope, and copies the branch", asy
   expect(mockList).not.toHaveBeenCalled();
   fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
   expect(await screen.findByText("No MCP servers configured for this location.")).toBeOnTheScreen();
-  expect(screen.getByText(/MCP changes affect all sessions/)).toBeOnTheScreen();
+  expect(screen.getByText(/Changes affect all sessions at this location/)).toBeOnTheScreen();
   expect(mockList).toHaveBeenCalledWith(
     {},
     location,
@@ -236,9 +236,9 @@ test("shows unsupported and retryable list failures", async () => {
   view.unmount();
   mockList.mockRejectedValue(new Error("network"));
   setup();
-  expect(await screen.findByRole("button", { name: "Try again" })).toBeOnTheScreen();
+  expect(await screen.findByRole("button", { name: "Retry" })).toBeOnTheScreen();
   mockList.mockResolvedValue({ data: [] });
-  fireEvent.press(screen.getByRole("button", { name: "Try again" }));
+  fireEvent.press(screen.getByRole("button", { name: "Retry" }));
   expect(await screen.findByText("No MCP servers configured for this location.")).toBeOnTheScreen();
 });
 

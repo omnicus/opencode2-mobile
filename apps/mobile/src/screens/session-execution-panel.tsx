@@ -190,10 +190,10 @@ function UnknownDeliveryCard({
       <Text dynamicTypeRamp={typeRamp.caption} style={styles.cardEyebrow}>
         Delivery unknown
       </Text>
-      <Text dynamicTypeRamp={typeRamp.control} style={styles.cardCopy}>
+      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.cardCopy}>
         {admission.kind === "command"
           ? "The server may have run this command. Check the transcript before sending it again."
-          : "The server may have admitted this prompt. Check inbox and transcript state before sending it again."}
+          : "The server may have received this prompt. Check the transcript and queued messages before sending it again."}
       </Text>
       <View style={styles.actionRow}>
         <Button label="Check delivery" onPress={() => onCheckAdmission(admission.id)} />
@@ -310,11 +310,12 @@ export function SessionWorkingStatus({
 
 const styles = StyleSheet.create({
   actionRow: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
-  activeDot: { backgroundColor: palette.warm, borderRadius: 99, height: 6, width: 6 },
+  activeDot: { backgroundColor: palette.warm, borderRadius: radius.pill, height: 8, width: 8 },
+  // Same radius as the inbox and request cards it stacks with.
   admissionCard: {
     backgroundColor: palette.card,
     borderColor: palette.border,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     gap: space.sm,
     padding: space.md,

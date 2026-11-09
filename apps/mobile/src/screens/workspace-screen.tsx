@@ -5,6 +5,7 @@ import {
   getOpenCodeLocation,
   getOpenCodeSession,
   getOpenCodeVcs,
+  interruptOpenCodeSession,
   type LocationRef,
   listOpenCodeMessages,
   listOpenCodeProjects,
@@ -55,9 +56,10 @@ import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
+import { headerSessionTitle, SessionHeaderTitle } from "../navigation/session-header-title";
 import { WorkspaceHeaderActions } from "../navigation/workspace-header-actions";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
-import { type FollowedInboxRow, locationKey } from "../state/followed-project-inbox";
+import { type FollowedInboxRow, labelProject, locationKey } from "../state/followed-project-inbox";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { recordTranscriptResidentSet } from "../state/transcript-performance";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
@@ -70,6 +72,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -99,7 +102,11 @@ import {
   type TranscriptListItem,
   TranscriptUpdatesGroup,
 } from "./session-transcript";
-import { flattenTranscriptPages, subagentStates } from "./session-transcript-model";
+import {
+  flattenTranscriptPages,
+  type SubagentAttentionMap,
+  subagentStates,
+} from "./session-transcript-model";
 import { useInboxBranches } from "./use-inbox-branches";
 import { useMarkSessionViewed } from "./use-mark-session-viewed";
 import { useSessionDraft } from "./use-session-draft";
@@ -161,10 +168,9 @@ const iosKeyboardTransparentTopInset = 32;
 const liveEdgeRowTransition = LinearTransition.springify().mass(1).stiffness(289).damping(34);
 const mentionFileLimit = 20;
 const unresolvedLocation = { directory: "__unresolved__" } satisfies LocationRef;
-const rowRipple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
-const borderlessRipple =
-  Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
-// Keeps the last rows of the Approvals tab clear of the floating bottom menu.
+const rowRipple = rippleFeedback.row;
+const borderlessRipple = rippleFeedback.borderless;
+// Keeps the last rows of every Sessions tab clear of the floating bottom menu.
 const bottomMenuInset = 96;
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
@@ -936,6 +942,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   });
   useSessionHeaderOptions({
     navigation,
+    projectName: sessionHeaderSubtitle(session, workspaceSelection.projects),
     routeSessionScope,
     sessionLocationReady,
     sessionTitle,
@@ -989,9 +996,15 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     sessionID,
   });
   const activeSessions = execution.activeSessions;
+  // Pending requests across followed projects, keyed by the session that asked, so a child
+  // subagent blocked on one reads as "Needs you" from its parent.
+  const subagentAttention = useMemo(
+    () => requestAttention(workspaceSelection.permissions, workspaceSelection.forms),
+    [workspaceSelection.forms, workspaceSelection.permissions],
+  );
   const transcriptSubagentStates = useMemo(
-    () => subagentStates(messages, activeSessions, sessionID),
-    [activeSessions, messages, sessionID],
+    () => subagentStates(messages, activeSessions, sessionID, subagentAttention),
+    [activeSessions, messages, sessionID, subagentAttention],
   );
   const transcriptItems: TranscriptListItem[] = [
     ...execution.pendingPrompts,
@@ -1025,6 +1038,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     (childSessionID: string) => {
       navigation.push("Session", {
         connectionId: routeConnectionId,
+        fromParent: true,
         location: sessionLocation,
         sessionID: childSessionID,
       });
@@ -1081,13 +1095,20 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         execution={execution}
         failedPermissionReplyId={workspaceSelection.failedPermissionReplyId}
         formLocations={workspaceSelection.formLocations}
-        messages={visibleBackgroundMessages(
-          messages,
-          sessionLocationReady && connected,
-          messagesQuery.isError,
-        )}
+        messages={messages}
+        monitorStale={!(sessionLocationReady && connected) || messagesQuery.isError}
         onOpenChild={openSubagent}
         onReplyPermission={workspaceSelection.replyPermission}
+        onStopChild={
+          client && connected
+            ? async (childSessionID: string) => {
+                await interruptOpenCodeSession(client, childSessionID, false);
+                // The REST snapshot, not the request, confirms the child stopped.
+                await execution.reconcile();
+              }
+            : undefined
+        }
+        subagentAttention={subagentAttention}
         permissions={sessionPermissions}
         replyingPermissionId={workspaceSelection.replyingPermissionId}
         routeSessionScope={routeSessionScope}
@@ -1173,6 +1194,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               }}
               onOpenDiff={openDiff}
               onOpenSubagent={openSubagent}
+              onRetrySession={() => void sessionQuery.refetch()}
               sessionError={sessionQuery.isError}
               sessionPending={sessionQuery.isPending}
               showOlderContextLoading={showOlderContextLoading}
@@ -1270,20 +1292,30 @@ function useSessionRecord({
 
 function useSessionHeaderOptions({
   navigation,
+  projectName,
   routeSessionScope,
   sessionLocationReady,
   sessionTitle,
   setActionsOpen,
 }: {
   navigation: SessionNavigation;
+  projectName: string | undefined;
   routeSessionScope: string;
   sessionLocationReady: boolean;
   sessionTitle: string | undefined;
   setActionsOpen: Dispatch<SetStateAction<boolean>>;
 }) {
   useEffect(() => {
-    navigation.setOptions({ title: sessionTitle || "Untitled session" });
+    navigation.setOptions({ title: headerSessionTitle(sessionTitle) });
   }, [navigation, sessionTitle]);
+  // The project sits under the title, so a session is never ambiguous about where it runs.
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: ({ children }) => (
+        <SessionHeaderTitle subtitle={projectName} title={String(children)} />
+      ),
+    });
+  }, [navigation, projectName]);
   useEffect(() => {
     void routeSessionScope;
     setActionsOpen(false);
@@ -1592,19 +1624,15 @@ function navigateFromSession(navigation: SessionNavigation, section: ShellSectio
   return section === "Workspace" ? navigation.popTo("Workspace") : navigation.navigate(section);
 }
 
-function visibleBackgroundMessages(
-  messages: SessionMessages,
-  connectedAndReady: boolean,
-  messagesError: boolean,
-) {
-  return connectedAndReady && !messagesError ? messages : [];
-}
-
 function StaleSessionRoute({ navigation }: { navigation: SessionNavigation }) {
   return (
     <View style={styles.staleRoute}>
       <InlineError message="This session belongs to a different connection." />
-      <ActionButton label="Back to workspace" onPress={() => navigation.popTo("Workspace")} />
+      <ActionButton
+        label="Back to sessions"
+        onPress={() => navigation.popTo("Workspace")}
+        style={styles.staleRouteAction}
+      />
     </View>
   );
 }
@@ -1647,6 +1675,29 @@ function SessionScreenActionSheet({
   );
 }
 
+// The project under the session title; a subagent's own session says so first.
+function sessionHeaderSubtitle(
+  session: SessionInfo | undefined,
+  projects: WorkspaceSelection["projects"],
+) {
+  if (!session) return undefined;
+  const project = projects.find((candidate) => candidate.id === session.projectID);
+  const name = project ? labelProject(project, session.projectID) : undefined;
+  if (!session.parentID) return name;
+  return name ? `Subagent · ${name}` : "Subagent";
+}
+
+function requestAttention(
+  permissions: WorkspaceSelection["permissions"],
+  forms: WorkspaceSelection["forms"],
+): SubagentAttentionMap {
+  const attention = new Map<string, "input" | "permission">();
+  for (const form of forms) attention.set(form.sessionID, "input");
+  // A permission is the more urgent ask, so it wins when a child has both.
+  for (const request of permissions) attention.set(request.sessionID, "permission");
+  return attention;
+}
+
 function SessionDockPanel({
   activeSessions,
   client,
@@ -1655,14 +1706,17 @@ function SessionDockPanel({
   failedPermissionReplyId,
   formLocations,
   messages,
+  monitorStale,
   onOpenChild,
   onReplyPermission,
+  onStopChild,
   permissions,
   replyingPermissionId,
   routeSessionScope,
   sessionForms,
   sessionID,
   sessionLocation,
+  subagentAttention,
   tablet,
 }: {
   activeSessions: SessionExecution["activeSessions"];
@@ -1672,14 +1726,17 @@ function SessionDockPanel({
   failedPermissionReplyId: WorkspaceSelection["failedPermissionReplyId"];
   formLocations: WorkspaceSelection["formLocations"];
   messages: SessionMessages;
+  monitorStale: boolean;
   onOpenChild: (sessionID: string) => void;
   onReplyPermission: WorkspaceSelection["replyPermission"];
+  onStopChild: ((sessionID: string) => Promise<void>) | undefined;
   permissions: WorkspaceSelection["permissions"];
   replyingPermissionId: WorkspaceSelection["replyingPermissionId"];
   routeSessionScope: string;
   sessionForms: WorkspaceSelection["forms"];
   sessionID: string;
   sessionLocation: LocationRef;
+  subagentAttention: SubagentAttentionMap;
   tablet: boolean;
 }) {
   return (
@@ -1687,9 +1744,12 @@ function SessionDockPanel({
       <SessionBackgroundTasks
         key={routeSessionScope}
         activeSessions={activeSessions}
+        attention={subagentAttention}
         sessionID={sessionID}
         messages={messages}
         onOpenChild={onOpenChild}
+        onStopChild={monitorStale ? undefined : onStopChild}
+        stale={monitorStale}
       />
       <SessionExecutionPanel
         hideInterrupt
@@ -1816,6 +1876,7 @@ function SessionTranscriptList({
   onLayout,
   onOpenDiff,
   onOpenSubagent,
+  onRetrySession,
   sessionError,
   sessionPending,
   showOlderContextLoading,
@@ -1837,6 +1898,7 @@ function SessionTranscriptList({
   onLayout: (event: LayoutChangeEvent) => void;
   onOpenDiff: () => void;
   onOpenSubagent: (sessionID: string) => void;
+  onRetrySession: () => void;
   sessionError: boolean;
   sessionPending: boolean;
   showOlderContextLoading: boolean;
@@ -1873,6 +1935,7 @@ function SessionTranscriptList({
           autoFillTranscript={autoFillTranscript}
           canLoadOlder={canLoadOlder}
           messagesQuery={messagesQuery}
+          onRetrySession={onRetrySession}
           sessionError={sessionError}
           sessionPending={sessionPending}
           showOlderContextLoading={showOlderContextLoading}
@@ -1936,8 +1999,9 @@ function renderTranscriptEmptyState(messagesQuery: SessionMessagesQuery, active:
     );
   }
   return (
-    <View style={styles.transcriptState}>
+    <View style={[styles.transcriptState, styles.transcriptRetry]}>
       <InlineError message={transcriptLoadErrorMessage(messagesQuery.error)} />
+      <RetryButton busy={messagesQuery.isRefetching} onPress={() => void messagesQuery.refetch()} />
     </View>
   );
 }
@@ -1946,6 +2010,7 @@ function TranscriptListFooter({
   autoFillTranscript,
   canLoadOlder,
   messagesQuery,
+  onRetrySession,
   sessionError,
   sessionPending,
   showOlderContextLoading,
@@ -1953,6 +2018,7 @@ function TranscriptListFooter({
   autoFillTranscript: boolean;
   canLoadOlder: boolean;
   messagesQuery: SessionMessagesQuery;
+  onRetrySession: () => void;
   sessionError: boolean;
   sessionPending: boolean;
   showOlderContextLoading: boolean;
@@ -1960,7 +2026,12 @@ function TranscriptListFooter({
   return (
     <View style={styles.detailHeader}>
       {sessionPending ? <ActivityIndicator color={palette.signal} /> : null}
-      {sessionError ? <InlineError message="The session could not be loaded." /> : null}
+      {sessionError ? (
+        <View style={styles.transcriptRetry}>
+          <InlineError message="The session could not be loaded." />
+          <RetryButton busy={false} onPress={onRetrySession} />
+        </View>
+      ) : null}
       {canLoadOlder && !autoFillTranscript ? (
         <Button
           label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
@@ -2202,8 +2273,16 @@ function SessionEmptyState({
   if (search) {
     return (
       <View style={styles.emptyState}>
-        <Text dynamicTypeRamp={typeRamp.headline} style={styles.emptyTitle}>
-          No sessions match this search.
+        <Feather accessible={false} color={palette.dim} name="search" size={36} />
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.headline}
+          style={styles.emptyTitle}
+        >
+          No matching sessions
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+          Search looks through sessions in the projects you follow. Try a different word.
         </Text>
       </View>
     );
@@ -2339,7 +2418,7 @@ const styles = StyleSheet.create({
   headerActionLabel: { ...typography.control, color: palette.ink },
   headerActionLabelAttention: { color: palette.warm },
   hiddenPanel: { display: "none" },
-  inboxSectionCount: { ...typography.footnote, color: palette.dim, opacity: 0.7 },
+  inboxSectionCount: { ...typography.footnote, color: palette.dim },
   inboxSectionChevron: { marginLeft: "auto" },
   inboxSectionHeader: {
     alignItems: "center",
@@ -2368,7 +2447,7 @@ const styles = StyleSheet.create({
   listContent: {
     alignSelf: "center",
     maxWidth: 760,
-    paddingBottom: 80,
+    paddingBottom: bottomMenuInset,
     width: "100%",
   },
   listFooter: { alignItems: "center", padding: space.lg },
@@ -2388,6 +2467,7 @@ const styles = StyleSheet.create({
     width: minTouchTarget,
   },
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
+  staleRouteAction: { marginTop: space.md },
   tabPanel: { flex: 1 },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   transcriptContainer: { flex: 1 },
@@ -2400,6 +2480,7 @@ const styles = StyleSheet.create({
     ...typography.footnote,
     color: palette.dim,
     paddingBottom: space.sm,
-    textAlign: "right",
+    textAlign: "center",
   },
+  transcriptRetry: { alignItems: "center", gap: space.sm },
 });

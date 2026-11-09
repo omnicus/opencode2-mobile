@@ -1,9 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { openCodeClientContractVersion } from "@opencode2-mobile/opencode-adapter";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, type RefObject, useRef } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef } from "react";
 import {
   ActivityIndicator,
+  type LayoutChangeEvent,
   Platform,
   Pressable,
   ScrollView,
@@ -21,6 +22,7 @@ import { managementStyles, SettingsGroup } from "../components/management-layout
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { SegmentedControl, type SegmentedOption } from "../components/segmented-control";
 import { useAnnouncement } from "../components/use-announcement";
+import { useReducedMotion } from "../components/use-reduced-motion";
 import type { ConnectionAuthMode, ConnectionProfile } from "../connections/connection-profile";
 import { useConnections } from "../connections/connections-context";
 import { addressHostname, withInferredScheme } from "../connections/server-address";
@@ -31,6 +33,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
   space,
   switchColors,
   typeRamp,
@@ -73,13 +76,18 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
   const probeActions = connectionProbeActions(state);
   const firstRun = connections.ready && connections.profiles.length === 0;
   const showHero = firstRun && !state.showDetails;
+  const scrollToDetails = useScrollToDetails(state.showDetails, state.editingProfileId);
 
   return (
     <SafeAreaView edges={["top", "bottom"]} style={styles.safeArea}>
       <StatusBar style="light" />
       <ScreenHeader onDone={onDone} showHero={showHero} />
       <FormKeyboardAvoidingView style={styles.flex}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          ref={scrollToDetails.scrollRef}
+        >
           {connections.error ? <ErrorMessage>{connections.error}</ErrorMessage> : null}
 
           {showHero ? (
@@ -103,19 +111,54 @@ export function ConnectionScreen({ onDone, onPair }: { onDone?: () => void; onPa
           {state.error && !state.showDetails ? <ErrorMessage>{state.error}</ErrorMessage> : null}
 
           {state.showDetails ? (
-            <ConnectionDetails
-              connections={connections}
-              largeText={largeText}
-              probeActions={probeActions}
-              profileActions={profileActions}
-              runtime={runtime}
-              state={state}
-            />
+            <View onLayout={scrollToDetails.onDetailsLayout}>
+              <ConnectionDetails
+                connections={connections}
+                largeText={largeText}
+                probeActions={probeActions}
+                profileActions={profileActions}
+                runtime={runtime}
+                state={state}
+              />
+            </View>
           ) : null}
         </ScrollView>
       </FormKeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+// Add and Edit open the editor below the saved list. With several servers it can start
+// offscreen, so bring its heading into view once it lays out.
+function useScrollToDetails(showDetails: boolean, editingProfileId: string | undefined) {
+  const scrollRef = useRef<ScrollView>(null);
+  const detailsY = useRef<number | undefined>(undefined);
+  const pending = useRef(false);
+  const reducedMotion = useReducedMotion();
+  const scrollTo = (y: number) =>
+    scrollRef.current?.scrollTo({ animated: !reducedMotion, y: Math.max(0, y - space.md) });
+  // Scroll when the editor opens or switches to another server. A switch may not change the
+  // editor's layout, so reuse its last measured position when there is one.
+  const editorTarget = showDetails ? (editingProfileId ?? "new") : undefined;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs only when the editor target changes.
+  useEffect(() => {
+    if (editorTarget === undefined) {
+      detailsY.current = undefined;
+      pending.current = false;
+      return;
+    }
+    if (detailsY.current === undefined) pending.current = true;
+    else scrollTo(detailsY.current);
+  }, [editorTarget]);
+  return {
+    scrollRef,
+    onDetailsLayout: (event: LayoutChangeEvent) => {
+      detailsY.current = event.nativeEvent.layout.y;
+      if (!pending.current) return;
+      pending.current = false;
+      scrollTo(detailsY.current);
+    },
+  };
 }
 
 function ScreenHeader({
@@ -128,7 +171,7 @@ function ScreenHeader({
   const centeredTitle = Platform.OS === "ios";
 
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, !showHero && styles.headerDivider]}>
       {centeredTitle ? <View style={styles.headerSide} /> : null}
       {showHero ? (
         <View style={styles.flex} />
@@ -173,7 +216,7 @@ function FirstRunHero({
     <View style={styles.firstRun}>
       <View style={styles.hero}>
         <View style={styles.heroIcon}>
-          <Feather accessible={false} color={palette.ink} name="camera" size={40} />
+          <Feather accessible={false} color={palette.ink} name="monitor" size={40} />
         </View>
         <Text
           accessibilityRole="header"
@@ -187,8 +230,8 @@ function FirstRunHero({
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.inlineCode}>
             /pair
           </Text>{" "}
-          in OpenCode on your computer, then scan the code it shows to connect. Credentials are
-          stored in the device keychain.
+          in OpenCode on your computer, then scan the code it shows to connect. Credentials stay in
+          this device's secure storage.
         </Text>
       </View>
       {onPair ? (
@@ -365,8 +408,8 @@ function ConnectionDetails({
             {state.editingProfileId ? "Server details" : "New server"}
           </Text>
           <Button
-            accessibilityLabel="Hide connection details"
-            label="Hide"
+            accessibilityLabel="Close editor"
+            label="Close editor"
             onPress={() => state.setShowDetails(false)}
             size="compact"
             variant="text"
@@ -477,7 +520,7 @@ function ConnectionFields({
         />
       </Field>
 
-      <View style={[styles.fieldRow, authMode !== "none" && styles.separator]}>
+      <View style={[styles.fieldRow, styles.segmentRow, authMode !== "none" && styles.separator]}>
         <Text
           accessibilityElementsHidden
           dynamicTypeRamp={typeRamp.footnote}
@@ -737,7 +780,7 @@ function RuntimeStatusCard({
   );
 }
 
-const ripple = { color: "rgba(255,255,255,0.12)" };
+const ripple = { color: rippleColor };
 const borderlessRipple = { ...ripple, borderless: true };
 const secretToggleHitSlop = { bottom: space.sm, top: space.sm };
 
@@ -918,17 +961,23 @@ const styles = StyleSheet.create({
     paddingVertical: space.sm,
   },
   firstRun: { gap: space.md, paddingTop: space.xl },
+  segmentRow: { gap: space.xs },
   flex: { flex: 1 },
   footer: {
     ...typography.footnote,
     color: palette.dim,
     textAlign: "center",
   },
+  // Same height and divider as the other modal headers (ModalSheet, Pairing, New session).
   header: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 44,
+    minHeight: 64,
     paddingHorizontal: space.md,
+  },
+  headerDivider: {
+    borderBottomColor: palette.border,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   headerSide: { flex: 1 },
   headerTrailing: { alignItems: "flex-end" },

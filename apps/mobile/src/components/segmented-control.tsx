@@ -5,6 +5,7 @@ import {
   minTouchTarget,
   palette,
   pressedOpacity,
+  rippleFeedback,
   typeRamp,
   typography,
   usesLargeTextLayout,
@@ -64,9 +65,7 @@ export function SegmentedControl<T extends string>({
             accessibilityState={
               role === "tablist" ? { selected, disabled } : { checked: selected, disabled }
             }
-            android_ripple={
-              Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined
-            }
+            android_ripple={rippleFeedback.row}
             disabled={disabled}
             hitSlop={compact ? compactHitSlop : undefined}
             onPress={() => onChange(option.value)}
@@ -111,7 +110,7 @@ const styles = StyleSheet.create({
   },
   segmentCompact: { borderRadius: 7, minHeight: 32, paddingHorizontal: 14 },
   segmentStacked: { flex: 0, paddingVertical: 6 },
-  selected: { backgroundColor: palette.prompt },
+  selected: { backgroundColor: palette.selected },
   pressed: { opacity: pressedOpacity },
   disabled: { opacity: disabledOpacity },
   label: {

@@ -1,10 +1,10 @@
 import Feather from "@expo/vector-icons/Feather";
 import { Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
-import { minTouchTarget, palette, radius } from "../theme";
+import { minTouchTarget, palette, radius, rippleFeedback } from "../theme";
 import { attentionAccessibilityValue } from "./attention-labels";
 
-const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
+const ripple = rippleFeedback.row;
 
 type HeaderDestination = "Connections" | "FollowedProjects" | "Pending" | "Settings";
 
@@ -42,17 +42,21 @@ export function WorkspaceHeaderActions({
       >
         <Feather
           accessibilityElementsHidden
-          color={palette.signal}
+          color={palette.ink}
           importantForAccessibility="no-hide-descendants"
           name="settings"
-          size={20}
+          size={22}
         />
         {count > 0 || freshness !== "current" || coverage === "incomplete" ? (
           <View
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             testID="workspace-attention-indicator"
-            style={[styles.attentionDot, count === 0 && styles.attentionDotUncertain]}
+            style={[
+              styles.attentionDot,
+              styles.settingsAttentionDot,
+              count === 0 && styles.attentionDotUncertain,
+            ]}
           />
         ) : null}
       </Pressable>
@@ -81,7 +85,7 @@ export function NewSessionButton({ onPress }: { onPress: () => void }) {
         color={palette.ink}
         importantForAccessibility="no-hide-descendants"
         name="edit"
-        size={24}
+        size={22}
       />
     </Pressable>
   );
@@ -97,7 +101,11 @@ export function SessionAttentionMarker() {
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       testID="session-attention-marker"
-      style={[styles.attentionDot, count === 0 && styles.attentionDotUncertain]}
+      style={[
+        styles.attentionDot,
+        styles.sessionAttentionDot,
+        count === 0 && styles.attentionDotUncertain,
+      ]}
     />
   );
 }
@@ -105,14 +113,16 @@ export function SessionAttentionMarker() {
 const styles = StyleSheet.create({
   attentionDot: {
     position: "absolute",
-    top: 6,
-    left: 6,
     width: 7,
     height: 7,
     borderRadius: 4,
     backgroundColor: palette.warm,
   },
   attentionDotUncertain: { backgroundColor: palette.dim },
+  // On the gear's top-right corner rather than floating in the touch target.
+  settingsAttentionDot: { right: 10, top: 10 },
+  // Beside the back chevron's top edge rather than in the button's corner.
+  sessionAttentionDot: { right: 8, top: 8 },
   actions: {
     alignItems: "center",
     flexDirection: "row",

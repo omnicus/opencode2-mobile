@@ -1,4 +1,5 @@
 import type { FormInfo, LocationRef, OpenCodeClient } from "@opencode2-mobile/opencode-adapter";
+import type { ReactNode } from "react";
 import { StyleSheet, View } from "react-native";
 
 import { space } from "../theme";
@@ -12,6 +13,7 @@ export function FormRequestList({
   forms,
   focusSingle = false,
   location,
+  renderOwner,
 }: {
   client: OpenCodeClient | undefined;
   connectionId: string | undefined;
@@ -19,6 +21,8 @@ export function FormRequestList({
   forms: readonly FormInfo[];
   focusSingle?: boolean;
   location: LocationRef | undefined;
+  // Pooled lists name the project and session that asked, above each card.
+  renderOwner?: (sessionID: string) => ReactNode;
 }) {
   const interactions = useFormInteractions({
     client,
@@ -35,23 +39,26 @@ export function FormRequestList({
       style={styles.list}
     >
       {interactions.forms.map((form) => (
-        <FormRequestCard
-          allowFocus={focusSingle && interactions.forms.length === 1}
-          busy={interactions.busyFormId === form.id}
-          {...(interactions.errorFormId === form.id
-            ? { error: "The form response was not accepted. Current state has been reloaded." }
-            : {})}
-          form={form}
-          key={JSON.stringify(
-            formStateQueryKey(
-              connectionId ?? "unselected",
-              formLocations?.get(form.id) ?? location,
-              form,
-            ),
-          )}
-          onCancel={() => interactions.cancelForm(form)}
-          onSubmit={(answer) => interactions.replyForm(form, answer)}
-        />
+        <View key={`${form.sessionID}:${form.id}`} style={styles.item}>
+          {renderOwner?.(form.sessionID)}
+          <FormRequestCard
+            allowFocus={focusSingle && interactions.forms.length === 1}
+            busy={interactions.busyFormId === form.id}
+            {...(interactions.errorFormId === form.id
+              ? { error: "The form response was not accepted. Current state has been reloaded." }
+              : {})}
+            form={form}
+            key={JSON.stringify(
+              formStateQueryKey(
+                connectionId ?? "unselected",
+                formLocations?.get(form.id) ?? location,
+                form,
+              ),
+            )}
+            onCancel={() => interactions.cancelForm(form)}
+            onSubmit={(answer) => interactions.replyForm(form, answer)}
+          />
+        </View>
       ))}
     </View>
   );
@@ -59,4 +66,6 @@ export function FormRequestList({
 
 const styles = StyleSheet.create({
   list: { gap: space.md },
+  // The owner line sits close to its own card, like pooled permission cards.
+  item: { gap: space.xs },
 });

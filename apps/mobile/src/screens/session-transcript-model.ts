@@ -6,14 +6,31 @@ import type {
 type AssistantMessage = Extract<SessionMessageInfo, { type: "assistant" }>;
 type AssistantTool = Extract<AssistantMessage["content"][number], { type: "tool" }>;
 
+// "streaming" is a task call still being written (Preparing); "waiting" is a child blocked on
+// a permission or form; "interrupted" is a stop, not a failure; "finished" means the child
+// stopped running but reported no outcome, so it is not shown as a success.
 export type SubagentPresentation = {
   agent?: string;
   background: boolean;
   childSessionID?: string;
+  // Foreground tasks finish with their tool call; background ones outlive it.
+  finishedAt?: number;
   result?: string;
-  state: "completed" | "error" | "running" | "streaming";
+  startedAt?: number;
+  state: "completed" | "error" | "finished" | "interrupted" | "running" | "streaming" | "waiting";
   title: string;
+  waitingFor?: SubagentAttention;
 };
+
+export type SubagentAttention = "input" | "permission";
+// Pending permissions and forms keyed by the session that asked.
+export type SubagentAttentionMap = ReadonlyMap<string, SubagentAttention>;
+
+const interruptedPattern = /\b(abort(?:ed)?|interrupt(?:ed)?|cancel(?:led|ed)?|stopped)\b/i;
+
+export function isSubagentInFlight(state: SubagentPresentation["state"]) {
+  return state === "running" || state === "streaming" || state === "waiting";
+}
 
 export type SubagentProtocolText = {
   childSessionID?: string;
@@ -59,10 +76,14 @@ export function hasForegroundBackgroundableTool(messages: SessionMessageInfo[]) 
 }
 
 type SubagentState = {
+  agent?: string;
   background: boolean;
   childSessionID?: string;
+  finishedAt?: number;
+  startedAt?: number;
   state: SubagentPresentation["state"];
   title?: string;
+  waitingFor?: SubagentAttention;
 };
 
 export type SubagentStates = ReadonlyMap<string, SubagentState>;
@@ -80,14 +101,24 @@ export function getSubagentPresentation(
   const agent = firstString(input.subagent_type, input.agent, metadata.agent);
   const childSessionID = subagentChildSessionID(metadata, protocol);
   const background = isBackgroundSubagent(tool, input, metadata, protocol?.state);
-  const known = background && childSessionID ? states?.get(childSessionID) : undefined;
+  const known = childSessionID ? states?.get(childSessionID) : undefined;
+  // A foreground task's own tool status is authoritative; only a pending request overrides it.
+  const launched = subagentLaunchState(tool, background, protocol?.state);
+  const base = background && known ? known.state : launched;
+  const waiting = known?.waitingFor && isSubagentInFlight(base) ? known.waitingFor : undefined;
+  const finishedAt = !background && !isSubagentInFlight(base) ? tool.time.completed : undefined;
+  // A background launch's own text only acknowledges the start; it never becomes the result.
+  const acknowledgement = background && launched === "running";
   return {
     ...(agent ? { agent } : {}),
     background,
     ...(childSessionID ? { childSessionID } : {}),
-    ...(result ? { result } : {}),
-    state: known?.state ?? subagentLaunchState(tool, background, protocol?.state),
+    ...(finishedAt !== undefined ? { finishedAt } : {}),
+    ...(result && !acknowledgement ? { result } : {}),
+    startedAt: tool.time.ran ?? tool.time.created,
+    state: waiting ? "waiting" : base,
     title: subagentTitle(input, metadata, protocol),
+    ...(waiting ? { waitingFor: waiting } : {}),
   };
 }
 
@@ -130,6 +161,9 @@ function subagentLaunchState(
   protocolState: SubagentProtocolText["state"],
 ): SubagentPresentation["state"] {
   if (protocolState) return protocolState;
+  if (tool.state.status === "error" && interruptedPattern.test(tool.state.error.message)) {
+    return "interrupted";
+  }
   return background && tool.state.status === "completed" ? "running" : tool.state.status;
 }
 
@@ -141,66 +175,150 @@ function subagentTitle(
   return firstString(input.description, metadata.title, protocol?.summary) ?? "Delegated task";
 }
 
+type SubagentSignal = SubagentState & { notified: boolean };
+
 // Messages arrive newest-first, so the first signal seen for a child is its latest.
 // Live activity is the same active-session store the Sessions list counts children from.
 export function subagentStates(
   messages: SessionMessageInfo[],
   activeSessions?: Readonly<Record<string, unknown>>,
   sessionID?: string,
+  attention?: SubagentAttentionMap,
 ): SubagentStates {
-  type Signal = SubagentState & { notified: boolean };
-  const states = new Map<string, Signal>();
-  const record = (key: string, signal: Signal) => {
-    const current = states.get(key);
-    if (current) {
-      current.background ||= signal.background;
-      if (!current.title && signal.title) current.title = signal.title;
-    } else states.set(key, signal);
-  };
+  const states = collectSubagentSignals(messages);
+  if (activeSessions) applyActiveSessions(states, activeSessions, sessionID);
+  if (attention) applyAttention(states, attention);
+  return states;
+}
 
+function collectSubagentSignals(messages: SessionMessageInfo[]) {
+  const states = new Map<string, SubagentSignal>();
   for (const message of messages) {
     if (message.type === "synthetic") {
       const notice = subagentNotice(message);
-      if (notice) record(notice.childSessionID, { background: true, ...notice, notified: true });
-      continue;
-    }
-    if (message.type !== "assistant") continue;
-    for (const [ordinal, part] of message.content.entries()) {
-      if (part.type === "text") {
-        const protocol = parseSubagentProtocolText(part.text);
-        if (!protocol.matched || !protocol.childSessionID || !protocol.state) continue;
-        record(protocol.childSessionID, {
+      if (notice) {
+        recordSubagentSignal(states, notice.childSessionID, {
           background: true,
-          childSessionID: protocol.childSessionID,
+          ...notice,
           notified: true,
-          state: protocol.state,
         });
-        continue;
       }
-      if (part.type !== "tool") continue;
-      const presentation = getSubagentPresentation(part);
-      if (!presentation) continue;
-      record(presentation.childSessionID ?? `${message.id}:${part.id}:${ordinal}`, {
-        background: presentation.background,
-        ...(presentation.childSessionID ? { childSessionID: presentation.childSessionID } : {}),
-        notified: false,
-        state: presentation.state,
-        title: presentation.title,
-      });
-    }
-  }
-
-  if (activeSessions) {
-    for (const entry of states.values()) {
-      if (entry.notified || !entry.childSessionID) continue;
-      if (activeSessions[entry.childSessionID]) entry.state = "running";
-      // While the parent is still running, the child may not have reported busy yet.
-      else if (entry.state === "running" && !(sessionID && activeSessions[sessionID])) {
-        entry.state = "completed";
+    } else if (message.type === "assistant") {
+      for (const [ordinal, part] of message.content.entries()) {
+        const signal = partSubagentSignal(part, `${message.id}:${ordinal}`);
+        if (signal) recordSubagentSignal(states, signal.key, signal.signal);
       }
     }
   }
   return states;
+}
+
+function partSubagentSignal(
+  part: AssistantMessage["content"][number],
+  fallbackKey: string,
+): { key: string; signal: SubagentSignal } | undefined {
+  if (part.type === "text") {
+    const protocol = parseSubagentProtocolText(part.text);
+    if (!protocol.matched || !protocol.childSessionID || !protocol.state) return undefined;
+    return {
+      key: protocol.childSessionID,
+      signal: {
+        background: true,
+        childSessionID: protocol.childSessionID,
+        notified: true,
+        state: protocol.state,
+      },
+    };
+  }
+  if (part.type !== "tool") return undefined;
+  const presentation = getSubagentPresentation(part);
+  if (!presentation) return undefined;
+  const { result: _result, waitingFor: _waitingFor, ...known } = presentation;
+  return {
+    key: presentation.childSessionID ?? `${fallbackKey}:${part.id}`,
+    signal: { ...known, notified: false },
+  };
+}
+
+function recordSubagentSignal(
+  states: Map<string, SubagentSignal>,
+  key: string,
+  signal: SubagentSignal,
+) {
+  const current = states.get(key);
+  if (!current) {
+    states.set(key, signal);
+    return;
+  }
+  current.background ||= signal.background;
+  if (!current.title && signal.title) current.title = signal.title;
+  if (!current.agent && signal.agent) current.agent = signal.agent;
+  // Messages arrive newest-first, so the launch is the last signal seen.
+  if (signal.startedAt !== undefined) current.startedAt = signal.startedAt;
+}
+
+function applyActiveSessions(
+  states: Map<string, SubagentSignal>,
+  activeSessions: Readonly<Record<string, unknown>>,
+  sessionID: string | undefined,
+) {
+  const parentActive = Boolean(sessionID && activeSessions[sessionID]);
+  for (const entry of states.values()) {
+    if (entry.notified || !entry.childSessionID) continue;
+    if (activeSessions[entry.childSessionID]) entry.state = "running";
+    // While the parent is still running, the child may not have reported busy yet.
+    // Gone from the active list while the parent is idle: it stopped, but nothing says how.
+    else if (entry.state === "running" && !parentActive) entry.state = "finished";
+  }
+}
+
+// A child blocked on a permission or form may drop out of the active list, so a pending
+// request wins over any running or inferred-complete state, but not over a reported finish.
+function applyAttention(states: Map<string, SubagentSignal>, attention: SubagentAttentionMap) {
+  for (const entry of states.values()) {
+    const waitingFor = entry.childSessionID ? attention.get(entry.childSessionID) : undefined;
+    if (!waitingFor || (entry.notified && !isSubagentInFlight(entry.state))) continue;
+    entry.state = "waiting";
+    entry.waitingFor = waitingFor;
+  }
+}
+
+export type SessionSubagent = {
+  agent?: string;
+  background: boolean;
+  childSessionID?: string;
+  finishedAt?: number;
+  key: string;
+  startedAt?: number;
+  state: SubagentPresentation["state"];
+  title: string;
+  waitingFor?: SubagentAttention;
+};
+
+// Every subagent this session launched, for the monitor: waiting first, then working, then
+// finished, each in launch order.
+export function sessionSubagents(
+  messages: SessionMessageInfo[],
+  activeSessions?: Readonly<Record<string, unknown>>,
+  sessionID?: string,
+  attention?: SubagentAttentionMap,
+): SessionSubagent[] {
+  const rank = (state: SubagentPresentation["state"]) =>
+    state === "waiting" ? 0 : isSubagentInFlight(state) ? 1 : 2;
+  return [...subagentStates(messages, activeSessions, sessionID, attention).entries()]
+    .map(([key, subagent]) => ({
+      ...(subagent.agent ? { agent: subagent.agent } : {}),
+      background: subagent.background,
+      ...(subagent.childSessionID ? { childSessionID: subagent.childSessionID } : {}),
+      ...(subagent.finishedAt !== undefined ? { finishedAt: subagent.finishedAt } : {}),
+      key,
+      ...(subagent.startedAt !== undefined ? { startedAt: subagent.startedAt } : {}),
+      state: subagent.state,
+      title: subagent.title ?? "Delegated task",
+      ...(subagent.waitingFor ? { waitingFor: subagent.waitingFor } : {}),
+    }))
+    .reverse()
+    .sort((first, second) => rank(first.state) - rank(second.state));
 }
 
 export function runningBackgroundSubagents(
@@ -236,7 +354,11 @@ function subagentNotice(message: Extract<SessionMessageInfo, { type: "synthetic"
   const state = metadata?.source === "subagent" ? firstString(metadata.state) : header?.[2];
   if (!childSessionID || !state) return undefined;
   const presented: SubagentPresentation["state"] =
-    state === "completed" || state === "running" ? state : "error";
+    state === "completed" || state === "running"
+      ? state
+      : /^(abort|aborted|cancel|cancelled|canceled|interrupted|stopped)$/.test(state)
+        ? "interrupted"
+        : "error";
   return { childSessionID, state: presented };
 }
 

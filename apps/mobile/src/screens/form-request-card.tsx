@@ -23,6 +23,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
   space,
   typeRamp,
   typography,
@@ -122,7 +123,10 @@ export function FormRequestCard({
         </Text>
         {progress}
         {allowFocus ? (
-          <ReviewButton onPress={() => setFocused(true)} reviewRef={reviewRef} />
+          <>
+            <ReviewButton onPress={() => setFocused(true)} reviewRef={reviewRef} />
+            {focused ? null : <FieldError error={error} />}
+          </>
         ) : (
           <>
             {fields}
@@ -130,7 +134,6 @@ export function FormRequestCard({
           </>
         )}
       </View>
-      {allowFocus && !focused ? <FieldError error={error} /> : null}
       {allowFocus ? (
         <ModalSheet
           title="Answer request"
@@ -234,26 +237,15 @@ function ReviewButton({
   reviewRef: RefObject<View | null>;
 }) {
   return (
-    <Pressable
-      ref={reviewRef}
-      accessibilityRole="button"
-      accessibilityLabel="Review input request"
+    <Button
       accessibilityHint="Opens the form with answer actions below the fields"
-      android_ripple={Platform.OS === "android" ? ripple : undefined}
+      accessibilityLabel="Review input request"
+      fullWidth
+      label="Review and answer"
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.button,
-        styles.buttonPrimary,
-        pressed && Platform.OS === "ios" && styles.pressed,
-      ]}
-    >
-      <Text
-        dynamicTypeRamp={typeRamp.control}
-        style={[styles.buttonLabel, styles.buttonPrimaryLabel]}
-      >
-        Review and answer
-      </Text>
-    </Pressable>
+      ref={reviewRef}
+      variant="primary"
+    />
   );
 }
 
@@ -269,28 +261,24 @@ function FormActions({
   onSubmit: () => void;
 }) {
   return (
+    // Same order as permission cards: the destructive choice first, the primary one filling the row.
     <View style={[styles.actions, allowFocus && styles.focusedActions]}>
-      <Button
-        variant="primary"
-        busy={Boolean(busy)}
-        label={submitLabel(busy, allowFocus)}
-        onPress={onSubmit}
-        style={styles.actionButton}
-      />
       <Button
         variant="danger"
         disabled={Boolean(busy)}
         label="Cancel form"
         onPress={onCancel}
+        style={styles.cancelButton}
+      />
+      <Button
+        variant="primary"
+        busy={Boolean(busy)}
+        label={busy ? "Sending" : "Send answers"}
+        onPress={onSubmit}
         style={styles.actionButton}
       />
     </View>
   );
-}
-
-function submitLabel(busy: boolean | undefined, allowFocus: boolean) {
-  if (busy) return "Submitting";
-  return allowFocus ? "Send answers" : "Submit";
 }
 
 function FormControl({
@@ -439,7 +427,13 @@ function TextControl({
       <FieldHeading description={description} required={field.required} title={title} />
       {options ? <SingleChoiceOptions onChange={onChange} options={options} value={value} /> : null}
       {showsTextInput(field) ? (
-        <TextFieldInput field={field} onChange={onChange} title={title} value={value} />
+        <TextFieldInput
+          error={error}
+          field={field}
+          onChange={onChange}
+          title={title}
+          value={value}
+        />
       ) : null}
       {field.type !== "string" ? (
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
@@ -486,11 +480,13 @@ function showsTextInput(field: TextField) {
 }
 
 function TextFieldInput({
+  error,
   field,
   onChange,
   title,
   value,
 }: {
+  error?: string | undefined;
   field: TextField;
   onChange: (value: string) => void;
   title: string;
@@ -501,13 +497,15 @@ function TextFieldInput({
     <TextInput
       keyboardAppearance="dark"
       accessibilityLabel={title}
+      // The field names its own problem, so a screen reader hears it where it is fixed.
+      accessibilityHint={error}
       autoCapitalize={verbatim ? "none" : "sentences"}
       autoCorrect={!verbatim}
       keyboardType={textKeyboardType(field)}
       onChangeText={onChange}
       placeholder={field.type === "string" ? field.placeholder : undefined}
       placeholderTextColor={palette.dim}
-      style={styles.input}
+      style={[styles.input, error ? styles.inputInvalid : undefined]}
       value={value}
     />
   );
@@ -623,7 +621,9 @@ function ChoiceButton({
       <View style={styles.choiceHeading}>
         <Feather
           accessible={false}
-          name={selected ? "check-circle" : radio ? "circle" : "square"}
+          name={
+            radio ? (selected ? "check-circle" : "circle") : selected ? "check-square" : "square"
+          }
           size={18}
           color={selected ? palette.signal : palette.dim}
         />
@@ -671,14 +671,17 @@ export function openExternalFormUrl(url: string) {
     [
       { style: "cancel", text: "Cancel" },
       {
-        onPress: () => void Linking.openURL(parsed.toString()).catch(() => undefined),
+        onPress: () =>
+          void Linking.openURL(parsed.toString()).catch(() =>
+            Alert.alert("Couldn't open link", "No app on this device could open the link."),
+          ),
         text: "Open",
       },
     ],
   );
 }
 
-const ripple = { color: "rgba(255,255,255,0.12)" };
+const ripple = { color: rippleColor };
 
 const styles = StyleSheet.create({
   focusedFields: { flex: 1 },
@@ -691,15 +694,12 @@ const styles = StyleSheet.create({
   choiceHeading: { flexDirection: "row", gap: space.sm, alignItems: "center" },
   actions: requestCardStyles.actions,
   actionButton: { flexGrow: 1, maxWidth: "100%" },
+  cancelButton: { flexGrow: 0, maxWidth: "100%", minWidth: 104 },
   booleanOptions: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: space.sm,
   },
-  button: requestCardStyles.button,
-  buttonPrimary: { backgroundColor: palette.signal, borderColor: palette.signal },
-  buttonPrimaryLabel: { color: palette.background },
-  buttonLabel: requestCardStyles.buttonLabel,
   card: requestCardStyles.card,
   choice: {
     borderColor: palette.border,
@@ -714,7 +714,7 @@ const styles = StyleSheet.create({
   },
   choiceLabel: { ...typography.control, color: palette.ink, flexShrink: 1 },
   choiceLabelSelected: { color: palette.signal },
-  choiceSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
+  choiceSelected: { backgroundColor: palette.selected },
   description: { ...typography.footnote, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
@@ -734,6 +734,7 @@ const styles = StyleSheet.create({
   },
   label: { ...typography.control, color: palette.ink },
   multilineInput: { minHeight: 88, textAlignVertical: "top" },
+  inputInvalid: { borderColor: palette.danger },
   options: { gap: space.xs },
   pressed: { opacity: pressedOpacity },
   title: { ...typography.headline, color: palette.ink },

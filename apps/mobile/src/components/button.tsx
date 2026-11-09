@@ -1,5 +1,5 @@
 import Feather from "@expo/vector-icons/Feather";
-import type { ComponentProps } from "react";
+import type { ComponentProps, Ref } from "react";
 import {
   ActivityIndicator,
   Platform,
@@ -7,6 +7,7 @@ import {
   type StyleProp,
   StyleSheet,
   Text,
+  type View,
   type ViewStyle,
 } from "react-native";
 
@@ -16,6 +17,8 @@ import {
   minTouchTarget,
   palette,
   pressedOpacity,
+  radius,
+  rippleColor,
   space,
   typeRamp,
   typography,
@@ -45,6 +48,7 @@ export function Button({
   accessibilityHint,
   accessibilityLabel,
   icon,
+  ref,
   style,
 }: {
   label: string;
@@ -59,6 +63,8 @@ export function Button({
   accessibilityHint?: string;
   accessibilityLabel?: string;
   icon?: ComponentProps<typeof Feather>["name"];
+  // For focus return from a sheet the button opened.
+  ref?: Ref<View>;
   // Layout only (margins, flexGrow); not colors or type.
   style?: StyleProp<ViewStyle>;
 }) {
@@ -73,21 +79,25 @@ export function Button({
       accessibilityState={{ disabled: inactive, busy }}
       android_ripple={
         Platform.OS === "android"
-          ? { color: "rgba(255,255,255,0.12)", borderless: variant === "text" }
+          ? { color: rippleColor, borderless: variant === "text" }
           : undefined
       }
       disabled={inactive}
       hitSlop={variant === "text" ? textHitSlop : undefined}
       onPress={onPress}
+      ref={ref}
       style={({ pressed }) => [
         styles.button,
         size === "compact" && styles.compact,
         variant === "text" && styles.text,
         variant === "primary" && styles.primary,
-        (variant === "secondary" || variant === "danger") && styles.outlined,
+        variant === "secondary" && styles.secondary,
+        variant === "danger" && styles.danger,
         alignStyles[alignment],
         style,
-        pressed && Platform.OS === "ios" && styles.pressed,
+        // Filled buttons change their fill when pressed, so labels keep their contrast; text
+        // buttons have no fill and dim instead.
+        pressed && Platform.OS === "ios" && pressedStyles[variant],
         inactive && styles.disabled,
       ]}
     >
@@ -101,8 +111,10 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
+  // Capsules with filled, tinted variants, so every button reads as a control on any surface.
   button: {
     ...control,
+    borderRadius: radius.pill,
     minHeight: minTouchTarget,
     alignItems: "center",
     flexDirection: "row",
@@ -113,8 +125,8 @@ const styles = StyleSheet.create({
   compact: { paddingHorizontal: space.sm },
   text: { minWidth: minTouchTarget, paddingHorizontal: 0 },
   primary: { backgroundColor: palette.signal },
-  outlined: { borderColor: palette.border, borderWidth: 1 },
-  pressed: { opacity: pressedOpacity },
+  secondary: { backgroundColor: palette.selected },
+  danger: { backgroundColor: palette.dangerFill },
   disabled: { opacity: disabledOpacity },
   label: {
     ...typography.control,
@@ -122,6 +134,14 @@ const styles = StyleSheet.create({
     includeFontPadding: false,
     textAlign: "center",
   },
+});
+
+// Pressed fills keep labels at 4.9:1 or better (danger 5.2:1, secondary 8.6:1, primary 13.4:1).
+const pressedStyles = StyleSheet.create({
+  primary: { backgroundColor: "#d6dbe6" },
+  secondary: { backgroundColor: "#3d4459" },
+  danger: { backgroundColor: "#4a2d42" },
+  text: { opacity: pressedOpacity },
 });
 
 const alignStyles = StyleSheet.create({

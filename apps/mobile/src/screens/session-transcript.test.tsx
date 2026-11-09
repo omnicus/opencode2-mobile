@@ -1328,14 +1328,15 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
     />,
   );
 
-  expect(screen.getByText("Background subagent")).toBeOnTheScreen();
+  // Two lines: the title, then "@agent · Background · state" beside a state glyph.
+  expect(screen.getByText(/@explore · Background ·/)).toBeOnTheScreen();
   expect(screen.getByText("Inspect event handling")).toBeOnTheScreen();
-  expect(screen.getByText("@explore", { includeHiddenElements: true })).toBeOnTheScreen();
-  expect(screen.getByText("Running")).toBeOnTheScreen();
+  expect(screen.getByText("Running")).toHaveStyle({ color: palette.info });
+  expect(screen.getByTestId("subagent-glyph-working")).toBeOnTheScreen();
   expect(screen.queryByText("subagent / Completed")).toBeNull();
   expect(screen.queryByText(/<task/)).toBeNull();
   expect(screen.getByTestId("subagent-card")).toHaveStyle({
-    borderColor: palette.activity,
+    borderColor: palette.border,
     borderRadius: 12,
     borderWidth: 1,
     padding: 12,
@@ -1348,19 +1349,14 @@ test("renders V2 subagents as navigable cards without protocol markup", () => {
   expect(card.props.accessibilityHint).toBe("Opens the subagent session");
   fireEvent.press(card);
   expect(openSubagent).toHaveBeenCalledWith("ses_child");
-  fireEvent.press(screen.getByText("@explore", { includeHiddenElements: true }));
+  // The meta line is part of the same card target.
+  fireEvent.press(screen.getByText(/@explore · Background ·/));
   expect(openSubagent).toHaveBeenCalledTimes(2);
 
-  const toggle = screen.getByRole("button", { name: "Show result" });
-  expect(toggle).toHaveStyle({ minHeight: 36 });
-  expect(toggle.props.hitSlop).toBe(6);
-  fireEvent.press(toggle);
-  expect(screen.getByRole("button", { name: "Hide result" })).toHaveProp("accessibilityState", {
-    expanded: true,
-  });
-  expect(screen.getByText("Working")).toBeOnTheScreen();
+  // The launch acknowledgement ("Working") is not a result, so a running card offers none.
+  expect(screen.queryByRole("button", { name: "Show result" })).toBeNull();
+  expect(screen.queryByText("Working")).toBeNull();
   expect(screen.queryByText(/task_result/)).toBeNull();
-  expect(openSubagent).toHaveBeenCalledTimes(2);
 });
 
 test("background subagent launches stay running until the child reports a result", () => {
@@ -1404,7 +1400,7 @@ test("background subagent launches stay running until the child reports a result
   );
   const view = render(row([launch]));
 
-  expect(screen.getByText("Background subagent")).toBeOnTheScreen();
+  expect(screen.getByLabelText(/^Background subagent, /)).toBeOnTheScreen();
   expect(screen.getByText("Running")).toBeOnTheScreen();
 
   const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
@@ -1413,6 +1409,22 @@ test("background subagent launches stay running until the child reports a result
   expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.border });
   expect(announce).toHaveBeenCalledWith("Background subagent Restyle Sessions list completed");
   announce.mockRestore();
+
+  // Leaving the active list with no reported outcome is announced neutrally, never as success.
+  const inferred = (active: Record<string, unknown>) => (
+    <SessionSubagentStates.Provider value={subagentStates([launch], active, "ses_parent")}>
+      <SessionTranscriptRow message={launch} />
+    </SessionSubagentStates.Provider>
+  );
+  view.rerender(inferred({ ses_child: {} }));
+  const neutral = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  view.rerender(inferred({}));
+  expect(screen.getByText("Finished")).toBeOnTheScreen();
+  expect(neutral).toHaveBeenCalledWith(
+    "Background subagent Restyle Sessions list finished, outcome unknown",
+  );
+  expect(neutral).not.toHaveBeenCalledWith(expect.stringMatching(/completed$/));
+  neutral.mockRestore();
 });
 
 test("projects injected background results into subagent cards", () => {
@@ -1880,7 +1892,8 @@ test("subagent cards without a child session stay static and announce failures",
   const card = screen.getByLabelText("Subagent, Fix tests, Running");
   expect(card.props.accessibilityRole).toBeUndefined();
   expect(card.props.accessibilityHint).toBeUndefined();
-  expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.activity });
+  // Neutral frames; the glyph and label carry state.
+  expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.border });
   expect(screen.queryByRole("button", { name: "Show result" })).toBeNull();
 
   const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
@@ -1895,7 +1908,7 @@ test("subagent cards without a child session stay static and announce failures",
       />,
     );
     expect(screen.getByText("Failed")).toHaveStyle({ color: palette.danger });
-    expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.danger });
+    expect(screen.getByTestId("subagent-glyph-error")).toBeOnTheScreen();
     expect(announce).toHaveBeenCalledWith("Subagent Fix tests failed");
   } finally {
     announce.mockRestore();
@@ -1928,20 +1941,21 @@ test.each(["ios", "android"] as const)("subagent cards give press feedback on %s
     const toggle = screen.getByRole("button", { name: "Show result" });
     if (os === "android") {
       expect(card.props.nativeBackgroundAndroid).toMatchObject({ borderless: false });
-      expect(toggle.props.nativeBackgroundAndroid).toMatchObject({ borderless: true });
+      expect(toggle.props.nativeBackgroundAndroid).toMatchObject({ borderless: false });
     } else {
       expect(card.props.nativeBackgroundAndroid).toBeUndefined();
       expect(toggle.props.nativeBackgroundAndroid).toBeUndefined();
     }
 
+    // The card's pressable area dims on iOS; Android uses the ripple.
     fireEvent(card, "pressIn");
     if (os === "ios") {
-      expect(screen.getByTestId("subagent-card")).toHaveStyle({ opacity: pressedOpacity });
+      expect(card).toHaveStyle({ opacity: pressedOpacity });
     } else {
-      expect(screen.getByTestId("subagent-card")).not.toHaveStyle({ opacity: pressedOpacity });
+      expect(card).not.toHaveStyle({ opacity: pressedOpacity });
     }
     fireEvent(card, "pressOut");
-    expect(screen.getByTestId("subagent-card")).not.toHaveStyle({ opacity: pressedOpacity });
+    expect(card).not.toHaveStyle({ opacity: pressedOpacity });
   } finally {
     platform.restore();
   }

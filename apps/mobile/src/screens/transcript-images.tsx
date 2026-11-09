@@ -100,23 +100,53 @@ function imageLabel(name: string | null | undefined) {
   return trimmed ? sanitizeTranscriptText(trimmed.split("/").at(-1) ?? trimmed, 256) : "Image";
 }
 
+// One image shows at its own shape. Several form a grid of square crops, two columns for two
+// or four and three otherwise, so a batch of screenshots stays scannable.
 export function TranscriptImages({ images }: { images: readonly TranscriptImage[] }) {
   const [viewing, setViewing] = useState<TranscriptImage>();
   if (images.length === 0) return null;
+  const columns = images.length === 2 || images.length === 4 ? 2 : 3;
+  const rows: TranscriptImage[][] = [];
+  if (images.length > 1) {
+    for (let index = 0; index < images.length; index += columns) {
+      rows.push(images.slice(index, index + columns));
+    }
+  }
   return (
     <View style={styles.images}>
-      {images.map((image) => (
-        <TranscriptImageThumbnail key={image.key} image={image} onOpen={setViewing} />
-      ))}
+      {images.length === 1 && images[0] ? (
+        <TranscriptImageThumbnail image={images[0]} onOpen={setViewing} />
+      ) : (
+        rows.map((row) => (
+          <View key={row.map((image) => image.key).join("|")} style={styles.gridRow}>
+            {row.map((image) => (
+              <View key={image.key} style={styles.gridCell}>
+                <TranscriptImageThumbnail grid image={image} onOpen={setViewing} />
+              </View>
+            ))}
+            {/* One spacer fills the empty columns so a short last row keeps cell widths. */}
+            {row.length < columns ? (
+              <View
+                style={{
+                  flex: columns - row.length,
+                  marginLeft: space.xs * (columns - row.length - 1),
+                }}
+              />
+            ) : null}
+          </View>
+        ))
+      )}
       <TranscriptImageViewer image={viewing} onClose={() => setViewing(undefined)} />
     </View>
   );
 }
 
 function TranscriptImageThumbnail({
+  grid = false,
   image,
   onOpen,
 }: {
+  grid?: boolean;
   image: TranscriptImage;
   onOpen: (image: TranscriptImage) => void;
 }) {
@@ -124,7 +154,7 @@ function TranscriptImageThumbnail({
   const [failed, setFailed] = useState(false);
   if (failed) {
     return (
-      <View style={styles.failed}>
+      <View style={[styles.failed, grid && styles.gridFailed]}>
         <Text dynamicTypeRamp={typeRamp.caption} style={styles.failedText}>
           {image.label} could not be shown
         </Text>
@@ -137,7 +167,11 @@ function TranscriptImageThumbnail({
       accessibilityLabel={image.label}
       accessibilityRole="imagebutton"
       onPress={() => onOpen(image)}
-      style={({ pressed }) => [styles.thumbnail, { aspectRatio }, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.thumbnail,
+        { aspectRatio: grid ? 1 : aspectRatio },
+        pressed && styles.pressed,
+      ]}
     >
       <Image
         accessible={false}
@@ -147,7 +181,7 @@ function TranscriptImageThumbnail({
             setAspectRatio(Math.max(minimumAspectRatio, source.width / source.height));
           }
         }}
-        resizeMode="contain"
+        resizeMode={grid ? "cover" : "contain"}
         source={{ uri: image.uri }}
         style={styles.fill}
       />
@@ -312,7 +346,10 @@ const styles = StyleSheet.create({
   },
   failedText: { ...typography.caption, color: palette.dim },
   fill: { height: "100%", width: "100%" },
-  images: { gap: space.sm, marginVertical: space.xs },
+  images: { gap: space.xs, marginVertical: space.xs },
+  gridCell: { flex: 1, minWidth: 0 },
+  gridFailed: { aspectRatio: 1, justifyContent: "center" },
+  gridRow: { flexDirection: "row", gap: space.xs },
   pressed: { opacity: pressedOpacity },
   thumbnail: {
     backgroundColor: palette.raised,

@@ -21,6 +21,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -32,9 +33,8 @@ import {
   modelPickerCatalog,
 } from "./model-picker-model";
 
-const ripple = Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined;
-const starRipple =
-  Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)", borderless: true } : undefined;
+const ripple = rippleFeedback.row;
+const starRipple = rippleFeedback.borderless;
 
 export type FavoriteControls = ReturnType<typeof useModelFavorites>;
 export type CatalogState = { loading: boolean; error: boolean; retry: () => void };
@@ -199,7 +199,7 @@ function ModelPickerRow({
           accessible={false}
           name="star"
           size={20}
-          color={favorite ? palette.ink : palette.dim}
+          color={favorite ? palette.warm : palette.dim}
         />
       </Pressable>
     </View>
@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   copy: { flex: 1, minWidth: 0 },
-  selectedRow: { backgroundColor: palette.prompt },
+  selectedRow: { backgroundColor: palette.selected },
   label: { ...typography.body, color: palette.ink },
   provider: { ...typography.footnote, color: palette.dim, marginTop: 2 },
   star: {

@@ -1,17 +1,28 @@
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text } from "react-native";
-
-import { minTouchTarget, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  minTouchTarget,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
+import { Button } from "./button";
 
 export function CopyTextButton({
   text,
   label = "Copy text",
   iconOnly = false,
+  appearance = "text",
 }: {
   text: string;
   label?: string;
   iconOnly?: boolean;
+  // "button" matches a full-width secondary Button for sheets with other actions.
+  appearance?: "text" | "button";
 }) {
   const [result, setResult] = useState<{ text: string; status: "copied" | "failed" }>();
   const pending = useRef(false);
@@ -36,30 +47,47 @@ export function CopyTextButton({
       pending.current = false;
     }
   }
+  const shown = status === "copied" ? "Copied" : status === "failed" ? "Retry copy" : label;
+  if (appearance === "button") {
+    return (
+      <Button
+        accessibilityLabel={label}
+        fullWidth
+        icon={status === "copied" ? "check" : "copy"}
+        label={shown}
+        onPress={() => void copy()}
+      />
+    );
+  }
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
-      android_ripple={
-        Platform.OS === "android"
-          ? { color: "rgba(255,255,255,0.12)", borderless: true }
-          : undefined
-      }
+      android_ripple={rippleFeedback.borderless}
+      // The icon keeps a 48pt target through hit slop, so it sits close to its neighbors.
+      hitSlop={iconOnly ? iconHitSlop : undefined}
       onPress={() => void copy()}
-      style={({ pressed }) => [styles.action, pressed && Platform.OS === "ios" && styles.pressed]}
+      style={({ pressed }) => [
+        styles.action,
+        iconOnly && styles.iconOnly,
+        pressed && Platform.OS === "ios" && styles.pressed,
+      ]}
     >
       {iconOnly && !status ? (
         <Feather accessible={false} name="copy" size={14} color={palette.dim} />
       ) : (
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.label}>
-          {status === "copied" ? "Copied" : status === "failed" ? "Retry copy" : label}
+          {shown}
         </Text>
       )}
     </Pressable>
   );
 }
 
+const iconHitSlop = { bottom: 0, left: 10, right: 10, top: 0 };
+
 const styles = StyleSheet.create({
+  iconOnly: { alignItems: "center", minWidth: 28, paddingHorizontal: 0 },
   action: {
     minHeight: minTouchTarget,
     minWidth: minTouchTarget,

@@ -229,7 +229,7 @@ test("marks followed rows with a checked box and a signal border", () => {
     "square",
     "square",
   ]);
-  expect(cardOf("Alpha")).toHaveStyle({ borderColor: palette.signal });
+  expect(cardOf("Alpha")).toHaveStyle({ borderColor: palette.dim });
   expect(cardOf("Beta")).toHaveStyle({ borderColor: palette.border });
 });
 

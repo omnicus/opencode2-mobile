@@ -142,7 +142,7 @@ test("fails closed and retries when the lock preference cannot be read", async (
     </AppLockProvider>,
   );
 
-  expect(await screen.findByText("Secure preferences could not be read.")).toBeOnTheScreen();
+  expect(await screen.findByText("Secure preferences could not be read")).toBeOnTheScreen();
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
 
   mockGetPreference.mockResolvedValue({ app_lock_enabled: 0 });
@@ -178,7 +178,7 @@ test("does not unlock after authentication finishes in the background", async ()
   });
 
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
-  expect(screen.getByText("OpenCode2 Mobile is locked.")).toBeOnTheScreen();
+  expect(screen.getByText("OpenCode2 Mobile is locked")).toBeOnTheScreen();
 });
 
 test("keeps unlock busy until a successful native prompt returns through inactive", async () => {
@@ -320,7 +320,7 @@ test("locks when the app becomes inactive and prompts again when it returns", as
 
   setAppState("inactive");
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
-  expect(screen.getByText("OpenCode2 Mobile is locked.")).toBeOnTheScreen();
+  expect(screen.getByText("OpenCode2 Mobile is locked")).toBeOnTheScreen();
   expect(mockAuthenticate).toHaveBeenCalledTimes(1);
 
   await act(async () => {
@@ -347,7 +347,7 @@ test("does not prompt by itself while the lock is disabled or unreadable", async
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  expect(await screen.findByText("Secure preferences could not be read.")).toBeOnTheScreen();
+  expect(await screen.findByText("Secure preferences could not be read")).toBeOnTheScreen();
   expect(mockAuthenticate).not.toHaveBeenCalled();
 });
 
@@ -441,7 +441,7 @@ test("locks immediately when enabled while the app is not active", async () => {
   await pressAndSettle(enable);
 
   expect(screen.queryByText("Private content")).not.toBeOnTheScreen();
-  expect(screen.getByText("OpenCode2 Mobile is locked.")).toBeOnTheScreen();
+  expect(screen.getByText("OpenCode2 Mobile is locked")).toBeOnTheScreen();
   expect(mockAuthenticate).toHaveBeenCalledTimes(1);
 });
 
@@ -490,7 +490,7 @@ test("announces loading, locked, and unavailable states", async () => {
       <Text>Private content</Text>
     </AppLockProvider>,
   );
-  await screen.findByText("Secure preferences could not be read.");
+  await screen.findByText("Secure preferences could not be read");
   expect(announce).toHaveBeenLastCalledWith("App lock unavailable");
 });
 

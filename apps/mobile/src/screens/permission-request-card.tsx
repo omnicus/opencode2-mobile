@@ -1,16 +1,18 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { PermissionReply, PermissionRequest } from "@opencode2-mobile/opencode-adapter";
-import { useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import {
   Alert,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   type TextLayoutEventData,
   useWindowDimensions,
   View,
 } from "react-native";
+import { applicationName } from "../application-name";
 import { Button } from "../components/button";
 import { ModalSheet } from "../components/modal-sheet";
 import { requestCardStyles } from "../components/request-card-styles";
@@ -22,6 +24,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleColor,
   space,
   typeRamp,
   typography,
@@ -48,9 +51,14 @@ export function PermissionRequestCard({
   onReply: (requestID: string, sessionID: string, reply: PermissionReply) => void;
 }) {
   const [details, setDetails] = useState(false);
+  const detailsRef = useRef<View>(null);
   const { fontScale } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
+  // The card previews short patterns; Details and the confirmation show them in full.
   const patterns = (request.save ?? []).map((pattern) => sanitizeTranscriptText(pattern, 256));
+  const fullPatterns = (request.save ?? []).map((pattern) =>
+    sanitizeTranscriptText(pattern, pattern.length),
+  );
   const shell = request.action === "shell";
   const heading = permissionActionHeading(request.action, request.resources.length);
   const action = heading?.label ?? `Call tool ${sanitizeTranscriptText(request.action, 256)}`;
@@ -64,7 +72,7 @@ export function PermissionRequestCard({
   }
 
   function confirmAlways() {
-    Alert.alert("Always allow?", alwaysAllowMessage(patterns), [
+    Alert.alert("Always allow?", alwaysAllowMessage(fullPatterns), [
       { style: "cancel", text: "Cancel" },
       { onPress: () => reply("always"), text: "Always allow" },
     ]);
@@ -81,10 +89,11 @@ export function PermissionRequestCard({
   );
   return (
     <View style={styles.card}>
+      {/* Same shape as a form card: what kind of request in the eyebrow, what it does as the title. */}
       <View style={styles.eyebrowRow}>
         <Feather accessible={false} name={heading?.icon ?? "tool"} size={14} color={palette.warm} />
         <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
-          {action}
+          Permission required
         </Text>
       </View>
       <View style={styles.headingRow}>
@@ -93,9 +102,9 @@ export function PermissionRequestCard({
           dynamicTypeRamp={typeRamp.headline}
           style={[styles.title, styles.headingTitle]}
         >
-          Permission required
+          {action}
         </Text>
-        <DetailsButton onPress={() => setDetails(true)} />
+        <DetailsButton buttonRef={detailsRef} onPress={() => setDetails(true)} />
       </View>
       {shell ? (
         <CommandPreview command={command} onShowFull={() => setDetails(true)} />
@@ -104,26 +113,36 @@ export function PermissionRequestCard({
       )}
       <ReplyStatus error={error} replying={replying} />
       {actions}
-      <ModalSheet title="Permission details" visible={details} onClose={() => setDetails(false)}>
-        <Text dynamicTypeRamp={typeRamp.headline} style={styles.title}>
-          {action}
-        </Text>
-        <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sectionLabel}>
-          {shell ? "Full command" : "Requested resources"}
-        </Text>
-        {request.resources.map((resource) => (
-          <View key={resource} style={styles.commandBox}>
-            <Text selectable style={[styles.command, styles.commandPadding]}>
-              {sanitizeTranscriptText(resource, resource.length)}
-            </Text>
-          </View>
-        ))}
-        <SavedPatterns patterns={patterns} />
-        <ActionExplanation explanation={permissionActionExplanation(request.action)} />
-        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-          Reject may also reject other pending permission requests in this session.
-        </Text>
-        {actions}
+      <ModalSheet
+        onClose={() => setDetails(false)}
+        returnFocusRef={detailsRef}
+        scrollable={false}
+        title="Permission details"
+        visible={details}
+      >
+        <ScrollView
+          contentContainerStyle={styles.detailsContent}
+          keyboardShouldPersistTaps="handled"
+          style={styles.detailsScroll}
+        >
+          <Text dynamicTypeRamp={typeRamp.headline} style={styles.title}>
+            {action}
+          </Text>
+          <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sectionLabel}>
+            {shell ? "Full command" : "Requested resources"}
+          </Text>
+          {request.resources.map((resource) => (
+            <View key={resource} style={[styles.commandBox, styles.commandBoxSheet]}>
+              <Text selectable style={[styles.command, styles.commandPadding]}>
+                {sanitizeTranscriptText(resource, resource.length)}
+              </Text>
+            </View>
+          ))}
+          <SavedPatterns patterns={fullPatterns} />
+          <ActionExplanation explanation={permissionActionExplanation(request.action)} />
+        </ScrollView>
+        {/* Pinned like the form answer sheet, so the choice stays reachable past long commands. */}
+        <View style={styles.detailsActions}>{actions}</View>
       </ModalSheet>
     </View>
   );
@@ -134,7 +153,7 @@ function alwaysAllowMessage(patterns: string[]) {
     return "Future requests that match this one will be allowed without asking.";
   }
   const subject = patterns.length === 1 ? "this pattern" : "these patterns";
-  return `Future requests that match ${subject} will be allowed without asking:\n\n${patterns.join("\n")}`;
+  return `Future requests that match ${subject} will be allowed without asking. A pattern can cover more than this request.\n\n${patterns.join("\n")}`;
 }
 
 function alwaysAllowLabel(patterns: string[]) {
@@ -171,9 +190,16 @@ function useCommandPreview(resources: string[], shell: boolean) {
   return { commandCutOff, commandPreview, measureCommand };
 }
 
-function DetailsButton({ onPress }: { onPress: () => void }) {
+function DetailsButton({
+  buttonRef,
+  onPress,
+}: {
+  buttonRef: RefObject<View | null>;
+  onPress: () => void;
+}) {
   return (
     <Pressable
+      ref={buttonRef}
       accessibilityRole="button"
       accessibilityLabel="Details"
       accessibilityHint="Opens the full request, saved permission patterns, and explanation"
@@ -279,6 +305,10 @@ function ReplyActions({
   const align = largeText ? "stretch" : "start";
   return (
     <View style={styles.replyGroup}>
+      {/* The spec asks for this before Reject, so it sits beside the action, not only in Details. */}
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footnote}>
+        Reject may also reject other requests in this session.
+      </Text>
       <View style={[styles.actions, largeText && styles.actionsLarge]}>
         <Button
           label="Reject"
@@ -348,23 +378,22 @@ function AlwaysAllowButton({
 function SavedPatterns({ patterns }: { patterns: string[] }) {
   if (patterns.length === 0) return null;
   return (
-    <>
-      <View style={styles.scope}>
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footnote}>
-          Always allow saves these patterns for future requests
-        </Text>
-        <View accessibilityLabel="Saved permission patterns">
-          {patterns.map((pattern) => (
-            <Text key={pattern} selectable style={styles.pattern}>
-              {pattern}
-            </Text>
-          ))}
-        </View>
-      </View>
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-        Always allow saves the displayed patterns, which can cover more than this request.
+    <View style={styles.scope}>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.footnote}>
+        Always allow saves these patterns for future requests. They can cover more than this
+        request.
       </Text>
-    </>
+      <View
+        accessibilityLabel="Saved permission patterns"
+        style={[styles.commandBox, styles.commandBoxSheet]}
+      >
+        {patterns.map((pattern) => (
+          <Text key={pattern} selectable style={[styles.pattern, styles.commandPadding]}>
+            {pattern}
+          </Text>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -372,7 +401,7 @@ function ActionExplanation({ explanation }: { explanation: string | undefined })
   return explanation ? (
     <View style={styles.scope}>
       <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.sectionLabel}>
-        OpenCode Mobile explanation
+        {applicationName} explanation
       </Text>
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
         {explanation}
@@ -381,7 +410,7 @@ function ActionExplanation({ explanation }: { explanation: string | undefined })
   ) : null;
 }
 
-const ripple = { color: "rgba(255,255,255,0.12)" };
+const ripple = { color: rippleColor };
 
 const styles = StyleSheet.create({
   eyebrowRow: { flexDirection: "row", alignItems: "center", gap: space.xs },
@@ -397,6 +426,15 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
   },
   commandPadding: { gap: 2, padding: space.sm },
+  detailsActions: {
+    borderTopColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: space.sm,
+  },
+  detailsContent: { gap: space.md, paddingBottom: space.md },
+  detailsScroll: { flex: 1 },
+  // The Details sheet sits on the page color, so its code boxes use the card color instead.
+  commandBoxSheet: { backgroundColor: palette.card },
   command: { ...typography.code, color: markdownPalette.code },
   scope: { gap: space.xs },
   pattern: {
@@ -412,13 +450,18 @@ const styles = StyleSheet.create({
   actionsLarge: { flexDirection: "column" },
   reject: { minWidth: 104 },
   allowOnce: { flexGrow: 1 },
+  // An outlined capsule: clearly a control, but quieter than Reject and Allow once because it
+  // saves a broader permission.
   alwaysRow: {
     alignItems: "center",
-    borderRadius: radius.sm,
+    borderColor: palette.border,
+    borderRadius: radius.pill,
+    borderWidth: 1,
     flexDirection: "row",
     gap: space.xs,
     minHeight: minTouchTarget,
     overflow: "hidden",
+    paddingHorizontal: space.md,
   },
   alwaysLabel: { ...typography.subheadline, color: palette.ink, flex: 1 },
   alwaysPattern: { fontFamily: typography.code.fontFamily, color: palette.dim },

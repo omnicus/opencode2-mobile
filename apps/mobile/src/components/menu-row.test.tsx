@@ -49,14 +49,14 @@ test("expandable rows report state and swap the chevron direction", () => {
   const chevron = () =>
     screen.UNSAFE_getAllByType(Feather).map((icon) => icon.props.name as string);
   expect(screen.getByRole("button", { name: "Advanced" })).toBeCollapsed();
-  expect(chevron()).toEqual(["activity", "chevron-down"]);
+  expect(chevron()).toEqual(["activity", "chevron-right"]);
   view.rerender(
     <MenuGroup>
       <MenuRow icon="activity" label="Advanced" expanded last onPress={() => {}} />
     </MenuGroup>,
   );
   expect(screen.getByRole("button", { name: "Advanced" })).toBeExpanded();
-  expect(chevron()).toEqual(["activity", "chevron-up"]);
+  expect(chevron()).toEqual(["activity", "chevron-down"]);
 });
 
 test("plain rows keep the forward chevron and no expanded state", () => {
@@ -80,4 +80,15 @@ test("a badge shows a short count and screen readers hear the value instead", ()
   const row = screen.getByRole("button", { name: "Needs you" });
   expect(row).toHaveProp("accessibilityValue", { text: "3 requests need you, up to date" });
   expect(screen.getByText("3")).toHaveStyle({ fontSize: 13 });
+});
+
+test("a visible value is also the row's accessibility value", () => {
+  render(
+    <MenuGroup>
+      <MenuRow icon="server" label="Connections" last onPress={() => {}} value="Studio Mac" />
+    </MenuGroup>,
+  );
+  expect(screen.getByRole("button", { name: "Connections" })).toHaveProp("accessibilityValue", {
+    text: "Studio Mac",
+  });
 });

@@ -112,6 +112,107 @@ again, so restored directories return to coverage. Failed or malformed listings
 do not count as proof of removal. Locations outside the project root remain
 checked because this probe cannot establish their absence.
 
+## Council design review, November 2026
+
+Three reviewers from different model providers audited every screen, sheet, and
+menu from source, then reviewed phone-sized web-preview screenshots in later
+rounds. The owner also supplied screenshots of the official OpenCode iOS app as
+a quality bar. Its visual patterns were adopted where they fit existing
+features; its other features were left out.
+
+| Reviewer | Round 1 | Round 2 | Round 3 | Round 4 | Round 5 | Round 6 | Round 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Claude Opus | 6.5/10 | 7.5/10 | 8.3/10 | 8.6/10 | 8.3/10 | 8.8/10 | 9.0/10 |
+| GPT Sol | 7.2/10 | 8.3/10 | 8.8/10 | 9.0/10 | 8.8/10 | 9.1/10 | 9.5/10 |
+| Gemini | 7.6/10 | 8.9/10 | 9.5/10 | 9.6/10 | 9.6/10 | 9.9/10 | 9.9/10 |
+
+All three were satisfied after round 4. Rounds 5 to 7 widened the review to the
+composer, buttons, colors, and running subagents. Round 5 scores dropped where
+the new scope exposed gaps. All three were satisfied again after round 7.
+
+### Changes
+
+- **Design tokens:** `palette.selected` is the one fill for a chosen tab,
+  option, or row. Previously the selected fill matched the card and was
+  invisible. Ripple, floating shadow, and icon-tile tokens live in `theme.ts`.
+- **Pickers:** Agent, variant, model, and pull request filter sheets share one
+  row style. The composer toolbar reads agent, model, then variant, with no
+  chip borders. The Variant chip is hidden for models without variants. A
+  visible Steer or Queue label sits beside send while a run is active.
+- **Transcript:** Expandable rows share one chevron and press feedback. Failed
+  tools are red and interrupted ones amber. Code comments are easier to read,
+  and the code block header has no dead band. Several images form a grid.
+  Transcript and session load failures offer Retry.
+- **Inbox:** Rows keep the specified 70% and 50% fades, but their quiet text
+  starts brighter so the result clears 4.5:1. Working rows show the working
+  indicator. Header icons match, attention dots sit on their icons, and search
+  has an empty state.
+- **Approvals:** Each pooled request names its project and session. Permission
+  cards lead with the action. Reject shows its wider effect before the button,
+  as section 10.4 of the spec requires. The Details sheet pins its actions.
+  Form and permission actions share one order. Invalid fields get a danger
+  border, and the Needs you empty state matches the other tabs.
+- **Sheets and full-screen states:**
+  - Modal headers share a height and divider.
+  - Done closes a sheet; Cancel appears only where closing discards input.
+  - The delete confirmation names the server, project, and path.
+  - App lock, storage failure, and the render error screen share a scrolling
+    layout.
+- **Management screens:**
+  - Settings rows have icon tiles and show their current value; a version
+    footer ends the screen.
+  - The session header names the project under the title.
+  - A pairing review replaces the capture controls.
+  - The connection editor scrolls into view when it opens.
+  - Dev tools errors read as errors.
+
+### Rounds 5 to 7: composer, buttons, color, and subagents
+
+- **Composer:** When expanded, Send joins the bottom toolbar so the text gets
+  the full width. The model and variant read as one phrase, and only the agent
+  keeps a chevron.
+- **Buttons:** Buttons are capsules. Secondary and danger buttons are filled,
+  and pressed buttons change their fill instead of fading their label.
+  "Always allow" is an outlined capsule, quieter than Reject and Allow once.
+- **Palette:** The palette is a subtly cool slate dark with soft pastel
+  accents, merged from three proposals. Working is one blue everywhere. Every
+  text color clears 4.5:1 on each surface it is used on, and the native root
+  background matches the app.
+- **Subagent cards:** Each card has two lines: a state glyph and the title,
+  then "@agent · Background · state · elapsed". The border stays neutral and
+  turns amber only when the child needs you. A result appears only once one
+  exists; a launch acknowledgement never becomes a result.
+- **Subagent states:**
+  - Preparing, Running, Needs approval, Needs answer, Completed, Interrupted,
+    and Failed.
+  - A pending permission or form anywhere in the followed projects marks its
+    child as needing you.
+  - A child that only drops out of the active list reads as Finished, never as
+    Completed.
+- **Monitor:** The chip counts every live child, foreground and background,
+  and says how many need you. The sheet lists Needs you, Working, and Finished.
+  Rows open the child. Working rows offer a confirmed Stop that refreshes
+  server state and stays Stopping until the child leaves Working. When the
+  session is disconnected or messages fail, the sheet keeps the last known
+  rows and drops Stop.
+- **Subagent sessions:** The header reads "Subagent · project", the title drops
+  the agent suffix, and back says it returns to the parent session.
+
+### Verification
+
+- `pnpm check` passed after round 7: lint, typecheck, 1526 tests in 114
+  suites, and iOS and Android Hermes exports.
+- `pnpm native:doctor` passed all 18 checks.
+- Screenshots came from a react-native-web build in a separate scratch clone.
+  They are not native renders: fonts, switches, sheet presentation, and the
+  iOS header branch differ from devices.
+
+The device checks below still apply. Also check Android header title
+alignment, the iOS 26 glass header with the project subtitle, and controls
+that rely on hit slop: compact segmented controls and the copy icon. Confirm
+on a real server that stopping a subagent ends its run and that the monitor
+row leaves Stopping.
+
 ## Device follow-up
 
 Before calling the visual review device-verified, check both iOS and Android:

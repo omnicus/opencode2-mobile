@@ -343,7 +343,7 @@ test("renders active execution and mutable queued inbox work", async () => {
   });
   expect(screen.getByText("Queued")).toHaveStyle({ ...typography.label, color: palette.dim });
   expect(screen.getByRole("button", { name: "Cancel" })).toHaveStyle({
-    borderColor: palette.border,
+    backgroundColor: palette.dangerFill,
   });
   fireEvent.press(screen.getByRole("button", { name: "Steer now" }));
   expect(callbacks.onSteerInbox).toHaveBeenCalledWith("msg_queued");
@@ -477,7 +477,7 @@ test("keeps unknown delivery visible until reconciliation finds the stable ID", 
   );
 
   expect(screen.getByText("Delivery unknown")).toBeOnTheScreen();
-  expect(screen.getByText(/server may have admitted this prompt/)).toHaveStyle({
+  expect(screen.getByText(/server may have received this prompt/)).toHaveStyle({
     ...typography.subheadline,
     color: palette.dim,
   });

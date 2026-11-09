@@ -189,6 +189,8 @@ export function useSessionExecution({
     background: commands.background,
     wait: commands.wait,
     reconcileAdmission: (admissionID: string) => void reconcileAdmission(recovery, admissionID),
+    // Refreshes active sessions, the inbox, and messages from the server.
+    reconcile,
     selectedAgent,
     selectedModel,
   };

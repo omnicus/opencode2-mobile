@@ -16,8 +16,9 @@ const dots = [0, 1, 2, 3, 4, 5].map((bit) => ({
   ) as CSSAnimationKeyframes,
 }));
 
-// The one working animation, shared by the session list and the session screen.
-export function WorkingIndicator() {
+// The one working animation, shared by the session list and the session screen. The inbox
+// passes its blue working color so the spinner matches the row's status text.
+export function WorkingIndicator({ color = palette.activity }: { color?: string } = {}) {
   const [reducedMotion, setReducedMotion] = useState(true);
   const [foreground, setForeground] = useState(AppState.currentState === "active");
 
@@ -44,6 +45,7 @@ export function WorkingIndicator() {
           key={bit}
           style={[
             styles.dot,
+            { backgroundColor: color },
             {
               left: bit < 3 ? 0 : 4.5,
               top: (bit % 3) * 4.5,

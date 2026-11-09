@@ -6,10 +6,12 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
 } from "../theme";
+import { IconTile, type IconTileTint } from "./icon-tile";
 
 export function MenuGroup({ children }: { children: ReactNode }) {
   return <View style={styles.group}>{children}</View>;
@@ -27,6 +29,8 @@ export function MenuRow({
   expanded,
   badge,
   accessibilityValue,
+  tint,
+  value,
 }: {
   label: string;
   description?: string;
@@ -36,22 +40,28 @@ export function MenuRow({
   danger?: boolean;
   last?: boolean;
   disclosure?: boolean;
-  // Makes the row a disclosure toggle with an up/down chevron.
+  // Makes the row a disclosure toggle with a right/down chevron, like transcript disclosures.
   expanded?: boolean;
   // A short count shown before the chevron; describe it to screen readers in accessibilityValue.
   badge?: string | undefined;
   accessibilityValue?: string | undefined;
+  // Shows the icon on a colored tile, as in Settings.
+  tint?: IconTileTint | undefined;
+  // The current setting, shown dim before the chevron.
+  value?: string | undefined;
 }) {
-  const chevron =
-    expanded === undefined ? "chevron-right" : expanded ? "chevron-up" : "chevron-down";
+  const chevron = expanded === undefined || !expanded ? "chevron-right" : "chevron-down";
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityHint={description}
       accessibilityState={expanded === undefined ? { disabled } : { disabled, expanded }}
-      accessibilityValue={accessibilityValue ? { text: accessibilityValue } : undefined}
-      android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
+      // Screen readers hear the visible value unless a fuller description is given.
+      accessibilityValue={
+        accessibilityValue || value ? { text: accessibilityValue ?? value ?? "" } : undefined
+      }
+      android_ripple={rippleFeedback.row}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [
@@ -61,12 +71,16 @@ export function MenuRow({
         disabled && styles.disabled,
       ]}
     >
-      <Feather
-        accessible={false}
-        name={icon}
-        size={18}
-        color={danger ? palette.danger : palette.dim}
-      />
+      {tint ? (
+        <IconTile icon={icon} tint={tint} />
+      ) : (
+        <Feather
+          accessible={false}
+          name={icon}
+          size={18}
+          color={danger ? palette.danger : palette.dim}
+        />
+      )}
       <View style={styles.copy}>
         <Text dynamicTypeRamp={typeRamp.body} style={[styles.label, danger && styles.danger]}>
           {label}
@@ -77,6 +91,11 @@ export function MenuRow({
           </Text>
         ) : null}
       </View>
+      {value ? (
+        <Text dynamicTypeRamp={typeRamp.body} numberOfLines={1} style={styles.value}>
+          {value}
+        </Text>
+      ) : null}
       {badge ? (
         <View style={styles.badge}>
           <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.badgeText}>
@@ -111,6 +130,7 @@ const styles = StyleSheet.create({
   copy: { flex: 1, minWidth: 0, gap: 2 },
   label: { ...typography.body, color: palette.ink },
   description: { ...typography.footnote, color: palette.dim },
+  value: { ...typography.body, color: palette.dim, flexShrink: 1, maxWidth: "45%" },
   danger: { color: palette.danger },
   badge: {
     alignItems: "center",

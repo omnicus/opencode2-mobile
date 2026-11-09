@@ -51,10 +51,17 @@ jest.mock("../state/connection-runtime-context", () => ({
   useConnectionRuntime: () => mockRuntime,
 }));
 jest.mock("../state/workspace-selection-context", () => ({
-  useWorkspaceSelection: () => ({ archiveSession: mockArchive }),
+  useWorkspaceSelection: () => ({
+    archiveSession: mockArchive,
+    projects: [{ canonical: "/workspace", id: "project-1", name: "Orbit" }],
+  }),
+}));
+jest.mock("../connections/connections-context", () => ({
+  useConnections: () => ({ profiles: [{ id: "first", name: "Studio Mac" }] }),
 }));
 const session = {
   id: "ses_one",
+  projectID: "project-1",
   title: "Original",
   location: { directory: "/workspace" },
   time: { created: 1, updated: 1 },
@@ -147,7 +154,7 @@ test("dev tools open within the session menu without another overflow button", a
       await screen.findByText("No MCP servers configured for this location."),
     ).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Location options" })).toBeNull();
-    expect(screen.getByText(/MCP changes affect all sessions/)).toBeOnTheScreen();
+    expect(screen.getByText(/Changes affect all sessions at this location/)).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
     expect(screen.getByRole("button", { name: "Rename" })).toBeOnTheScreen();
   } finally {
@@ -215,7 +222,7 @@ test("deletion requires confirmation and cleans up descendants after server succ
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(mockRemove).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     await waitFor(() => expect(view.onDeleted).toHaveBeenCalled());
     expect(mockRemove).toHaveBeenCalledWith({}, "ses_one", expect.anything());
     expect(mockCleanup).toHaveBeenCalledWith({}, "first", ["ses_one", "ses_child"]);
@@ -242,7 +249,7 @@ test("failed deletion retains the session and never removes local state", async 
   const view = mount();
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     expect(await screen.findByRole("alert")).not.toHaveTextContent("private server detail");
     expect(mockCleanup).not.toHaveBeenCalled();
     expect(view.onDeleted).not.toHaveBeenCalled();
@@ -259,10 +266,14 @@ test("titles each page and returns to the menu", () => {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByRole("header", { name: "Delete session?" })).toBeOnTheScreen();
     expect(screen.getByText("Cancel")).toBeOnTheScreen();
+    // The confirmation names the whole target before the destructive action.
+    expect(screen.getByText("Server: Studio Mac")).toBeOnTheScreen();
+    expect(screen.getByText("Project: Orbit")).toBeOnTheScreen();
+    expect(screen.getByText("/workspace")).toBeOnTheScreen();
     fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
     fireEvent.press(screen.getByRole("button", { name: "Rename" }));
     expect(screen.getByRole("header", { name: "Rename session" })).toBeOnTheScreen();
-    expect(screen.getByText("Close")).toBeOnTheScreen();
+    expect(screen.getByText("Cancel")).toBeOnTheScreen();
     expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
     fireEvent.changeText(screen.getByLabelText("Session name"), "  ");
     expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
@@ -307,7 +318,7 @@ test("reports incomplete local cleanup after the server deletes the session", as
   const view = mount();
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     await waitFor(() => expect(view.onDeleted).toHaveBeenCalled());
     expect(alert).toHaveBeenCalledWith("Local cleanup incomplete", expect.any(String));
     expect(view.onClose).not.toHaveBeenCalled();
@@ -385,7 +396,7 @@ test("closing the sheet aborts a deletion before the server removes anything", a
   const view = mount();
   try {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
-    fireEvent.press(screen.getByRole("button", { name: "Confirm delete" }));
+    fireEvent.press(screen.getByRole("button", { name: "Delete session" }));
     await waitFor(() => expect(load).toHaveBeenCalled());
     view.unmount();
     await act(async () => finish?.(["ses_one"]));

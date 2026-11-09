@@ -1,14 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import {
-  createContext,
-  memo,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { createContext, memo, useContext, useEffect, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -17,17 +9,23 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  type StyleProp,
   StyleSheet,
   Text,
+  type TextStyle,
   View,
 } from "react-native";
 
 import { applicationName } from "../application-name";
 import { CopyTextButton } from "../components/copy-text-button";
 import { SelectableTranscriptText } from "../components/selectable-transcript-text";
+import {
+  SubagentMetaLine,
+  SubagentStatusGlyph,
+  subagentStateLabel,
+} from "../components/subagent-status";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
-import { WorkingIndicator } from "../components/working-indicator";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import {
   markdownPalette,
@@ -35,6 +33,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -43,6 +42,7 @@ import type { PendingPromptPreview } from "./prompt-admission-model";
 import { ShellObservation } from "./session-shell-output";
 import {
   getSubagentPresentation,
+  isSubagentInFlight,
   parseSubagentProtocolText,
   type SubagentPresentation,
   type SubagentProtocolText,
@@ -68,8 +68,6 @@ const maxAssistantParts = 64;
 const maxAttachments = 32;
 const maxToolOutputs = 32;
 const maxInlineReasoning = 240;
-const rippleColor = "rgba(255,255,255,0.12)";
-const subagentToggleHeight = 36;
 // Brings the shell output back to the newest line when the user is this close to it.
 const shellFollowThreshold = 24;
 type AssistantTool = Extract<
@@ -398,8 +396,13 @@ export function TranscriptActivityGroup({
         accessibilityLabel={`${item.count} tool calls`}
         accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. ${failureSummary ? `${failureSummary}. ` : ""}Expand or collapse execution details.`}
         accessibilityState={{ expanded }}
+        android_ripple={rippleFeedback.row}
         onPress={() => setExpanded((value) => !value)}
-        style={[styles.activityGroupHeader, largeText && styles.activityGroupHeaderLargeText]}
+        style={({ pressed }) => [
+          styles.activityGroupHeader,
+          largeText && styles.activityGroupHeaderLargeText,
+          pressed && Platform.OS === "ios" && styles.pressed,
+        ]}
       >
         <Text
           dynamicTypeRamp={typeRamp.body}
@@ -409,20 +412,24 @@ export function TranscriptActivityGroup({
         </Text>
         <Text
           dynamicTypeRamp={typeRamp.body}
-          style={[styles.toolProgress, failureSummary && styles.toolProgressFailed]}
+          style={[
+            styles.toolProgress,
+            failureSummary &&
+              (progressLabel === "Failed" ? styles.toolProgressFailed : styles.toolProgressStopped),
+          ]}
         >
           {progressLabel}
         </Text>
-        <Text
-          accessibilityElementsHidden
-          dynamicTypeRamp={typeRamp.body}
-          style={styles.disclosureAction}
-        >
-          {expanded ? "⌄" : "›"}
-        </Text>
+        <DisclosureChevron expanded={expanded} />
       </Pressable>
       {failureSummary && !expanded ? (
-        <Text dynamicTypeRamp={typeRamp.caption} style={styles.activityFailureSummary}>
+        <Text
+          dynamicTypeRamp={typeRamp.caption}
+          style={[
+            styles.activityFailureSummary,
+            progressLabel !== "Failed" && styles.activityStoppedSummary,
+          ]}
+        >
           {failureSummary}. Expand for details.
         </Text>
       ) : null}
@@ -952,15 +959,16 @@ function SkillToolDisclosure({
         accessibilityState={content.length ? { expanded } : undefined}
         disabled={!content.length}
         onPress={onToggle}
-        style={styles.loadedSkill}
+        style={({ pressed }) => [styles.loadedSkill, pressed && styles.pressed]}
       >
-        <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.loadedSkillLabel}>
           {running ? "Loading" : "Loaded"}{" "}
           <Text style={styles.activityLabel}>
             {name ? sanitizeTranscriptText(name, 256) : "Skill"}
           </Text>
           {name ? " skill" : ""}
         </Text>
+        {content.length ? <DisclosureChevron expanded={expanded} /> : null}
       </Pressable>
       {expanded ? (
         <ScrollView
@@ -1236,6 +1244,7 @@ function DiffAction({ onPress }: { onPress: () => void }) {
       <Text dynamicTypeRamp={typeRamp.control} style={styles.diffActionLabel}>
         Review current changes
       </Text>
+      <Feather accessible={false} color={palette.signal} name="chevron-right" size={16} />
     </Pressable>
   );
 }
@@ -1285,12 +1294,10 @@ function ActivityHeader({
         ) : null}
       </View>
       {canExpand ? (
-        <Text
-          dynamicTypeRamp={typeRamp.body}
-          style={[styles.activityAction, largeText && styles.activityActionLargeText]}
-        >
-          {expanded ? "⌄" : "›"}
-        </Text>
+        <DisclosureChevron
+          expanded={expanded}
+          style={largeText ? styles.activityActionLargeText : undefined}
+        />
       ) : null}
     </Pressable>
   );
@@ -1430,6 +1437,8 @@ function SubagentResultCard({
   );
 }
 
+// A compact two-line card: state glyph, task title, then "@agent · Background · state · time".
+// Only a terminal card with a result offers it inline; the chevron opens the child session.
 function SubagentCard({
   largeText,
   onOpenSubagent,
@@ -1441,71 +1450,80 @@ function SubagentCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [pressed, setPressed] = useState(false);
-  const { childSessionID, state } = presentation;
+  const { childSessionID, state, waitingFor } = presentation;
   const canOpen = Boolean(childSessionID && onOpenSubagent);
-  const canExpand = Boolean(presentation.result);
-  const inFlight = state === "running" || state === "streaming";
-  const stateLabel = subagentStateLabel(state);
+  const inFlight = isSubagentInFlight(state);
+  // A background launch returns an acknowledgement right away; that is not a result.
+  const canExpand = !inFlight && Boolean(presentation.result);
+  const stateLabel = subagentStateLabel(state, waitingFor);
   const kind = presentation.background ? "Background subagent" : "Subagent";
   const title = sanitizeTranscriptText(presentation.title, 256);
   const agent = presentation.agent ? `@${sanitizeTranscriptText(presentation.agent, 128)}` : "";
   useSubagentTransitionAnnouncement(kind, state, title);
-  const open = () => {
-    if (childSessionID) onOpenSubagent?.(childSessionID);
-  };
-  const openProps: SubagentOpenProps = {
-    android_ripple: canOpen && Platform.OS === "android" ? { color: rippleColor } : undefined,
-    disabled: !canOpen,
-    onPress: open,
-    onPressIn: () => setPressed(true),
-    onPressOut: () => setPressed(false),
-  };
-  const agentText = agent ? (
-    <Text dynamicTypeRamp={typeRamp.footnote} style={styles.subagentAgent}>
-      {agent}
-    </Text>
-  ) : null;
   return (
     <View
-      style={[
-        styles.subagent,
-        inFlight && styles.subagentRunning,
-        state === "error" && styles.subagentError,
-        pressed && Platform.OS === "ios" && styles.pressed,
-      ]}
+      style={[styles.subagent, state === "waiting" && styles.subagentWaiting]}
       testID="subagent-card"
     >
       <Pressable
-        {...openProps}
         accessibilityRole={canOpen ? "button" : undefined}
         accessibilityLabel={`${kind}, ${title}${agent ? `, ${agent}` : ""}, ${stateLabel}`}
         accessibilityHint={canOpen ? "Opens the subagent session" : undefined}
-        style={styles.subagentMain}
+        android_ripple={canOpen ? rippleFeedback.row : undefined}
+        disabled={!canOpen}
+        onPress={() => {
+          if (childSessionID) onOpenSubagent?.(childSessionID);
+        }}
+        onPressIn={() => setPressed(true)}
+        onPressOut={() => setPressed(false)}
+        style={[styles.subagentMain, pressed && Platform.OS === "ios" && styles.pressed]}
       >
-        <SubagentCardHeading
-          inFlight={inFlight}
-          kind={kind}
-          largeText={largeText}
-          state={state}
-          stateLabel={stateLabel}
-        />
-        <View style={styles.subagentTitleRow}>
-          <Text dynamicTypeRamp={typeRamp.headline} style={styles.subagentTitle}>
+        <SubagentStatusGlyph state={state} waitingFor={waitingFor} />
+        <View style={styles.subagentCopy}>
+          <Text
+            dynamicTypeRamp={typeRamp.headline}
+            numberOfLines={largeText ? undefined : 2}
+            style={styles.subagentTitle}
+          >
             {title}
           </Text>
-          {canOpen ? (
-            <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
-          ) : null}
+          <SubagentMetaLine
+            agent={agent}
+            background={presentation.background}
+            finishedAt={presentation.finishedAt}
+            numberOfLines={largeText ? undefined : 2}
+            startedAt={presentation.startedAt}
+            state={state}
+            waitingFor={waitingFor}
+          />
         </View>
-        {canExpand ? null : agentText}
+        {canOpen ? (
+          <Feather accessible={false} color={palette.dim} name="chevron-right" size={18} />
+        ) : null}
       </Pressable>
       {canExpand ? (
-        <SubagentCardFooter
-          agentText={agentText}
-          expanded={expanded}
-          onToggle={() => setExpanded((current) => !current)}
-          openProps={openProps}
-        />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? "Hide result" : "Show result"}
+          accessibilityState={{ expanded }}
+          android_ripple={rippleFeedback.row}
+          onPress={() => setExpanded((current) => !current)}
+          style={({ pressed }) => [
+            styles.subagentToggle,
+            pressed && Platform.OS === "ios" && styles.pressed,
+          ]}
+        >
+          <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
+            {expanded ? "Hide result" : "Show result"}
+          </Text>
+          <Feather
+            accessible={false}
+            color={palette.signal}
+            // Inline expansion below, so up/down; the card itself uses right for navigation.
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={16}
+          />
+        </Pressable>
       ) : null}
       {expanded && presentation.result ? (
         <View style={styles.subagentResult}>
@@ -1515,14 +1533,6 @@ function SubagentCard({
     </View>
   );
 }
-
-type SubagentOpenProps = {
-  android_ripple: { color: string } | undefined;
-  disabled: boolean;
-  onPress: () => void;
-  onPressIn: () => void;
-  onPressOut: () => void;
-};
 
 function useSubagentTransitionAnnouncement(
   kind: string,
@@ -1534,93 +1544,39 @@ function useSubagentTransitionAnnouncement(
     const previous = previousState.current;
     previousState.current = state;
     // Announce the transition only; finished cards in the history stay quiet.
-    if (previous === state || (state !== "completed" && state !== "error")) return;
-    announceOnIOS(`${kind} ${title} ${state === "error" ? "failed" : "completed"}`);
+    if (previous === state || state === "running" || state === "streaming") return;
+    const outcome =
+      state === "waiting"
+        ? "needs you"
+        : state === "error"
+          ? "failed"
+          : state === "interrupted"
+            ? "was interrupted"
+            : state === "finished"
+              ? // The child stopped without reporting how, so never claim success.
+                "finished, outcome unknown"
+              : "completed";
+    announceOnIOS(`${kind} ${title} ${outcome}`);
   }, [kind, state, title]);
 }
 
-function SubagentCardHeading({
-  inFlight,
-  kind,
-  largeText,
-  state,
-  stateLabel,
-}: {
-  inFlight: boolean;
-  kind: string;
-  largeText: boolean;
-  state: SubagentPresentation["state"];
-  stateLabel: string;
-}) {
-  return (
-    <View style={[styles.subagentHeading, largeText && styles.subagentHeadingLargeText]}>
-      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.subagentLabel}>
-        {kind}
-      </Text>
-      <View style={styles.subagentStatus}>
-        {inFlight ? <WorkingIndicator /> : null}
-        <Text
-          accessibilityLiveRegion="polite"
-          dynamicTypeRamp={typeRamp.sectionLabel}
-          style={[
-            styles.subagentState,
-            state === "error" && styles.subagentStateError,
-            inFlight && styles.subagentStateRunning,
-          ]}
-        >
-          {stateLabel}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function SubagentCardFooter({
-  agentText,
+// One disclosure marker for every expandable transcript row.
+function DisclosureChevron({
   expanded,
-  onToggle,
-  openProps,
+  style,
 }: {
-  agentText: ReactNode;
   expanded: boolean;
-  onToggle: () => void;
-  openProps: SubagentOpenProps;
+  style?: StyleProp<TextStyle> | undefined;
 }) {
   return (
-    <View style={styles.subagentFooter}>
-      <Pressable
-        {...openProps}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        style={styles.subagentFooterOpen}
-      >
-        {agentText}
-      </Pressable>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={expanded ? "Hide result" : "Show result"}
-        accessibilityState={{ expanded }}
-        android_ripple={
-          Platform.OS === "android" ? { color: rippleColor, borderless: true } : undefined
-        }
-        hitSlop={(minTouchTarget - subagentToggleHeight) / 2}
-        onPress={onToggle}
-        style={({ pressed: togglePressed }) => [
-          styles.subagentToggle,
-          togglePressed && Platform.OS === "ios" && styles.pressed,
-        ]}
-      >
-        <Text dynamicTypeRamp={typeRamp.control} style={styles.subagentActionLabel}>
-          {expanded ? "Hide result" : "Show result"}
-        </Text>
-        <Feather
-          accessible={false}
-          color={palette.signal}
-          name={expanded ? "chevron-up" : "chevron-down"}
-          size={16}
-        />
-      </Pressable>
-    </View>
+    <Feather
+      accessible={false}
+      color={palette.dim}
+      name={expanded ? "chevron-down" : "chevron-right"}
+      size={18}
+      style={[styles.disclosureChevron, style]}
+      testID="disclosure-chevron"
+    />
   );
 }
 
@@ -1658,12 +1614,10 @@ function Disclosure({
           {sanitizeTranscriptText(label, 256)}
         </Text>
         {hasText ? (
-          <Text
-            dynamicTypeRamp={typeRamp.body}
-            style={[styles.disclosureAction, largeText && styles.disclosureActionLargeText]}
-          >
-            {expanded ? "Hide" : "Show"}
-          </Text>
+          <DisclosureChevron
+            expanded={expanded}
+            style={largeText ? styles.disclosureActionLargeText : undefined}
+          />
         ) : null}
       </Pressable>
       {expanded
@@ -2132,19 +2086,6 @@ function capitalize(value: string) {
   return value ? `${value[0]?.toLocaleUpperCase()}${value.slice(1)}` : value;
 }
 
-function subagentStateLabel(state: SubagentPresentation["state"]) {
-  switch (state) {
-    case "streaming":
-      return "Preparing";
-    case "running":
-      return "Running";
-    case "completed":
-      return "Completed";
-    case "error":
-      return "Failed";
-  }
-}
-
 function keyToolContent(content: ToolOutput[]) {
   let textOrdinal = 0;
   let fileOrdinal = 0;
@@ -2168,7 +2109,10 @@ function keyDisclosureText(entries: string[]) {
 
 const styles = StyleSheet.create({
   toolProgress: { ...typography.chatActivity, color: palette.dim, flexShrink: 0 },
-  toolProgressFailed: { color: palette.warm },
+  // Failed is an error; Interrupted is a stop the user may have asked for.
+  toolProgressFailed: { color: palette.danger },
+  toolProgressStopped: { color: palette.warm },
+  activityStoppedSummary: { color: palette.warm },
   activityFailureSummary: {
     ...typography.caption,
     color: palette.danger,
@@ -2229,12 +2173,17 @@ const styles = StyleSheet.create({
   activity: {
     paddingHorizontal: 0,
   },
-  loadedSkill: { minHeight: minTouchTarget, justifyContent: "center", paddingVertical: 4 },
-  activityAction: { ...typography.chatActivity, color: palette.dim },
+  loadedSkill: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: minTouchTarget,
+    paddingVertical: 4,
+  },
+  loadedSkillLabel: { ...typography.chatActivity, color: palette.dim, flex: 1 },
+  // Failed tools keep the same left edge as their neighbors.
   activityError: {
     borderBottomWidth: 0,
-    marginHorizontal: -space.sm,
-    paddingHorizontal: space.lg,
     paddingTop: space.xs,
     paddingBottom: space.md,
   },
@@ -2294,7 +2243,7 @@ const styles = StyleSheet.create({
   disclosure: {
     backgroundColor: "transparent",
   },
-  disclosureAction: { ...typography.chatActivity, color: palette.dim },
+  disclosureChevron: { flexShrink: 0 },
   disclosureActionLargeText: { alignSelf: "flex-start" },
   disclosureHeader: {
     alignItems: "center",
@@ -2316,7 +2265,10 @@ const styles = StyleSheet.create({
   },
   disclosureLabelLargeText: { flex: 0, width: "100%" },
   diffAction: {
+    alignItems: "center",
     alignSelf: "flex-start",
+    flexDirection: "row",
+    gap: 4,
     justifyContent: "center",
     minHeight: minTouchTarget,
     paddingRight: space.md,
@@ -2356,46 +2308,34 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     padding: 12,
   },
-  subagentRunning: { borderColor: palette.activity },
-  subagentError: { borderColor: palette.danger },
-  subagentMain: { gap: space.xs },
-  subagentActionLabel: { ...typography.control, color: palette.signal },
-  subagentAgent: { ...typography.footnote, color: palette.dim },
-  subagentFooter: { alignItems: "center", flexDirection: "row", gap: space.sm },
-  subagentFooterOpen: {
-    alignSelf: "stretch",
-    flex: 1,
-    justifyContent: "center",
-    minWidth: 0,
+  // Neutral frames: the glyph and state label carry state. Only a child that needs you stands out.
+  subagentWaiting: { borderColor: palette.warm },
+  subagentMain: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: space.sm,
+    minHeight: minTouchTarget - 12,
   },
+  subagentCopy: { flex: 1, gap: 2, minWidth: 0 },
+  subagentActionLabel: { ...typography.control, color: palette.signal },
   subagentToggle: {
     alignItems: "center",
+    borderTopColor: palette.border,
+    borderTopWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 4,
-    justifyContent: "flex-end",
-    minHeight: subagentToggleHeight,
+    justifyContent: "center",
+    marginHorizontal: -12,
+    marginBottom: -12,
+    minHeight: minTouchTarget,
   },
-  subagentHeading: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: space.sm,
-    justifyContent: "space-between",
-  },
-  subagentHeadingLargeText: { alignItems: "flex-start", flexDirection: "column", gap: space.xs },
-  subagentLabel: { ...typography.sectionLabel, color: palette.activity },
   subagentResult: {
     borderTopColor: palette.border,
     borderTopWidth: StyleSheet.hairlineWidth,
     paddingTop: space.sm,
   },
   subagentResultText: { ...typography.chatBody, color: palette.ink },
-  subagentState: { ...typography.sectionLabel, color: palette.dim },
-  subagentStateError: { color: palette.danger },
-  subagentStateRunning: { color: palette.activity },
-  subagentStatus: { alignItems: "center", flexDirection: "row", gap: space.xs },
-  subagentTitle: { ...typography.headline, color: palette.ink, flex: 1, minWidth: 0 },
-  subagentTitleRow: { alignItems: "center", flexDirection: "row", gap: space.sm },
+  subagentTitle: { ...typography.headline, color: palette.ink },
   textAction: {
     alignSelf: "flex-start",
     justifyContent: "center",

@@ -43,7 +43,7 @@ test("one focused form falls back inline when another arrives and keeps its draf
   expect(screen.queryByRole("button", { name: "Close Answer request" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Review input request" })).toBeNull();
   expect(screen.getAllByLabelText("answer")[0]?.props.value).toBe("Partial answer");
-  const submit = screen.getAllByRole("button", { name: "Submit" })[0];
+  const submit = screen.getAllByRole("button", { name: "Send answers" })[0];
   if (!submit) throw new Error("Missing submit action");
   fireEvent.press(submit);
   expect(replyForm).toHaveBeenCalledWith(form, { answer: "Partial answer" });

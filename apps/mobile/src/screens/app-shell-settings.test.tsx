@@ -152,7 +152,7 @@ test("updates transcript and app lock preferences and reports their errors", asy
   expect(screen.getByText("Device authentication is unavailable.")).toBeOnTheScreen();
   expect(
     screen.getByText(
-      "Message preferences could not be loaded or saved. Try changing the setting again.",
+      "Transcript preferences could not be loaded or saved. Try changing the setting again.",
     ),
   ).toBeOnTheScreen();
   expect(screen.getAllByRole("alert")).toHaveLength(2);

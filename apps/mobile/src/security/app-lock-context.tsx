@@ -16,13 +16,18 @@ import {
   AppState,
   type AppStateStatus,
   StyleSheet,
-  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { applicationName } from "../application-name";
 import { Button } from "../components/button";
-import { palette, space, typeRamp, typography } from "../theme";
+import {
+  FullScreenState,
+  FullScreenStateError,
+  fullScreenStateStyles,
+} from "../components/full-screen-state";
+import { palette, space } from "../theme";
 import { authenticateDeviceOwner } from "./device-authentication";
 
 type AppLockContextValue = {
@@ -256,46 +261,36 @@ function renderAppLockContent(lock: AppLockController, children: ReactNode) {
 
 function renderPreferenceLoadFailure({ error, retryPreferenceLoad }: AppLockController) {
   return (
-    <SafeAreaView style={styles.shell}>
-      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.errorEyebrow}>
-        Device lock unavailable
-      </Text>
-      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.largeTitle} style={styles.title}>
-        Secure preferences could not be read.
-      </Text>
-      <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
-        {error}
-      </Text>
-      <Button label="Retry" onPress={retryPreferenceLoad} style={styles.action} variant="primary" />
-    </SafeAreaView>
+    <FullScreenState
+      eyebrow="Device lock unavailable"
+      title="Secure preferences could not be read"
+      tone="danger"
+    >
+      <FullScreenStateError>{error}</FullScreenStateError>
+      <View style={fullScreenStateStyles.actions}>
+        <Button label="Retry" onPress={retryPreferenceLoad} variant="primary" />
+      </View>
+    </FullScreenState>
   );
 }
 
 function renderLockedScreen({ busy, error, unlock }: AppLockController) {
   return (
-    <SafeAreaView style={styles.shell}>
-      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.eyebrow}>
-        Device lock
-      </Text>
-      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.largeTitle} style={styles.title}>
-        {applicationName} is locked.
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-        Unlock with Face ID, fingerprint, or your device passcode to see your servers and sessions.
-      </Text>
-      {error ? (
-        <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
-          {error}
-        </Text>
-      ) : null}
-      <Button
-        busy={busy}
-        label={busy ? "Authenticating…" : "Unlock"}
-        onPress={() => void unlock()}
-        style={styles.action}
-        variant="primary"
-      />
-    </SafeAreaView>
+    <FullScreenState
+      copy="Unlock with Face ID, fingerprint, or your device passcode to see your servers and sessions."
+      eyebrow="Device lock"
+      title={`${applicationName} is locked`}
+    >
+      {error ? <FullScreenStateError>{error}</FullScreenStateError> : null}
+      <View style={fullScreenStateStyles.actions}>
+        <Button
+          busy={busy}
+          label={busy ? "Authenticating…" : "Unlock"}
+          onPress={() => void unlock()}
+          variant="primary"
+        />
+      </View>
+    </FullScreenState>
   );
 }
 
@@ -306,35 +301,11 @@ export function useAppLock() {
 }
 
 const styles = StyleSheet.create({
-  action: { marginTop: space.lg },
-  copy: {
-    ...typography.subheadline,
-    color: palette.dim,
-    marginTop: space.md,
-    maxWidth: 440,
-  },
-  error: {
-    ...typography.subheadline,
-    color: palette.danger,
-    marginTop: space.md,
-  },
-  errorEyebrow: {
-    ...typography.sectionLabel,
-    color: palette.danger,
-  },
-  eyebrow: {
-    ...typography.sectionLabel,
-    color: palette.dim,
-  },
   shell: {
+    alignItems: "center",
     backgroundColor: palette.background,
     flex: 1,
     justifyContent: "center",
     padding: space.lg,
-  },
-  title: {
-    ...typography.largeTitle,
-    color: palette.ink,
-    marginTop: space.sm,
   },
 });

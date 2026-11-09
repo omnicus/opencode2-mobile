@@ -15,12 +15,12 @@ test("secondary buttons keep a full touch target and shared control text", () =>
   const button = screen.getByRole("button", { name: "Test connection" });
   expect(button).toHaveStyle({
     minHeight: 48,
-    borderColor: palette.border,
-    borderWidth: 1,
-    borderRadius: 12,
+    backgroundColor: palette.selected,
+    borderRadius: 999,
     paddingHorizontal: 16,
     alignSelf: "flex-start",
   });
+  expect(button).not.toHaveStyle({ borderWidth: 1 });
   expect(screen.getByText("Test connection")).toHaveStyle({
     fontSize: 14,
     fontWeight: "600",
@@ -47,7 +47,9 @@ test("variants change fill and label color; compact keeps the touch target", () 
   });
   expect(screen.getByText("Save")).toHaveStyle({ color: palette.background });
   expect(screen.getByText("Delete")).toHaveStyle({ color: palette.danger });
-  expect(screen.getByRole("button", { name: "Delete" })).toHaveStyle({ borderWidth: 1 });
+  expect(screen.getByRole("button", { name: "Delete" })).toHaveStyle({
+    backgroundColor: palette.dangerFill,
+  });
   const text = screen.getByRole("button", { name: "Learn more" });
   expect(text).toHaveStyle({ minHeight: 48, minWidth: 48, paddingHorizontal: 0 });
   expect(text).toHaveProp("hitSlop", { left: 10, right: 10 });
@@ -113,4 +115,16 @@ test("Android uses a ripple, borderless only for text buttons", () => {
     type: "RippleAndroid",
     borderless: true,
   });
+});
+
+test("pressed filled buttons change fill instead of fading their label", () => {
+  const platform = jest.replaceProperty(Platform, "OS", "ios");
+  try {
+    render(<Button label="Reject" variant="danger" onPress={() => {}} />);
+    const button = screen.getByRole("button", { name: "Reject" });
+    fireEvent(button, "pressIn");
+    expect(button).not.toHaveStyle({ opacity: 0.6 });
+  } finally {
+    platform.restore();
+  }
 });

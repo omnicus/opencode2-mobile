@@ -8,7 +8,14 @@ import type {
   ModelRef,
   SkillInfo,
 } from "@opencode2-mobile/opencode-adapter";
-import { type RefObject, useDeferredValue, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   FlatList,
   Keyboard,
@@ -33,6 +40,7 @@ import {
   palette,
   pressedOpacity,
   radius,
+  rippleFeedback,
   space,
   typeRamp,
   typography,
@@ -201,6 +209,19 @@ export function SessionComposer({
     inputRef.current?.focus();
   }
 
+  const actionButton = (
+    <ComposerActionButton
+      active={active}
+      canSubmit={canSubmit}
+      delivery={delivery}
+      disabledHint={submitHint}
+      showStop={showStop}
+      stopDisabled={interruptDisabled || stopping}
+      stopping={stopping}
+      onPress={showStop ? () => onInterrupt?.() : submit}
+    />
+  );
+
   return (
     <View accessibilityLabel="Session composer" style={styles.shell}>
       <View style={[styles.surface, expanded && styles.surfaceExpanded]}>
@@ -219,16 +240,8 @@ export function SessionComposer({
             onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
             selection={selection}
           />
-          <ComposerActionButton
-            active={active}
-            canSubmit={canSubmit}
-            delivery={delivery}
-            disabledHint={submitHint}
-            showStop={showStop}
-            stopDisabled={interruptDisabled || stopping}
-            stopping={stopping}
-            onPress={showStop ? () => onInterrupt?.() : submit}
-          />
+          {/* Collapsed, send sits beside the text; expanded, it joins the toolbar so text gets the full width. */}
+          {expanded ? null : actionButton}
         </View>
 
         {expanded ? (
@@ -277,6 +290,7 @@ export function SessionComposer({
                 setOptionsPage("variant");
               }}
               selectedModel={selectedModel}
+              trailing={actionButton}
               variantSelectorRef={variantSelectorRef}
             />
           </>
@@ -531,6 +545,7 @@ function ComposerToolbar({
   onModelPress,
   onVariantPress,
   selectedModel,
+  trailing,
   variantSelectorRef,
 }: {
   agent: string | undefined;
@@ -543,6 +558,7 @@ function ComposerToolbar({
   onModelPress: () => void;
   onVariantPress: () => void;
   selectedModel: ModelInfo | undefined;
+  trailing: ReactNode;
   variantSelectorRef: RefObject<View | null>;
 }) {
   const selectedAgent = agents.find((candidate) => candidate.id === agent);
@@ -555,34 +571,43 @@ function ComposerToolbar({
         showsHorizontalScrollIndicator={false}
         style={styles.selectorScroller}
       >
+        {/* Agent, then model, then its variant, so "Build  Opus 5.5  High" reads as one phrase. */}
         <SelectorButton
-          compact
+          label={
+            selectedAgent || agent
+              ? agentDisplayName(selectedAgent?.name ?? agent ?? "")
+              : "Choose agent"
+          }
+          prefix="Agent"
+          buttonRef={agentSelectorRef}
+          onPress={onAgentPress}
+        />
+        <SelectorButton
+          chevron={false}
+          emphasis
           label={modelLabel(selectedModel, model)}
           onPress={onModelPress}
           prefix="Model"
           buttonRef={modelSelectorRef}
         />
-        <SelectorButton
-          compact
-          label={model?.variant ?? "Default"}
-          prefix="Variant"
-          buttonRef={variantSelectorRef}
-          disabled={!selectedModel?.variants.length}
-          onPress={onVariantPress}
-        />
-        <SelectorButton
-          compact
-          label={selectedAgent?.name ?? agent ?? "Choose agent"}
-          prefix="Agent"
-          buttonRef={agentSelectorRef}
-          onPress={onAgentPress}
-        />
+        {/* Most models have no variants; the chip appears only when there is a choice or a saved one. */}
+        {selectedModel?.variants.length || model?.variant ? (
+          <SelectorButton
+            chevron={false}
+            label={model?.variant ?? "Default"}
+            prefix="Variant"
+            buttonRef={variantSelectorRef}
+            disabled={!selectedModel?.variants.length}
+            onPress={onVariantPress}
+          />
+        ) : null}
         {draftLength >= maximumDraftLength * 0.9 ? (
           <Text dynamicTypeRamp={typeRamp.footnote} style={styles.count}>
             {draftLength.toLocaleString()} / {maximumDraftLength.toLocaleString()}
           </Text>
         ) : null}
       </ScrollView>
+      {trailing}
     </View>
   );
 }
@@ -684,7 +709,7 @@ function AgentOptions({
         renderItem={({ item: candidate }) => (
           <OptionButton
             {...(candidate.description ? { description: candidate.description } : {})}
-            label={candidate.name}
+            label={agentDisplayName(candidate.name)}
             onPress={() => onSelect(candidate.id)}
             selected={candidate.id === agent}
           />
@@ -842,62 +867,91 @@ function ComposerActionButton({
 }) {
   const disabled = showStop ? stopDisabled : !canSubmit;
   const showStopUnavailable = useDelayedVisibility(showStop && disabled, "stop");
+  // While a run is active the arrow either steers it or queues a follow-up; say which on screen.
+  const deliveryLabel =
+    !showStop && active && canSubmit && delivery
+      ? delivery === "queue"
+        ? "Queue"
+        : "Steer"
+      : undefined;
   return (
-    <Pressable
-      accessibilityLabel={
-        showStop
-          ? stopping
-            ? "Stopping"
-            : "Stop"
-          : active && delivery === "queue"
-            ? "Queue"
-            : active && delivery === "steer"
-              ? "Steer"
-              : "Send"
-      }
-      accessibilityHint={
-        showStop
-          ? "Interrupts the current session"
-          : (disabledHint ??
-            (active && !delivery ? "Choose steer or queue before sending." : undefined))
-      }
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
-    >
-      <View
-        testID="composer-submit-visual"
-        pointerEvents="none"
-        style={[
-          styles.sendVisual,
-          (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
-        ]}
+    <>
+      {deliveryLabel ? (
+        <Text
+          accessibilityElementsHidden
+          dynamicTypeRamp={typeRamp.footnote}
+          importantForAccessibility="no-hide-descendants"
+          style={styles.deliveryLabel}
+          testID="composer-delivery-label"
+        >
+          {deliveryLabel}
+        </Text>
+      ) : null}
+      <Pressable
+        accessibilityLabel={
+          showStop
+            ? stopping
+              ? "Stopping"
+              : "Stop"
+            : active && delivery === "queue"
+              ? "Queue"
+              : active && delivery === "steer"
+                ? "Steer"
+                : "Send"
+        }
+        accessibilityHint={
+          showStop
+            ? "Interrupts the current session"
+            : (disabledHint ??
+              (active && !delivery ? "Choose steer or queue before sending." : undefined))
+        }
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
       >
-        {showStop ? (
-          <View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.stopIcon}
-          />
-        ) : (
-          <Feather accessible={false} color={palette.background} name="arrow-up" size={19} />
-        )}
-      </View>
-    </Pressable>
+        <View
+          testID="composer-submit-visual"
+          pointerEvents="none"
+          style={[
+            styles.sendVisual,
+            (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
+          ]}
+        >
+          {showStop ? (
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.stopIcon}
+            />
+          ) : (
+            <Feather
+              accessible={false}
+              color={disabled ? palette.dim : palette.background}
+              name="arrow-up"
+              size={19}
+            />
+          )}
+        </View>
+      </Pressable>
+    </>
   );
 }
 
 function SelectorButton({
-  compact = false,
+  chevron = true,
+  emphasis = false,
   buttonRef,
   disabled = false,
   label,
   onPress,
   prefix,
 }: {
-  compact?: boolean;
+  // Only the agent keeps a chevron; model and variant read as one phrase, "Opus 5.5 High".
+  chevron?: boolean;
+  // The model reads in ink; agent and variant stay dim around it.
+  emphasis?: boolean;
   buttonRef?: RefObject<View | null>;
   disabled?: boolean;
   label: string;
@@ -914,7 +968,6 @@ function SelectorButton({
       onPress={onPress}
       style={({ pressed }) => [
         styles.selectorButton,
-        compact && styles.modelChip,
         disabled && styles.selectorDisabled,
         pressed && styles.pressed,
       ]}
@@ -922,11 +975,13 @@ function SelectorButton({
       <Text
         dynamicTypeRamp={typeRamp.footnote}
         numberOfLines={1}
-        style={[styles.selectorLabel, compact && styles.modelChipLabel]}
+        style={[styles.selectorLabel, emphasis && styles.selectorLabelEmphasis]}
       >
         {label}
       </Text>
-      <Feather accessible={false} color={palette.dim} name="chevron-down" size={12} />
+      {chevron ? (
+        <Feather accessible={false} color={palette.dim} name="chevron-down" size={12} />
+      ) : null}
     </Pressable>
   );
 }
@@ -949,16 +1004,17 @@ function OptionButton({
       accessibilityRole="button"
       accessibilityState={{ selected }}
       accessibilityLabel={label}
+      android_ripple={rippleFeedback.row}
       onPress={onPress}
       style={({ pressed }) => [
         styles.option,
         compact && styles.optionCompact,
         selected && styles.optionSelected,
-        pressed && styles.pressed,
+        pressed && Platform.OS === "ios" && styles.pressed,
       ]}
     >
       <View style={styles.optionCopy}>
-        <Text dynamicTypeRamp={typeRamp.headline} style={styles.optionLabel}>
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.optionLabel}>
           {label}
         </Text>
         {description ? (
@@ -978,6 +1034,11 @@ function OptionButton({
   );
 }
 
+// Agent IDs are often lowercase ("build"); show them capitalized, like the transcript footer.
+function agentDisplayName(name: string) {
+  return name ? `${name[0]?.toLocaleUpperCase()}${name.slice(1)}` : name;
+}
+
 function findModel(models: ModelInfo[], model: ModelRef | undefined) {
   return models.find(
     (candidate) => candidate.id === model?.id && candidate.providerID === model.providerID,
@@ -990,15 +1051,17 @@ function modelLabel(model: ModelInfo | undefined, ref: ModelRef | undefined) {
 }
 
 const styles = StyleSheet.create({
-  modelChip: {
-    borderWidth: 1,
-    borderColor: palette.border,
-    borderRadius: radius.lg,
-    paddingHorizontal: space.sm,
+  selectorLabelEmphasis: { color: palette.ink },
+  // Bottom-aligned with the send target and centered on its 48pt height.
+  deliveryLabel: {
+    ...typography.footnote,
+    alignSelf: "flex-end",
+    color: palette.info,
+    marginBottom: (minTouchTarget - typography.footnote.lineHeight) / 2,
+    marginLeft: space.sm,
   },
-  modelChipLabel: { ...typography.footnote, color: palette.ink },
   selectorDisabled: { opacity: disabledOpacity },
-  optionsContent: { gap: space.sm },
+  optionsContent: { gap: 2 },
   completion: {
     backgroundColor: palette.background,
     borderColor: palette.border,
@@ -1047,23 +1110,23 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   modelGroup: { gap: space.xs },
+  // Matches the model picker's rows, so all three composer pickers look alike.
   option: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    flexDirection: "row",
     alignItems: "center",
+    borderRadius: radius.md,
+    flexDirection: "row",
     gap: space.sm,
-    minHeight: 58,
-    padding: space.md,
+    minHeight: 56,
+    overflow: "hidden",
+    paddingHorizontal: space.sm,
+    paddingVertical: space.sm,
   },
-  optionCompact: { marginLeft: space.md, minHeight: 50, paddingVertical: space.sm },
+  optionCompact: { marginLeft: space.md, minHeight: minTouchTarget },
   optionCopy: { flex: 1, minWidth: 0 },
-  optionDescription: { ...typography.footnote, color: palette.dim, marginTop: 3 },
-  optionLabel: { ...typography.headline, color: palette.ink },
-  optionSelected: { backgroundColor: palette.signalDark, borderColor: palette.signal },
-  optionSeparator: { height: space.xs },
+  optionDescription: { ...typography.footnote, color: palette.dim, marginTop: 2 },
+  optionLabel: { ...typography.body, color: palette.ink },
+  optionSelected: { backgroundColor: palette.selected },
+  optionSeparator: { height: 2 },
   pickerList: { flex: 1 },
   pickerListContent: { flexGrow: 1, justifyContent: "flex-start" },
   pressed: { opacity: pressedOpacity },
@@ -1095,7 +1158,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  sendButtonDisabled: { backgroundColor: palette.border, opacity: 0.68 },
+  // A dim arrow on a raised circle reads as unavailable without vanishing into the pill.
+  sendButtonDisabled: { backgroundColor: palette.selected },
   stopIcon: { width: 12, height: 12, borderRadius: 2, backgroundColor: palette.background },
   // Collapsed, the composer floats as one pill like the OpenCode iOS app.
   shell: {
@@ -1121,5 +1185,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
   },
-  toolbar: { alignItems: "center", flexDirection: "row", gap: space.xs },
+  // The expanded surface pads 12pt; pulling the toolbar's end in keeps Send's circle at the
+  // same corner inset as in the collapsed pill.
+  toolbar: { alignItems: "center", flexDirection: "row", gap: space.xs, marginRight: -8 },
 });

@@ -894,7 +894,7 @@ test("saved PR filters narrow the list, and only the chosen project is checked",
     expect(screen.getByRole("button", { name: "Status filter, Draft" })).toBeOnTheScreen();
 
     fireEvent.press(screen.getByRole("button", { name: "Status filter, Draft" }));
-    fireEvent.press(screen.getByRole("button", { name: "Review required" }));
+    fireEvent.press(screen.getByRole("radio", { name: "Review required" }));
     expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({
       projectID: "project-2",
       status: "review-required",
@@ -902,8 +902,8 @@ test("saved PR filters narrow the list, and only the chosen project is checked",
 
     fireEvent.press(screen.getByRole("button", { name: "Project filter, Other" }));
     // The chip's text also reads "Other", so pick the selected sheet option.
-    expect(screen.getByRole("button", { name: "Other", selected: true })).toBeOnTheScreen();
-    fireEvent.press(screen.getByRole("button", { name: "All projects" }));
+    expect(screen.getByRole("radio", { name: "Other", checked: true })).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("radio", { name: "All projects" }));
     expect(mockSetPullRequestFilter).toHaveBeenLastCalledWith({ status: "draft" });
   } finally {
     view.cleanup();
@@ -2483,6 +2483,7 @@ test("shows running background subagents and opens their child sessions", async 
   );
   expect(push).toHaveBeenCalledWith("Session", {
     connectionId: "connection-1",
+    fromParent: true,
     location: { directory: "/workspace" },
     sessionID: "ses_child",
   });
@@ -2835,13 +2836,44 @@ test("a session from another connection offers only the way back to the workspac
     expect(screen.getByText("This session belongs to a different connection.")).toBeOnTheScreen();
     expect(screen.queryByLabelText("Session transcript")).toBeNull();
     expect(mockGetSession).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole("button", { name: "Back to workspace" }));
+    fireEvent.press(screen.getByRole("button", { name: "Back to sessions" }));
     expect(navigation.popTo).toHaveBeenCalledWith("Workspace");
     const shell = screen.UNSAFE_getByType(ShellFrame);
     act(() => shell.props.navigate("Workspace"));
     expect(navigation.popTo).toHaveBeenCalledTimes(2);
     act(() => shell.props.navigate("Settings"));
     expect(navigation.navigate).toHaveBeenCalledWith("Settings");
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("offers Retry when the transcript fails to load", async () => {
+  mockListMessages.mockRejectedValueOnce(new Error("UNREACHABLE"));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "transcript-retry",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    expect(await screen.findByText("The transcript could not be loaded.")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Newest answer")).toBeOnTheScreen();
   } finally {
     view.unmount();
     queryClient.clear();

@@ -21,17 +21,27 @@ import {
   Pressable,
   ScrollView,
   Share,
+  type StyleProp,
   StyleSheet,
   Switch,
   Text,
   useWindowDimensions,
   View,
+  type ViewStyle,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { applicationBuild, applicationName, applicationVersion } from "../application-name";
 import { Button } from "../components/button";
+import {
+  FullScreenState,
+  FullScreenStateError,
+  fullScreenStateStyles,
+} from "../components/full-screen-state";
+import { IconTile } from "../components/icon-tile";
 import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
 import { MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
+import { ProjectAvatar } from "../components/project-avatar";
 import { SegmentedControl } from "../components/segmented-control";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useConnections } from "../connections/connections-context";
@@ -40,6 +50,7 @@ import type { RootStackParamList } from "../navigation/root-navigation";
 import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import type { ConnectionTransportStatus } from "../state/connection-transport-coordinator";
+import type { FollowedInboxRow } from "../state/followed-project-inbox";
 import type { AttentionCoverage } from "../state/followed-projects-model";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
@@ -168,7 +179,7 @@ export function PendingInteractions({
               dynamicTypeRamp={typeRamp.largeTitle}
               style={styles.title}
             >
-              Requests that need you.
+              Requests that need you
             </Text>
             <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.lede}>
               Approvals and forms from followed projects appear here.
@@ -221,15 +232,26 @@ function PendingContent({
     );
   }
   if (selection.followedProjectIds.length === 0) {
+    // The same empty state as the Chat and PRs tabs, so switching tabs does not jump.
     return (
-      <View style={styles.summary}>
-        <View style={styles.summaryRow}>
-          <StatusIcon color={palette.dim} name="folder" />
-          <Text dynamicTypeRamp={typeRamp.headline} style={styles.summaryTitle}>
-            Follow a project to see requests that need you here.
-          </Text>
-        </View>
-        <Button label="Choose projects" onPress={() => onNavigate("FollowedProjects")} />
+      <View style={styles.emptyState}>
+        <Feather accessible={false} color={palette.dim} name="folder" size={36} />
+        <Text
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.headline}
+          style={styles.emptyTitle}
+        >
+          No projects followed yet
+        </Text>
+        <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.emptyCopy}>
+          Follow a project to see requests that need you here.
+        </Text>
+        <Button
+          align="center"
+          label="Choose projects"
+          onPress={() => onNavigate("FollowedProjects")}
+          variant="primary"
+        />
       </View>
     );
   }
@@ -254,6 +276,10 @@ function PendingContent({
       />
     );
   }
+  const owners =
+    selection.permissions.length > 0 || selection.forms.length > 0
+      ? requestOwners(selection.inbox)
+      : new Map<string, FollowedInboxRow>();
   return (
     <>
       {selection.interactionsError ? (
@@ -267,13 +293,15 @@ function PendingContent({
       ) : null}
       <PendingSummary count={selection.pendingCount} coverage={selection.attentionCoverage} />
       {selection.permissions.map((request) => (
-        <PermissionRequestCard
-          key={`permission:${request.id}`}
-          request={request}
-          replying={selection.replyingPermissionId === request.id}
-          error={selection.failedPermissionReplyId === request.id}
-          onReply={selection.replyPermission}
-        />
+        <View key={`permission:${request.id}`} style={styles.ownedRequest}>
+          <RequestOwner row={owners.get(request.sessionID)} />
+          <PermissionRequestCard
+            request={request}
+            replying={selection.replyingPermissionId === request.id}
+            error={selection.failedPermissionReplyId === request.id}
+            onReply={selection.replyPermission}
+          />
+        </View>
       ))}
       {selection.forms.length > 0 ? (
         <FormRequestList
@@ -282,9 +310,42 @@ function PendingContent({
           formLocations={selection.formLocations}
           forms={selection.forms}
           location={undefined}
+          renderOwner={(sessionID) => <RequestOwner row={owners.get(sessionID)} />}
         />
       ) : null}
     </>
+  );
+}
+
+// Requests pool across projects, so each names the project and session that asked. A request
+// whose session is not in the inbox shows no owner rather than a guess.
+function requestOwners(inbox: WorkspaceSelection["inbox"]) {
+  const owners = new Map<string, FollowedInboxRow>();
+  for (const row of [...inbox.needsYou, ...inbox.working, ...inbox.recent, ...inbox.archived]) {
+    for (const id of [row.attentionOwnerSessionID, row.targetSessionID, row.session.id]) {
+      if (id && !owners.has(id)) owners.set(id, row);
+    }
+  }
+  return owners;
+}
+
+function RequestOwner({ row }: { row: FollowedInboxRow | undefined }) {
+  const { fontScale } = useWindowDimensions();
+  if (!row) return null;
+  const title = row.session.title || "Untitled session";
+  return (
+    <View style={styles.owner} testID="request-owner">
+      <ProjectAvatar
+        icon={row.projectIcon}
+        lineHeight={typography.footnote.lineHeight * fontScale}
+        name={row.projectLabel}
+        size={16}
+      />
+      <Text dynamicTypeRamp={typeRamp.footnote} numberOfLines={1} style={styles.ownerText}>
+        <Text style={styles.ownerProject}>{row.projectLabel}</Text>
+        {` · ${title}`}
+      </Text>
+    </View>
   );
 }
 
@@ -377,10 +438,12 @@ function PartialResultsCard({
         {affectedProjectsText(coverage.failedProjects)}
         Showing requests found at the other locations.
       </Text>
-      {failedLocations.length > 0 ? (
-        <ActionButton label="Review locations" onPress={onReviewLocations} />
-      ) : null}
-      <ActionButton busy={retrying} label="Retry" onPress={onRetry} secondary />
+      <View style={styles.stateActions}>
+        {failedLocations.length > 0 ? (
+          <ActionButton label="Review locations" onPress={onReviewLocations} />
+        ) : null}
+        <ActionButton busy={retrying} label="Retry" onPress={onRetry} secondary />
+      </View>
     </View>
   );
 }
@@ -514,21 +577,28 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           onPair={() => navigation.navigate("Pairing")}
         />
 
-        <AppUpdateCard />
+        <AppUpdateCard grouped />
 
         <SettingsGroup title="Support">
-          <View style={styles.managementAction}>
-            <SettingText
-              description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
-              title="Diagnostics report"
-            />
-            <ActionButton
-              label="Share diagnostics"
-              onPress={() => void shareDiagnostics()}
-              secondary
-            />
-          </View>
+          <SettingsRow last>
+            <IconTile align="top" icon="activity" tint="gray" />
+            <View style={styles.settingText}>
+              <SettingText
+                description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
+                title="Diagnostics report"
+              />
+              <ActionButton
+                label="Share diagnostics"
+                onPress={() => void shareDiagnostics()}
+                secondary
+                style={styles.inlineAction}
+              />
+            </View>
+          </SettingsRow>
         </SettingsGroup>
+        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.versionFooter}>
+          {applicationName} {applicationVersion} ({applicationBuild})
+        </Text>
       </ScrollView>
     </ShellFrame>
   );
@@ -556,19 +626,22 @@ function WorkspaceSettings({
         icon="inbox"
         label="Needs you"
         onPress={() => navigate("Pending")}
+        tint="amber"
       />
       <MenuRow
         description="Choose projects shown in Sessions and Needs you"
         icon="folder"
         label="Followed projects"
         onPress={onFollowedProjects}
+        tint="blue"
       />
       <MenuRow
-        description={connectionName ?? "No connection selected"}
         icon="server"
         label="Connections"
         last
         onPress={() => navigate("Connections")}
+        tint="green"
+        value={connectionName ?? "No connection selected"}
       />
     </SettingsGroup>
   );
@@ -583,6 +656,7 @@ function TranscriptSettings({
     <>
       <SettingsGroup title="Transcript">
         <SettingsRow>
+          <IconTile align="top" icon="corner-down-right" tint="indigo" />
           <View style={styles.settingText}>
             <SettingText
               description="Steer updates the current work. Queue waits until it finishes."
@@ -603,6 +677,7 @@ function TranscriptSettings({
         </SettingsRow>
 
         <SettingsRow>
+          <IconTile icon="list" tint="teal" />
           <View style={styles.settingText}>
             <SettingText
               description={
@@ -622,6 +697,7 @@ function TranscriptSettings({
           />
         </SettingsRow>
         <SettingsRow last>
+          <IconTile icon="zap" tint="indigo" />
           <View style={styles.settingText}>
             <SettingText
               description="Display model reasoning when provided by the server."
@@ -643,7 +719,7 @@ function TranscriptSettings({
           dynamicTypeRamp={typeRamp.footnote}
           style={styles.errorText}
         >
-          Message preferences could not be loaded or saved. Try changing the setting again.
+          Transcript preferences could not be loaded or saved. Try changing the setting again.
         </Text>
       ) : null}
     </>
@@ -665,6 +741,7 @@ function SecuritySettings({
     <>
       <SettingsGroup title="Security and notifications">
         <SettingsRow>
+          <IconTile icon="lock" tint="gray" />
           <View style={styles.settingText}>
             <SettingText
               description="Require device authentication after the app leaves the foreground."
@@ -722,6 +799,7 @@ function NotificationSettingRow({
   const setting = { ...notifications, connectionID };
   return (
     <SettingsRow last>
+      <IconTile icon="bell" tint="red" />
       <View style={styles.settingText}>
         <SettingText
           description={notificationSettingDescription(setting)}
@@ -767,20 +845,15 @@ function SettingText({ description, title }: { description: string; title: strin
   );
 }
 
+// Local storage usually loads in a moment, so the loading state stays quiet instead of
+// flashing a large title before the app appears.
 export function ConnectionStorageLoadingScreen() {
   return (
-    <SafeAreaView style={styles.centeredState}>
+    <SafeAreaView style={styles.loadingState}>
       <StatusBar style="light" />
       <ActivityIndicator accessibilityLabel="Loading saved connections" color={palette.signal} />
-      <Text
-        accessibilityRole="header"
-        dynamicTypeRamp={typeRamp.largeTitle}
-        style={styles.stateTitle}
-      >
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.loadingCopy}>
         Loading saved connections
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.stateCopy}>
-        Reading the servers saved on this device.
       </Text>
     </SafeAreaView>
   );
@@ -797,27 +870,25 @@ export function ConnectionStorageFailureScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.centeredState}>
+    <>
       <StatusBar style="light" />
-      <Text dynamicTypeRamp={typeRamp.sectionLabel} style={styles.failureLabel}>
-        Local storage failure
-      </Text>
-      <Text
-        accessibilityRole="header"
-        dynamicTypeRamp={typeRamp.largeTitle}
-        style={styles.stateTitle}
+      <FullScreenState
+        eyebrow="Local storage failure"
+        title="Saved connections are unavailable"
+        tone="danger"
       >
-        Saved connections are unavailable.
-      </Text>
-      <Text
-        accessibilityRole="alert"
-        dynamicTypeRamp={typeRamp.subheadline}
-        style={styles.stateCopy}
-      >
-        {connections.error}
-      </Text>
-      <ActionButton disabled={retrying} label={retrying ? "Retrying" : "Retry"} onPress={retry} />
-    </SafeAreaView>
+        {connections.error ? (
+          <FullScreenStateError>{connections.error}</FullScreenStateError>
+        ) : null}
+        <View style={fullScreenStateStyles.actions}>
+          <ActionButton
+            disabled={retrying}
+            label={retrying ? "Retrying" : "Retry"}
+            onPress={retry}
+          />
+        </View>
+      </FullScreenState>
+    </>
   );
 }
 
@@ -1254,6 +1325,7 @@ function ShellDetailSheet({
   return (
     <ModalSheet
       onClose={onClose}
+      size="compact"
       title={detail === "branch" ? "Current branch" : "Server name"}
       visible={Boolean(detail && detailName)}
     >
@@ -1433,6 +1505,7 @@ export function ActionButton({
   label,
   onPress,
   secondary,
+  style,
 }: {
   accessibilityLabel?: string;
   busy?: boolean;
@@ -1441,6 +1514,8 @@ export function ActionButton({
   label: string;
   onPress: () => void | Promise<void>;
   secondary?: boolean;
+  // Parents own spacing with gap; pass a margin only where the parent has none.
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Button
@@ -1450,14 +1525,14 @@ export function ActionButton({
       fullWidth={Boolean(fullWidth)}
       label={label}
       onPress={() => void onPress()}
-      style={styles.actionButton}
+      style={[styles.actionButton, style]}
       variant={secondary ? "secondary" : "primary"}
     />
   );
 }
 
 const styles = StyleSheet.create({
-  actionButton: { marginTop: space.md, maxWidth: "100%" },
+  actionButton: { maxWidth: "100%" },
   branchControl: {
     alignItems: "center",
     flex: 1,
@@ -1483,12 +1558,14 @@ const styles = StyleSheet.create({
   cacheLabel: { ...typography.sectionLabel, color: palette.warm },
   cardCopy: { ...typography.subheadline, color: palette.dim },
   cardTitle: { ...typography.headline, color: palette.ink },
-  centeredState: {
-    alignItems: "flex-start",
+  loadingCopy: { ...typography.footnote, color: palette.dim, textAlign: "center" },
+  loadingState: {
+    alignItems: "center",
     backgroundColor: palette.background,
     flex: 1,
+    gap: space.sm,
     justifyContent: "center",
-    padding: space.xl,
+    padding: space.lg,
   },
   connectionBar: {
     alignItems: "center",
@@ -1530,6 +1607,19 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   deliveryOptions: { marginTop: space.sm },
   errorText: { ...typography.footnote, color: palette.danger },
+  emptyCopy: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  versionFooter: { ...typography.footnote, color: palette.dim, textAlign: "center" },
+  ownedRequest: { gap: space.xs },
+  owner: { alignItems: "center", flexDirection: "row", gap: space.xs, paddingHorizontal: 2 },
+  ownerProject: { color: palette.ink },
+  ownerText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
+  emptyState: {
+    alignItems: "center",
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.xl,
+  },
+  emptyTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
   failureCard: { ...cardSurface, borderColor: palette.danger, gap: space.xs },
   failureLabel: { ...typography.sectionLabel, color: palette.danger },
   heading: { gap: space.xs },
@@ -1540,11 +1630,6 @@ const styles = StyleSheet.create({
   locationFailure: { ...cardSurface, gap: space.xs },
   locationPath: { ...typography.code, color: palette.ink },
   main: { flex: 1, minWidth: 0 },
-  managementAction: {
-    gap: 2,
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-  },
   navigationItem: {
     alignItems: "center",
     borderRadius: radius.sm,
@@ -1555,7 +1640,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
   },
   navigationItemLargeText: { paddingHorizontal: space.sm, paddingVertical: space.sm },
-  navigationItemActive: { backgroundColor: palette.signalDark },
+  navigationItemActive: { backgroundColor: palette.selected },
   navigationItemPressed: { opacity: pressedOpacity },
   navigationLabel: { ...typography.control, color: palette.dim, textAlign: "center" },
   navigationLabelActive: { color: palette.signal },
@@ -1592,21 +1677,10 @@ const styles = StyleSheet.create({
   settingText: { flexGrow: 1, flexShrink: 1, gap: 2 },
   settingTitle: { ...typography.body, color: palette.ink },
   shell: { flex: 1 },
-  stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.sm },
   stateCard: { ...cardSurface, alignItems: "center", flexDirection: "row", gap: space.md },
   stateCardText: { flex: 1, gap: space.xs },
   stateCardTitle: { ...typography.headline, color: palette.ink, flex: 1 },
-  stateCopy: {
-    ...typography.subheadline,
-    color: palette.dim,
-    marginTop: space.sm,
-    maxWidth: 480,
-  },
-  stateTitle: {
-    ...typography.largeTitle,
-    color: palette.ink,
-    marginTop: space.sm,
-  },
   statusDot: { borderRadius: 4, height: 8, marginRight: space.sm, width: 8 },
   summary: { gap: space.sm },
   summaryCopy: { ...typography.subheadline, color: palette.dim },

@@ -19,7 +19,15 @@ import { ModalSheet } from "../components/modal-sheet";
 import type { RootStackParamList } from "../navigation/root-navigation";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
-import { diffPalette, palette, pressedOpacity, space, typeRamp, typography } from "../theme";
+import {
+  diffPalette,
+  palette,
+  pressedOpacity,
+  rippleFeedback,
+  space,
+  typeRamp,
+  typography,
+} from "../theme";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Diff">;
@@ -175,7 +183,7 @@ function renderDiffEmptyState({
   if (isError) {
     return (
       <DiffState
-        action="Try again"
+        action="Retry"
         detail="The current working-tree diff could not be loaded."
         onPress={onRetry}
         title="Changes unavailable"
@@ -217,7 +225,7 @@ function DiffSummary({
         </Text>
       </Text>
       <Text dynamicTypeRamp={typeRamp.footnote} style={styles.explanation}>
-        Current working tree. This may include changes made after the selected tool call.
+        Uncommitted changes in the working tree right now, including edits made after any tool call.
       </Text>
       {isError ? (
         <DiffState
@@ -275,7 +283,7 @@ function FocusedFileSheet({
               -{file.deletions}
             </Text>
             {" · "}
-            {file.status}
+            {file.status.charAt(0).toLocaleUpperCase() + file.status.slice(1)}
           </Text>
           {file.patch.trim() ? <CopyTextButton label="Copy patch" text={file.patch} /> : null}
         </View>
@@ -310,7 +318,7 @@ function DiffFileHeader({
       accessibilityHint="Opens the changes for this file"
       accessibilityRole="button"
       accessibilityLabel={`${row.status} file, ${path}, ${row.additions} additions, ${row.deletions} deletions`}
-      android_ripple={Platform.OS === "android" ? { color: "rgba(255,255,255,0.12)" } : undefined}
+      android_ripple={rippleFeedback.row}
       onPress={onPress}
       style={({ pressed }) => [
         styles.fileHeader,
@@ -486,9 +494,15 @@ const styles = StyleSheet.create({
   lineHunk: { color: diffPalette.hunkHeader, marginTop: space.xs },
   lineMeta: { color: palette.dim },
   pressed: { opacity: pressedOpacity },
-  state: { gap: space.sm },
-  stateDetail: { ...typography.subheadline, color: palette.dim },
-  stateTitle: { ...typography.headline, color: palette.ink },
+  // Centered like the other empty and error states.
+  state: {
+    alignItems: "center",
+    gap: space.sm,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.xl,
+  },
+  stateDetail: { ...typography.subheadline, color: palette.dim, textAlign: "center" },
+  stateTitle: { ...typography.headline, color: palette.ink, textAlign: "center" },
   summary: { gap: space.xs, padding: space.md },
   title: { ...typography.headline, color: palette.ink },
   totals: { ...typography.code, color: palette.dim },

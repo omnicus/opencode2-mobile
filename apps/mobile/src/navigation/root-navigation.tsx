@@ -43,6 +43,8 @@ export type RootStackParamList = {
   Session: {
     connectionId: string;
     focusComposer?: boolean;
+    // Opened from a parent session's subagent card or monitor, so back returns there.
+    fromParent?: boolean;
     location: LocationRef;
     sessionID: string;
   };
@@ -117,12 +119,14 @@ export function RootNavigation() {
       <Stack.Screen
         component={SessionScreen}
         name="Session"
-        options={({ navigation }) => sessionScreenOptions(navigation, customWorkspaceHeader)}
+        options={({ navigation, route }) =>
+          sessionScreenOptions(navigation, customWorkspaceHeader, Boolean(route.params.fromParent))
+        }
       />
       <Stack.Screen
         component={DiffScreen}
         name="Diff"
-        options={{ headerShown: true, title: "Current changes" }}
+        options={{ headerShown: true, title: "Changes" }}
       />
       <Stack.Screen
         component={NewSessionScreen}
@@ -179,6 +183,7 @@ function backToWorkspace(navigation: ScreenNavigation) {
 function sessionScreenOptions(
   navigation: ScreenNavigation,
   customHeader: boolean,
+  fromParent: boolean,
 ): NativeStackNavigationOptions {
   return {
     ...(customHeader
@@ -189,13 +194,27 @@ function sessionScreenOptions(
                 canGoBack: navigation.canGoBack(),
                 tintColor: palette.ink,
               })}
+              fromParent={fromParent}
               onBack={() => backToWorkspace(navigation)}
               title={options.title ?? "Session"}
+              titleView={
+                typeof options.headerTitle === "function"
+                  ? options.headerTitle({
+                      children: options.title ?? "Session",
+                      tintColor: palette.ink,
+                    })
+                  : undefined
+              }
             />
           ),
         }
       : {
-          headerLeft: () => <SessionBackButton onPress={() => backToWorkspace(navigation)} />,
+          headerLeft: () => (
+            <SessionBackButton
+              fromParent={fromParent}
+              onPress={() => backToWorkspace(navigation)}
+            />
+          ),
         }),
     title: "Session",
   };
@@ -237,42 +256,63 @@ function ManagementDoneButton({ onPress }: { onPress: () => void }) {
 }
 
 function WorkspaceHeader({
+  fromParent = false,
   onBack,
   title,
+  titleView,
   rightActions,
 }: {
+  fromParent?: boolean;
   onBack?: () => void;
   title: string;
+  // A custom title from the screen, such as the session title with its project.
+  titleView?: ReactNode;
   rightActions?: ReactNode;
 }) {
   return (
     <SafeAreaView edges={["top"]} style={styles.headerSafeArea}>
       <View style={styles.header}>
-        {onBack ? <SessionBackButton onPress={onBack} /> : <View style={styles.headerSide} />}
-        <Text
-          accessibilityRole="header"
-          dynamicTypeRamp={typeRamp.navTitle}
-          numberOfLines={1}
-          style={styles.headerTitle}
-        >
-          {title}
-        </Text>
+        {onBack ? (
+          <SessionBackButton fromParent={fromParent} onPress={onBack} />
+        ) : (
+          <View style={styles.headerSide} />
+        )}
+        {titleView ? (
+          <View style={styles.headerTitleView}>{titleView}</View>
+        ) : (
+          <Text
+            accessibilityRole="header"
+            dynamicTypeRamp={typeRamp.navTitle}
+            numberOfLines={1}
+            style={styles.headerTitle}
+          >
+            {title}
+          </Text>
+        )}
         {rightActions ?? <View style={styles.headerSide} />}
       </View>
     </SafeAreaView>
   );
 }
 
-function SessionBackButton({ onPress }: { onPress: () => void }) {
+function SessionBackButton({
+  fromParent = false,
+  onPress,
+}: {
+  fromParent?: boolean;
+  onPress: () => void;
+}) {
   const selection = useWorkspaceSelection();
   return (
     <Pressable
-      accessibilityLabel="Back to Sessions"
+      accessibilityLabel={fromParent ? "Back to parent session" : "Back to Sessions"}
       accessibilityRole="button"
       accessibilityHint={
-        selection.pendingCount > 0
-          ? "The session list has requests needing attention"
-          : "Returns to the session list"
+        fromParent
+          ? "Returns to the session that started this subagent"
+          : selection.pendingCount > 0
+            ? "The session list has requests needing attention"
+            : "Returns to the session list"
       }
       accessibilityValue={{
         text: attentionAccessibilityValue(selection.pendingCount, selection.attentionCoverage),
@@ -316,6 +356,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 44,
   },
+  headerTitleView: { alignItems: "center", flex: 1, minWidth: 0 },
   headerTitle: {
     ...typography.navTitle,
     color: palette.ink,

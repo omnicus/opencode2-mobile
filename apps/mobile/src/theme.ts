@@ -1,50 +1,63 @@
 import { Platform } from "react-native";
 
-// OpenCode's mobile web palette, with native system fonts and touch targets.
+// A subtly cool slate dark with soft pastel accents, chosen by the November 2026 design
+// council. Surfaces step up in luminance: background, card, raised, prompt, selected.
+// Every text color below clears 4.5:1 on every surface it is used on (ink 10.5:1 or more,
+// dim 5.1:1 or more, semantic hues 5.1:1 or more). Working is blue, as the spec requires.
 export const palette = {
-  accent: "#8ab4f8",
-  activity: "#56b6c2",
-  background: "#161616",
-  border: "#2c2c2c",
-  card: "#242424",
-  danger: "#ff6b81",
-  dim: "#a0a0a0",
-  info: "#8ab4f8",
-  ink: "#fafafa",
-  raised: "#242424",
-  prompt: "#3a3a3a",
+  accent: "#89b4fa",
+  // The working spinner and running subagents share the spec's working blue.
+  activity: "#89b4fa",
+  background: "#11131a",
+  border: "#2f3442",
+  card: "#1a1d27",
+  danger: "#f38ba8",
+  dim: "#a3aabb",
+  info: "#89b4fa",
+  ink: "#eef1f8",
+  // Tool output and inline code inside cards: one step above the card.
+  raised: "#232734",
+  prompt: "#2a2f3d",
+  // The one fill for a chosen tab, option, or row, and for secondary buttons.
+  selected: "#313748",
+  // A rose-tinted fill whose danger label clears 5.6:1.
+  dangerFill: "#40293a",
   signal: "#ffffff",
-  signalDark: "#242424",
-  success: "#7bd88f",
-  warm: "#f6c85f",
+  success: "#86d99a",
+  warm: "#f2c86b",
 } as const;
 
+// Quiet text in inbox rows the spec fades to 70% while working; the composite clears 5.3:1.
+export const fadedWorkingText = "#b8bdca";
+
+// Added 7.7:1 and removed 5.9:1 on their line tints.
 export const diffPalette = {
-  addedText: "#7bd88f",
-  removedText: "#ff6b81",
-  contextText: "#a0a0a0",
-  hunkHeader: "#8ab4f8",
-  addedBackground: "#283831",
-  removedBackground: "#45202e",
+  addedText: "#86d99a",
+  removedText: "#f38ba8",
+  contextText: "#a3aabb",
+  hunkHeader: "#89b4fa",
+  addedBackground: "#20352f",
+  removedBackground: "#3e2632",
 } as const;
 
 export const markdownPalette = {
-  code: "#fafafa",
-  reasoning: "#a0a0a0",
-  link: "#8ab4f8",
-  linkText: "#8ab4f8",
-  strong: "#fafafa",
+  code: "#eef1f8",
+  // A faint lavender lean keeps reasoning distinct from answers at 7.8:1 on the card.
+  reasoning: "#a9b0c4",
+  link: "#89b4fa",
+  linkText: "#89b4fa",
+  strong: "#ffffff",
 } as const;
 
-// Code block syntax colors, sampled from the OpenCode iOS app's dark transcript.
+// Syntax colors in the same pastel family. The lowest, comments, is 5.5:1 on the code card.
 export const codePalette = {
-  comment: "#6e7681",
-  constant: "#7cc8d0",
-  function: "#e48cb8",
-  keyword: "#e48cb8",
-  punctuation: "#7a7a7a",
-  string: "#a5d6a7",
-  type: "#9c94f0",
+  comment: "#8b93a8",
+  constant: "#89dceb",
+  function: "#89b4fa",
+  keyword: "#cba6f7",
+  punctuation: "#9aa1b2",
+  string: "#a6dba4",
+  type: "#b4befe",
 } as const;
 
 // OpenCode desktop's dark project avatar colors: fill, 1px border, and a white letter.
@@ -63,6 +76,17 @@ export const projectAvatarPalette = {
   },
 } as const;
 
+// Settings row icon tiles. White glyphs sit on each fill at 3:1 or more.
+export const iconTilePalette = {
+  amber: "#b7791f",
+  blue: "#2f6fdb",
+  gray: "#636366",
+  green: "#2f9a57",
+  indigo: "#5856d6",
+  red: "#d0434f",
+  teal: "#1f8a9e",
+} as const;
+
 export const space = {
   xs: 6,
   sm: 10,
@@ -76,6 +100,24 @@ export const radius = {
   md: 12,
   lg: 18,
   pill: 999,
+} as const;
+
+// Android press feedback; iOS uses pressedOpacity instead.
+export const rippleColor = "rgba(255,255,255,0.12)";
+// Getters read the platform at use, so render-time callers follow a test's platform switch.
+export const rippleFeedback = {
+  get row() {
+    return Platform.OS === "android" ? { color: rippleColor } : undefined;
+  },
+  get borderless() {
+    return Platform.OS === "android" ? { borderless: true, color: rippleColor } : undefined;
+  },
+};
+
+// The one shadow for controls that float over content: bottom menu, composer, task chip.
+export const floatingShadow = {
+  boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.3)",
+  elevation: 3,
 } as const;
 
 export const pressedOpacity = 0.6;
@@ -144,6 +186,6 @@ export const cardSurface = {
 
 export const switchColors = {
   thumbColor: palette.ink,
-  trackColor: { false: palette.border, true: "#626262" },
+  trackColor: { false: palette.border, true: "#4b5675" },
   ios_backgroundColor: palette.border,
 } as const;
