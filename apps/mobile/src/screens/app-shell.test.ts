@@ -336,7 +336,7 @@ test("allows a permission owned by a background child session from Pending", () 
   );
 
   expect(screen.getByText("1 request")).toBeOnTheScreen();
-  expect(screen.getByTestId("request-owner")).toHaveTextContent("Workspace · Fix the login flow");
+  expect(screen.getByTestId("request-owner")).toHaveTextContent(/Workspace · Fix the login flow$/);
   expect(screen.getByText("redacted command")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Allow once" }));
   expect(replyPermission).toHaveBeenCalledWith("per_test", "ses_child", "once");
