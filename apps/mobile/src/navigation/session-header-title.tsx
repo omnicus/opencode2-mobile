@@ -2,6 +2,13 @@ import { Platform, StyleSheet, Text, View } from "react-native";
 
 import { palette, typeRamp, typography } from "../theme";
 
+// Child sessions are titled "Task (@agent subagent)"; the subtitle already says Subagent, so
+// the header keeps only the task.
+export function headerSessionTitle(title: string | undefined) {
+  const task = title?.replace(/\s*\(@[\w.-]+ subagent\)\s*$/, "").trim();
+  return task || title?.trim() || "Untitled session";
+}
+
 // The session title with its project underneath. iOS centers header titles; Android's native
 // header puts them at the leading edge, so both lines follow the platform.
 export function SessionHeaderTitle({

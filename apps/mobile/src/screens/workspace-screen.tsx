@@ -56,7 +56,7 @@ import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
 import { useConnections } from "../connections/connections-context";
 import type { RootStackParamList } from "../navigation/root-navigation";
-import { SessionHeaderTitle } from "../navigation/session-header-title";
+import { headerSessionTitle, SessionHeaderTitle } from "../navigation/session-header-title";
 import { WorkspaceHeaderActions } from "../navigation/workspace-header-actions";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { type FollowedInboxRow, labelProject, locationKey } from "../state/followed-project-inbox";
@@ -943,11 +943,17 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const sessionProject = session
     ? workspaceSelection.projects.find((project) => project.id === session.projectID)
     : undefined;
+  const projectName = sessionProject
+    ? labelProject(sessionProject, session?.projectID ?? "")
+    : undefined;
   useSessionHeaderOptions({
     navigation,
-    projectName: sessionProject
-      ? labelProject(sessionProject, session?.projectID ?? "")
-      : undefined,
+    // A subagent's own session says so under its title, so it never reads as a root session.
+    projectName: session?.parentID
+      ? projectName
+        ? `Subagent · ${projectName}`
+        : "Subagent"
+      : projectName,
     routeSessionScope,
     sessionLocationReady,
     sessionTitle,
@@ -1043,6 +1049,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     (childSessionID: string) => {
       navigation.push("Session", {
         connectionId: routeConnectionId,
+        fromParent: true,
         location: sessionLocation,
         sessionID: childSessionID,
       });
@@ -1311,7 +1318,7 @@ function useSessionHeaderOptions({
   setActionsOpen: Dispatch<SetStateAction<boolean>>;
 }) {
   useEffect(() => {
-    navigation.setOptions({ title: sessionTitle || "Untitled session" });
+    navigation.setOptions({ title: headerSessionTitle(sessionTitle) });
   }, [navigation, sessionTitle]);
   // The project sits under the title, so a session is never ambiguous about where it runs.
   useEffect(() => {

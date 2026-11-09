@@ -2483,6 +2483,7 @@ test("shows running background subagents and opens their child sessions", async 
   );
   expect(push).toHaveBeenCalledWith("Session", {
     connectionId: "connection-1",
+    fromParent: true,
     location: { directory: "/workspace" },
     sessionID: "ses_child",
   });
