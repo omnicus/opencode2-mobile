@@ -1173,6 +1173,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
               }}
               onOpenDiff={openDiff}
               onOpenSubagent={openSubagent}
+              onRetrySession={() => void sessionQuery.refetch()}
               sessionError={sessionQuery.isError}
               sessionPending={sessionQuery.isPending}
               showOlderContextLoading={showOlderContextLoading}
@@ -1820,6 +1821,7 @@ function SessionTranscriptList({
   onLayout,
   onOpenDiff,
   onOpenSubagent,
+  onRetrySession,
   sessionError,
   sessionPending,
   showOlderContextLoading,
@@ -1841,6 +1843,7 @@ function SessionTranscriptList({
   onLayout: (event: LayoutChangeEvent) => void;
   onOpenDiff: () => void;
   onOpenSubagent: (sessionID: string) => void;
+  onRetrySession: () => void;
   sessionError: boolean;
   sessionPending: boolean;
   showOlderContextLoading: boolean;
@@ -1877,6 +1880,7 @@ function SessionTranscriptList({
           autoFillTranscript={autoFillTranscript}
           canLoadOlder={canLoadOlder}
           messagesQuery={messagesQuery}
+          onRetrySession={onRetrySession}
           sessionError={sessionError}
           sessionPending={sessionPending}
           showOlderContextLoading={showOlderContextLoading}
@@ -1940,8 +1944,9 @@ function renderTranscriptEmptyState(messagesQuery: SessionMessagesQuery, active:
     );
   }
   return (
-    <View style={styles.transcriptState}>
+    <View style={[styles.transcriptState, styles.transcriptRetry]}>
       <InlineError message={transcriptLoadErrorMessage(messagesQuery.error)} />
+      <RetryButton busy={messagesQuery.isRefetching} onPress={() => void messagesQuery.refetch()} />
     </View>
   );
 }
@@ -1950,6 +1955,7 @@ function TranscriptListFooter({
   autoFillTranscript,
   canLoadOlder,
   messagesQuery,
+  onRetrySession,
   sessionError,
   sessionPending,
   showOlderContextLoading,
@@ -1957,6 +1963,7 @@ function TranscriptListFooter({
   autoFillTranscript: boolean;
   canLoadOlder: boolean;
   messagesQuery: SessionMessagesQuery;
+  onRetrySession: () => void;
   sessionError: boolean;
   sessionPending: boolean;
   showOlderContextLoading: boolean;
@@ -1964,7 +1971,12 @@ function TranscriptListFooter({
   return (
     <View style={styles.detailHeader}>
       {sessionPending ? <ActivityIndicator color={palette.signal} /> : null}
-      {sessionError ? <InlineError message="The session could not be loaded." /> : null}
+      {sessionError ? (
+        <View style={styles.transcriptRetry}>
+          <InlineError message="The session could not be loaded." />
+          <RetryButton busy={false} onPress={onRetrySession} />
+        </View>
+      ) : null}
       {canLoadOlder && !autoFillTranscript ? (
         <Button
           label={messagesQuery.isFetchingNextPage ? "Loading" : "Load older"}
@@ -2413,6 +2425,7 @@ const styles = StyleSheet.create({
     ...typography.footnote,
     color: palette.dim,
     paddingBottom: space.sm,
-    textAlign: "right",
+    textAlign: "center",
   },
+  transcriptRetry: { alignItems: "center", gap: space.sm },
 });

@@ -175,7 +175,7 @@ export function mentionFileState<File>(state: {
 export function transcriptLoadErrorMessage(error: unknown) {
   return error instanceof Error && error.message === "MALFORMED_MESSAGE_LIST"
     ? "This server returned unsupported transcript data."
-    : "The transcript could not be loaded. Refresh and try again.";
+    : "The transcript could not be loaded.";
 }
 
 export function needsComposerDockMeasurement(

@@ -2847,3 +2847,34 @@ test("a session from another connection offers only the way back to the workspac
     queryClient.clear();
   }
 });
+
+test("offers Retry when the transcript fails to load", async () => {
+  mockListMessages.mockRejectedValueOnce(new Error("UNREACHABLE"));
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { gcTime: Infinity, retry: false } },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "transcript-retry",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    expect(await screen.findByText("The transcript could not be loaded.")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Newest answer")).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
