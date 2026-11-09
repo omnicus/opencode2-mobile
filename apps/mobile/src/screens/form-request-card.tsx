@@ -427,7 +427,13 @@ function TextControl({
       <FieldHeading description={description} required={field.required} title={title} />
       {options ? <SingleChoiceOptions onChange={onChange} options={options} value={value} /> : null}
       {showsTextInput(field) ? (
-        <TextFieldInput field={field} onChange={onChange} title={title} value={value} />
+        <TextFieldInput
+          error={error}
+          field={field}
+          onChange={onChange}
+          title={title}
+          value={value}
+        />
       ) : null}
       {field.type !== "string" ? (
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.description}>
@@ -474,11 +480,13 @@ function showsTextInput(field: TextField) {
 }
 
 function TextFieldInput({
+  error,
   field,
   onChange,
   title,
   value,
 }: {
+  error?: string | undefined;
   field: TextField;
   onChange: (value: string) => void;
   title: string;
@@ -489,13 +497,15 @@ function TextFieldInput({
     <TextInput
       keyboardAppearance="dark"
       accessibilityLabel={title}
+      // The field names its own problem, so a screen reader hears it where it is fixed.
+      accessibilityHint={error}
       autoCapitalize={verbatim ? "none" : "sentences"}
       autoCorrect={!verbatim}
       keyboardType={textKeyboardType(field)}
       onChangeText={onChange}
       placeholder={field.type === "string" ? field.placeholder : undefined}
       placeholderTextColor={palette.dim}
-      style={styles.input}
+      style={[styles.input, error ? styles.inputInvalid : undefined]}
       value={value}
     />
   );
@@ -724,6 +734,7 @@ const styles = StyleSheet.create({
   },
   label: { ...typography.control, color: palette.ink },
   multilineInput: { minHeight: 88, textAlignVertical: "top" },
+  inputInvalid: { borderColor: palette.danger },
   options: { gap: space.xs },
   pressed: { opacity: pressedOpacity },
   title: { ...typography.headline, color: palette.ink },

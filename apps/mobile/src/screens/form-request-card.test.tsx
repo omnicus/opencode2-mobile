@@ -536,3 +536,25 @@ test("external form links must parse and confirm before opening", () => {
   alert.mockRestore();
   open.mockRestore();
 });
+
+test("an invalid text field gets a danger border and names its error", () => {
+  render(
+    <FormRequestCard
+      form={
+        {
+          fields: [{ key: "name", required: true, title: "Name", type: "string" }],
+          id: "form-invalid",
+          sessionID: "ses_1",
+          title: "Who are you?",
+        } as never
+      }
+      onCancel={jest.fn()}
+      onSubmit={jest.fn()}
+    />,
+  );
+  const input = screen.getByLabelText("Name");
+  expect(input).not.toHaveStyle({ borderColor: palette.danger });
+  fireEvent.press(screen.getByRole("button", { name: "Send answers" }));
+  expect(screen.getByLabelText("Name")).toHaveStyle({ borderColor: palette.danger });
+  expect(screen.getByLabelText("Name").props.accessibilityHint).toBeTruthy();
+});

@@ -845,55 +845,75 @@ function ComposerActionButton({
 }) {
   const disabled = showStop ? stopDisabled : !canSubmit;
   const showStopUnavailable = useDelayedVisibility(showStop && disabled, "stop");
+  // While a run is active the arrow either steers it or queues a follow-up; say which on screen.
+  const deliveryLabel =
+    !showStop && active && canSubmit && delivery
+      ? delivery === "queue"
+        ? "Queue"
+        : "Steer"
+      : undefined;
   return (
-    <Pressable
-      accessibilityLabel={
-        showStop
-          ? stopping
-            ? "Stopping"
-            : "Stop"
-          : active && delivery === "queue"
-            ? "Queue"
-            : active && delivery === "steer"
-              ? "Steer"
-              : "Send"
-      }
-      accessibilityHint={
-        showStop
-          ? "Interrupts the current session"
-          : (disabledHint ??
-            (active && !delivery ? "Choose steer or queue before sending." : undefined))
-      }
-      accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={onPress}
-      style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
-    >
-      <View
-        testID="composer-submit-visual"
-        pointerEvents="none"
-        style={[
-          styles.sendVisual,
-          (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
-        ]}
+    <>
+      {deliveryLabel ? (
+        <Text
+          accessibilityElementsHidden
+          dynamicTypeRamp={typeRamp.footnote}
+          importantForAccessibility="no-hide-descendants"
+          style={styles.deliveryLabel}
+          testID="composer-delivery-label"
+        >
+          {deliveryLabel}
+        </Text>
+      ) : null}
+      <Pressable
+        accessibilityLabel={
+          showStop
+            ? stopping
+              ? "Stopping"
+              : "Stop"
+            : active && delivery === "queue"
+              ? "Queue"
+              : active && delivery === "steer"
+                ? "Steer"
+                : "Send"
+        }
+        accessibilityHint={
+          showStop
+            ? "Interrupts the current session"
+            : (disabledHint ??
+              (active && !delivery ? "Choose steer or queue before sending." : undefined))
+        }
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        disabled={disabled}
+        onPress={onPress}
+        style={({ pressed }) => [styles.sendButton, pressed && styles.pressed]}
       >
-        {showStop ? (
-          <View
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={styles.stopIcon}
-          />
-        ) : (
-          <Feather
-            accessible={false}
-            color={disabled ? palette.dim : palette.background}
-            name="arrow-up"
-            size={19}
-          />
-        )}
-      </View>
-    </Pressable>
+        <View
+          testID="composer-submit-visual"
+          pointerEvents="none"
+          style={[
+            styles.sendVisual,
+            (showStop ? showStopUnavailable : disabled) && styles.sendButtonDisabled,
+          ]}
+        >
+          {showStop ? (
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              style={styles.stopIcon}
+            />
+          ) : (
+            <Feather
+              accessible={false}
+              color={disabled ? palette.dim : palette.background}
+              name="arrow-up"
+              size={19}
+            />
+          )}
+        </View>
+      </Pressable>
+    </>
   );
 }
 
@@ -1000,6 +1020,14 @@ function modelLabel(model: ModelInfo | undefined, ref: ModelRef | undefined) {
 
 const styles = StyleSheet.create({
   selectorLabelEmphasis: { color: palette.ink },
+  // Bottom-aligned with the send target and centered on its 48pt height.
+  deliveryLabel: {
+    ...typography.footnote,
+    alignSelf: "flex-end",
+    color: palette.info,
+    marginBottom: (minTouchTarget - typography.footnote.lineHeight) / 2,
+    marginLeft: space.sm,
+  },
   selectorDisabled: { opacity: disabledOpacity },
   optionsContent: { gap: 2 },
   completion: {

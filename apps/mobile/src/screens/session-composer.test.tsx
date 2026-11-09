@@ -192,8 +192,15 @@ test("brief Stop unavailability does not flash its color but disables the action
 test("the send icon keeps queue delivery for an active session", () => {
   const onSubmit = jest.fn();
   render(<ComposerHarness active delivery="queue" onSubmit={onSubmit} />);
+  expect(
+    screen.queryByTestId("composer-delivery-label", { includeHiddenElements: true }),
+  ).toBeNull();
   fireEvent.changeText(screen.getByLabelText("Prompt"), "Next prompt");
   expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+  // Sighted users see the same choice the screen reader hears.
+  expect(
+    screen.getByTestId("composer-delivery-label", { includeHiddenElements: true }),
+  ).toHaveTextContent("Queue");
   fireEvent.press(screen.getByRole("button", { name: "Queue" }));
   expect(onSubmit).toHaveBeenCalledTimes(1);
 });
