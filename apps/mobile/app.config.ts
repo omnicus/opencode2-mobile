@@ -47,7 +47,8 @@ const config: ExpoConfig = {
   icon: "./assets/icon.png",
   orientation: "default",
   userInterfaceStyle: "automatic",
-  backgroundColor: "#0B0D0C",
+  // Matches palette.background in src/theme.ts so launch and rotation never flash another shade.
+  backgroundColor: "#11131A",
   scheme,
   updates: projectId
     ? { enabled: true, url: `https://u.expo.dev/${projectId}` }

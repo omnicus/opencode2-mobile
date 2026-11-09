@@ -16,6 +16,7 @@ import { ProjectAvatar } from "../components/project-avatar";
 import { WorkingIndicator } from "../components/working-indicator";
 import { type FollowedInboxRow, workingSince } from "../state/followed-project-inbox";
 import {
+  fadedWorkingText,
   minTouchTarget,
   palette,
   pressedOpacity,
@@ -258,9 +259,9 @@ export function sessionAccessibilityLabel(row: FollowedInboxRow, branch: string 
 const styles = StyleSheet.create({
   pressed: { opacity: pressedOpacity },
   sessionArchived: { opacity: 0.5 },
-  // Composite on #161616: ink at 50% is about 5.1:1; #b0b0b0 at 70% is about 4.7:1.
+  // Composite on the page: ink at 50% is about 4.8:1; the faded working text at 70% about 5.4:1.
   fadedArchivedText: { color: palette.ink },
-  fadedWorkingText: { color: "#b0b0b0" },
+  fadedWorkingText: { color: fadedWorkingText },
   sessionCopy: { flex: 1, gap: 2, minWidth: 0 },
   sessionDetail: { alignItems: "center", flexDirection: "row", gap: space.xs / 2 },
   sessionDetailText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },

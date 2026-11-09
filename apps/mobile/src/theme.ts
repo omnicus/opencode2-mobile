@@ -1,54 +1,63 @@
 import { Platform } from "react-native";
 
-// OpenCode's mobile web palette, with native system fonts and touch targets.
+// A subtly cool slate dark with soft pastel accents, chosen by the November 2026 design
+// council. Surfaces step up in luminance: background, card, raised, prompt, selected.
+// Every text color below clears 4.5:1 on every surface it is used on (ink 10.5:1 or more,
+// dim 5.1:1 or more, semantic hues 5.1:1 or more). Working is blue, as the spec requires.
 export const palette = {
-  accent: "#8ab4f8",
-  activity: "#56b6c2",
-  background: "#161616",
-  border: "#2c2c2c",
-  card: "#242424",
-  danger: "#ff6b81",
-  dim: "#a0a0a0",
-  info: "#8ab4f8",
-  ink: "#fafafa",
-  raised: "#242424",
-  prompt: "#3a3a3a",
-  // The one fill for a chosen tab, option, or row on a card or sheet.
-  selected: "#3a3a3a",
-  // Danger at 16% over the card: a tinted fill whose red label still clears 4.5:1.
-  dangerFill: "#3f2a2e",
+  accent: "#89b4fa",
+  // The working spinner and running subagents share the spec's working blue.
+  activity: "#89b4fa",
+  background: "#11131a",
+  border: "#2f3442",
+  card: "#1a1d27",
+  danger: "#f38ba8",
+  dim: "#a3aabb",
+  info: "#89b4fa",
+  ink: "#eef1f8",
+  // Tool output and inline code inside cards: one step above the card.
+  raised: "#232734",
+  prompt: "#2a2f3d",
+  // The one fill for a chosen tab, option, or row, and for secondary buttons.
+  selected: "#313748",
+  // A rose-tinted fill whose danger label clears 5.6:1.
+  dangerFill: "#40293a",
   signal: "#ffffff",
-  success: "#7bd88f",
-  warm: "#f6c85f",
+  success: "#86d99a",
+  warm: "#f2c86b",
 } as const;
 
+// Quiet text in inbox rows the spec fades to 70% while working; the composite clears 5.3:1.
+export const fadedWorkingText = "#b8bdca";
+
+// Added 7.7:1 and removed 5.9:1 on their line tints.
 export const diffPalette = {
-  addedText: "#7bd88f",
-  removedText: "#ff6b81",
-  contextText: "#a0a0a0",
-  hunkHeader: "#8ab4f8",
-  addedBackground: "#283831",
-  removedBackground: "#45202e",
+  addedText: "#86d99a",
+  removedText: "#f38ba8",
+  contextText: "#a3aabb",
+  hunkHeader: "#89b4fa",
+  addedBackground: "#20352f",
+  removedBackground: "#3e2632",
 } as const;
 
 export const markdownPalette = {
-  code: "#fafafa",
-  reasoning: "#a0a0a0",
-  link: "#8ab4f8",
-  linkText: "#8ab4f8",
-  strong: "#fafafa",
+  code: "#eef1f8",
+  // A faint lavender lean keeps reasoning distinct from answers at 7.8:1 on the card.
+  reasoning: "#a9b0c4",
+  link: "#89b4fa",
+  linkText: "#89b4fa",
+  strong: "#ffffff",
 } as const;
 
-// Code block syntax colors, sampled from the OpenCode iOS app's dark transcript. Comments and
-// punctuation are lifted to about 5:1 on the code card so they stay readable.
+// Syntax colors in the same pastel family. The lowest, comments, is 5.5:1 on the code card.
 export const codePalette = {
-  comment: "#8b949e",
-  constant: "#7cc8d0",
-  function: "#e48cb8",
-  keyword: "#e48cb8",
-  punctuation: "#9a9a9a",
-  string: "#a5d6a7",
-  type: "#9c94f0",
+  comment: "#8b93a8",
+  constant: "#89dceb",
+  function: "#89b4fa",
+  keyword: "#cba6f7",
+  punctuation: "#9aa1b2",
+  string: "#a6dba4",
+  type: "#b4befe",
 } as const;
 
 // OpenCode desktop's dark project avatar colors: fill, 1px border, and a white letter.
@@ -177,6 +186,6 @@ export const cardSurface = {
 
 export const switchColors = {
   thumbColor: palette.ink,
-  trackColor: { false: palette.border, true: "#626262" },
+  trackColor: { false: palette.border, true: "#4b5675" },
   ios_backgroundColor: palette.border,
 } as const;

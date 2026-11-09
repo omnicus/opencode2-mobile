@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import type { ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import type { FollowedInboxRow } from "../state/followed-project-inbox";
-import { palette, pressedOpacity } from "../theme";
+import { fadedWorkingText, palette, pressedOpacity } from "../theme";
 import {
   runSessionRowAction,
   SessionRow,
@@ -219,7 +219,7 @@ test("unread titles are semibold, working rows and archived rows recede", () => 
 
   // Faded rows start from brighter text so the composite still clears 4.5:1.
   view.rerender(rowElement(row({ status: "working" }), view.handlers));
-  expect(title()).toMatchObject({ color: "#b0b0b0" });
+  expect(title()).toMatchObject({ color: fadedWorkingText });
   expect(copy()).toMatchObject({ opacity: 0.7 });
 
   view.rerender(rowElement(row({ archived: true }), view.handlers));
