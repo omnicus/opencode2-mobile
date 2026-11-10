@@ -114,6 +114,11 @@ test("a lone image stays a capped tile and wide images fill the width", () => {
   expect(justifiedImageRows([0.46], 345, tiles)).toEqual([{ start: 0, end: 1, height: 200 }]);
   const [wide] = justifiedImageRows([16 / 9], 345, tiles);
   expect(wide?.height).toBeCloseTo(345 / (16 / 9));
+  // A panorama takes more than one share of the width; its empty share makes no row.
+  expect(justifiedImageRows([5, 0.4, 0.4], 345, tiles)).toEqual([
+    { start: 0, end: 1, height: 69 },
+    { start: 1, end: 3, height: 200 },
+  ]);
   expect(justifiedImageRows([], 345, tiles)).toEqual([]);
   expect(justifiedImageRows([1], 0, tiles)).toEqual([]);
 });

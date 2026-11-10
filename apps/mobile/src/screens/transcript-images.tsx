@@ -108,55 +108,38 @@ function imageLabel(name: string | null | undefined) {
 export type JustifiedImageRow = { start: number; end: number; height: number };
 
 // Rows of tiles that keep each image's shape and share one height per row. The row count comes
-// from the target height, and a small linear partition balances the rows so a batch of seven
-// screenshots reads as three and four instead of a full row and a straggler. No row grows past
-// the cap, so a lone portrait screenshot stays a tile instead of filling the screen.
+// from the target height. Each image joins the row its midpoint falls in when the total width
+// is cut into equal shares, so a batch of seven screenshots reads as three and four instead of
+// a full row and a straggler. No row grows past the cap, so a lone portrait screenshot stays a
+// tile instead of filling the screen.
 export function justifiedImageRows(
   aspects: readonly number[],
   width: number,
   options: { gap: number; maxHeight: number; targetHeight: number },
 ): JustifiedImageRow[] {
-  const count = aspects.length;
-  if (count === 0 || width <= 0) return [];
+  if (aspects.length === 0 || width <= 0) return [];
   const total = aspects.reduce((sum, aspect) => sum + aspect, 0);
-  const rowCount = Math.min(count, Math.max(1, Math.round((total * options.targetHeight) / width)));
-  const ideal = total / rowCount;
-  const prefix = [0];
-  for (const aspect of aspects) prefix.push((prefix.at(-1) ?? 0) + aspect);
-  const span = (start: number, end: number) => (prefix[end] ?? 0) - (prefix[start] ?? 0);
-
-  // cost[rows][end] is the best squared deviation for the first `end` images in `rows` rows.
-  const cost = Array.from({ length: rowCount + 1 }, () => Array<number>(count + 1).fill(Infinity));
-  const split = Array.from({ length: rowCount + 1 }, () => Array<number>(count + 1).fill(0));
-  const first = cost[0];
-  if (first) first[0] = 0;
-  for (let rows = 1; rows <= rowCount; rows += 1) {
-    for (let end = rows; end <= count; end += 1) {
-      for (let start = rows - 1; start < end; start += 1) {
-        const value = (cost[rows - 1]?.[start] ?? Infinity) + (span(start, end) - ideal) ** 2;
-        const row = cost[rows];
-        if (row && value < (row[end] ?? Infinity) - 1e-9) {
-          row[end] = value;
-          const splitRow = split[rows];
-          if (splitRow) splitRow[end] = start;
-        }
-      }
-    }
+  const rowCount = Math.min(
+    aspects.length,
+    Math.max(1, Math.round((total * options.targetHeight) / width)),
+  );
+  const share = total / rowCount;
+  const starts: number[] = [];
+  let before = 0;
+  let current = -1;
+  for (const [index, aspect] of aspects.entries()) {
+    // The bias sends an exact tie to the later row, so the shorter row leads.
+    const row = Math.min(rowCount - 1, Math.floor((before + aspect / 2) / share + 1e-9));
+    if (row !== current) starts.push(index);
+    current = row;
+    before += aspect;
   }
-
-  const result: JustifiedImageRow[] = [];
-  let end = count;
-  for (let rows = rowCount; rows > 0; rows -= 1) {
-    const start = split[rows]?.[end] ?? 0;
+  return starts.map((start, index) => {
+    const end = starts[index + 1] ?? aspects.length;
+    const span = aspects.slice(start, end).reduce((sum, aspect) => sum + aspect, 0);
     const available = width - options.gap * (end - start - 1);
-    result.unshift({
-      start,
-      end,
-      height: Math.min(options.maxHeight, available / span(start, end)),
-    });
-    end = start;
-  }
-  return result;
+    return { start, end, height: Math.min(options.maxHeight, available / span) };
+  });
 }
 
 const tileGap = space.xs;
@@ -442,7 +425,6 @@ function ZoomableImage({
       startY.value = offsetY.value;
     })
     .onUpdate((event) => {
-      if (scale.value <= 1) return;
       offsetX.value = clampOffset(startX.value + event.translationX, width.value, scale.value);
       offsetY.value = clampOffset(startY.value + event.translationY, height.value, scale.value);
     });
