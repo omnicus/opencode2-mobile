@@ -2,12 +2,13 @@ import "react-native-gesture-handler/jestSetup";
 import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react-native";
-import { Platform } from "react-native";
+import { Dimensions, Platform } from "react-native";
 
 import { SessionTranscriptRow, TranscriptActivityGroup } from "./session-transcript";
 import {
   attachmentImages,
   inlineImageUri,
+  justifiedImageRows,
   maxTranscriptImageLength,
   maxTranscriptImages,
   TranscriptImages,
@@ -93,6 +94,68 @@ test("tool and attachment images are collected with stable keys and a cap", () =
       { data: "c2VjcmV0", mime: "text/plain", name: "note.txt", source: { type: "inline" } },
     ]),
   ).toEqual([{ key: "attachment:0", label: "photo.png", uri: png }]);
+});
+
+const tiles = { gap: 6, maxHeight: 200, targetHeight: 170 };
+
+test("justified rows balance a batch of screenshots and cap their height", () => {
+  const [short, full] = justifiedImageRows(Array(7).fill(0.46), 345, tiles);
+  expect([short?.start, short?.end, full?.start, full?.end]).toEqual([0, 3, 3, 7]);
+  // Three screenshots would need about 241 points to fill the width, so the cap holds them.
+  expect(short?.height).toBe(200);
+  expect((full?.height ?? 0) * 0.46 * 4 + tiles.gap * 3).toBeCloseTo(345);
+  expect(justifiedImageRows([1, 1, 1, 1], 345, tiles)).toEqual([
+    { start: 0, end: 2, height: 169.5 },
+    { start: 2, end: 4, height: 169.5 },
+  ]);
+});
+
+test("a lone image stays a capped tile and wide images fill the width", () => {
+  expect(justifiedImageRows([0.46], 345, tiles)).toEqual([{ start: 0, end: 1, height: 200 }]);
+  const [wide] = justifiedImageRows([16 / 9], 345, tiles);
+  expect(wide?.height).toBeCloseTo(345 / (16 / 9));
+  expect(justifiedImageRows([], 345, tiles)).toEqual([]);
+  expect(justifiedImageRows([1], 0, tiles)).toEqual([]);
+});
+
+test("several images render as tiles that each open the viewer", () => {
+  render(
+    <TranscriptImages
+      images={["one", "two", "three"].map((name) => ({
+        key: name,
+        label: `${name}.png`,
+        uri: png,
+      }))}
+    />,
+  );
+  expect(screen.getAllByRole("imagebutton")).toHaveLength(3);
+  fireEvent.press(screen.getByRole("imagebutton", { name: "two.png" }));
+  expect(screen.getAllByLabelText("two.png")).toHaveLength(2);
+  expect(screen.getByText("2 of 3")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Close image" }));
+  expect(screen.queryByRole("button", { name: "Close image" })).toBeNull();
+});
+
+test("swiping the viewer moves between images and a lone image has no counter", () => {
+  const images = ["one", "two", "three"].map((name) => ({
+    key: name,
+    label: `${name}.png`,
+    uri: png,
+  }));
+  const view = render(<TranscriptImages images={images} />);
+  fireEvent.press(screen.getByRole("imagebutton", { name: "one.png" }));
+  expect(screen.getByText("1 of 3")).toBeOnTheScreen();
+  const pager = screen.getByTestId("image-pager");
+  expect(pager.props.scrollEnabled).toBe(true);
+  const { width } = Dimensions.get("window");
+  fireEvent(pager, "momentumScrollEnd", { nativeEvent: { contentOffset: { x: width * 2, y: 0 } } });
+  expect(screen.getByText("3 of 3")).toBeOnTheScreen();
+  view.unmount();
+
+  render(<TranscriptImages images={images.slice(0, 1)} />);
+  fireEvent.press(screen.getByRole("imagebutton", { name: "one.png" }));
+  expect(screen.queryByText(/ of /)).toBeNull();
+  expect(screen.getByTestId("image-pager").props.scrollEnabled).toBe(false);
 });
 
 test("tapping an image opens a full-screen viewer that closes", () => {

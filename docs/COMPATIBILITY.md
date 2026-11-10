@@ -12,6 +12,24 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-10: transcript image tiles and swipeable viewer, pending device verification
+
+Transcript images now form justified rows of tiles that keep each image's shape.
+Rows aim for 170 points and stop at 200, so a lone portrait screenshot stays a
+small tile. Tapping a tile opens the full-screen viewer, which now pages
+horizontally between the group's images and shows a position counter. iOS keeps
+a zooming scroll view inside each page. Android locks paging while an image is
+zoomed, and its pan gesture activates only when zoomed so an unzoomed swipe
+reaches the pager. Hermes behavior of a pinch that starts with sideways motion
+on Android, and of nested zoom inside the pager on iOS, still needs checking on a
+device.
+
+The full lint, typecheck, test, and build sequence passed, including 1532 mobile
+tests and both Hermes exports. Both native fingerprints and runtime matched the
+installed 0.1.6 baseline under the preview EAS environment. Local EAS Update
+publication then succeeded for iOS and Android on preview. Publication does not
+establish installation or device behavior.
+
 ## 2026-11-01: code block syntax highlighting, pending device verification
 
 Fenced code blocks are now colored like the OpenCode iOS app. Keywords and
