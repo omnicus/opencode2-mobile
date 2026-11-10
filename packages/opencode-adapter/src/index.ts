@@ -644,12 +644,24 @@ export async function openCodeDirectoryExists(
   // V2 returns project-relative paths, including the requested parent's prefix.
   // Fail closed if a server instead returns absolute, basename-only, or nested paths.
   const prefix = parent === "." ? "" : `${parent}/`;
-  const paths = output.data.map((entry) => entry.path.replace(/\/$/, ""));
+  // When the parent is an ancestor of the root, V2 lists the child that leads
+  // back to the root by its short relative path: "." for the root itself, ".."
+  // for its parent. Ignore only that one entry; it can never be the target.
+  const rootEntry = rootListingEntry(parent);
+  const paths = output.data
+    .map((entry) => entry.path.replace(/\/$/, ""))
+    .filter((path) => path !== rootEntry);
   if (!paths.every((path) => isDirectoryListChildPath(path, prefix))) {
     throw new Error("MALFORMED_DIRECTORY_LIST");
   }
   // A symlink may be reported as a file. Only absence is proof of retirement.
   return paths.includes(relative);
+}
+
+function rootListingEntry(parent: string) {
+  const segments = parent.split("/");
+  if (!segments.every((segment) => segment === "..")) return undefined;
+  return segments.length === 1 ? "." : segments.slice(1).join("/");
 }
 
 // Worktrees can live outside the repository. Keep the live root as the

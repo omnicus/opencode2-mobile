@@ -169,7 +169,6 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     protectedLocationKeys: protectedLocationKeys({
       activeAncestrySessions: active.ancestry.sessions,
       attentionLocations: runtime.attentionLocations,
-      location,
       projectByID,
       projectIDs: availableFollowedProjectIDs,
     }),
@@ -299,6 +298,11 @@ export function FollowedProjectsProvider({ children }: { children: ReactNode }) 
     preferenceLoadFailed: preferences.preferencesError,
     projectIDs: availableFollowedProjectIDs,
     selectedLocationQuery,
+    selectedLocationRetired: Boolean(
+      location &&
+        candidateLocations.some((candidate) => locationKey(candidate) === locationKey(location)) &&
+        !knownLocations.some((candidate) => locationKey(candidate) === locationKey(location)),
+    ),
     sessionProjectFailureCount: sessions.sessionProjectFailureCount,
     unavailableProjectCount: unavailableProjectIds.length,
     unmatchedSessionCount: inbox.unmatchedSessionIDs.length,

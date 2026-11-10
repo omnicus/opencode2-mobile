@@ -182,10 +182,13 @@ export function activeLocationStatus(
   };
 }
 
+// The selected location is not protected. It outlives the session screen that set
+// it, so opening an archived session in a removed worktree would otherwise keep
+// that directory unavailable until the app restarts. Retirement still requires a
+// successful listing that proves the directory is absent.
 export function protectedLocationKeys(input: {
   activeAncestrySessions: Record<string, SessionInfo>;
   attentionLocations: readonly LocationRef[];
-  location: LocationRef | undefined;
   projectByID: ReadonlyMap<string, Project>;
   projectIDs: readonly string[];
 }) {
@@ -197,7 +200,6 @@ export function protectedLocationKeys(input: {
       }),
       ...input.attentionLocations,
       ...Object.values(input.activeAncestrySessions).map((session) => session.location),
-      ...(input.location ? [input.location] : []),
     ].map(locationKey),
   );
 }
@@ -541,12 +543,15 @@ export function attentionCoverageReasons(input: {
   preferenceLoadFailed: boolean | undefined;
   projectIDs: readonly string[];
   selectedLocationQuery: { data: LocationGetOutput | undefined; isError: boolean };
+  // A removed directory cannot resolve, so its lookup failure is expected.
+  selectedLocationRetired: boolean;
   sessionProjectFailureCount: number;
   unavailableProjectCount: number;
   unmatchedSessionCount: number;
 }) {
   const selectedLocationFailed = Boolean(
     input.location &&
+      !input.selectedLocationRetired &&
       input.selectedLocationQuery.isError &&
       (!input.selectedLocationQuery.data ||
         input.projectIDs.includes(input.selectedLocationQuery.data.project.id)),

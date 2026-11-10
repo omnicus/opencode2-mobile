@@ -411,6 +411,53 @@ describe("historical directory presence", () => {
     ).toBe(true);
   });
 
+  // A real V2 server lists the project root as "./" and its ancestors as "../",
+  // "../../", and so on, instead of under the requested parent's prefix.
+  it("ignores the project root in a listing of its parent", async () => {
+    const fixture = createFakeOpenCodeApi({
+      directoryEntries: [
+        { path: "../live/", type: "directory" },
+        { path: "./", type: "directory" },
+        { path: "../notes.html", type: "file" },
+      ],
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/projects/app" }, "/projects/retired"),
+    ).resolves.toBe(false);
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/projects/app" }, "/projects/live"),
+    ).resolves.toBe(true);
+  });
+
+  it("ignores an ancestor of the project root in a higher listing", async () => {
+    const fixture = createFakeOpenCodeApi({
+      directoryEntries: [
+        { path: "../", type: "directory" },
+        { path: "../../live/", type: "directory" },
+      ],
+    });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/home/projects/app" }, "/home/retired"),
+    ).resolves.toBe(false);
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/home/projects/app" }, "/home/live"),
+    ).resolves.toBe(true);
+  });
+
+  it.each([
+    ["../", "/projects/retired"],
+    ["./", "/projects/other/retired"],
+    ["../../", "/home/retired"],
+  ])("rejects the shortcut entry %s when it is not the root's own path", async (path, target) => {
+    const fixture = createFakeOpenCodeApi({ directoryEntries: [{ path, type: "directory" }] });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    await expect(
+      openCodeDirectoryExists(client, { directory: "/home/projects/app" }, target),
+    ).rejects.toThrow("MALFORMED_DIRECTORY_LIST");
+  });
+
   it("preserves same-drive Windows directory checks", async () => {
     const fixture = createFakeOpenCodeApi({
       directoryEntries: [{ path: "../worktree/live/", type: "directory" }],
