@@ -145,6 +145,7 @@ test("reports each incomplete coverage reason in a stable order", () => {
     preferenceLoadFailed: false,
     projectIDs: ["project-a"],
     selectedLocationQuery: { data: undefined, isError: true },
+    selectedLocationRetired: false,
     sessionProjectFailureCount: 0,
     unavailableProjectCount: 0,
     unmatchedSessionCount: 0,
@@ -160,6 +161,7 @@ test("reports each incomplete coverage reason in a stable order", () => {
       preferenceLoadFailed: true,
       projectIDs: ["project-a"],
       selectedLocationQuery: { data: undefined, isError: true },
+      selectedLocationRetired: false,
       sessionProjectFailureCount: 1,
       unavailableProjectCount: 1,
       unmatchedSessionCount: 1,
@@ -184,6 +186,13 @@ test("reports each incomplete coverage reason in a stable order", () => {
       ...complete,
       location: { directory: "/outside" },
       selectedLocationQuery: { data: selectedLocation, isError: true },
+    }),
+  ).toEqual([]);
+  expect(
+    attentionCoverageReasons({
+      ...complete,
+      location: { directory: "/work/alpha/removed" },
+      selectedLocationRetired: true,
     }),
   ).toEqual([]);
 });

@@ -6,7 +6,7 @@ import type {
   PermissionRequest,
 } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { Pressable, Text } from "react-native";
 import type { SessionInboxPreferences } from "../storage/session-inbox-repository";
 import { ConnectionEventQueryBridge } from "./connection-event-query-bridge";
@@ -912,6 +912,64 @@ test("cached attention prevents retirement of an external historical location", 
     );
     expect(screen.getByText("Beta:ses_beta:0:1")).toBeOnTheScreen();
     expect(screen.getByText(/^unavailable:Beta:/)).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});
+
+test("a selected session location does not keep a removed external worktree unavailable", async () => {
+  const location = { directory: "/external/worktree/project-b/retired" };
+  mockListProjectSessions.mockImplementation(async (_client, projectID) => ({
+    cursor: {},
+    data: [
+      projectID === "project-b"
+        ? mockSession("ses_beta", projectID, location.directory, 2)
+        : mockSession("ses_alpha", projectID, "/a", 3),
+    ],
+  }));
+  mockDirectoryExists.mockImplementation(
+    async (_client, _root, directory) => directory !== location.directory,
+  );
+  const originalPermissions = mockListPermissions.getMockImplementation();
+  mockListPermissions.mockImplementation(async (client, candidate, options) => {
+    if (candidate.directory === location.directory) throw new Error("HTTP 404");
+    if (!originalPermissions) throw new Error("Missing permission fixture");
+    return originalPermissions(client, candidate, options);
+  });
+  mockGetOpenCodeLocation.mockImplementation(async (_client, candidate) => {
+    if (candidate.directory === location.directory) throw new Error("HTTP 404");
+    return mockResolvedLocation(
+      candidate.directory,
+      candidate.directory.startsWith("/b") ? "project-b" : "project-a",
+    );
+  });
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+  });
+  let selectLocation: ((location: LocationRef) => void) | undefined;
+  function SelectRetired() {
+    selectLocation = useFollowedProjects().setLocation;
+    return null;
+  }
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <FollowedProjectsProvider>
+        <SelectRetired />
+        <Capture />
+      </FollowedProjectsProvider>
+    </QueryClientProvider>,
+  );
+  try {
+    await waitFor(() => expect(screen.getByText("freshness:current")).toBeOnTheScreen());
+    act(() => selectLocation?.(location));
+    await waitFor(() =>
+      expect(mockDirectoryExists.mock.calls.some((call) => call[2] === location.directory)).toBe(
+        true,
+      ),
+    );
+    await waitFor(() => expect(screen.getByText(/^complete:/)).toBeOnTheScreen());
+    expect(screen.queryByText(/^unavailable:/)).toBeNull();
   } finally {
     view.unmount();
     queryClient.clear();

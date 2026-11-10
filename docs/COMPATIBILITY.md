@@ -204,6 +204,53 @@ fingerprints and runtime matched the installed baseline under the preview EAS
 environment, and local EAS Update publication succeeded for iOS and Android on
 preview, runtime 0.1.5. Physical-device verification remains pending.
 
+## 2026-11-10: removed sibling worktree, pending device verification
+
+An iPhone screenshot showed a permanent unavailable-location warning for an
+external worktree that only archived sessions referenced. Read-only checks
+against the local server found the directory absent. Interaction lookups at that
+location returned `LocationNotFoundError` (404). A root session list without the
+`archived` parameter included archived roots.
+
+### Root entry in a parent listing
+
+The first published fix below did not clear the warning on the device. The
+worktree was a sibling of its project root, so the removed-directory check lists
+the shared parent through the live root. The server listed every sibling as
+`../name/`, but listed the project root itself as `./`. One level higher, it
+listed the root's parent as `../` among `../../name/` entries. The check rejected
+the whole listing as malformed. A rejected listing never proves absence, so the
+location stayed unavailable. The 2026-10-25 fix covered worktrees whose parent
+does not contain the project root.
+
+The check now ignores only the single entry that leads back to the root when the
+listed parent is an ancestor of the root. Any other unexpected entry still
+rejects the listing. Adapter regression tests for a sibling and a higher ancestor
+failed before the change and passed after it. Run against the local server, the
+fixed check reported the removed sibling absent and a present sibling present.
+The full check sequence passed, including 371 adapter and 1528 mobile tests.
+Both native fingerprints and runtime matched the installed 0.1.6 baseline, and
+local EAS Update publication to preview succeeded for iOS and Android.
+Physical-device verification remains pending.
+
+### Selected location
+
+Opening a session sets the selected location, and it stays set after the user
+leaves the session. The selected location was exempt from the removed-directory
+check, so one visit kept the warning until the app restarted. Selection no
+longer blocks that check, and a failed lookup of a selected location that the
+check proved removed no longer marks coverage incomplete. Active locations,
+notification attention, and cached pending requests keep their protections.
+
+A regression test failed before the change and passed after it. The full lint,
+typecheck, test, and build sequence passed, including 1528 mobile tests and both
+Hermes exports. Physical-device verification remains pending.
+
+Both native fingerprints and runtime matched the installed baseline under the
+preview EAS environment. Local EAS Update publication then succeeded for iOS and
+Android on preview, runtime 0.1.6. Publication does not establish installation
+or device behavior.
+
 ## 2026-10-25: removed external worktrees, pending device verification
 
 An iPhone screenshot showed failed permission and form checks for historical
@@ -215,6 +262,8 @@ published V2 filesystem contract. No missing location was initialized.
 
 The existing retirement check only considered descendants of the project root.
 It now also probes external historical worktrees through the live project root.
+This covered parents that do not contain the project root; see 2026-11-10 for
+sibling worktrees.
 Only a successful, validated listing can establish absence. Active locations,
 selected locations, notification attention, and cached pending requests retain
 their existing protections. Session history remains visible, and refresh checks
