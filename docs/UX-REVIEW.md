@@ -143,9 +143,9 @@ the new scope exposed gaps. All three were satisfied again after round 7.
   tools are red and interrupted ones amber. Code comments are easier to read,
   and the code block header has no dead band. Several images form a grid.
   Transcript and session load failures offer Retry.
-- **Inbox:** Rows keep the specified 70% and 50% fades, but their quiet text
+- **Inbox:** Archived rows keep the specified 50% fade, but their quiet text
   starts brighter so the result clears 4.5:1. Working rows show the working
-  indicator. Header icons match, attention dots sit on their icons, and search
+  indicator at full strength; a 70% fade made them read as archived. Header icons match, attention dots sit on their icons, and search
   has an empty state.
 - **Approvals:** Each pooled request names its project and session. Permission
   cards lead with the action. Reject shows its wider effect before the button,

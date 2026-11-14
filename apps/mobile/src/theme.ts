@@ -27,9 +27,6 @@ export const palette = {
   warm: "#f2c86b",
 } as const;
 
-// Quiet text in inbox rows the spec fades to 70% while working; the composite clears 5.3:1.
-export const fadedWorkingText = "#b8bdca";
-
 // Added 7.7:1 and removed 5.9:1 on their line tints.
 export const diffPalette = {
   addedText: "#86d99a",

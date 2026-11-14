@@ -397,20 +397,25 @@ list shows, in this order:
    ("Approval") or form ("Question") anywhere in their family.
 2. Recent, with no header: root sessions that are not archived, not running,
    and not blocked.
-3. "Working": running root sessions.
-4. "Archived": root sessions whose `time.archived` is set.
+3. "Archived": root sessions whose `time.archived` is set.
+
+"Working", the running root sessions, is not part of the scrolling list. It is
+docked below the list and above the phone bottom menu, so a long Recent or
+Archived list never buries running sessions. Expanded, its rows scroll inside
+the dock once they exceed 40% of the window height. Search hides the dock and
+lists running sessions inline with every other match.
 
 Working and Archived each start under a header with a hairline separator above
 it. The header shows the section name, its count, and a chevron. It is one
 48-point button whose state says whether the section is expanded, and it
 collapses or expands the section. A collapsed section keeps its header and
-count. The device stores each section's state per connection, expanded by
+count. The docked Working section opens upward, so its collapsed chevron points
+up. The device stores each section's state per connection, expanded by
 default. The change animates only when Reduce Motion is off. A section with no
-rows has no header. Working sits above Archived so a long archive never pushes
-running sessions out of reach. With Needs attention, Recent, and Archived all
+rows has no header. With Needs attention, Recent, and Archived all
 empty, the list shows an idle state: "Nothing needs you right now", then
 "Sessions show up here when they're new, need your answer, or finish a run." It
-ends with "Running sessions are under Working." above the Working section while
+ends with "Running sessions are under Working." above the Working dock while
 Working has rows, and "Start one with New session." otherwise.
 
 Recent and Archived list only sessions whose last run finished (`time.idle`),
@@ -452,11 +457,13 @@ dim footnote, with the status on the right: "Approval" or "Question" in amber,
 "Working" and the current run's duration in blue (ticking each second, while
 screen readers hear only "Working"), "Failed" in red or "Done" in green for an
 unread finished run, and otherwise the age of the last run. The second line is
-the title, semibold while unread and dim once read. The third line shows the
+the title, semibold while unread, full-strength ink at the regular weight while
+working, and dim once read. The third line shows the
 branch for a session in the project's checkout or a current worktree, and the
 worktree directory name for a session elsewhere. The app reads VCS only for
 those live directories because reading initializes a location on the server.
-Working rows are at 70% opacity and archived rows at 50%. Rows do not show
+Archived rows are at 50% opacity. Working rows do not fade, so a running
+session never reads as archived. Rows do not show
 child rows or background-task counts, and have no cards or separators between
 them. Search results use the same rows. The row's screen-reader label includes
 the title, project, branch or worktree, state, archive state, and the time of
@@ -587,7 +594,8 @@ state rather than local transcript storage.
   connection.
 - Project, location, directory, and worktree selection for new sessions.
 - Cross-project session inbox in the OpenCode desktop Inbox layout: Needs
-  attention, Recent, Working, and Archived in one scrolling list, server-shared
+  attention, Recent, and Archived in one scrolling list with Working docked
+  below it, server-shared
   archive and read state, and server search and pagination for older sessions.
 - Session transcript with stable live-follow and unread controls.
 - Composer with multiline native editing and model/agent controls.
