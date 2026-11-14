@@ -1896,11 +1896,11 @@ test("compact mode groups consecutive tool calls across assistant messages", asy
       />
     </QueryClientProvider>,
   );
-  const group = await screen.findByRole("button", { name: "3 tool calls" });
+  const group = await screen.findByRole("button", { name: "Used 3 tools" });
   expect(screen.queryByText("Result 0")).toBeNull();
   expect(screen.getByLabelText("Session transcript").props.data).toHaveLength(1);
   fireEvent.press(group);
-  expect(screen.getByRole("button", { name: "3 tool calls" }).props.accessibilityState).toEqual({
+  expect(screen.getByRole("button", { name: "Used 3 tools" }).props.accessibilityState).toEqual({
     expanded: true,
   });
   view.unmount();
@@ -2007,7 +2007,7 @@ test.each([180, 900])(
       </QueryClientProvider>,
     );
     try {
-      await screen.findByRole("button", { name: "40 tool calls" });
+      await screen.findByRole("button", { name: "Used 40 tools" });
       fireEvent(screen.getByLabelText("Session transcript"), "layout", {
         nativeEvent: { layout: { width: 360, height: 700, x: 0, y: 0 } },
       });
@@ -2319,7 +2319,7 @@ test("waits for and adopts a moved session's authoritative location", async () =
       ),
     ).toBeDefined();
 
-    fireEvent.press(await screen.findByRole("button", { name: "1 tool calls" }));
+    fireEvent.press(await screen.findByRole("button", { name: "Used 1 tool" }));
     fireEvent.press(screen.getByRole("button", { name: /Patch.*Show/ }));
     fireEvent.press(await screen.findByRole("button", { name: "Review current changes" }));
     expect(push).toHaveBeenCalledWith("Diff", {
@@ -2387,7 +2387,11 @@ test("expanded background shell follows command output after the session is idle
     </QueryClientProvider>,
   );
   try {
-    fireEvent.press(await screen.findByRole("button", { name: "1 tool calls" }));
+    // The shell outlived its call, so the composer chip counts it as background work.
+    expect(
+      await screen.findByRole("button", { name: "1 shell, running in this session" }),
+    ).toBeOnTheScreen();
+    fireEvent.press(await screen.findByRole("button", { name: "Used 1 tool" }));
     fireEvent.press(screen.getByRole("button", { name: /Shell.*Show/ }));
     expect(await screen.findByText("Build progress 50%")).toBeOnTheScreen();
     expect(screen.queryByText(/Command moved to the background/)).toBeNull();
@@ -2491,6 +2495,8 @@ test("shows running background subagents and opens their child sessions", async 
     </QueryClientProvider>,
   );
 
+  // A background launch folds into the tool group; the composer chip carries its live state.
+  fireEvent.press(await screen.findByRole("button", { name: "Used 1 tool" }));
   expect(await screen.findByText("Inspect event handling")).toBeOnTheScreen();
   fireEvent.press(
     screen.getByRole("button", { name: /^Background subagent, Inspect event handling/ }),

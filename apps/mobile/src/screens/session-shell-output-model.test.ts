@@ -48,9 +48,11 @@ test("keeps output within the byte limit without splitting a character", () => {
   expect(boundShellOutput("øøøøa", false)).toEqual({ output: "øøøa", truncated: true });
 });
 
-test("a removed shell keeps observed output, or starts empty", () => {
+test("a removed shell keeps observed output and info, or starts empty", () => {
+  // The last info stays, so a stopped shell still shows how long it ran.
   expect(missingShellSnapshot(snapshot({ truncated: true }))).toEqual({
     cursor: 3,
+    info,
     output: "one",
     truncated: true,
     missing: true,

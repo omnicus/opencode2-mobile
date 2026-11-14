@@ -195,6 +195,10 @@ export const openCodeQueryKeys = {
   shell(connectionId: string, location: LocationRef, id: string) {
     return [...locationKey(connectionId, location), "shell", id] as const;
   },
+  // Status only, for the background-work chip; shell events invalidate it with the output.
+  shellStatus(connectionId: string, location: LocationRef, id: string) {
+    return [...locationKey(connectionId, location), "shell", id, "status"] as const;
+  },
 };
 
 function connectionKey(connectionId: string) {

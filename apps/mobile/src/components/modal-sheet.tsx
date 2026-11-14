@@ -37,9 +37,13 @@ export function ModalSheet({
   size = "page",
   returnFocusRef,
   closeLabel = "Done",
+  onRequestClose,
 }: {
   children: ReactNode;
   onClose: () => void;
+  // Android back and the iOS dismiss gesture. Defaults to onClose; a sheet with an inner page
+  // passes its own so back returns to the list instead of closing the sheet.
+  onRequestClose?: (() => void) | undefined;
   scrollable?: boolean;
   subtitle?: string;
   title: string;
@@ -58,7 +62,7 @@ export function ModalSheet({
   return (
     <Modal
       animationType={reducedMotion ? "none" : "slide"}
-      onRequestClose={onClose}
+      onRequestClose={onRequestClose ?? onClose}
       onDismiss={() => focusAccessibility(returnFocusRef?.current)}
       onShow={() => focusAccessibility(headingRef.current)}
       presentationStyle={presentationStyle}
@@ -102,7 +106,7 @@ export function ModalSheet({
   );
 }
 
-function focusAccessibility(target: Text | View | null | undefined) {
+export function focusAccessibility(target: Text | View | null | undefined) {
   const handle = target ? findNodeHandle(target) : null;
   if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
 }

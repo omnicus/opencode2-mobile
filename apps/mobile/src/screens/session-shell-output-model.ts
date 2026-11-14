@@ -25,12 +25,14 @@ export function boundShellOutput(output: string, truncated: boolean) {
   return { output: new TextDecoder().decode(bytes.slice(start)), truncated: true };
 }
 
+// Keeps the last known info, so a stopped shell still shows how long it ran.
 export function missingShellSnapshot(previous: ShellSnapshot | undefined): ShellSnapshot {
   return {
     cursor: previous?.cursor ?? 0,
     output: previous?.output ?? "",
     truncated: previous?.truncated ?? false,
     missing: true,
+    ...(previous?.info ? { info: previous.info } : {}),
   };
 }
 

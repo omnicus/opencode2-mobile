@@ -17,8 +17,16 @@ const dots = [0, 1, 2, 3, 4, 5].map((bit) => ({
 }));
 
 // The one working animation, shared by the session list and the session screen. The inbox
-// passes its blue working color so the spinner matches the row's status text.
-export function WorkingIndicator({ color = palette.activity }: { color?: string } = {}) {
+// passes its blue working color so the spinner matches the row's status text. Only the Working
+// line and the background-work chip animate; other running glyphs pass animated={false} and keep
+// the still first frame, so one screen never has a field of spinners ticking out of step.
+export function WorkingIndicator({
+  animated = true,
+  color = palette.activity,
+}: {
+  animated?: boolean;
+  color?: string;
+} = {}) {
   const [reducedMotion, setReducedMotion] = useState(true);
   const [foreground, setForeground] = useState(AppState.currentState === "active");
 
@@ -51,13 +59,14 @@ export function WorkingIndicator({ color = palette.activity }: { color?: string 
               top: (bit % 3) * 4.5,
               opacity: (0x0b & (1 << bit)) !== 0 ? 1 : 0,
             },
-            !reducedMotion && {
-              animationName: animation,
-              animationDuration: 800,
-              animationIterationCount: "infinite",
-              animationTimingFunction: steps(1, "end"),
-              animationPlayState: foreground ? "running" : "paused",
-            },
+            animated &&
+              !reducedMotion && {
+                animationName: animation,
+                animationDuration: 800,
+                animationIterationCount: "infinite",
+                animationTimingFunction: steps(1, "end"),
+                animationPlayState: foreground ? "running" : "paused",
+              },
           ]}
         />
       ))}

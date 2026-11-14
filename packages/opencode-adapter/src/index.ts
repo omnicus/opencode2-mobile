@@ -297,6 +297,16 @@ export async function getOpenCodeShell(
   return response;
 }
 
+// Stops a running shell and drops its record; a later GET answers ShellNotFoundError.
+export function removeOpenCodeShell(
+  client: OpenCodeClient,
+  location: LocationRef,
+  id: string,
+  options?: OpenCodeRequestOptions,
+) {
+  return client.shell.remove({ id, location: locationInput(location) }, options);
+}
+
 export async function getOpenCodeShellOutput(
   client: OpenCodeClient,
   location: LocationRef,

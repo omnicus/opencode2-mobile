@@ -12,6 +12,35 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-14: background shells in the composer chip, pending device verification
+
+The chip above the composer now counts running background shells next to
+subagents, as on desktop ("1 shell", "1 subagent · 2 shells"). Shells come from
+transcript shell calls that started in, or moved to, the background. The
+server's shell status decides whether each one still runs. Foreground shells
+stay in the transcript. The sheet lists Needs you, Subagents and Shells. A shell
+opens a page in the sheet with its command, run time, the last 40 lines of
+output and a confirmed Stop. Stop removes the shell on the server. After the
+shell ends, the page says how it ended. Android back returns from the page to
+the list. An iOS swipe closes the sheet.
+
+To match the OpenCode iOS app, a collapsed tool group now reads "Used N tools",
+with no status label and no chevron. Background subagent launches fold into that
+group, and the chip announces their changes. Only the Working line and the chip
+animate; other running glyphs stay still. Expanded shell rows set the command in
+monospace.
+
+The full lint, typecheck, test, and build sequence passed, including 1566 mobile
+tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Every changed
+file is JavaScript; none is a native fingerprint source under the preview EAS
+environment. Earlier revisions were published to preview through local EAS
+Update. On an iPhone, the chip showed a running background shell and "Used N
+tools" groups. Still unverified on devices: VoiceOver and TalkBack focus on
+opening a shell, Back and Stop; TalkBack speaking dock announcements on Android
+16; the final revision's appearance; Android; and large text. Running shells
+launched before the loaded transcript pages are not found until those pages
+load.
+
 ## 2026-11-14: Working docked above the bottom menu
 
 An iPhone screenshot showed the Working section below a long Recent list, out of
