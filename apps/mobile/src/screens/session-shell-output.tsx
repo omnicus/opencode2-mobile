@@ -5,11 +5,15 @@ import {
   type LocationRef,
   maxShellOutputBytes,
   type OpenCodeClient,
+  removeOpenCodeShell,
+  type SessionMessageInfo,
+  type ShellGetOutput,
 } from "@opencode2-mobile/opencode-adapter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, type ReactNode, useContext } from "react";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createContext, type ReactNode, useCallback, useContext, useMemo } from "react";
 
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
+import { type ShellCandidate, shellCandidates } from "./session-background-shells-model";
 import {
   boundShellOutput,
   missingShellSnapshot,
@@ -18,7 +22,7 @@ import {
   shellRefetchInterval,
 } from "./session-shell-output-model";
 
-type ShellScope = {
+export type ShellScope = {
   client: OpenCodeClient | undefined;
   connectionId: string;
   enabled: boolean;
@@ -85,7 +89,9 @@ function ObservedShell({
       return fetchShellSnapshot(scope.client, scope.location, shellID, previous, signal);
     },
   });
-  const snapshot = scope.enabled ? query.data : undefined;
+  // Keys carry the connection and location, so last-known output never crosses servers; it stays
+  // on screen while the connection is stale instead of falling back to "Loading".
+  const snapshot = query.data;
   return children({
     snapshot,
     error: query.isError,
@@ -137,4 +143,96 @@ async function readShellOutput(
     truncated = cursor > 0 || page.truncated;
   }
   return { cursor: page.cursor, output, truncated };
+}
+
+export type ShellStatus = { info?: ShellGetOutput["data"]; missing: boolean };
+// The last loaded status, and whether the newest refresh of it failed.
+type ShellStatusResult = ShellStatus & { refreshFailed: boolean };
+
+function isSettledShellStatus(status: ShellStatus | undefined) {
+  return Boolean(status && (status.missing || status.info?.status !== "running"));
+}
+
+// Events invalidate shell queries when a shell exits; the slow poll only covers missed events.
+const shellStatusPollMs = 10_000;
+
+// Server status for each shell the transcript says may run in the background, keyed by ID.
+// Unknown until loaded, so a shell that already ended never flashes as running.
+export function useShellStatuses(shellIDs: readonly string[]) {
+  const scope = useContext(SessionShellScope);
+  const results = useQueries({
+    queries: shellIDs.map((shellID) => ({
+      queryKey: scope
+        ? openCodeQueryKeys.shellStatus(scope.connectionId, scope.location, shellID)
+        : ["shell-status-unscoped", shellID],
+      enabled: Boolean(scope?.enabled && scope.client),
+      gcTime: 60_000,
+      retry: 1,
+      // An ended or removed shell never runs again, so shell events and focus do not refetch it.
+      staleTime: (query: { state: { data?: ShellStatus | undefined } }) =>
+        isSettledShellStatus(query.state.data) ? Number.POSITIVE_INFINITY : 0,
+      refetchInterval: (query: { state: { data?: ShellStatus | undefined } }) =>
+        isSettledShellStatus(query.state.data) ? false : shellStatusPollMs,
+      queryFn: async ({ signal }: { signal: AbortSignal }): Promise<ShellStatus> => {
+        if (!scope?.client || !scope.enabled) throw new Error("CONNECTION_NOT_READY");
+        try {
+          const { data } = await getOpenCodeShell(scope.client, scope.location, shellID, {
+            signal,
+          });
+          return { info: data, missing: false };
+        } catch (error) {
+          if (isShellNotFoundError(error)) return { missing: true };
+          throw error;
+        }
+      },
+    })),
+  });
+  // Keys carry the connection and location, so last-known data never crosses servers.
+  const statuses = new Map<string, ShellStatusResult>();
+  shellIDs.forEach((shellID, index) => {
+    const result = results[index];
+    if (result?.data) statuses.set(shellID, { ...result.data, refreshFailed: result.isError });
+  });
+  return statuses;
+}
+
+// Removing a shell stops it. Its queries then refetch, so every view reads how it ended.
+export function useStopShell() {
+  const scope = useContext(SessionShellScope);
+  const queryClient = useQueryClient();
+  const available = Boolean(scope?.enabled && scope.client);
+  const stop = useCallback(
+    async (shellID: string) => {
+      if (!scope?.client || !scope.enabled) throw new Error("CONNECTION_NOT_READY");
+      try {
+        await removeOpenCodeShell(scope.client, scope.location, shellID);
+      } catch (error) {
+        // It ended between the last poll and the stop; refreshing shows how.
+        if (!isShellNotFoundError(error)) throw error;
+      }
+      await queryClient.invalidateQueries({
+        queryKey: openCodeQueryKeys.shell(scope.connectionId, scope.location, shellID),
+      });
+    },
+    [queryClient, scope],
+  );
+  return available ? stop : undefined;
+}
+
+// Background shells the server still reports as running, with the server's start time.
+export function useRunningShells(messages: SessionMessageInfo[]) {
+  const candidates = useMemo(() => shellCandidates(messages), [messages]);
+  const statuses = useShellStatuses(candidates.map((candidate) => candidate.shellID));
+  return candidates.flatMap((candidate): ShellCandidate[] => {
+    const status = statuses.get(candidate.shellID);
+    const info = status?.info;
+    if (info?.status !== "running") return [];
+    return [
+      {
+        ...candidate,
+        ...(status?.refreshFailed ? { lastKnown: true } : {}),
+        startedAt: info.time.started,
+      },
+    ];
+  });
 }

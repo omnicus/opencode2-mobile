@@ -81,6 +81,7 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     string,
     { info: Record<string, unknown>; output: string; pollsBeforeExit: number; final: string }
   >();
+  const removedShells = new Set<string>();
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(
@@ -191,13 +192,19 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     const shellMatch = url.pathname.match(/^\/api\/shell\/([^/]+)(\/output)?$/);
     if (shellMatch && method === "DELETE") {
       const id = decodeURIComponent(shellMatch[1] ?? "");
-      if (!createdShells.delete(id)) {
+      const configured = Boolean(options.shells?.[id]) && !removedShells.has(id);
+      if (!createdShells.delete(id) && !configured) {
         return json({ _tag: "ShellNotFoundError", id, message: "Shell not found" }, 404);
       }
+      // Removing a shell stops it and drops its record, as on the server.
+      removedShells.add(id);
       return new Response(null, { status: 204 });
     }
     if (shellMatch && method === "GET") {
       const id = decodeURIComponent(shellMatch[1] ?? "");
+      if (removedShells.has(id)) {
+        return json({ _tag: "ShellNotFoundError", id, message: "Shell not found" }, 404);
+      }
       const created = createdShells.get(id);
       if (created && !shellMatch[2]) {
         const running = created.pollsBeforeExit > 0;

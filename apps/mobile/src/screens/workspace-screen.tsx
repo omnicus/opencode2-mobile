@@ -93,7 +93,7 @@ import { SessionActionSheet } from "./session-action-sheet";
 import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { SessionExecutionPanel, SessionWorkingStatus } from "./session-execution-panel";
-import { SessionShellScope } from "./session-shell-output";
+import { SessionShellScope, type ShellScope } from "./session-shell-output";
 import {
   buildTranscriptPresentation,
   PendingPromptRow,
@@ -967,6 +967,16 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     client && connectionId === routeConnectionId && sessionLocationReady,
   );
   const vcsQuery = useSessionVcsQuery(client, connectionId, sessionLocation, resourcesReady);
+  // The background-work chip reads shell status whichever tab is selected.
+  const dockShellScope = useMemo(
+    () => ({
+      client: client ?? undefined,
+      connectionId: routeConnectionId,
+      enabled: resourcesReady && screenFocused,
+      location: sessionLocation,
+    }),
+    [client, resourcesReady, routeConnectionId, screenFocused, sessionLocation],
+  );
   const messagesQuery = useSessionMessagesQuery({
     client,
     connectionId,
@@ -1130,6 +1140,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         sessionForms={sessionForms}
         sessionID={sessionID}
         sessionLocation={sessionLocation}
+        shellScope={dockShellScope}
         tablet={isTabletShell(width)}
       />
       <SessionDockComposer
@@ -1731,6 +1742,7 @@ function SessionDockPanel({
   sessionForms,
   sessionID,
   sessionLocation,
+  shellScope,
   subagentAttention,
   tablet,
 }: {
@@ -1751,21 +1763,24 @@ function SessionDockPanel({
   sessionForms: WorkspaceSelection["forms"];
   sessionID: string;
   sessionLocation: LocationRef;
+  shellScope: ShellScope;
   subagentAttention: SubagentAttentionMap;
   tablet: boolean;
 }) {
   return (
     <>
-      <SessionBackgroundTasks
-        key={routeSessionScope}
-        activeSessions={activeSessions}
-        attention={subagentAttention}
-        sessionID={sessionID}
-        messages={messages}
-        onOpenChild={onOpenChild}
-        onStopChild={monitorStale ? undefined : onStopChild}
-        stale={monitorStale}
-      />
+      <SessionShellScope.Provider value={shellScope}>
+        <SessionBackgroundTasks
+          key={routeSessionScope}
+          activeSessions={activeSessions}
+          attention={subagentAttention}
+          sessionID={sessionID}
+          messages={messages}
+          onOpenChild={onOpenChild}
+          onStopChild={monitorStale ? undefined : onStopChild}
+          stale={monitorStale}
+        />
+      </SessionShellScope.Provider>
       <SessionExecutionPanel
         hideInterrupt
         hideStatus

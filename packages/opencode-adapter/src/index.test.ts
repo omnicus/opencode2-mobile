@@ -55,6 +55,7 @@ import {
   ptyWebSocketUrl,
   queueOpenCodeSessionInboxItem,
   removeOpenCodeSession,
+  removeOpenCodeShell,
   renameOpenCodeSession,
   replyOpenCodeForm,
   replyOpenCodePermissionRequest,
@@ -188,6 +189,21 @@ describe("background shell output", () => {
       getOpenCodeShellOutput(client, { directory: "/workspace" }, "sh_test"),
     ).rejects.toThrow("MALFORMED_SHELL_OUTPUT");
     const error = await getOpenCodeShell(client, { directory: "/workspace" }, "sh_missing").catch(
+      (error: unknown) => error,
+    );
+    expect(isShellNotFoundError(error)).toBe(true);
+  });
+  it("stops a shell at its exact location, after which it is not found", async () => {
+    const fixture = createFakeOpenCodeApi({ shells: { sh_test: { info, output: "" } } });
+    const client = createOpenCodeClient({ baseUrl: "http://fake.invalid", fetch: fixture.fetch });
+    const location = { directory: "/workspace/child" };
+    await removeOpenCodeShell(client, location, "sh_test");
+    expect(fixture.requests.at(-1)).toMatchObject({
+      method: "DELETE",
+      path: "/api/shell/sh_test",
+      query: { "location[directory]": ["/workspace/child"] },
+    });
+    const error = await getOpenCodeShell(client, location, "sh_test").catch(
       (error: unknown) => error,
     );
     expect(isShellNotFoundError(error)).toBe(true);

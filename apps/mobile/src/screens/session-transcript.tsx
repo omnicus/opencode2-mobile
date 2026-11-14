@@ -22,10 +22,10 @@ import { SelectableTranscriptText } from "../components/selectable-transcript-te
 import {
   SubagentMetaLine,
   SubagentStatusGlyph,
+  subagentOutcomeLabel,
   subagentStateLabel,
 } from "../components/subagent-status";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
-import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { recordTranscriptRowCommit } from "../state/transcript-performance";
 import {
   markdownPalette,
@@ -39,6 +39,7 @@ import {
   typography,
 } from "../theme";
 import type { PendingPromptPreview } from "./prompt-admission-model";
+import { shellToolNames, shortShellCommand } from "./session-background-shells-model";
 import { ShellObservation } from "./session-shell-output";
 import {
   getSubagentPresentation,
@@ -210,15 +211,21 @@ function splitAssistantProse(message: SessionMessageInfo): SessionMessageInfo[] 
   }));
 }
 
+// Background subagent launches fold into the tool group like any call, as in the OpenCode iOS
+// app: the composer chip and its sheet carry their live state. A subagent that blocks the turn
+// keeps its own card.
 function isActivityMessage(message: SessionMessageInfo): message is AssistantMessage {
   return (
     message.type === "assistant" &&
     !message.error &&
     !message.retry &&
     message.content.length > 0 &&
-    message.content.every((part) =>
-      part.type === "reasoning" ? true : part.type === "tool" && !getSubagentPresentation(part),
-    )
+    message.content.every((part) => {
+      if (part.type === "reasoning") return true;
+      if (part.type !== "tool") return false;
+      const subagent = getSubagentPresentation(part);
+      return !subagent || subagent.background;
+    })
   );
 }
 
@@ -337,6 +344,19 @@ export function activitySummary(messages: SessionMessageInfo[]) {
   return `Used ${total} ${[...counts.keys()].join(", ")}${failures ? ` · ${failures} failed` : ""}`;
 }
 
+// "3 Shell, Read": what the group used, without the failure count the label already carries.
+function activityToolNames(messages: SessionMessageInfo[]) {
+  const counts = new Map<string, number>();
+  for (const message of messages) {
+    if (message.type !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type === "tool")
+        counts.set(capitalize(part.name), (counts.get(capitalize(part.name)) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()].map(([name, count]) => `${count} ${name}`).join(", ");
+}
+
 export function activityFailureSummary(messages: SessionMessageInfo[]) {
   let failed = 0;
   let interrupted = 0;
@@ -374,65 +394,41 @@ export function TranscriptActivityGroup({
 }) {
   const [expanded, setExpanded] = useState(false);
   const failureSummary = activityFailureSummary(item.messages);
-  const hasRun = useRef(item.running);
-  if (item.running) hasRun.current = true;
-  const settled = useDelayedVisibility(hasRun.current && !item.running, item.id);
-  const running = item.running || (hasRun.current && !settled && !failureSummary);
-  const progressLabel = waitingFor
-    ? `Waiting for ${waitingFor}`
-    : item.running
-      ? "Running"
-      : failureSummary
-        ? /failed/.test(failureSummary)
-          ? "Failed"
-          : "Interrupted"
-        : running
-          ? "Running"
-          : "Finished";
+  // A quiet "Used 3 tools", as in the OpenCode iOS app. The Working line already says the turn
+  // runs; failures keep their caption, inside the button so it is part of what to tap.
+  const summary = `Used ${item.count} ${item.count === 1 ? "tool" : "tools"}`;
+  const running = item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : "";
   return (
     <View style={styles.activityGroup}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${item.count} tool calls`}
-        accessibilityHint={`${item.running ? (waitingFor ? `Waiting for ${waitingFor}. ` : "Running. ") : ""}${activitySummary(item.messages)}. ${failureSummary ? `${failureSummary}. ` : ""}Expand or collapse execution details.`}
+        accessibilityLabel={
+          failureSummary ? `${summary}, ${failureSummary.replaceAll(" · ", ", ")}` : summary
+        }
+        accessibilityHint={`${running}${activityToolNames(item.messages)}. ${expanded ? "Hides" : "Shows"} tool details.`}
         accessibilityState={{ expanded }}
         android_ripple={rippleFeedback.row}
         onPress={() => setExpanded((value) => !value)}
         style={({ pressed }) => [
           styles.activityGroupHeader,
-          largeText && styles.activityGroupHeaderLargeText,
           pressed && Platform.OS === "ios" && styles.pressed,
         ]}
       >
-        <Text
-          dynamicTypeRamp={typeRamp.body}
-          style={[styles.activitySummary, largeText && styles.activitySummaryLargeText]}
-        >
-          Used <Text style={styles.activityLabel}>{activitySummary(item.messages).slice(5)}</Text>
+        <Text dynamicTypeRamp={typeRamp.body} style={styles.activitySummary}>
+          {summary}
         </Text>
-        <Text
-          dynamicTypeRamp={typeRamp.body}
-          style={[
-            styles.toolProgress,
-            failureSummary &&
-              (progressLabel === "Failed" ? styles.toolProgressFailed : styles.toolProgressStopped),
-          ]}
-        >
-          {progressLabel}
-        </Text>
-        <DisclosureChevron expanded={expanded} />
+        {failureSummary && !expanded ? (
+          <Text
+            dynamicTypeRamp={typeRamp.caption}
+            style={[
+              styles.activityFailureSummary,
+              !/failed/.test(failureSummary) && styles.activityStoppedSummary,
+            ]}
+          >
+            {failureSummary}. Expand for details.
+          </Text>
+        ) : null}
       </Pressable>
-      {failureSummary && !expanded ? (
-        <Text
-          dynamicTypeRamp={typeRamp.caption}
-          style={[
-            styles.activityFailureSummary,
-            progressLabel !== "Failed" && styles.activityStoppedSummary,
-          ]}
-        >
-          {failureSummary}. Expand for details.
-        </Text>
-      ) : null}
       <TranscriptImages images={messageToolImages(item.messages)} />
       {expanded
         ? item.messages.map((message) => (
@@ -1008,6 +1004,8 @@ function ToolCallDisclosure({
     toolCallPresentation(tool, nested);
   const visibleContent = content.slice(0, maxToolOutputs);
   const showOutcome = !nested || expanded;
+  const shellCommandPreview =
+    category === "shell" && !expanded && !(nested && error) ? presentation.command : undefined;
   return (
     <View
       style={[
@@ -1018,7 +1016,16 @@ function ToolCallDisclosure({
     >
       <ActivityHeader
         canExpand={canExpand}
-        detail={expanded ? toolStatusLabel(tool) : nested && error ? error : presentation.detail}
+        command={shellCommandPreview}
+        detail={
+          expanded
+            ? toolStatusLabel(tool)
+            : nested && error
+              ? error
+              : shellCommandPreview
+                ? toolStatusLabel(tool)
+                : presentation.detail
+        }
         error={Boolean(error)}
         expanded={expanded}
         label={label}
@@ -1174,7 +1181,9 @@ function ToolShellObservation({
           ) : null}
           <ShellOutput
             command={firstInputString(input, ["command", "cmd"], maxSanitizedInput)}
-            follow={observation?.snapshot?.info?.status === "running"}
+            follow={
+              observation?.snapshot?.info?.status === "running" && !observation.snapshot.missing
+            }
             text={
               observation
                 ? (observation.snapshot?.output ?? "")
@@ -1251,6 +1260,7 @@ function DiffAction({ onPress }: { onPress: () => void }) {
 
 function ActivityHeader({
   canExpand,
+  command,
   error = false,
   detail,
   expanded,
@@ -1259,6 +1269,9 @@ function ActivityHeader({
   onPress,
 }: {
   canExpand: boolean;
+  // A shell command, set on one line in monospace like the OpenCode iOS app; detail follows it
+  // in the regular face.
+  command?: string | undefined;
   error?: boolean;
   detail?: string | undefined;
   expanded: boolean;
@@ -1269,7 +1282,7 @@ function ActivityHeader({
   return (
     <Pressable
       accessibilityRole={canExpand ? "button" : undefined}
-      accessibilityLabel={`${label}${detail ? ` ${detail}` : ""}${canExpand ? (expanded ? " Hide" : " Show") : ""}`}
+      accessibilityLabel={`${label}${command ? ` ${shortShellCommand(sanitizeTranscriptText(command, 512))}` : ""}${detail ? `${command ? "," : ""} ${detail}` : ""}${canExpand ? (expanded ? " Hide" : " Show") : ""}`}
       accessibilityState={canExpand ? { expanded } : undefined}
       disabled={!canExpand}
       onPress={onPress}
@@ -1283,13 +1296,18 @@ function ActivityHeader({
         <Text dynamicTypeRamp={typeRamp.body} style={styles.activityLabel}>
           {sanitizeTranscriptText(label, 128)}
         </Text>
-        {detail ? (
+        {command || detail ? (
           <Text
             dynamicTypeRamp={typeRamp.body}
             numberOfLines={largeText ? undefined : 1}
             style={[styles.activityDetail, error && { color: palette.danger }]}
           >
-            {sanitizeTranscriptText(detail, 512)}
+            {command ? (
+              <Text style={styles.activityDetailCode}>
+                {sanitizeTranscriptText(command, 512).replace(/\s+/g, " ").trim()}
+              </Text>
+            ) : null}
+            {detail ? `${command ? " · " : ""}${sanitizeTranscriptText(detail, 512)}` : null}
           </Text>
         ) : null}
       </View>
@@ -1459,7 +1477,9 @@ function SubagentCard({
   const kind = presentation.background ? "Background subagent" : "Subagent";
   const title = sanitizeTranscriptText(presentation.title, 256);
   const agent = presentation.agent ? `@${sanitizeTranscriptText(presentation.agent, 128)}` : "";
-  useSubagentTransitionAnnouncement(kind, state, title);
+  // The background-work chip owns announcements for background children, so an expanded card
+  // never repeats one; a blocking child's card announces its own.
+  useSubagentTransitionAnnouncement(kind, state, title, !presentation.background);
   return (
     <View
       style={[styles.subagent, state === "waiting" && styles.subagentWaiting]}
@@ -1488,6 +1508,7 @@ function SubagentCard({
             {title}
           </Text>
           <SubagentMetaLine
+            live={!presentation.background}
             agent={agent}
             background={presentation.background}
             finishedAt={presentation.finishedAt}
@@ -1538,26 +1559,17 @@ function useSubagentTransitionAnnouncement(
   kind: string,
   state: SubagentPresentation["state"],
   title: string,
+  enabled: boolean,
 ) {
   const previousState = useRef(state);
   useEffect(() => {
     const previous = previousState.current;
     previousState.current = state;
     // Announce the transition only; finished cards in the history stay quiet.
-    if (previous === state || state === "running" || state === "streaming") return;
-    const outcome =
-      state === "waiting"
-        ? "needs you"
-        : state === "error"
-          ? "failed"
-          : state === "interrupted"
-            ? "was interrupted"
-            : state === "finished"
-              ? // The child stopped without reporting how, so never claim success.
-                "finished, outcome unknown"
-              : "completed";
+    const outcome = subagentOutcomeLabel(state);
+    if (!enabled || previous === state || !outcome) return;
     announceOnIOS(`${kind} ${title} ${outcome}`);
-  }, [kind, state, title]);
+  }, [enabled, kind, state, title]);
 }
 
 // One disclosure marker for every expandable transcript row.
@@ -1869,7 +1881,6 @@ const patchToolNames = new Set([
   "patch",
   "write",
 ]);
-const shellToolNames = new Set(["bash", "command", "exec", "shell", "terminal"]);
 const skillToolNames = new Set(["skill", "use_skill"]);
 
 function toolCategory(tool: AssistantTool): ToolCategory {
@@ -2108,16 +2119,11 @@ function keyDisclosureText(entries: string[]) {
 }
 
 const styles = StyleSheet.create({
-  toolProgress: { ...typography.chatActivity, color: palette.dim, flexShrink: 0 },
   // Failed is an error; Interrupted is a stop the user may have asked for.
-  toolProgressFailed: { color: palette.danger },
-  toolProgressStopped: { color: palette.warm },
   activityStoppedSummary: { color: palette.warm },
   activityFailureSummary: {
     ...typography.caption,
     color: palette.danger,
-    paddingHorizontal: space.sm,
-    paddingBottom: space.sm,
   },
   shellOutputBox: {
     backgroundColor: palette.raised,
@@ -2159,17 +2165,14 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   activityGroupHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    flexWrap: "nowrap",
-    gap: space.sm,
-    justifyContent: "flex-start",
+    alignItems: "flex-start",
+    flexDirection: "column",
+    gap: 2,
+    justifyContent: "center",
     minHeight: minTouchTarget,
     paddingHorizontal: 0,
     paddingVertical: space.sm,
   },
-  activityGroupHeaderLargeText: { flexWrap: "wrap" },
-  activitySummaryLargeText: { flexBasis: "100%" },
   activity: {
     paddingHorizontal: 0,
   },
@@ -2198,6 +2201,11 @@ const styles = StyleSheet.create({
   },
   activityCopyLargeText: { alignItems: "flex-start", flexDirection: "column", gap: 2 },
   activityDetail: { ...typography.chatActivity, color: palette.dim, flexShrink: 1 },
+  activityDetailCode: {
+    fontFamily: typography.code.fontFamily,
+    fontSize: typography.subheadline.fontSize,
+    lineHeight: typography.chatActivity.lineHeight,
+  },
   activityFile: {
     ...typography.code,
     borderTopColor: palette.border,

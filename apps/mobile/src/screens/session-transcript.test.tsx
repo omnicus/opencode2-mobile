@@ -1,6 +1,6 @@
 import { afterEach, expect, jest, test } from "@jest/globals";
 import type { SessionMessageInfo } from "@opencode2-mobile/opencode-adapter";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
 import { AccessibilityInfo, Alert, Linking, Platform, StyleSheet, View } from "react-native";
 
@@ -21,8 +21,7 @@ import { subagentStates } from "./session-transcript-model";
 
 afterEach(resetTranscriptPerformanceMetrics);
 
-test("tool progress holds Running through brief completion gaps", () => {
-  jest.useFakeTimers();
+test("the tool group reads Used N tools, with no status or chevron", () => {
   const item = {
     type: "activity-group" as const,
     id: "activity:test",
@@ -37,21 +36,15 @@ test("tool progress holds Running through brief completion gaps", () => {
     onOpenSubagent: jest.fn(),
   };
   const view = render(<TranscriptActivityGroup {...props} item={item} />);
-  try {
-    expect(screen.getByText("Running")).toBeOnTheScreen();
-    view.rerender(<TranscriptActivityGroup {...props} item={{ ...item, running: false }} />);
-    act(() => jest.advanceTimersByTime(500));
-    expect(screen.queryByText("Finished")).toBeNull();
-    view.rerender(<TranscriptActivityGroup {...props} item={item} />);
-    act(() => jest.advanceTimersByTime(1000));
-    expect(screen.queryByText("Finished")).toBeNull();
-    view.rerender(<TranscriptActivityGroup {...props} item={{ ...item, running: false }} />);
-    act(() => jest.advanceTimersByTime(1000));
-    expect(screen.getByText("Finished")).toBeOnTheScreen();
-  } finally {
-    view.unmount();
-    jest.useRealTimers();
-  }
+  // The Working line says the turn runs; the group itself stays quiet, as in OpenCode iOS.
+  expect(screen.getByRole("button", { name: "Used 1 tool" })).toBeOnTheScreen();
+  expect(screen.getByText("Used 1 tool")).toHaveStyle({ color: palette.dim });
+  expect(screen.queryByText("Running")).toBeNull();
+  view.rerender(
+    <TranscriptActivityGroup {...props} item={{ ...item, count: 3, running: false }} />,
+  );
+  expect(screen.getByRole("button", { name: "Used 3 tools" })).toBeOnTheScreen();
+  expect(screen.queryByText("Finished")).toBeNull();
 });
 
 test("empty assistant snapshots do not flash placeholder rows between tool updates", () => {
@@ -214,7 +207,7 @@ test("nested activity reveals individual calls before their output", () => {
     />,
   );
   expect(screen.queryByText(output)).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "1 tool calls" }));
+  fireEvent.press(screen.getByRole("button", { name: "Used 1 tool" }));
   expect(screen.queryByText(output)).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: /Shell.*Show/ }));
   expect(screen.getByText(output)).toBeOnTheScreen();
@@ -285,8 +278,11 @@ test("collapsed failures distinguish interruptions without exposing server error
     />,
   );
   expect(screen.getByText("1 failed · 1 interrupted. Expand for details.")).toBeOnTheScreen();
-  expect(screen.getByText("2 Shell · 2 failed")).toHaveStyle(typography.chatActivity);
-  expect(screen.getByText("Failed")).toBeOnTheScreen();
+  // The failures are part of the button's name, not only its hint.
+  expect(
+    screen.getByRole("button", { name: "Used 2 tools, 1 failed, 1 interrupted" }),
+  ).toBeOnTheScreen();
+  expect(screen.getByText("Used 2 tools")).toHaveStyle(typography.chatActivity);
   expect(screen.queryByText(/private\/path|secret failure detail/)).toBeNull();
 });
 
@@ -1404,10 +1400,13 @@ test("background subagent launches stay running until the child reports a result
   expect(screen.getByText("Running")).toBeOnTheScreen();
 
   const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
+  announce.mockClear();
   view.rerender(row([notification, launch]));
   expect(screen.getByText("Completed")).toBeOnTheScreen();
   expect(screen.getByTestId("subagent-card")).toHaveStyle({ borderColor: palette.border });
-  expect(announce).toHaveBeenCalledWith("Background subagent Restyle Sessions list completed");
+  // The background-work chip owns this announcement; the card stays quiet so it is read once.
+  expect(announce).not.toHaveBeenCalled();
+  expect(screen.getByText(/@general · Background/).props.accessibilityLiveRegion).toBe("none");
   announce.mockRestore();
 
   // Leaving the active list with no reported outcome is announced neutrally, never as success.
@@ -1417,14 +1416,8 @@ test("background subagent launches stay running until the child reports a result
     </SessionSubagentStates.Provider>
   );
   view.rerender(inferred({ ses_child: {} }));
-  const neutral = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
   view.rerender(inferred({}));
   expect(screen.getByText("Finished")).toBeOnTheScreen();
-  expect(neutral).toHaveBeenCalledWith(
-    "Background subagent Restyle Sessions list finished, outcome unknown",
-  );
-  expect(neutral).not.toHaveBeenCalledWith(expect.stringMatching(/completed$/));
-  neutral.mockRestore();
 });
 
 test("projects injected background results into subagent cards", () => {
@@ -1959,4 +1952,37 @@ test.each(["ios", "android"] as const)("subagent cards give press feedback on %s
   } finally {
     platform.restore();
   }
+});
+
+test("background subagent launches fold into the tool group; blocking ones keep a card", () => {
+  const launch = (background: boolean): SessionMessageInfo =>
+    ({
+      id: `msg_${background ? "background" : "blocking"}`,
+      type: "assistant",
+      agent: "build",
+      model: { id: "model", providerID: "provider" },
+      time: { created: 1, completed: 2 },
+      content: [
+        {
+          id: `tool_${background}`,
+          name: "subagent",
+          type: "tool",
+          time: { created: 1 },
+          state: {
+            status: background ? "completed" : "running",
+            input: { background, description: "Review", subagent_type: "review" },
+            metadata: { sessionID: "ses_child" },
+            ...(background
+              ? { content: [{ type: "text", text: "Working in the background." }] }
+              : {}),
+          },
+        },
+      ],
+    }) as SessionMessageInfo;
+  expect(groupTranscriptMessages([launch(true)], false, true)).toEqual([
+    expect.objectContaining({ type: "activity-group", count: 1 }),
+  ]);
+  expect(groupTranscriptMessages([launch(false)], false, true)).toEqual([
+    expect.objectContaining({ id: "msg_blocking", type: "assistant" }),
+  ]);
 });
