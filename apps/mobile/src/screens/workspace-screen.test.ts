@@ -85,9 +85,9 @@ test("keeps a large paginated list stable and accepts an empty response", () => 
   expect(flattenSessionPages([{ cursor: {}, data: [] }])).toEqual([]);
 });
 
-const allExpanded = { archived: true, working: true };
+const allExpanded = { archived: true };
 
-test("lists Needs attention and Recent without headers, then Working and Archived", () => {
+test("lists Needs attention and Recent without headers, then Archived, and leaves Working to the dock", () => {
   const inbox = sections({
     archived: [row("ses_archived", 3)],
     needsYou: [row("ses_blocked", 1)],
@@ -96,35 +96,26 @@ test("lists Needs attention and Recent without headers, then Working and Archive
   });
 
   const items = workspaceInboxItems(inbox, allExpanded);
-  expect(keys(items)).toEqual([
-    "ses_blocked",
-    "ses_a",
-    "ses_b",
-    "header:working",
-    "ses_working",
-    "ses_working_2",
-    "header:archived",
-    "ses_archived",
-  ]);
+  expect(keys(items)).toEqual(["ses_blocked", "ses_a", "ses_b", "header:archived", "ses_archived"]);
   expect(items[3]).toEqual({
-    count: 2,
+    count: 1,
     expanded: true,
-    key: "header:working",
-    section: "working",
+    key: "header:archived",
+    section: "archived",
     type: "header",
   });
 });
 
-test("collapsed sections keep their header and count but hide their rows", () => {
+test("a collapsed section keeps its header and count but hides its rows", () => {
   const inbox = sections({
     archived: [row("ses_archived", 3)],
     recent: [row("ses_a", 50)],
     working: [row("ses_working", 2)],
   });
 
-  const items = workspaceInboxItems(inbox, { archived: false, working: false });
-  expect(keys(items)).toEqual(["ses_a", "header:working", "header:archived"]);
-  expect(items[2]).toMatchObject({ count: 1, expanded: false, section: "archived" });
+  const items = workspaceInboxItems(inbox, { archived: false });
+  expect(keys(items)).toEqual(["ses_a", "header:archived"]);
+  expect(items[1]).toMatchObject({ count: 1, expanded: false, section: "archived" });
 });
 
 test("empty sections have no header", () => {

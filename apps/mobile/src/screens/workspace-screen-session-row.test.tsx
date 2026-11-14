@@ -5,7 +5,7 @@ import * as Haptics from "expo-haptics";
 import type { ReactNode } from "react";
 import { StyleSheet } from "react-native";
 import type { FollowedInboxRow } from "../state/followed-project-inbox";
-import { fadedWorkingText, palette, pressedOpacity } from "../theme";
+import { palette, pressedOpacity } from "../theme";
 import {
   runSessionRowAction,
   SessionRow,
@@ -207,7 +207,7 @@ test("the third line shows the branch, else the worktree, else nothing", () => {
   expect(screen.getByText("Project")).toBeOnTheScreen();
 });
 
-test("unread titles are semibold, working rows and archived rows recede", () => {
+test("unread titles are semibold, working rows stay at full strength, archived rows recede", () => {
   const view = renderRow(row({ status: "done" }));
   const title = () => StyleSheet.flatten(screen.getByText("Build the app").props.style);
   const copy = () => StyleSheet.flatten(screen.getByTestId("session-row-copy").props.style);
@@ -217,11 +217,13 @@ test("unread titles are semibold, working rows and archived rows recede", () => 
   view.rerender(rowElement(row(), view.handlers));
   expect(title()).toMatchObject({ color: palette.dim });
 
-  // Faded rows start from brighter text so the composite still clears 4.5:1.
+  // A running row is live, so it never fades like an archived one.
   view.rerender(rowElement(row({ status: "working" }), view.handlers));
-  expect(title()).toMatchObject({ color: fadedWorkingText });
-  expect(copy()).toMatchObject({ opacity: 0.7 });
+  expect(title()).toMatchObject({ color: palette.ink });
+  expect(title()).not.toHaveProperty("fontWeight", "600");
+  expect(copy()).not.toHaveProperty("opacity");
 
+  // Archived rows start from brighter text so the faded composite still clears 4.5:1.
   view.rerender(rowElement(row({ archived: true }), view.handlers));
   expect(title()).toMatchObject({ color: palette.ink });
   expect(copy()).toMatchObject({ opacity: 0.5 });

@@ -42,6 +42,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -172,6 +173,9 @@ const rowRipple = rippleFeedback.row;
 const borderlessRipple = rippleFeedback.borderless;
 // Keeps the last rows of every Sessions tab clear of the floating bottom menu.
 const bottomMenuInset = 96;
+// Expanded Working rows scroll inside the dock past this share of the window, so the list
+// above always keeps room.
+const workingDockMaxHeightRatio = 0.4;
 
 export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const db = useSQLiteContext();
@@ -179,7 +183,7 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const workspaceSelection = useWorkspaceSelection();
   const connections = useConnections();
   const queryClient = useQueryClient();
-  const { fontScale, width } = useWindowDimensions();
+  const { fontScale, height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const largeText = usesLargeTextLayout(fontScale);
@@ -246,10 +250,10 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
   const inbox = workspaceSelection.inbox;
   const inboxItems: WorkspaceInboxItem[] = deferredSessionSearch
     ? searchResultItems(inbox)
-    : workspaceInboxItems(inbox, {
-        archived: workspaceSelection.archivedExpanded,
-        working: workspaceSelection.workingExpanded,
-      });
+    : workspaceInboxItems(inbox, { archived: workspaceSelection.archivedExpanded });
+  // Running sessions dock below the list, so a long Recent list never buries them. Search
+  // lists them inline with every other match instead.
+  const workingDocked = !deferredSessionSearch && inbox.working.length > 0;
   // With only running sessions, the idle state still says nothing needs you, above Working.
   const onlyWorking =
     !deferredSessionSearch &&
@@ -400,13 +404,8 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
             onLoadMore: () => void workspaceSelection.fetchNextPage(),
             search: deferredSessionSearch,
           })}
-          ListHeaderComponent={
-            <>
-              {header}
-              {onlyWorking ? emptyState : null}
-            </>
-          }
-          contentContainerStyle={styles.listContent}
+          ListHeaderComponent={header}
+          contentContainerStyle={[styles.listContent, workingDocked && styles.listContentDocked]}
           data={inboxItems}
           extraData={fontScale}
           keyboardShouldPersistTaps="handled"
@@ -436,6 +435,22 @@ export function WorkspaceScreen({ navigation }: WorkspaceProps) {
           updateCellsBatchingPeriod={40}
           windowSize={7}
         />
+        {workingDocked ? (
+          <WorkingDock
+            bottomInset={tablet ? 0 : bottomMenuInset}
+            expanded={workspaceSelection.workingExpanded}
+            maxRowsHeight={height * workingDockMaxHeightRatio}
+            onToggle={() =>
+              toggleInboxSection(
+                workspaceSelection,
+                { expanded: workspaceSelection.workingExpanded, section: "working" },
+                reducedMotion,
+              )
+            }
+            renderRow={renderRow}
+            rows={inbox.working}
+          />
+        ) : null}
       </View>
       {tablet ? null : (
         <WorkspaceBottomMenu
@@ -2165,18 +2180,61 @@ function ComposerDock({ children, dock }: { children: ReactNode; dock: ComposerD
   );
 }
 
+// Running sessions pinned under the session list and above the bottom menu. The header
+// collapses the dock to one line; expanded, rows scroll inside it past maxRowsHeight.
+function WorkingDock({
+  bottomInset,
+  expanded,
+  maxRowsHeight,
+  onToggle,
+  renderRow,
+  rows,
+}: {
+  bottomInset: number;
+  expanded: boolean;
+  maxRowsHeight: number;
+  onToggle: () => void;
+  renderRow: (row: FollowedInboxRow) => ReactNode;
+  rows: readonly FollowedInboxRow[];
+}) {
+  return (
+    <View style={[styles.workingDock, { paddingBottom: bottomInset }]} testID="working-dock">
+      <InboxSectionHeader
+        count={rows.length}
+        docked
+        expanded={expanded}
+        onToggle={onToggle}
+        section="working"
+      />
+      {expanded ? (
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          style={{ maxHeight: maxRowsHeight }}
+          testID="working-dock-rows"
+        >
+          {rows.map(renderRow)}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
 // The separator above Working and Archived. It shows the section's count and collapses it.
 function InboxSectionHeader({
   count,
+  docked = false,
   expanded,
   onToggle,
   section,
 }: {
   count: number;
+  // A docked section opens upward, so its collapsed chevron points up.
+  docked?: boolean;
   expanded: boolean;
   onToggle: () => void;
   section: CollapsibleInboxSection;
 }) {
+  const collapsedIcon = docked ? "chevron-up" : "chevron-right";
   const label = workspaceSectionLabels[section];
   const sessions = `${section} sessions`;
   return (
@@ -2203,7 +2261,7 @@ function InboxSectionHeader({
         <Feather
           accessible={false}
           color={palette.dim}
-          name={expanded ? "chevron-down" : "chevron-right"}
+          name={expanded ? "chevron-down" : collapsedIcon}
           size={16}
         />
       </View>
@@ -2450,6 +2508,8 @@ const styles = StyleSheet.create({
     paddingBottom: bottomMenuInset,
     width: "100%",
   },
+  // The Working dock already clears the bottom menu, so the list needs only a small gap.
+  listContentDocked: { paddingBottom: space.md },
   listFooter: { alignItems: "center", padding: space.lg },
   listSectionHeader: {
     alignItems: "center",
@@ -2469,6 +2529,12 @@ const styles = StyleSheet.create({
   staleRoute: { alignSelf: "center", maxWidth: 640, padding: space.lg, width: "100%" },
   staleRouteAction: { marginTop: space.md },
   tabPanel: { flex: 1 },
+  workingDock: {
+    alignSelf: "center",
+    backgroundColor: palette.background,
+    maxWidth: 760,
+    width: "100%",
+  },
   workspaceActions: { alignItems: "center", flexDirection: "row", gap: space.sm },
   transcriptContainer: { flex: 1 },
   transcriptList: { flex: 1 },

@@ -1180,7 +1180,7 @@ test("the Archived section collapses and expands, and stores it", async () => {
   }
 });
 
-test("lists Needs attention and Recent without headers, then Working above Archived", async () => {
+test("lists Needs attention and Recent without headers, then Archived, with Working docked below", async () => {
   mockWorkspaceNeedsAttention = true;
   mockWorkingCount = 3;
   mockArchivedCount = 2;
@@ -1191,31 +1191,43 @@ test("lists Needs attention and Recent without headers, then Working above Archi
     expect(list.props.data.map((item: { key: string }) => item.key)).toEqual([
       "ses_0",
       ...Array.from({ length: 115 }, (_, index) => `ses_${index + 3}`),
-      "header:working",
-      "ses_1",
-      "ses_2",
       "header:archived",
       "ses_118",
       "ses_119",
     ]);
     expect(screen.queryByRole("header", { name: /^Needs attention/ })).toBeNull();
     expect(screen.queryByRole("header", { name: "Recent" })).toBeNull();
-    // Working is part of the list, so nothing reserves space for it below.
-    expect(list.props.ListFooterComponentStyle).toBeUndefined();
+    // Working stays pinned outside the scrolling list, so a long Recent list never buries it.
+    const dock = within(screen.getByTestId("working-dock"));
+    expect(dock.getByRole("button", { name: "Working, 2 sessions" })).toBeExpanded();
+    expect(dock.getByRole("button", { name: /^Open session Session 1\./ })).toBeOnTheScreen();
+    expect(dock.getByRole("button", { name: /^Open session Session 2\./ })).toBeOnTheScreen();
   } finally {
     view.cleanup();
   }
 });
 
-test("every working session sits under Working, and the idle state points to it", async () => {
+test("search lists working sessions inline and hides the Working dock", async () => {
+  mockWorkingCount = 2;
+  const view = renderWorkspace();
+  try {
+    await screen.findByText("Session 0");
+    expect(screen.getByTestId("working-dock")).toBeOnTheScreen();
+    fireEvent.press(screen.getByRole("button", { name: "Search sessions" }));
+    fireEvent.changeText(screen.getByLabelText("Search sessions"), "Session");
+    await waitFor(() => expect(screen.queryByTestId("working-dock")).toBeNull());
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("every working session sits in the Working dock, and the idle state points to it", async () => {
   mockWorkspaceActive = true;
   const view = renderWorkspace();
   try {
     await screen.findByText("Session 0");
-    const data = screen.UNSAFE_getByType(FlatList).props.data as { key: string }[];
-    expect(data[0]).toMatchObject({ count: 120, key: "header:working", section: "working" });
-    expect(data).toHaveLength(121);
-    // The idle state sits above Working when nothing else is in the list.
+    expect(screen.UNSAFE_getByType(FlatList).props.data).toHaveLength(0);
+    // The idle state fills the list when every session is running.
     expect(screen.getByRole("header", { name: "Nothing needs you right now" })).toBeOnTheScreen();
     expect(
       screen.getByText(
@@ -1671,7 +1683,8 @@ test("rows show the project and status above the title, as on OpenCode desktop",
     );
     expect(workingStatus).toHaveTextContent("Working");
     expect(workingStatus).toHaveProp("accessibilityLabel", "Working");
-    expect(working.getByTestId("session-row-copy")).toHaveStyle({ opacity: 0.7 });
+    expect(working.getByTestId("session-row-copy")).not.toHaveStyle({ opacity: 0.7 });
+    expect(working.getByText("Session 1")).toHaveStyle({ color: palette.ink });
 
     // Read rows show their age and recede.
     expect(within(finished.getByTestId("session-row-trailing")).getByText("now")).toBeOnTheScreen();
@@ -1794,11 +1807,12 @@ test("the Working section collapses and expands, stores it, and announces it on 
     const collapsed = screen.getByRole("button", { name: "Working, 2 sessions" });
     expect(collapsed).toBeCollapsed();
     expect(collapsed).toHaveProp("accessibilityHint", "Shows working sessions");
+    // The dock opens upward, so its collapsed chevron points up.
     expect(
       within(collapsed)
         .UNSAFE_getAllByType(Feather)
         .map((icon) => icon.props.name),
-    ).toEqual(["chevron-right"]);
+    ).toEqual(["chevron-up"]);
 
     fireEvent.press(collapsed);
     expect(mockSetSectionExpanded).toHaveBeenLastCalledWith("working", true);

@@ -310,6 +310,8 @@ including recovery from an unknown prompt-admission outcome.
 - [x] Match the OpenCode 2.2.5 desktop Inbox sidebar: Needs attention, Recent,
       Archived, and Working in one scrolling list, desktop status labels and
       colours, and a branch line under the title.
+- [x] Dock Working below the session list and above the bottom menu, so a long
+      list never buries running sessions.
 - [x] Archive and unarchive through the server so desktop and mobile share
       archive state, and follow `session.archived`, `session.unarchived`, and
       `session.viewed` events from other clients.

@@ -12,6 +12,26 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-14: Working docked above the bottom menu
+
+An iPhone screenshot showed the Working section below a long Recent list, out of
+view until the user scrolled to the end. Working now sits in a dock between the
+session list and the bottom menu. Expanded rows scroll inside the dock past 40%
+of the window height, and search hides the dock.
+
+The full lint, typecheck, test, and build sequence passed, including 1534 mobile
+tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Both native
+fingerprints and runtime matched the installed 0.1.6 baseline under the preview
+EAS environment, and local EAS Update publication succeeded for iOS and Android
+on preview. The user confirmed the dock looks right on iPhone. Android appearance,
+large text, and VoiceOver/TalkBack focus order remain unverified.
+
+A follow-up iPhone screenshot showed the docked working row at 70% opacity with a
+dim title, so it read as archived. Working rows no longer fade, and their title
+uses full-strength ink at the regular weight. Archived rows keep the 50% fade.
+The follow-up was published the same way to preview; its device appearance is
+pending.
+
 ## 2026-11-14: event stream stays open in the iOS app switcher, pending device verification
 
 On an iPhone, swiping up to the app switcher showed "Request status is stale"

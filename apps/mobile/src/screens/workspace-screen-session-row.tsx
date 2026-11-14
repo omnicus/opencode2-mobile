@@ -16,7 +16,6 @@ import { ProjectAvatar } from "../components/project-avatar";
 import { WorkingIndicator } from "../components/working-indicator";
 import { type FollowedInboxRow, workingSince } from "../state/followed-project-inbox";
 import {
-  fadedWorkingText,
   minTouchTarget,
   palette,
   pressedOpacity,
@@ -128,20 +127,14 @@ function SessionRowSummary({
   // Rows recede once read so unread results stand out, as on OpenCode desktop.
   const unread = row.status !== "ready" && row.status !== "working";
   const detail = branch ?? row.worktreeLabel;
-  // The spec fades working and archived rows. Their quiet text starts brighter so the faded
-  // result still clears 4.5:1 on the page background.
-  const faded = row.archived
-    ? styles.fadedArchivedText
-    : row.status === "working"
-      ? styles.fadedWorkingText
-      : undefined;
+  // Only archived rows fade. Their quiet text starts brighter so the faded result still clears
+  // 4.5:1 on the page background. Working rows stay at full strength so they never read as
+  // archived.
+  const faded = row.archived ? styles.fadedArchivedText : undefined;
+  const working = row.status === "working" && !row.archived;
   return (
     <View
-      style={[
-        styles.sessionCopy,
-        row.status === "working" && styles.sessionWorking,
-        row.archived && styles.sessionArchived,
-      ]}
+      style={[styles.sessionCopy, row.archived && styles.sessionArchived]}
       testID="session-row-copy"
     >
       {/* The project and status line, then the title, then the branch. */}
@@ -168,7 +161,11 @@ function SessionRowSummary({
         numberOfLines={largeText ? 3 : 1}
         style={[
           styles.sessionTitle,
-          unread ? styles.sessionTitleUnread : [styles.sessionTitleRead, faded],
+          unread
+            ? styles.sessionTitleUnread
+            : working
+              ? styles.sessionTitleWorking
+              : [styles.sessionTitleRead, faded],
         ]}
       >
         {title}
@@ -259,9 +256,8 @@ export function sessionAccessibilityLabel(row: FollowedInboxRow, branch: string 
 const styles = StyleSheet.create({
   pressed: { opacity: pressedOpacity },
   sessionArchived: { opacity: 0.5 },
-  // Composite on the page: ink at 50% is about 4.8:1; the faded working text at 70% about 5.4:1.
+  // Composite on the page: ink at 50% is about 4.8:1.
   fadedArchivedText: { color: palette.ink },
-  fadedWorkingText: { color: fadedWorkingText },
   sessionCopy: { flex: 1, gap: 2, minWidth: 0 },
   sessionDetail: { alignItems: "center", flexDirection: "row", gap: space.xs / 2 },
   sessionDetailText: { ...typography.footnote, color: palette.dim, flexShrink: 1 },
@@ -280,6 +276,8 @@ const styles = StyleSheet.create({
   sessionTitleRead: { color: palette.dim },
   // Headline is the body size at semibold.
   sessionTitleUnread: { ...typography.headline, color: palette.ink },
+  // A running session is live, not read: full-strength ink at the regular weight.
+  sessionTitleWorking: { color: palette.ink },
   sessionTrailing: {
     alignItems: "center",
     flexDirection: "row",
@@ -287,7 +285,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     marginLeft: "auto",
   },
-  sessionWorking: { opacity: 0.7 },
   workingStatus: { alignItems: "center", flexDirection: "row", gap: space.xs },
   swipeArchive: {
     alignItems: "center",

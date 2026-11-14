@@ -261,16 +261,16 @@ function collapsibleSection(
   ];
 }
 
-// Sessions that need attention lead, then finished runs, both without a header. Working and
-// Archived follow under headers that collapse them, so a long archive never hides Working.
+// Sessions that need attention lead, then finished runs, both without a header. Archived
+// follows under a header that collapses it. Working is not in the list: it docks below it, so
+// a long Recent list never buries running sessions.
 export function workspaceInboxItems(
   inbox: FollowedInboxSections,
-  expanded: Record<CollapsibleInboxSection, boolean>,
+  expanded: { archived: boolean },
 ): WorkspaceInboxItem[] {
   return [
     ...inbox.needsYou.map(sessionItem),
     ...inbox.recent.map(sessionItem),
-    ...collapsibleSection("working", inbox.working, expanded.working),
     ...collapsibleSection("archived", inbox.archived, expanded.archived),
   ];
 }
