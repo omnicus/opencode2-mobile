@@ -2925,3 +2925,50 @@ test("offers Retry when the transcript fails to load", async () => {
     queryClient.clear();
   }
 });
+
+test("the composer stays expanded after choosing an agent on the session screen", async () => {
+  mockListAgents.mockResolvedValue({
+    data: [{ hidden: false, id: "build", mode: "primary", name: "Build" }],
+    location: { directory: "/workspace" },
+  } as never);
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      mutations: { networkMode: "always" },
+      queries: { gcTime: Infinity, retry: false },
+    },
+  });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <SessionScreen
+        navigation={{ goBack: jest.fn(), navigate: jest.fn(), setOptions: jest.fn() } as never}
+        route={{
+          key: "session-agent-choice",
+          name: "Session",
+          params: {
+            connectionId: "connection-1",
+            location: { directory: "/workspace" },
+            sessionID: "ses_transcript",
+          },
+        }}
+      />
+    </QueryClientProvider>,
+  );
+  try {
+    await waitFor(() => expect(screen.getByLabelText("Prompt").props.editable).toBe(true));
+    const prompt = screen.getByLabelText("Prompt");
+    fireEvent(prompt, "pressIn");
+    fireEvent(prompt, "focus");
+    const agentButton = await screen.findByRole("button", { name: /^Agent:/ });
+    fireEvent.press(agentButton);
+    fireEvent(screen.getByLabelText("Prompt"), "blur");
+    const results = await screen.findByLabelText("Agent results");
+    fireEvent.press(within(results).getByRole("button", { name: "Build" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("button", { name: /^Agent:/ })).toBeOnTheScreen();
+  } finally {
+    view.unmount();
+    queryClient.clear();
+  }
+});

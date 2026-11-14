@@ -266,6 +266,7 @@ function SubagentMonitorSheet({
       {openShell ? (
         <View style={styles.shellPage}>
           <BackgroundShellDetail
+            fill
             onBack={back}
             onStop={onStopShell}
             shell={openShell}

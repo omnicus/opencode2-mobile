@@ -736,8 +736,10 @@ test("names the selected model in the variant picker", () => {
     />,
   );
   fireEvent.press(screen.getByRole("button", { name: "Variant: deep" }));
-  expect(screen.getByText("Choose variant")).toBeOnTheScreen();
-  expect(screen.getAllByText("Model One")).toHaveLength(2);
+  // A few variants are a quick choice: a card above the toolbar, not a full-screen sheet.
+  expect(screen.getByLabelText("Choose variant")).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Variant · Model One" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Close Choose variant" })).toBeNull();
   expect(screen.getByLabelText("deep")).toBeSelected();
   fireEvent.press(screen.getByRole("button", { name: "Default" }));
   expect(onModelChange).toHaveBeenCalledWith({ id: "model-1", providerID: "provider" });

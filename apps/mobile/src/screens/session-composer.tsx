@@ -32,6 +32,7 @@ import {
 } from "react-native";
 
 import { ModalSheet } from "../components/modal-sheet";
+import { PopoverCard } from "../components/popover-card";
 import { SearchField } from "../components/search-field";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import {
@@ -673,34 +674,52 @@ function ComposerOptionsSheet({
   selectedModel: ModelInfo | undefined;
 }) {
   const agentPickerOpen = page === "agent";
+  const variantHeading = useRef<Text>(null);
   return (
-    <ModalSheet
-      onClose={onClose}
-      size="page"
-      scrollable={false}
-      subtitle={
-        agentPickerOpen
-          ? "Primary agents available at this session location"
-          : (selectedModel?.name ?? "Select a model first")
-      }
-      title={agentPickerOpen ? "Choose agent" : "Choose variant"}
-      returnFocusRef={returnFocusRef}
-      visible={page !== undefined}
-    >
-      {agentPickerOpen ? (
-        <AgentOptions
-          agent={agent}
-          agents={agents}
-          catalog={agentCatalog}
-          onSearchChange={onAgentSearchChange}
-          onSelect={onAgentChange}
-          search={agentSearch}
-        />
-      ) : null}
-      {page === "variant" && selectedModel ? (
-        <VariantOptions model={model} onSelect={onModelChange} selectedModel={selectedModel} />
-      ) : null}
-    </ModalSheet>
+    <>
+      {/* A handful of variants is a quick choice: a card over the toolbar, not a full page. */}
+      <PopoverCard
+        anchorRef={returnFocusRef}
+        initialFocusRef={variantHeading}
+        label="Choose variant"
+        onClose={onClose}
+        placement="above"
+        returnFocusRef={returnFocusRef}
+        visible={page === "variant"}
+      >
+        <Text
+          ref={variantHeading}
+          accessibilityRole="header"
+          dynamicTypeRamp={typeRamp.sectionLabel}
+          style={styles.variantHeading}
+        >
+          {selectedModel ? `Variant · ${selectedModel.name}` : "Select a model first"}
+        </Text>
+        {selectedModel ? (
+          <VariantOptions model={model} onSelect={onModelChange} selectedModel={selectedModel} />
+        ) : null}
+      </PopoverCard>
+      <ModalSheet
+        onClose={onClose}
+        size="page"
+        scrollable={false}
+        subtitle="Primary agents available at this session location"
+        title="Choose agent"
+        returnFocusRef={returnFocusRef}
+        visible={agentPickerOpen}
+      >
+        {agentPickerOpen ? (
+          <AgentOptions
+            agent={agent}
+            agents={agents}
+            catalog={agentCatalog}
+            onSearchChange={onAgentSearchChange}
+            onSelect={onAgentChange}
+            search={agentSearch}
+          />
+        ) : null}
+      </ModalSheet>
+    </>
   );
 }
 
@@ -763,7 +782,7 @@ function VariantOptions({
   selectedModel: ModelInfo;
 }) {
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.optionsContent}>
+    <View style={styles.optionsContent}>
       <OptionButton
         label="Default"
         selected={!model?.variant}
@@ -783,7 +802,7 @@ function VariantOptions({
           }
         />
       ))}
-    </ScrollView>
+    </View>
   );
 }
 
@@ -1094,7 +1113,8 @@ const styles = StyleSheet.create({
     marginLeft: space.sm,
   },
   selectorDisabled: { opacity: disabledOpacity },
-  optionsContent: { gap: 2 },
+  variantHeading: { ...typography.sectionLabel, color: palette.dim, paddingHorizontal: space.md },
+  optionsContent: { gap: 2, paddingHorizontal: space.sm },
   completion: {
     backgroundColor: palette.background,
     borderColor: palette.border,

@@ -28,12 +28,15 @@ export function PopoverCard({
   label,
   onClose,
   onRequestClose,
+  placement = "cover",
   returnFocusRef,
   scrollable = true,
   visible,
 }: {
-  // The control the card opens from; its bottom edge pins the card's bottom edge.
+  // The control the card opens from. "cover" pins the card's bottom edge to the control's
+  // bottom edge, over it; "above" opens just above it, leaving the control in view.
   anchorRef: RefObject<View | null>;
+  placement?: "cover" | "above";
   children: ReactNode;
   // Use the full available height, for content that sizes itself to its container.
   fill?: boolean;
@@ -48,12 +51,16 @@ export function PopoverCard({
 }) {
   const { height, width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const { anchorBottom, measure } = useAnchorBottom(anchorRef, visible, width, height);
+  const { anchor, measure } = useAnchorFrame(anchorRef, visible, width, height);
   const cardRef = useRef<View>(null);
   // iOS returns focus in onDismiss; Android has no dismiss event, so it returns on close.
   useReturnFocusAfterClose(visible, returnFocusRef);
 
-  const bottomEdge = anchorBottom ?? height - insets.bottom - space.xl;
+  const bottomEdge = anchor
+    ? placement === "above"
+      ? anchor.top - space.xs
+      : anchor.bottom
+    : height - insets.bottom - space.xl;
   const bottom = Math.max(height - bottomEdge, insets.bottom + space.sm);
   // Never taller than the space above its bottom edge, so it can't run under the status bar.
   const maxHeight = Math.max(0, height - bottom - insets.top - space.md);
@@ -119,28 +126,28 @@ export function PopoverCard({
   );
 }
 
-// Where the anchor's bottom edge sits in the window while the card is open. Measured again
-// when the window changes size or the keyboard moves, so the card keeps covering the anchor.
-function useAnchorBottom(
+// Where the anchor sits in the window while the card is open. Measured again when the window
+// changes size or the keyboard moves, so the card keeps its place against the anchor.
+function useAnchorFrame(
   anchorRef: RefObject<View | null>,
   visible: boolean,
   width: number,
   height: number,
 ) {
-  const [anchorBottom, setAnchorBottom] = useState<number>();
+  const [anchor, setAnchor] = useState<{ bottom: number; top: number }>();
   const measure = () =>
     anchorRef.current?.measureInWindow((_x, y, _width, anchorHeight) => {
-      if (anchorHeight > 0) setAnchorBottom(y + anchorHeight);
+      if (anchorHeight > 0) setAnchor({ bottom: y + anchorHeight, top: y });
     });
   // biome-ignore lint/correctness/useExhaustiveDependencies: width and height re-run the measure on rotation and resize.
   useEffect(() => {
     if (!visible) {
-      setAnchorBottom(undefined);
+      setAnchor(undefined);
       return;
     }
     const remeasure = () =>
       anchorRef.current?.measureInWindow((_x, y, _width, anchorHeight) => {
-        if (anchorHeight > 0) setAnchorBottom(y + anchorHeight);
+        if (anchorHeight > 0) setAnchor({ bottom: y + anchorHeight, top: y });
       });
     remeasure();
     const shown = Keyboard.addListener("keyboardDidShow", remeasure);
@@ -150,7 +157,7 @@ function useAnchorBottom(
       hidden.remove();
     };
   }, [anchorRef, visible, width, height]);
-  return { anchorBottom, measure };
+  return { anchor, measure };
 }
 
 const styles = StyleSheet.create({
