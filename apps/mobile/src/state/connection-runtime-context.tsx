@@ -23,7 +23,11 @@ import {
   type ConnectionCacheMetadata,
   readConnectionCacheMetadata,
 } from "./connection-cache-metadata";
-import { appendEventLocation, startConnectionTransport } from "./connection-runtime-transport";
+import {
+  appendEventLocation,
+  isTransportForeground,
+  startConnectionTransport,
+} from "./connection-runtime-transport";
 import type {
   ConnectionTransportCoordinator,
   ConnectionTransportStatus,
@@ -196,7 +200,7 @@ function useConnectionTransport(
       });
 
     const appStateSubscription = AppState.addEventListener("change", (nextState) => {
-      const foreground = nextState === "active";
+      const foreground = isTransportForeground(nextState);
       focusManager.setFocused(foreground);
       coordinator?.setForeground(foreground);
     });

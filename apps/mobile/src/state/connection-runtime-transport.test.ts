@@ -12,6 +12,7 @@ import {
   appendEventLocation,
   type ConnectionRuntimeTransportSink,
   connectionTransportCallbacks,
+  isTransportForeground,
   startConnectionTransport,
 } from "./connection-runtime-transport";
 import type { ConnectionSnapshot } from "./connection-transport-coordinator";
@@ -145,6 +146,18 @@ test("omits authorization without a credential and starts in the background", as
   await flush();
   expect(mockCoordinators[0]?.setOnline).toHaveBeenCalledWith(true);
   expect(mockCoordinators[0]?.start).toHaveBeenCalledTimes(1);
+});
+
+test("keeps the transport in the foreground while iOS reports inactive", () => {
+  Object.defineProperty(AppState, "currentState", { configurable: true, value: "inactive" });
+  mockGetNetworkState.mockResolvedValue({});
+
+  startConnectionTransport(profile, undefined, createQueryClient(), createSink());
+
+  expect(mockCoordinators[0]?.setForeground).toHaveBeenCalledWith(true);
+  expect(isTransportForeground("active")).toBe(true);
+  expect(isTransportForeground("inactive")).toBe(true);
+  expect(isTransportForeground("background")).toBe(false);
 });
 
 test("encodes basic credentials", () => {

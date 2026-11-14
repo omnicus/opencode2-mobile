@@ -279,6 +279,8 @@ test("forwards app state and network changes and drops stale cache metadata", as
     ?.value as NativeEventSubscription;
   const removeAppState = jest.spyOn(appStateSubscription, "remove");
 
+  act(() => appStateListener("inactive"));
+  expect(setFocused).toHaveBeenLastCalledWith(true);
   act(() => appStateListener("background"));
   expect(setFocused).toHaveBeenLastCalledWith(false);
   act(() => mockNetworkListener?.({ isConnected: false }));

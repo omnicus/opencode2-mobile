@@ -12,6 +12,25 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-14: event stream stays open in the iOS app switcher, pending device verification
+
+On an iPhone, swiping up to the app switcher showed "Request status is stale"
+and "Showing saved data until the server reconnects" on the workspace card. iOS
+reports `inactive` while the app switcher, Control Center, Notification Center,
+or a system prompt covers the app. The transport treated every state other than
+`active` as background, so it closed the event stream and marked the connection
+stale. Only `background` now closes the stream and pauses query focus; `inactive`
+keeps both. Leaving for another app still reaches `background`, closes the
+stream, and reconnects on return. Android does not report `inactive`.
+
+The full lint, typecheck, test, and build sequence passed, including 1533 mobile
+tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Both native
+fingerprints and runtime matched the installed 0.1.6 baseline under the preview
+EAS environment. Local EAS Update publication then succeeded for iOS and Android
+on preview. Publication does not establish installation or device behavior.
+Still to verify on the iPhone: no notice while hovering in the app switcher, and
+a clean reconnect after switching to another app and back.
+
 ## 2026-11-10: transcript image tiles and swipeable viewer, pending device verification
 
 Transcript images now form justified rows of tiles that keep each image's shape.

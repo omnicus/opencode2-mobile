@@ -7,7 +7,7 @@ import {
 import { focusManager, onlineManager, type QueryClient } from "@tanstack/react-query";
 import * as Network from "expo-network";
 import type { Dispatch, SetStateAction } from "react";
-import { AppState } from "react-native";
+import { AppState, type AppStateStatus } from "react-native";
 
 import { connectionAuthorizationHeader } from "../connections/connection-authorization";
 import type { ConnectionCredential, ConnectionProfile } from "../connections/connection-profile";
@@ -77,7 +77,7 @@ export function startConnectionTransport(
     shouldReconcileEvent: eventRequiresConnectionSnapshot,
   });
 
-  const foreground = AppState.currentState === "active";
+  const foreground = isTransportForeground(AppState.currentState);
   coordinator.setForeground(foreground);
   focusManager.setFocused(foreground);
   void Network.getNetworkStateAsync()
@@ -90,6 +90,14 @@ export function startConnectionTransport(
     })
     .catch(() => coordinator.start());
   return coordinator;
+}
+
+// iOS reports "inactive" while the app switcher, Control Center, Notification Center,
+// or a system prompt covers the app. The app is still on screen and not suspended,
+// so only "background" closes the event stream. Closing it on "inactive" marked the
+// connection stale every time the user swiped up to switch apps.
+export function isTransportForeground(state: AppStateStatus) {
+  return state !== "background";
 }
 
 export function connectionTransportCallbacks(
