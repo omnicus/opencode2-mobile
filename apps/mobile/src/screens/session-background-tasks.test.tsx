@@ -14,10 +14,18 @@ import {
   render as renderWithoutQueries,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react-native";
 import type { ReactElement, ReactNode } from "react";
-import { AccessibilityInfo, Alert, type AlertButton, Modal, Platform } from "react-native";
-
+import {
+  AccessibilityInfo,
+  Alert,
+  type AlertButton,
+  Keyboard,
+  Modal,
+  Platform,
+} from "react-native";
+import { WorkingIndicator } from "../components/working-indicator";
 import { palette } from "../theme";
 import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionShellScope } from "./session-shell-output";
@@ -151,8 +159,23 @@ test("the chip opens the monitor, whose rows open the child without repeating it
   const chip = screen.getByRole("button", { name: "1 subagent, running in this session" });
   expect(chip).toHaveStyle({ minHeight: 36 });
   expect(chip.props.hitSlop).toBe(6);
+  // A running subagent is an agent at work, so the chip spins rather than showing a glyph.
+  expect(within(chip).UNSAFE_getByType(WorkingIndicator)).toBeTruthy();
+  expect(within(chip).queryByTestId("background-shells-live")).toBeNull();
+  expect(within(chip).queryByTestId("subagent-monitor-waiting")).toBeNull();
+  const dismissKeyboard = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
   fireEvent.press(chip);
-  expect(screen.getByRole("header", { name: "Background work" })).toBeOnTheScreen();
+  // The card pins itself to the chip, so the keyboard closes before it measures.
+  expect(dismissKeyboard).toHaveBeenCalledTimes(1);
+  dismissKeyboard.mockRestore();
+  // A card over the chip, not a sheet; tapping outside it closes it.
+  expect(screen.getByLabelText("Background work")).toBeOnTheScreen();
+  // VoiceOver keeps to the card and closes it with the escape gesture; TalkBack reaches the
+  // backdrop by its label.
+  expect(
+    screen.getByTestId("popover-backdrop", { includeHiddenElements: true }).props
+      .accessibilityLabel,
+  ).toBe("Close Background work");
   expect(screen.getByRole("header", { name: "Subagents" })).toBeOnTheScreen();
   expect(screen.queryByRole("header", { name: "Shells" })).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Delegated task, Running" }));
@@ -600,7 +623,7 @@ async function openShellPage(command = "pnpm dev") {
   expect(await screen.findByRole("button", { name: `Stop ${command}` })).toBeOnTheScreen();
 }
 
-test("Android back on the shell page returns to the list instead of closing the sheet", async () => {
+test("Android back on the shell page returns to the list instead of closing the card", async () => {
   const platform = jest.replaceProperty(Platform, "OS", "android");
   try {
     shellStates = { sh_dev: {} };
@@ -620,7 +643,7 @@ test("Android back on the shell page returns to the list instead of closing the 
   }
 });
 
-test("an iOS swipe on the shell page closes the sheet, so the chip can open it again", async () => {
+test("tapping outside the card closes it from the shell page, and the chip opens it again", async () => {
   shellStates = { sh_dev: {} };
   renderWithShells(
     <SessionBackgroundTasks
@@ -629,7 +652,7 @@ test("an iOS swipe on the shell page closes the sheet, so the chip can open it a
     />,
   );
   await openShellPage();
-  act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+  fireEvent.press(screen.getByTestId("popover-backdrop", { includeHiddenElements: true }));
   expect(screen.UNSAFE_getByType(Modal).props.visible).toBe(false);
   fireEvent.press(screen.getByRole("button", { name: "1 shell, running in this session" }));
   expect(screen.UNSAFE_getByType(Modal).props.visible).toBe(true);
@@ -845,6 +868,8 @@ test("a failed status refresh makes the chip say its status is unavailable, with
     </QueryClientProvider>,
   );
   await findChip("1 shell, running in this session");
+  // Shells alone are processes, so the chip shows a still terminal glyph, not the spinner.
+  expect(screen.getByTestId("background-shells-live")).toBeOnTheScreen();
   getShell.mockRejectedValue(new Error("UNREACHABLE"));
   await act(async () => {
     await queryClient.refetchQueries({ type: "active" });
@@ -854,6 +879,7 @@ test("a failed status refresh makes the chip say its status is unavailable, with
   ).toBeOnTheScreen();
   // Sighted users see the uncertainty too: the count is dimmed.
   expect(screen.getByText("1 shell")).toHaveStyle({ color: palette.dim });
+  expect(screen.getByTestId("background-shells-last-known")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "1 shell, status unavailable" }));
   expect(screen.getByRole("button", { name: "pnpm dev, Last known: Running" })).toBeOnTheScreen();
 });

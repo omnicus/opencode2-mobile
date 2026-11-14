@@ -1587,6 +1587,25 @@ test("pending prompt status is announced on iOS as it changes", () => {
   announce.mockRestore();
 });
 
+test("shows a model change inline with its variant, with nothing to expand", () => {
+  render(
+    <SessionTranscriptRow
+      message={{
+        id: "msg_model",
+        model: { id: "model-2", providerID: "provider", variant: "high" },
+        time: { created: 2 },
+        type: "model-switched",
+      }}
+    />,
+  );
+  expect(screen.getByText(/Model changed to/)).toHaveTextContent("Model changed to model-2 · high");
+  // Screen readers hear a pause, not the separator glyph.
+  expect(screen.getByText(/Model changed to/).props.accessibilityLabel).toBe(
+    "Model changed to model-2, high",
+  );
+  expect(screen.queryByRole("button")).toBeNull();
+});
+
 test("transcript notices and disclosure labels match the chat activity size", () => {
   render(
     <View>
@@ -1616,7 +1635,7 @@ test("transcript notices and disclosure labels match the chat activity size", ()
       />
     </View>,
   );
-  expect(screen.getByText("Model changed")).toHaveStyle({
+  expect(screen.getByText(/Model changed to/)).toHaveStyle({
     fontSize: typography.chatActivity.fontSize,
   });
   expect(screen.getByText(/Agent changed to/)).toHaveStyle({

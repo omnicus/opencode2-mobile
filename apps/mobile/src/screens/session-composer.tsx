@@ -158,11 +158,16 @@ export function SessionComposer({
   const [agentSearch, setAgentSearch] = useState("");
   const [focused, setFocused] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  // Opening a picker dismisses the keyboard and blurs the input. Hold the composer open until
+  // the prompt is tapped again or sent, so a choice doesn't fold the toolbar away and the
+  // picker's return focus still has its selector to land on.
+  const [pickerHold, setPickerHold] = useState(false);
+  const promptTapped = useRef(false);
   const [justSent, markSent] = useJustSent();
   const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
   const deferredAgentSearch = useDeferredValue(agentSearch.trim().toLocaleLowerCase());
   const selectedModel = findModel(models, model);
-  const expanded = largeText || focused || Boolean(optionsPage) || modelPickerOpen;
+  const expanded = largeText || focused || pickerHold || Boolean(optionsPage) || modelPickerOpen;
   const mentionTrigger = findMentionTrigger(draft, selection);
   const submitIntent = resolveComposerSubmitIntent(draft, commands, mentions, location);
   const { canSubmit, showStop, submitHint } = resolveComposerSubmitState({
@@ -185,6 +190,7 @@ export function SessionComposer({
     if (!canSubmit) return;
     inputRef.current?.blur();
     setFocused(false);
+    setPickerHold(false);
     Keyboard.dismiss();
     markSent();
     onSubmit(submitIntent);
@@ -236,7 +242,19 @@ export function SessionComposer({
             focusOnMount={focusOnMount}
             inputRef={inputRef}
             onChangeText={changeDraft}
-            onFocusChange={setFocused}
+            onFocusChange={(nextFocused) => {
+              setFocused(nextFocused);
+              // Only focus from a tap on the prompt takes over the hold. A closing sheet can
+              // move focus through the prompt on its own, and that must not fold the composer.
+              // Released on focus, not on touch-down, so the toolbar never folds mid-tap.
+              // A screen-reader activation may not report a press; the hold then lasts until
+              // send, which only keeps the toolbar showing.
+              if (nextFocused && promptTapped.current) setPickerHold(false);
+              promptTapped.current = false;
+            }}
+            onPressIn={() => {
+              promptTapped.current = true;
+            }}
             onSelectionChange={(event) => setSelection(event.nativeEvent.selection)}
             selection={selection}
           />
@@ -275,16 +293,28 @@ export function SessionComposer({
               model={model}
               modelSelectorRef={modelSelectorRef}
               onAgentPress={() => {
+                setPickerHold(true);
+                // An earlier touch that never focused the prompt (a drag) must not count.
+                promptTapped.current = false;
+                // Blur explicitly: Android can hide the keyboard and leave the input focused,
+                // and the next tap would then never fire the focus that releases the hold.
+                inputRef.current?.blur();
                 Keyboard.dismiss();
                 setAgentSearch("");
                 pickerReturnFocusRef.current = agentSelectorRef;
                 setOptionsPage("agent");
               }}
               onModelPress={() => {
+                setPickerHold(true);
+                promptTapped.current = false;
+                inputRef.current?.blur();
                 Keyboard.dismiss();
                 setModelPickerOpen(true);
               }}
               onVariantPress={() => {
+                setPickerHold(true);
+                promptTapped.current = false;
+                inputRef.current?.blur();
                 Keyboard.dismiss();
                 pickerReturnFocusRef.current = variantSelectorRef;
                 setOptionsPage("variant");
@@ -400,6 +430,7 @@ function PromptInput({
   inputRef,
   onChangeText,
   onFocusChange,
+  onPressIn,
   onSelectionChange,
   selection,
 }: {
@@ -410,6 +441,7 @@ function PromptInput({
   inputRef: RefObject<TextInput | null>;
   onChangeText: (draft: string) => void;
   onFocusChange: (focused: boolean) => void;
+  onPressIn: () => void;
   onSelectionChange: (event: NativeSyntheticEvent<TextInputSelectionChangeEventData>) => void;
   selection: DraftSelection;
 }) {
@@ -428,6 +460,7 @@ function PromptInput({
       onBlur={() => onFocusChange(false)}
       onChangeText={onChangeText}
       onFocus={() => onFocusChange(true)}
+      onPressIn={onPressIn}
       onSelectionChange={onSelectionChange}
       placeholder="Message"
       placeholderTextColor={palette.dim}

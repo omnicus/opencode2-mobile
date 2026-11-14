@@ -2749,11 +2749,33 @@ test("measures the iOS composer dock and lifts it above the keyboard", async () 
         callback(0, 700, 390, 100),
     );
     const content = dock.children[0] as typeof dock;
-    fireEvent(content, "layout", { nativeEvent: { layout: { height: 120 } } });
-    fireEvent(content, "layout", { nativeEvent: { layout: { height: 120.4 } } });
+    // The background-work row floats over the transcript: only the rest of the dock reserves
+    // space, and the inverted list pads its newest end by the row's height. Touches beside the
+    // row pass through. Testing Library skips handlers on box-none views, so call them directly.
+    const floatingRow = screen.getByTestId("session-floating-row");
+    const reservedDock = screen.getByTestId("session-reserved-dock");
+    const layout = (target: typeof dock, height: number) =>
+      act(() => target.props.onLayout({ nativeEvent: { layout: { height } } }));
+    const transcriptPadding = () =>
+      StyleSheet.flatten(screen.getByLabelText("Session transcript").props.contentContainerStyle)
+        .paddingTop;
+    expect(dock.props.pointerEvents).toBe("box-none");
+    expect(content.props.pointerEvents).toBe("box-none");
+    expect(floatingRow.props.pointerEvents).toBe("box-none");
+    expect(reservedDock.props.pointerEvents).toBe("box-none");
+
+    layout(reservedDock, 120);
+    layout(reservedDock, 120.4);
     expect(spacerHeight()).toBe(120);
     fireEvent(dock, "layout", { nativeEvent: { layout: { height: 100 } } });
     expect(measureInWindow).toHaveBeenCalledTimes(1);
+
+    layout(floatingRow, 44);
+    expect(spacerHeight()).toBe(120);
+    expect(transcriptPadding()).toBe(44);
+    expect(screen.getByLabelText("Session transcript").props.scrollIndicatorInsets).toEqual({
+      top: 44,
+    });
 
     act(() => keyboardListener("keyboardWillChangeFrame")({ endCoordinates: { screenY: 500 } }));
     expect(dock).toHaveStyle({ bottom: 268 });
@@ -2764,6 +2786,10 @@ test("measures the iOS composer dock and lifts it above the keyboard", async () 
     act(() => keyboardListener("keyboardWillHide")({}));
     expect(dock).toHaveStyle({ bottom: 0 });
     expect(spacerHeight()).toBe(120);
+    // The row going away changes the padding, never the transcript's viewport.
+    layout(floatingRow, 0);
+    expect(spacerHeight()).toBe(120);
+    expect(transcriptPadding()).toBe(0);
   } finally {
     addListener.mockRestore();
     view.unmount();

@@ -1112,7 +1112,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
 
   const changesTab = selectedTab === "changes";
   const composerDockContent = (
-    <View onLayout={dock.measureComposerContent}>
+    <View onLayout={dock.measureComposerContent} pointerEvents="box-none">
       <SessionDockPanel
         activeSessions={activeSessions}
         client={client}
@@ -1122,7 +1122,9 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         formLocations={workspaceSelection.formLocations}
         messages={messages}
         monitorStale={!(sessionLocationReady && connected) || messagesQuery.isError}
+        onFloatingRowLayout={dock.measureFloatingRow}
         onOpenChild={openSubagent}
+        onReservedLayout={dock.measureReservedDock}
         onReplyPermission={workspaceSelection.replyPermission}
         onStopChild={
           client && connected
@@ -1142,21 +1144,22 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         sessionLocation={sessionLocation}
         shellScope={dockShellScope}
         tablet={isTabletShell(width)}
-      />
-      <SessionDockComposer
-        connected={connected}
-        deferredMentionSearch={deferredMentionSearch}
-        draft={draft}
-        execution={execution}
-        favorites={modelFavorites}
-        focusComposer={focusComposer}
-        largeText={largeText}
-        mentionFilesQuery={mentionFilesQuery}
-        mentionSearch={mentionSearch}
-        onMentionSearchChange={setMentionSearch}
-        sessionLocation={sessionLocation}
-        sessionLocationReady={sessionLocationReady}
-      />
+      >
+        <SessionDockComposer
+          connected={connected}
+          deferredMentionSearch={deferredMentionSearch}
+          draft={draft}
+          execution={execution}
+          favorites={modelFavorites}
+          focusComposer={focusComposer}
+          largeText={largeText}
+          mentionFilesQuery={mentionFilesQuery}
+          mentionSearch={mentionSearch}
+          onMentionSearchChange={setMentionSearch}
+          sessionLocation={sessionLocation}
+          sessionLocationReady={sessionLocationReady}
+        />
+      </SessionDockPanel>
     </View>
   );
 
@@ -1197,6 +1200,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           <SessionSubagentStates.Provider value={transcriptSubagentStates}>
             <SessionTranscriptList
               autoFillTranscript={autoFillTranscript}
+              bottomInset={dock.floatingRowHeight}
               canLoadOlder={canLoadOlder}
               execution={execution}
               follow={follow}
@@ -1236,9 +1240,10 @@ export function SessionScreen({ navigation, route }: SessionProps) {
           follow={follow}
           itemCount={transcriptItems.length}
         />
+        {/* The floating row stays out of the spacer, so the transcript scrolls under it. */}
         <View
           pointerEvents="none"
-          style={{ height: dock.composerDockHeight + dock.composerKeyboardOffset, flexShrink: 0 }}
+          style={{ height: dock.reservedDockHeight + dock.composerKeyboardOffset, flexShrink: 0 }}
         />
         <ComposerDock dock={dock}>{composerDockContent}</ComposerDock>
       </View>
@@ -1573,6 +1578,8 @@ function useComposerDock(screenHeight: number) {
   const [composerDockHeight, setComposerDockHeight] = useState(66);
   const [composerDockScreenBottom, setComposerDockScreenBottom] = useState(0);
   const [composerKeyboardOffset, setComposerKeyboardOffset] = useState(0);
+  const [floatingRowHeight, setFloatingRowHeight] = useState(0);
+  const [reservedDockHeight, setReservedDockHeight] = useState(66);
   const composerDockRef = useRef<View>(null);
   const measuredComposerDockScreenHeightRef = useRef<number | undefined>(undefined);
 
@@ -1600,13 +1607,30 @@ function useComposerDock(screenHeight: number) {
     setComposerDockHeight((current) => (Math.abs(current - height) < 1 ? current : height));
   }
 
+  function measureFloatingRow(event: LayoutChangeEvent) {
+    const height = event.nativeEvent.layout.height;
+    setFloatingRowHeight((current) => (Math.abs(current - height) < 1 ? current : height));
+  }
+
+  function measureReservedDock(event: LayoutChangeEvent) {
+    const height = event.nativeEvent.layout.height;
+    setReservedDockHeight((current) => (Math.abs(current - height) < 1 ? current : height));
+  }
+
   return {
     composerDockHeight,
     composerDockRef,
     composerDockScreenBottom,
     composerKeyboardOffset,
+    // The top of the dock that floats over the transcript instead of reserving space.
+    floatingRowHeight,
     measureComposerContent,
     measureComposerDock,
+    measureFloatingRow,
+    measureReservedDock,
+    // The rest of the dock, measured in one piece so the floating row never resizes the
+    // transcript when it appears or disappears.
+    reservedDockHeight,
     setComposerKeyboardOffset,
   };
 }
@@ -1726,6 +1750,7 @@ function requestAttention(
 
 function SessionDockPanel({
   activeSessions,
+  children,
   client,
   connectionId,
   execution,
@@ -1733,8 +1758,10 @@ function SessionDockPanel({
   formLocations,
   messages,
   monitorStale,
+  onFloatingRowLayout,
   onOpenChild,
   onReplyPermission,
+  onReservedLayout,
   onStopChild,
   permissions,
   replyingPermissionId,
@@ -1747,6 +1774,8 @@ function SessionDockPanel({
   tablet,
 }: {
   activeSessions: SessionExecution["activeSessions"];
+  // The composer, measured with the execution panel as the dock's reserved part.
+  children: ReactNode;
   client: OpenCodeClient | undefined;
   connectionId: string;
   execution: SessionExecution;
@@ -1754,8 +1783,10 @@ function SessionDockPanel({
   formLocations: WorkspaceSelection["formLocations"];
   messages: SessionMessages;
   monitorStale: boolean;
+  onFloatingRowLayout: (event: LayoutChangeEvent) => void;
   onOpenChild: (sessionID: string) => void;
   onReplyPermission: WorkspaceSelection["replyPermission"];
+  onReservedLayout: (event: LayoutChangeEvent) => void;
   onStopChild: ((sessionID: string) => Promise<void>) | undefined;
   permissions: WorkspaceSelection["permissions"];
   replyingPermissionId: WorkspaceSelection["replyingPermissionId"];
@@ -1769,50 +1800,56 @@ function SessionDockPanel({
 }) {
   return (
     <>
-      <SessionShellScope.Provider value={shellScope}>
-        <SessionBackgroundTasks
-          key={routeSessionScope}
-          activeSessions={activeSessions}
-          attention={subagentAttention}
-          sessionID={sessionID}
-          messages={messages}
-          onOpenChild={onOpenChild}
-          onStopChild={monitorStale ? undefined : onStopChild}
-          stale={monitorStale}
+      {/* Floats over the transcript; touches outside the chip reach the rows behind it. */}
+      <View onLayout={onFloatingRowLayout} pointerEvents="box-none" testID="session-floating-row">
+        <SessionShellScope.Provider value={shellScope}>
+          <SessionBackgroundTasks
+            key={routeSessionScope}
+            activeSessions={activeSessions}
+            attention={subagentAttention}
+            sessionID={sessionID}
+            messages={messages}
+            onOpenChild={onOpenChild}
+            onStopChild={monitorStale ? undefined : onStopChild}
+            stale={monitorStale}
+          />
+        </SessionShellScope.Provider>
+      </View>
+      <View onLayout={onReservedLayout} pointerEvents="box-none" testID="session-reserved-dock">
+        <SessionExecutionPanel
+          hideInterrupt
+          hideStatus
+          active={execution.active}
+          admissions={execution.admissions}
+          busyAction={execution.busyAction}
+          canBackground={execution.canBackground}
+          formRequests={
+            sessionForms.length > 0 ? (
+              <FormRequestList
+                focusSingle={!tablet && permissions.length === 0}
+                client={client}
+                connectionId={connectionId}
+                formLocations={formLocations}
+                forms={sessionForms}
+                location={sessionLocation}
+              />
+            ) : undefined
+          }
+          inbox={execution.inbox}
+          onAllowRetry={execution.allowRetry}
+          onCancelInbox={execution.cancelInbox}
+          onCheckAdmission={execution.reconcileAdmission}
+          onInterrupt={execution.interrupt}
+          onBackground={execution.background}
+          onReplyPermission={onReplyPermission}
+          onSteerInbox={execution.steerInbox}
+          failedPermissionReplyId={failedPermissionReplyId}
+          permissions={permissions}
+          projectedMessageIds={execution.projectedMessageIds}
+          replyingPermissionId={replyingPermissionId}
         />
-      </SessionShellScope.Provider>
-      <SessionExecutionPanel
-        hideInterrupt
-        hideStatus
-        active={execution.active}
-        admissions={execution.admissions}
-        busyAction={execution.busyAction}
-        canBackground={execution.canBackground}
-        formRequests={
-          sessionForms.length > 0 ? (
-            <FormRequestList
-              focusSingle={!tablet && permissions.length === 0}
-              client={client}
-              connectionId={connectionId}
-              formLocations={formLocations}
-              forms={sessionForms}
-              location={sessionLocation}
-            />
-          ) : undefined
-        }
-        inbox={execution.inbox}
-        onAllowRetry={execution.allowRetry}
-        onCancelInbox={execution.cancelInbox}
-        onCheckAdmission={execution.reconcileAdmission}
-        onInterrupt={execution.interrupt}
-        onBackground={execution.background}
-        onReplyPermission={onReplyPermission}
-        onSteerInbox={execution.steerInbox}
-        failedPermissionReplyId={failedPermissionReplyId}
-        permissions={permissions}
-        projectedMessageIds={execution.projectedMessageIds}
-        replyingPermissionId={replyingPermissionId}
-      />
+        {children}
+      </View>
     </>
   );
 }
@@ -1894,6 +1931,7 @@ function SessionDockComposer({
 
 function SessionTranscriptList({
   autoFillTranscript,
+  bottomInset,
   canLoadOlder,
   execution,
   follow,
@@ -1916,6 +1954,8 @@ function SessionTranscriptList({
   waitingFor,
 }: {
   autoFillTranscript: boolean;
+  // Room under the newest row for the dock row that floats over the transcript.
+  bottomInset: number;
   canLoadOlder: boolean;
   execution: SessionExecution;
   follow: TranscriptLiveFollow;
@@ -1950,7 +1990,12 @@ function SessionTranscriptList({
   return (
     <Animated.FlatList
       accessibilityLabel="Session transcript"
-      contentContainerStyle={[styles.detailContent, largeText && styles.detailContentLargeText]}
+      // Inverted, so paddingTop sits under the newest row.
+      contentContainerStyle={[
+        styles.detailContent,
+        largeText && styles.detailContentLargeText,
+        { paddingTop: bottomInset },
+      ]}
       data={items}
       extraData={fontScale}
       initialNumToRender={12}
@@ -1989,6 +2034,8 @@ function SessionTranscriptList({
       {...(smoothLiveEdge ? { itemLayoutAnimation: liveEdgeRowTransition } : {})}
       maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       maxToRenderPerBatch={12}
+      // Inverted like the padding: keeps the iOS scroll indicator out from under the floating row.
+      scrollIndicatorInsets={{ top: bottomInset }}
       onContentSizeChange={onContentSizeChange}
       onLayout={onLayout}
       onMomentumScrollBegin={follow.handleMomentumScrollBegin}
@@ -2178,7 +2225,11 @@ function ScrollToLatestButton({
 function ComposerDock({ children, dock }: { children: ReactNode; dock: ComposerDockState }) {
   if (Platform.OS === "android") {
     return (
-      <KeyboardStickyView accessibilityLabel="Keyboard composer dock" style={styles.composerDock}>
+      <KeyboardStickyView
+        accessibilityLabel="Keyboard composer dock"
+        pointerEvents="box-none"
+        style={styles.composerDock}
+      >
         {children}
       </KeyboardStickyView>
     );
@@ -2187,6 +2238,7 @@ function ComposerDock({ children, dock }: { children: ReactNode; dock: ComposerD
     <View
       accessibilityLabel="Keyboard composer dock"
       onLayout={dock.measureComposerDock}
+      pointerEvents="box-none"
       ref={dock.composerDockRef}
       style={[styles.composerDock, { bottom: dock.composerKeyboardOffset }]}
     >
