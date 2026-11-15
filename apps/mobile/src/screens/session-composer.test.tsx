@@ -418,6 +418,53 @@ test("selects a variant separately and can return to the model default", () => {
   expect(screen.getByRole("button", { name: "Variant: Default" })).toBeOnTheScreen();
 });
 
+test("stays expanded after choosing an agent or variant until the prompt is tapped and blurs", () => {
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+  const input = screen.getByLabelText("Prompt");
+  fireEvent(input, "focus");
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  // Opening a picker dismisses the keyboard, which blurs the prompt.
+  fireEvent(input, "blur");
+  fireEvent.press(screen.getByRole("button", { name: "Build" }));
+  expect(screen.getByRole("button", { name: "Agent: Build" })).toBeOnTheScreen();
+
+  fireEvent.press(screen.getByRole("button", { name: "Model: Choose model" }));
+  fireEvent.press(screen.getByRole("button", { name: /Model One/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Variant: Default" }));
+  fireEvent.press(screen.getByRole("button", { name: "deep" }));
+  expect(screen.getByRole("button", { name: "Variant: deep" })).toBeOnTheScreen();
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ minHeight: 58, maxHeight: 120 });
+
+  // A closing sheet can move focus through the prompt on its own; that keeps the hold.
+  fireEvent(screen.getByLabelText("Prompt"), "focus");
+  fireEvent(screen.getByLabelText("Prompt"), "blur");
+  expect(screen.getByRole("button", { name: "Agent: Build" })).toBeOnTheScreen();
+
+  fireEvent(screen.getByLabelText("Prompt"), "pressIn");
+  fireEvent(screen.getByLabelText("Prompt"), "focus");
+  fireEvent(screen.getByLabelText("Prompt"), "blur");
+  expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull();
+  expect(screen.getByLabelText("Prompt")).toHaveStyle({ height: 42 });
+});
+
+test("closing a picker without a choice keeps the composer expanded, and sending folds it", () => {
+  const dismissKeyboard = jest.spyOn(Keyboard, "dismiss").mockImplementation(() => undefined);
+  const onSubmit = jest.fn();
+  render(<ComposerHarness onSubmit={onSubmit} />);
+  const input = screen.getByLabelText("Prompt");
+  fireEvent.changeText(input, "Ship it");
+  fireEvent(input, "focus");
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  fireEvent(input, "blur");
+  fireEvent.press(screen.getByRole("button", { name: "Close Choose agent" }));
+  expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
+
+  fireEvent.press(screen.getByRole("button", { name: "Send" }));
+  expect(onSubmit).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull();
+  dismissKeyboard.mockRestore();
+});
+
 test("opening and closing a footer picker keeps the current draft", () => {
   render(<ComposerHarness onSubmit={jest.fn()} />);
   fireEvent(screen.getByLabelText("Prompt"), "focus");
@@ -689,8 +736,10 @@ test("names the selected model in the variant picker", () => {
     />,
   );
   fireEvent.press(screen.getByRole("button", { name: "Variant: deep" }));
-  expect(screen.getByText("Choose variant")).toBeOnTheScreen();
-  expect(screen.getAllByText("Model One")).toHaveLength(2);
+  // A few variants are a quick choice: a card above the toolbar, not a full-screen sheet.
+  expect(screen.getByLabelText("Choose variant")).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "Variant · Model One" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Close Choose variant" })).toBeNull();
   expect(screen.getByLabelText("deep")).toBeSelected();
   fireEvent.press(screen.getByRole("button", { name: "Default" }));
   expect(onModelChange).toHaveBeenCalledWith({ id: "model-1", providerID: "provider" });

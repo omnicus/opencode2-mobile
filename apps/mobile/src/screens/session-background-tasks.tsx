@@ -4,6 +4,7 @@ import { type RefObject, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
   Alert,
+  Keyboard,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,7 +14,8 @@ import {
 } from "react-native";
 
 import { Button } from "../components/button";
-import { focusAccessibility, ModalSheet } from "../components/modal-sheet";
+import { focusAccessibility } from "../components/modal-sheet";
+import { PopoverCard } from "../components/popover-card";
 import {
   SubagentElapsed,
   SubagentMetaLine,
@@ -82,17 +84,17 @@ export function SessionBackgroundTasks({
   const stopShell = useStopShell();
   useBackgroundSubagentAnnouncements(subagents, stale);
   const running = live.length + shells.length;
-  // Shells whose status refresh failed are only last known: the chip says so and stays still
-  // when nothing it counts is confirmed live.
+  // Shells whose status refresh failed are only last known: the chip says so, and its shell
+  // icon dims when none is confirmed live.
   const uncertain = shells.some((shell) => shell.lastKnown);
-  const confirmedLive = live.length + shells.filter((shell) => !shell.lastKnown).length > 0;
+  const shellsLive = shells.some((shell) => !shell.lastKnown);
   if ((running === 0 || stale) && !visible) return null;
   const count = backgroundWorkSummary(live.length, shells.length);
   const label =
     waiting > 0 ? `${count} · ${waiting} ${waiting === 1 ? "needs" : "need"} you` : count;
   const chipVisible = running > 0 && !stale;
   return (
-    <View style={chipVisible && styles.container}>
+    <View pointerEvents="box-none" style={chipVisible && styles.container}>
       {chipVisible ? (
         <Pressable
           ref={triggerRef}
@@ -101,7 +103,11 @@ export function SessionBackgroundTasks({
           accessibilityHint="Shows this session's background work"
           accessibilityState={{ expanded: visible }}
           hitSlop={(minTouchTarget - chipHeight) / 2}
-          onPress={() => setVisible(true)}
+          onPress={() => {
+            // The card pins itself to the chip; a keyboard closing after it opens would move it.
+            Keyboard.dismiss();
+            setVisible(true);
+          }}
           style={({ pressed }) => [
             styles.chip,
             waiting > 0 && styles.chipWaiting,
@@ -109,10 +115,20 @@ export function SessionBackgroundTasks({
           ]}
           testID="subagent-monitor-chip"
         >
+          {/* One icon for the whole chip: a running subagent is an agent at work and spins;
+              shells alone are processes, so they get a still terminal glyph. */}
           {waiting > 0 ? (
             <View style={styles.waitingDot} testID="subagent-monitor-waiting" />
+          ) : live.length > 0 ? (
+            <WorkingIndicator />
           ) : (
-            <WorkingIndicator animated={confirmedLive} />
+            <Feather
+              accessible={false}
+              color={shellsLive ? palette.info : palette.dim}
+              name="terminal"
+              size={15}
+              testID={shellsLive ? "background-shells-live" : "background-shells-last-known"}
+            />
           )}
           <Text
             dynamicTypeRamp={typeRamp.control}
@@ -130,7 +146,7 @@ export function SessionBackgroundTasks({
         }}
         onStopChild={onStopChild}
         onStopShell={stale ? undefined : stopShell}
-        returnFocusRef={triggerRef}
+        anchorRef={triggerRef}
         shells={shells}
         stale={stale}
         subagents={subagents}
@@ -165,21 +181,22 @@ function useBackgroundSubagentAnnouncements(subagents: SessionSubagent[], stale:
 }
 
 function SubagentMonitorSheet({
+  anchorRef,
   onClose,
   onOpenChild,
   onStopChild,
   onStopShell,
-  returnFocusRef,
   shells,
   stale,
   subagents,
   visible,
 }: {
+  // The chip: the card opens over it, and focus returns to it on close.
+  anchorRef: RefObject<View | null>;
   onClose: () => void;
   onOpenChild: (sessionID: string) => void;
   onStopChild?: ((sessionID: string) => Promise<void>) | undefined;
   onStopShell?: ((shellID: string) => Promise<void>) | undefined;
-  returnFocusRef: RefObject<View | null>;
   shells: ShellCandidate[];
   stale: boolean;
   subagents: SessionSubagent[];
@@ -193,7 +210,14 @@ function SubagentMonitorSheet({
   const shellRows = useRef(new Map<string, View>());
   const shellsHeader = useRef<Text>(null);
   // The list's first heading, or its empty state: present whatever is left to show.
-  const listStart = useRef<Text | null>(null);
+  const listStart = useRef<Text | View | null>(null);
+  const staleNotice = useRef<Text>(null);
+  // Opening reads from the top: the stale notice, else the first section, else Shells.
+  const firstFocus = useRef({
+    get current(): Text | View | null {
+      return staleNotice.current ?? listStart.current ?? shellsHeader.current;
+    },
+  }).current;
   const back = () => {
     const shellID = openShell?.shellID;
     setOpenShell(undefined);
@@ -221,19 +245,34 @@ function SubagentMonitorSheet({
     onClose();
   };
   return (
-    <ModalSheet
+    // A card over the chip, not a sheet: a glance at what runs, one tap from each item.
+    <PopoverCard
+      anchorRef={anchorRef}
+      fill={Boolean(openShell)}
+      initialFocusRef={firstFocus}
+      label="Background work"
       onClose={close}
-      // Android back steps from the shell page to the list. An iOS swipe always dismisses the
-      // native sheet, so it must close, or the sheet state would stay open behind it.
-      onRequestClose={Platform.OS === "android" && openShell ? back : close}
+      // Android back and the iOS escape gesture step from the shell page to the list first.
+      onRequestClose={openShell ? back : close}
+      returnFocusRef={anchorRef}
       scrollable={!openShell}
-      returnFocusRef={returnFocusRef}
-      subtitle={stale ? "Status unavailable · showing last known" : "In this session"}
-      title="Background work"
       visible={visible}
     >
+      {stale ? (
+        <Text ref={staleNotice} dynamicTypeRamp={typeRamp.footnote} style={styles.staleNotice}>
+          Status unavailable · showing last known
+        </Text>
+      ) : null}
       {openShell ? (
-        <BackgroundShellDetail onBack={back} onStop={onStopShell} shell={openShell} stale={stale} />
+        <View style={styles.shellPage}>
+          <BackgroundShellDetail
+            fill
+            onBack={back}
+            onStop={onStopShell}
+            shell={openShell}
+            stale={stale}
+          />
+        </View>
       ) : (
         <>
           {sections.map((section) =>
@@ -319,7 +358,7 @@ function SubagentMonitorSheet({
           ) : null}
         </>
       )}
-    </ModalSheet>
+    </PopoverCard>
   );
 }
 
@@ -523,13 +562,8 @@ const styles = StyleSheet.create({
   copy: { flex: 1, gap: 2, minWidth: 0 },
   empty: { ...typography.subheadline, color: palette.dim },
   error: { ...typography.footnote, color: palette.danger },
-  group: {
-    backgroundColor: palette.card,
-    borderColor: palette.border,
-    borderRadius: radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
+  // The card is the surface, so groups only stack their rows.
+  group: { overflow: "hidden" },
   label: { ...typography.control, color: palette.ink, flexShrink: 1 },
   labelUncertain: { color: palette.dim },
   meta: { ...typography.footnote, color: palette.dim },
@@ -549,6 +583,8 @@ const styles = StyleSheet.create({
   },
   section: { gap: space.xs },
   sectionTitle: { ...typography.sectionLabel, color: palette.dim, paddingHorizontal: space.md },
+  shellPage: { flex: 1, paddingHorizontal: space.md },
+  staleNotice: { ...typography.footnote, color: palette.dim, paddingHorizontal: space.md },
   shellGlyph: { alignItems: "center", height: 20, justifyContent: "center", width: 16 },
   separator: { borderBottomColor: palette.border, borderBottomWidth: StyleSheet.hairlineWidth },
   title: { ...typography.body, color: palette.ink },

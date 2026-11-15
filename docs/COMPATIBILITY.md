@@ -12,6 +12,34 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-14: floating background-work chip and card, pending device verification
+
+iPhone screenshots showed the background-work chip in an opaque band above the
+composer, the composer folding after an agent choice, and model changes behind
+a disclosure. The chip now floats over the transcript: only the rest of the dock
+reserves space, measured in one piece, and the inverted list pads its newest
+end by the chip's height. Touches beside the chip reach the transcript.
+
+The chip spins while a subagent runs, shows a still terminal glyph when only
+shells run, and keeps the warm dot when something needs the user. Tapping it
+opens a card over the chip instead of a sheet: the screen dims, tapping outside
+closes it, and a shell's page opens inside the card. The card is measured from
+the chip again on rotation, resize, keyboard changes and once shown. It stays
+within the safe area and below the status bar.
+
+After an agent, model or variant choice, the composer stays expanded until the
+prompt is tapped and blurs, or the prompt is sent. Model changes read inline as
+"Model changed to" the model and variant.
+
+The full lint, typecheck, test, and build sequence passed, including 1575
+mobile tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Every
+changed file is JavaScript. Revisions were published to preview through local
+EAS Update; on an iPhone the chip floated over the transcript. Still unverified
+on devices: the final revision; whether the composer stays expanded after an
+agent choice; Android `measureInWindow` alignment with the status-bar-translucent
+card; the card with the keyboard open, in landscape and with large text; and
+VoiceOver and TalkBack focus when the card opens and closes.
+
 ## 2026-11-14: background shells in the composer chip, pending device verification
 
 The chip above the composer now counts running background shells next to

@@ -111,7 +111,7 @@ export function focusAccessibility(target: Text | View | null | undefined) {
   if (handle) AccessibilityInfo.setAccessibilityFocus(handle);
 }
 
-function useReturnFocusAfterClose(
+export function useReturnFocusAfterClose(
   visible: boolean,
   returnFocusRef: RefObject<View | null> | undefined,
 ) {

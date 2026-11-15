@@ -18,8 +18,8 @@ const dots = [0, 1, 2, 3, 4, 5].map((bit) => ({
 
 // The one working animation, shared by the session list and the session screen. The inbox
 // passes its blue working color so the spinner matches the row's status text. Only the Working
-// line and the background-work chip animate; other running glyphs pass animated={false} and keep
-// the still first frame, so one screen never has a field of spinners ticking out of step.
+// line and the background-work chip (while a subagent runs) animate; other running glyphs pass
+// animated={false} and keep the still first frame, so a screen never fills with spinners.
 export function WorkingIndicator({
   animated = true,
   color = palette.activity,

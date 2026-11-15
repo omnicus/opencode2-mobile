@@ -654,8 +654,25 @@ export const SessionTranscriptRow = memo(function SessionTranscriptRow({
           </Text>
         </View>
       );
-    case "model-switched":
-      return <Notice compact={!detailed} label="Model changed" text={message.model.id} />;
+    case "model-switched": {
+      // Inline like the agent change: the new model is the whole story, so nothing to expand.
+      const model = sanitizeTranscriptText(message.model.id, 256);
+      const variant = message.model.variant
+        ? sanitizeTranscriptText(message.model.variant, 128)
+        : undefined;
+      return (
+        <View style={styles.notice}>
+          <Text
+            accessibilityLabel={`Model changed to ${model}${variant ? `, ${variant}` : ""}`}
+            dynamicTypeRamp={typeRamp.body}
+            style={styles.activitySummary}
+          >
+            Model changed to{" "}
+            <Text style={styles.activityLabel}>{variant ? `${model} · ${variant}` : model}</Text>
+          </Text>
+        </View>
+      );
+    }
     case "location-switched":
       return (
         <Notice

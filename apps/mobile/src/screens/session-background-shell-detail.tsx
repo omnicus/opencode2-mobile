@@ -34,11 +34,14 @@ const commandMaxHeight = 96;
 // output, and Stop. Once it ends, Stop gives way to how it ended. It stays on screen after the
 // shell leaves the running list, until Back or the sheet closes.
 export function BackgroundShellDetail({
+  fill = false,
   onBack,
   onStop,
   shell,
   stale,
 }: {
+  // In a fixed-height container the output box grows into the space the page leaves.
+  fill?: boolean;
   onBack: () => void;
   onStop?: ((shellID: string) => Promise<void>) | undefined;
   shell: ShellCandidate;
@@ -64,7 +67,7 @@ export function BackgroundShellDetail({
         variant="text"
       />
       <ScrollView
-        contentContainerStyle={styles.page}
+        contentContainerStyle={[styles.page, fill && styles.fill]}
         keyboardShouldPersistTaps="handled"
         style={styles.pageScroll}
       >
@@ -88,6 +91,7 @@ export function BackgroundShellDetail({
           {(observation) => (
             <ShellState
               error={Boolean(observation?.error)}
+              fill={fill}
               onRetry={observation?.retry}
               onStop={onStop && !stale ? () => onStop(shell.shellID) : undefined}
               shell={shell}
@@ -103,6 +107,7 @@ export function BackgroundShellDetail({
 
 function ShellState({
   error,
+  fill,
   onRetry,
   onStop,
   shell,
@@ -110,6 +115,7 @@ function ShellState({
   stale,
 }: {
   error: boolean;
+  fill: boolean;
   onRetry: (() => void) | undefined;
   onStop: (() => Promise<void>) | undefined;
   shell: ShellCandidate;
@@ -132,7 +138,7 @@ function ShellState({
   useAnnouncement(stop.failed && stopFailedMessage);
   const info = snapshot?.info;
   return (
-    <View style={styles.state}>
+    <View style={[styles.state, fill && styles.fill]}>
       <View style={styles.statusRow}>
         <View style={styles.status}>
           <Text
@@ -170,6 +176,7 @@ function ShellState({
       <ShellTail
         ended={Boolean(status.ended)}
         error={error}
+        fill={fill}
         loaded={Boolean(snapshot)}
         output={snapshot?.output ?? ""}
         stale={stale}
@@ -252,6 +259,7 @@ function useShellStop(command: string, onStop: (() => Promise<void>) | undefined
 function ShellTail({
   ended,
   error,
+  fill,
   loaded,
   output,
   stale,
@@ -259,6 +267,7 @@ function ShellTail({
 }: {
   ended: boolean;
   error: boolean;
+  fill: boolean;
   loaded: boolean;
   output: string;
   stale: boolean;
@@ -276,7 +285,7 @@ function ShellTail({
       ? "No output"
       : "No output yet";
   return (
-    <View style={styles.tail}>
+    <View style={[styles.tail, fill && styles.fill]}>
       {tail.text && (tail.clipped || truncated) ? (
         <Text dynamicTypeRamp={typeRamp.footnote} style={styles.caption}>
           Showing recent output.
@@ -296,7 +305,8 @@ function ShellTail({
             contentSize.height - layoutMeasurement.height - contentOffset.y <= followThreshold;
         }}
         scrollEventThrottle={100}
-        style={styles.output}
+        style={[styles.output, fill && styles.outputFill]}
+        testID="shell-output"
       >
         {tail.text ? (
           <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.outputText}>
@@ -320,6 +330,7 @@ const styles = StyleSheet.create({
   empty: { ...typography.footnote, color: palette.dim, padding: 12 },
   error: { ...typography.footnote, color: palette.danger, flexShrink: 1 },
   errorRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
+  fill: { flexGrow: 1 },
   failed: { color: palette.danger },
   heading: { ...typography.headline, color: palette.ink },
   output: {
@@ -329,6 +340,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     maxHeight: 360,
   },
+  // Grows into the card instead of the sheet's fixed cap.
+  outputFill: { flexGrow: 1, flexBasis: 0, maxHeight: undefined, minHeight: 120 },
   outputText: { ...typography.code, color: palette.dim, padding: 12 },
   page: { gap: space.sm },
   pageScroll: { flex: 1 },
