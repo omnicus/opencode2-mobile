@@ -654,6 +654,8 @@ test("tapping outside the card closes it from the shell page, and the chip opens
   await openShellPage();
   // In the card the output grows into the space left, instead of the sheet's fixed cap.
   expect(screen.getByTestId("shell-output")).toHaveStyle({ flexGrow: 1, maxHeight: undefined });
+  // The command shows in full up to half the card, instead of the sheet's four-line cap.
+  expect(screen.getByTestId("shell-command")).toHaveStyle({ maxHeight: "50%" });
   fireEvent.press(screen.getByTestId("popover-backdrop", { includeHiddenElements: true }));
   expect(screen.UNSAFE_getByType(Modal).props.visible).toBe(false);
   fireEvent.press(screen.getByRole("button", { name: "1 shell, running in this session" }));

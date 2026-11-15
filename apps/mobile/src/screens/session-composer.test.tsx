@@ -1,4 +1,4 @@
-import { expect, jest, test } from "@jest/globals";
+import { beforeEach, expect, jest, test } from "@jest/globals";
 import type {
   AgentInfo,
   CommandInfo,
@@ -13,8 +13,12 @@ import { Keyboard, StyleSheet } from "react-native";
 
 import { palette, typography } from "../theme";
 import type { PromptDelivery } from "./prompt-admission-model";
-import { SessionComposer } from "./session-composer";
+import { resetComposerPickerHold, SessionComposer } from "./session-composer";
 import type { ComposerMention, ComposerSubmitIntent } from "./session-composer-model";
+
+beforeEach(() => {
+  resetComposerPickerHold();
+});
 
 const agents = [
   { hidden: false, id: "build", mode: "primary", name: "Build" },
@@ -445,6 +449,21 @@ test("stays expanded after choosing an agent or variant until the prompt is tapp
   fireEvent(screen.getByLabelText("Prompt"), "blur");
   expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull();
   expect(screen.getByLabelText("Prompt")).toHaveStyle({ height: 42 });
+});
+
+test("a composer remounted as a picker closes stays expanded, and only that once", () => {
+  const view = render(<ComposerHarness onSubmit={jest.fn()} />);
+  fireEvent(screen.getByLabelText("Prompt"), "focus");
+  fireEvent.press(screen.getByRole("button", { name: "Agent: Choose agent" }));
+  fireEvent(screen.getByLabelText("Prompt"), "blur");
+  fireEvent.press(screen.getByRole("button", { name: "Build" }));
+  view.unmount();
+  const remounted = render(<ComposerHarness onSubmit={jest.fn()} />);
+  expect(screen.getByRole("button", { name: /^Agent:/ })).toBeOnTheScreen();
+  remounted.unmount();
+  // A later composer, such as another session's, starts folded.
+  render(<ComposerHarness onSubmit={jest.fn()} />);
+  expect(screen.queryByRole("button", { name: /^Agent:/ })).toBeNull();
 });
 
 test("closing a picker without a choice keeps the composer expanded, and sending folds it", () => {

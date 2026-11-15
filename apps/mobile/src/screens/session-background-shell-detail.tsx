@@ -55,6 +55,16 @@ export function BackgroundShellDetail({
   }, []);
   const { fontScale } = useWindowDimensions();
   // Back stays pinned; the page below it scrolls, so Back never scrolls away at large text.
+  // In a fixed-height card the page doesn't scroll: the command takes up to half the card and
+  // the output the rest, each scrolling inside its own box.
+  const Page = fill ? View : ScrollView;
+  const pageProps = fill
+    ? { style: [styles.page, styles.fillPage] }
+    : {
+        contentContainerStyle: styles.page,
+        keyboardShouldPersistTaps: "handled" as const,
+        style: styles.pageScroll,
+      };
   return (
     <View onAccessibilityEscape={onBack} style={styles.container}>
       <Button
@@ -66,11 +76,7 @@ export function BackgroundShellDetail({
         size="compact"
         variant="text"
       />
-      <ScrollView
-        contentContainerStyle={[styles.page, fill && styles.fill]}
-        keyboardShouldPersistTaps="handled"
-        style={styles.pageScroll}
-      >
+      <Page {...pageProps}>
         <Text
           ref={headingRef}
           accessibilityRole="header"
@@ -81,7 +87,11 @@ export function BackgroundShellDetail({
         </Text>
         <ScrollView
           nestedScrollEnabled
-          style={[styles.commandScroll, { maxHeight: commandMaxHeight * Math.min(fontScale, 2) }]}
+          style={[
+            styles.commandScroll,
+            fill ? styles.commandFill : { maxHeight: commandMaxHeight * Math.min(fontScale, 2) },
+          ]}
+          testID="shell-command"
         >
           <SelectableTranscriptText dynamicTypeRamp={typeRamp.body} style={styles.command}>
             {shell.command}
@@ -100,7 +110,7 @@ export function BackgroundShellDetail({
             />
           )}
         </ShellObservation>
-      </ScrollView>
+      </Page>
     </View>
   );
 }
@@ -326,11 +336,14 @@ const styles = StyleSheet.create({
   caption: { ...typography.footnote, color: palette.dim },
   command: { ...typography.code, color: palette.ink },
   commandScroll: { flexGrow: 0 },
+  // Its full height when it fits, never more than half the card.
+  commandFill: { flexShrink: 1, maxHeight: "50%" },
   container: { flex: 1, gap: space.sm },
   empty: { ...typography.footnote, color: palette.dim, padding: 12 },
   error: { ...typography.footnote, color: palette.danger, flexShrink: 1 },
   errorRow: { alignItems: "center", flexDirection: "row", flexWrap: "wrap", gap: space.sm },
   fill: { flexGrow: 1 },
+  fillPage: { flex: 1 },
   failed: { color: palette.danger },
   heading: { ...typography.headline, color: palette.ink },
   output: {
