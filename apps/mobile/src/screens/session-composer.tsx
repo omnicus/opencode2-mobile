@@ -81,6 +81,24 @@ const stopAfterSendDelayMs = 600;
 type OptionsPage = "agent" | "variant";
 type DraftSelection = { end: number; start: number };
 
+// The hold that keeps the composer expanded after a picker choice (see SessionComposer). One
+// composer is on screen at a time, so a single value is enough to carry it across a remount.
+// Only a remount right after a picker opens or closes picks it up, so another session's
+// composer, or one opened later, never starts expanded.
+const composerPickerHold = { heldAt: 0 };
+const pickerHoldCarryMs = 2000;
+
+function takeCarriedPickerHold() {
+  const carried = Date.now() - composerPickerHold.heldAt < pickerHoldCarryMs;
+  composerPickerHold.heldAt = 0;
+  return carried;
+}
+
+// Tests mount composers back to back; each starts without a carried hold.
+export function resetComposerPickerHold() {
+  composerPickerHold.heldAt = 0;
+}
+
 export function SessionComposer({
   active,
   agent,
@@ -162,7 +180,12 @@ export function SessionComposer({
   // Opening a picker dismisses the keyboard and blurs the input. Hold the composer open until
   // the prompt is tapped again or sent, so a choice doesn't fold the toolbar away and the
   // picker's return focus still has its selector to land on.
-  const [pickerHold, setPickerHold] = useState(false);
+  const [pickerHold, setPickerHoldState] = useState(takeCarriedPickerHold);
+  // Mirrored outside the component, so a remount while a picker closes keeps the hold.
+  const setPickerHold = (held: boolean) => {
+    composerPickerHold.heldAt = held ? Date.now() : 0;
+    setPickerHoldState(held);
+  };
   const promptTapped = useRef(false);
   const [justSent, markSent] = useJustSent();
   const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
@@ -342,15 +365,18 @@ export function SessionComposer({
         model={model}
         onAgentChange={(nextAgent) => {
           onAgentChange(nextAgent);
+          setPickerHold(true);
           setOptionsPage(undefined);
         }}
         onAgentSearchChange={setAgentSearch}
         onClose={() => {
+          setPickerHold(true);
           setOptionsPage(undefined);
           setAgentSearch("");
         }}
         onModelChange={(nextModel) => {
           onModelChange(nextModel);
+          setPickerHold(true);
           setOptionsPage(undefined);
         }}
         page={optionsPage}
@@ -358,7 +384,10 @@ export function SessionComposer({
         selectedModel={selectedModel}
       />
       <ModelPicker
-        onClose={() => setModelPickerOpen(false)}
+        onClose={() => {
+          setPickerHold(true);
+          setModelPickerOpen(false);
+        }}
         onSelect={onModelChange}
         models={models}
         returnFocusRef={modelSelectorRef}
