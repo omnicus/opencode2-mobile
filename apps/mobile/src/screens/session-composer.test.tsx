@@ -638,6 +638,12 @@ test("large text keeps the toolbar open and counts characters near the limit", (
   expect(screen.getByText("28,800 / 32,000")).toBeOnTheScreen();
 });
 
+test("a new session's composer keeps its toolbar open before any input", () => {
+  render(<SessionComposer {...composerProps({ alwaysExpanded: true })} />);
+  expect(screen.getByRole("button", { name: "Model: Choose model" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Agent: Choose agent" })).toBeOnTheScreen();
+});
+
 test("hides the character count well below the limit", () => {
   render(<SessionComposer {...composerProps({ draft: "x".repeat(28_799), largeText: true })} />);
   expect(screen.queryByText(/ \/ 32,000$/)).toBeNull();

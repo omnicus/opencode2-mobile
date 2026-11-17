@@ -720,8 +720,9 @@ test("Back after the only shell ended returns to the list, which still says what
   });
   expect(await screen.findByText("Exited")).toBeOnTheScreen();
   fireEvent.press(screen.getByRole("button", { name: "Back to background work" }));
-  // The empty state is the focus target once the row and the Shells header are gone.
-  expect(screen.getByText("Nothing is running in this session.")).toBeOnTheScreen();
+  // The empty state is the focus target once the row and the Shells header are gone. The list
+  // can read the ended shell a moment after Back, so wait for it rather than check at once.
+  expect(await screen.findByText("Nothing is running in this session.")).toBeOnTheScreen();
   expect(screen.queryByRole("header", { name: "Shells" })).toBeNull();
 });
 

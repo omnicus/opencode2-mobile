@@ -390,6 +390,15 @@ const mockGetLocation = jest.mocked(getOpenCodeLocation);
 const mockListAgents = jest.mocked(listOpenCodeAgents);
 const mockListMessages = jest.mocked(listOpenCodeMessages);
 
+// The session screen's queries keep their data for 30 minutes after the screen closes. A
+// fetch still in flight when a test clears its client settles afterwards and starts that
+// 30-minute collection timer on the removed query, which keeps Jest from exiting. Cancel
+// the fetches first, so they settle before the clear cancels their timers.
+async function clearSessionQueries(queryClient: QueryClient) {
+  await queryClient.cancelQueries();
+  queryClient.clear();
+}
+
 test("shows a muted sent prompt before transcript projection and replaces it by stable ID", async () => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
@@ -450,6 +459,7 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
     deliveredText = deliveredText.parent;
   expect(deliveredText).toHaveStyle({ ...typography.chatBody, color: palette.ink });
   view.unmount();
+  await clearSessionQueries(queryClient);
 });
 
 test("the top session menu owns dev tools and the second row has no overflow control", async () => {
@@ -573,7 +583,7 @@ test("moves only the Android composer dock with the keyboard", async () => {
     expect(screen.getByLabelText("Keyboard-aware session")).toBeOnTheScreen();
   } finally {
     view.unmount();
-    queryClient.clear();
+    await clearSessionQueries(queryClient);
     Object.defineProperty(Platform, "OS", { configurable: true, value: platformOS });
   }
 });
@@ -676,7 +686,7 @@ test("shows a permission blocking the open session and can reply", async () => {
   } finally {
     mockWorkspacePermissions = [];
     view.unmount();
-    queryClient.clear();
+    await clearSessionQueries(queryClient);
   }
 });
 
@@ -2796,7 +2806,7 @@ test("measures the iOS composer dock and lifts it above the keyboard", async () 
   } finally {
     addListener.mockRestore();
     view.unmount();
-    queryClient.clear();
+    await clearSessionQueries(queryClient);
   }
 });
 

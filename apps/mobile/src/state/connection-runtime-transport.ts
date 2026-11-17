@@ -137,6 +137,17 @@ export function connectionTransportCallbacks(
         snapshot.activeSessions,
       );
       sink.setReconciliationRevision((current) => current + 1);
+      // A first load that started while the app was resuming can sit on a socket that
+      // died in the background. React Query only restarts in-flight requests that
+      // already have data, so the refetch below would wait on that dead request and
+      // leave the transcript or branch loading. Cancel those loads first so the
+      // refetch starts them again on a live connection.
+      void queryClient.cancelQueries({
+        predicate: (query) =>
+          isConnectionLocationQuery(query.queryKey, profile.id) &&
+          query.state.data === undefined &&
+          query.state.fetchStatus === "fetching",
+      });
       void queryClient.invalidateQueries({
         predicate: (query) => isConnectionLocationQuery(query.queryKey, profile.id),
         refetchType: "active",

@@ -12,6 +12,28 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-17: new session as an empty chat, pending device verification
+
+On phones, New session now opens like an empty session instead of a modal
+project list. Followed projects sit as rows above the composer, the project last
+worked in is selected, and All projects searches the rest. The composer keeps
+its agent and model toolbar showing. Sending creates the session, moves the
+message to its encrypted draft, and opens it, where normal prompt admission
+sends it. Tablets keep the sheet.
+
+A first load that started while the app was resuming could wait on a socket
+that died in the background. Reconciliation now cancels such loads before the
+refetch. The session screen keeps its transcript, record, and branch for 30
+minutes after it closes, so reopening shows them while they refetch.
+
+The full lint, typecheck, test, and build sequence passed, including 1584
+mobile tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Both
+native fingerprints and runtime matched the installed 0.1.6 baseline under the
+preview EAS environment, and local EAS Update publication succeeded for iOS and
+Android on preview. Still unverified on devices: the layout on iPhone and
+Android, sending the first message, a failed first send, large text, and
+VoiceOver/TalkBack order.
+
 ## 2026-11-14: floating background-work chip and card, pending device verification
 
 iPhone screenshots showed the background-work chip in an opaque band above the
