@@ -2935,8 +2935,10 @@ test("the composer stays expanded after choosing an agent on the session screen"
     location: { directory: "/workspace" },
   } as never);
   const queryClient = new QueryClient({
+    // Choosing an agent runs a mutation. Its default five-minute collection timer outlives
+    // queryClient.clear() and keeps Jest from exiting, so the test owns cleanup instead.
     defaultOptions: {
-      mutations: { networkMode: "always" },
+      mutations: { gcTime: Infinity, networkMode: "always" },
       queries: { gcTime: Infinity, retry: false },
     },
   });
