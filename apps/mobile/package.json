@@ -66,6 +66,11 @@
     "typescript": "~5.9.3"
   },
   "jest": {
+    "fakeTimers": {
+      "doNotFake": [
+        "setImmediate"
+      ]
+    },
     "preset": "jest-expo",
     "setupFilesAfterEnv": [
       "<rootDir>/test/setup.ts"
