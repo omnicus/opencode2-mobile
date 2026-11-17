@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import type { LocationRef, OpenCodeEvent } from "@opencode2-mobile/opencode-adapter";
-import { focusManager, onlineManager, QueryClient } from "@tanstack/react-query";
+import { focusManager, onlineManager, QueryClient, QueryObserver } from "@tanstack/react-query";
 import { AppState } from "react-native";
 
 import {
@@ -293,6 +293,50 @@ test("installs snapshots and refreshes only this connection's location queries",
 
   await flush();
   expect(sink.setCacheMetadata).toHaveBeenCalledWith(metadata);
+});
+
+test("restarts first loads stuck on a dead request when a snapshot arrives", async () => {
+  mockWriteCacheMetadata.mockResolvedValue(undefined);
+  const queryClient = createQueryClient();
+  const signals: AbortSignal[] = [];
+  const otherSignals: AbortSignal[] = [];
+  const transcript = new QueryObserver(queryClient, {
+    queryFn: ({ signal }) => {
+      signals.push(signal);
+      // The first request never settles, like one written to a socket that died in the background.
+      return signals.length === 1 ? new Promise<string>(() => undefined) : Promise.resolve("fresh");
+    },
+    queryKey: ["opencode", profile.id, "location", "/repo", null, "messages", "ses_1"],
+    retry: false,
+  });
+  const otherConnection = new QueryObserver(queryClient, {
+    queryFn: ({ signal }) => {
+      otherSignals.push(signal);
+      return new Promise<string>(() => undefined);
+    },
+    queryKey: ["opencode", "connection-2", "location", "/repo", null, "messages", "ses_1"],
+    retry: false,
+  });
+  const unsubscribe = [
+    transcript.subscribe(() => undefined),
+    otherConnection.subscribe(() => undefined),
+  ];
+  await flush();
+  expect(signals).toHaveLength(1);
+
+  connectionTransportCallbacks(profile, queryClient, createBridge(), createSink()).onSnapshot({
+    activeSessions: {},
+    health: { pid: 42, urls: [], version: "1.2.3" },
+    projects: [],
+  } as unknown as ConnectionSnapshot);
+  await flush();
+
+  expect(signals).toHaveLength(2);
+  expect(signals[0]?.aborted).toBe(true);
+  expect(transcript.getCurrentResult().data).toBe("fresh");
+  expect(otherSignals).toHaveLength(1);
+  expect(otherSignals[0]?.aborted).toBe(false);
+  for (const stop of unsubscribe) stop();
 });
 
 test("drops snapshot cache metadata after deactivation or a failed write", async () => {
