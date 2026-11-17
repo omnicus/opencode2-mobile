@@ -204,7 +204,8 @@ until the version 1.0 split view is built.
 - [x] Add swipe actions and haptics without hiding accessible alternatives.
 - [x] Test empty, large, paginated, disconnected, and concurrently changed lists.
 - [x] Refine the phone workspace into a compact session feed with project and
-      location filters plus a separate new-session sheet.
+      location filters plus a new-session screen that opens like an empty
+      session, with followed projects above the composer.
 - [x] Bound initial and batched row rendering for large session lists.
 
 Exit criteria: session lifecycle management works against a real server on both

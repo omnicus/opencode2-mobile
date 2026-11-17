@@ -4,9 +4,12 @@ import {
   createSessionFailure,
   creatingLocationKey,
   emptyProjectListCopy,
+  initialLocationKey,
+  initialProjectID,
   matchingProjects,
   orderProjects,
   type Project,
+  pickerProjects,
   projectBrowserState,
   projectLabel,
   projectLocations,
@@ -120,4 +123,38 @@ test("classifies session creation failures", () => {
   expect(createSessionFailure(new Error("LOCATION_PROJECT_MISMATCH"))).toBe("project-changed");
   expect(createSessionFailure(new Error("boom"))).toBe("failed");
   expect(createSessionFailure("REQUEST_ABORTED")).toBe("failed");
+});
+
+test("the picker lists followed projects in order and shows an unfollowed choice first", () => {
+  const projects = [project("a"), project("b"), project("c")];
+
+  expect(pickerProjects(projects, ["b", "a"], "a").map(({ id }) => id)).toEqual(["b", "a"]);
+  expect(pickerProjects(projects, ["b", "a"], "c").map(({ id }) => id)).toEqual(["c", "b", "a"]);
+  expect(pickerProjects(projects, [], undefined)).toEqual([]);
+});
+
+test("a new session starts where the user last worked, then in the first followed project", () => {
+  const projects = [project("a"), project("b", "/projects/b", ["/worktrees/b-fix"])];
+  const serverDefault = {
+    directory: "/projects/a",
+    project: { canonical: "/projects/a", directory: "/projects/a", id: "a" },
+  };
+
+  expect(initialProjectID(projects, ["a", "b"], { directory: "/worktrees/b-fix" }, undefined)).toBe(
+    "b",
+  );
+  // A last location in a project that is no longer followed does not count.
+  expect(initialProjectID(projects, ["a"], { directory: "/projects/b" }, undefined)).toBe("a");
+  expect(initialProjectID(projects, ["b"], undefined, serverDefault)).toBe("b");
+  expect(initialProjectID(projects, [], undefined, serverDefault)).toBe("a");
+  expect(initialProjectID([], [], undefined, undefined)).toBeUndefined();
+});
+
+test("a new session's location follows the last one worked in, or the main directory", () => {
+  const locations = projectLocations(project("b", "/projects/b", ["/worktrees/b-fix"]), undefined);
+
+  expect(initialLocationKey(locations, { directory: "/worktrees/b-fix" })).toBe(locations[1]?.key);
+  expect(initialLocationKey(locations, { directory: "/elsewhere" })).toBe(locations[0]?.key);
+  expect(initialLocationKey(locations)).toBe(locations[0]?.key);
+  expect(initialLocationKey([])).toBeUndefined();
 });

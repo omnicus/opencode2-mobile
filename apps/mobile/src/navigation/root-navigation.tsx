@@ -46,6 +46,8 @@ export type RootStackParamList = {
     // Opened from a parent session's subagent card or monitor, so back returns there.
     fromParent?: boolean;
     location: LocationRef;
+    // The new-session screen saved the first message as this session's draft; send it.
+    sendDraft?: boolean;
     sessionID: string;
   };
   Settings: undefined;
@@ -131,7 +133,12 @@ export function RootNavigation() {
       <Stack.Screen
         component={NewSessionScreen}
         name="NewSession"
-        options={{ headerShown: false, presentation: "modal", title: "New session" }}
+        // On phones it opens like a session; tablets keep it as a sheet over the split view.
+        options={{
+          headerShown: false,
+          presentation: tablet ? "modal" : "card",
+          title: "New session",
+        }}
       />
       <Stack.Screen
         component={PendingInteractionsScreen}

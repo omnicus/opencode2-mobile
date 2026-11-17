@@ -482,10 +482,11 @@ of the project name in white. If no color is set, `icon.override`, then
 `icon.url`, may replace the letter, but only as an inline PNG, JPEG, GIF, or
 WebP data URI within a size limit. The app never fetches an icon over the
 network. Avatars are hidden from screen readers because the row already names
-the project. New session and Followed projects show the same avatar beside each
-project title. A `project.updated` event replaces the cached project, or
-refetches the project list when the project is not cached, so a color change on
-another client appears without a manual refresh.
+the project. Followed projects shows the avatar beside each project title; New
+session lists projects with a folder glyph, like a chat's project picker. A
+`project.updated` event replaces the cached project, or refetches the project
+list when the project is not cached, so a color change on another client appears
+without a manual refresh.
 
 Server-backed search and cursor pagination operate per followed project, and the
 client merges the results by stable session ID. A global first page followed by
@@ -535,10 +536,17 @@ contracts and must not be copied into the adapter.
 
 ### 10.2 Start work
 
-1. User starts a new session from the combined inbox and selects a followed
-   project and directory or worktree.
-2. User selects an optional agent and model.
-3. App creates the session and opens the composer.
+1. User starts a new session from the combined inbox. It opens like an empty
+   session: followed projects sit above the composer, the project last worked
+   in is selected, and All projects searches the rest. A project with several
+   locations lists its directories and worktrees under it.
+2. User selects an optional agent and model in the composer and writes the
+   first message. Until it is sent, that message is an encrypted device draft
+   for the new session.
+3. Sending creates the session with the chosen agent and model, follows an
+   unfollowed project first, moves the message to the new session's encrypted
+   draft, and opens the session, which sends it through normal prompt
+   admission. A failed send leaves the message in that session's composer.
 4. The new session appears from the authoritative create response.
 
 ### 10.3 Resume and prompt

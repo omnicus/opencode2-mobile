@@ -110,6 +110,7 @@ import {
 } from "./session-transcript-model";
 import { useInboxBranches } from "./use-inbox-branches";
 import { useMarkSessionViewed } from "./use-mark-session-viewed";
+import { useSendHandedOffDraft } from "./use-send-handed-off-draft";
 import { useSessionDraft } from "./use-session-draft";
 import { useSessionExecution } from "./use-session-execution";
 import { WorkspaceBottomMenu, type WorkspaceTab } from "./workspace-bottom-menu";
@@ -1046,6 +1047,14 @@ export function SessionScreen({ navigation, route }: SessionProps) {
   const waitingFor = sessionWaitingFor(sessionPermissions.length, sessionForms.length);
   const sessionMutationScope = `${routeConnectionId}\u0000${sessionID}`;
   const connected = runtime.status === "connected";
+  useSendHandedOffDraft({
+    draft,
+    enabled: Boolean(route.params.sendDraft),
+    execution,
+    location: sessionLocation,
+    onSent: () => navigation.setParams({ sendDraft: false }),
+    ready: connectionId === routeConnectionId && connected && sessionLocationReady,
+  });
   const {
     autoFillTranscript,
     canLoadOlder,

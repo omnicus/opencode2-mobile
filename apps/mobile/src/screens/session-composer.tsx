@@ -102,6 +102,7 @@ export function resetComposerPickerHold() {
 export function SessionComposer({
   active,
   agent,
+  alwaysExpanded = false,
   agents,
   agentCatalog,
   modelCatalog,
@@ -136,6 +137,8 @@ export function SessionComposer({
 }: {
   active: boolean;
   agent?: string | undefined;
+  // Keeps the toolbar showing while the prompt is idle, as on a new session before any input.
+  alwaysExpanded?: boolean;
   agents: AgentInfo[];
   agentCatalog?: CatalogState;
   modelCatalog?: CatalogState;
@@ -191,7 +194,8 @@ export function SessionComposer({
   const [selection, setSelection] = useState({ end: draft.length, start: draft.length });
   const deferredAgentSearch = useDeferredValue(agentSearch.trim().toLocaleLowerCase());
   const selectedModel = findModel(models, model);
-  const expanded = largeText || focused || pickerHold || Boolean(optionsPage) || modelPickerOpen;
+  const expanded =
+    alwaysExpanded || largeText || focused || pickerHold || Boolean(optionsPage) || modelPickerOpen;
   const mentionTrigger = findMentionTrigger(draft, selection);
   const submitIntent = resolveComposerSubmitIntent(draft, commands, mentions, location);
   const { canSubmit, showStop, submitHint } = resolveComposerSubmitState({

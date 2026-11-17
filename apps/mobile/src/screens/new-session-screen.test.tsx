@@ -1,14 +1,17 @@
 import { beforeEach, expect, jest, test } from "@jest/globals";
 import {
   createOpenCodeSession,
+  getDefaultOpenCodeAgent,
   getDefaultOpenCodeLocation,
+  getDefaultOpenCodeModel,
   getOpenCodeLocation,
+  listOpenCodeAgents,
 } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
 import { AccessibilityInfo } from "react-native";
 
-import { projectAvatarPalette } from "../theme";
+import { writeSessionDraft } from "../storage/draft-repository";
 import { NewSessionScreen } from "./new-session-screen";
 
 const alpha = {
@@ -25,6 +28,13 @@ const beta = {
   sandboxes: ["/worktrees/beta-feature"],
   time: { created: 1, updated: 1 },
 };
+const gamma = {
+  canonical: "/projects/gamma",
+  id: "project-gamma",
+  name: "Gamma",
+  sandboxes: [],
+  time: { created: 1, updated: 1 },
+};
 const alphaLocation = {
   directory: alpha.canonical,
   project: { canonical: alpha.canonical, directory: alpha.canonical, id: alpha.id },
@@ -35,22 +45,93 @@ const betaLocation = {
   project: { canonical: beta.canonical, directory: beta.canonical, id: beta.id },
   workspaceID: "workspace-beta",
 };
+const gammaLocation = {
+  directory: gamma.canonical,
+  project: { canonical: gamma.canonical, directory: gamma.canonical, id: gamma.id },
+};
 const mockSetFollowedProjectIds = jest.fn<(...args: unknown[]) => Promise<void>>(
   async () => undefined,
 );
 const mockRefetch = jest.fn<() => Promise<void>>(async () => undefined);
+const mockClearDraft = jest.fn();
 let mockSelection: Record<string, unknown>;
+let mockInitialDraft = "";
 
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   createOpenCodeSession: jest.fn(),
+  findOpenCodeFiles: jest.fn(async () => ({ data: [] })),
+  getDefaultOpenCodeAgent: jest.fn(async () => null),
   getDefaultOpenCodeLocation: jest.fn(),
+  getDefaultOpenCodeModel: jest.fn(async () => ({ data: null })),
   getOpenCodeLocation: jest.fn(),
+  listOpenCodeAgents: jest.fn(async () => ({ data: [] })),
+  listOpenCodeCommands: jest.fn(async () => ({ data: [] })),
+  listOpenCodeModels: jest.fn(async () => ({ data: [] })),
+  listOpenCodeSkills: jest.fn(async () => ({ data: [] })),
 }));
 jest.mock("../state/connection-runtime-context", () => ({
-  useConnectionRuntime: () => ({ connectionId: "connection-1", restClient: {} }),
+  useConnectionRuntime: () => ({
+    connectionId: "connection-1",
+    connectionUpdatedAtMs: 1,
+    restClient: {},
+  }),
 }));
 jest.mock("../state/workspace-selection-context", () => ({
   useWorkspaceSelection: () => mockSelection,
+}));
+jest.mock("./app-shell", () => ({ isTabletShell: () => false }));
+jest.mock("../state/use-model-favorites", () => ({ useModelFavorites: () => undefined }));
+jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => ({}) }));
+jest.mock("../storage/draft-repository", () => ({
+  writeSessionDraft: jest.fn(async () => undefined),
+}));
+jest.mock("./use-session-draft", () => ({
+  useSessionDraft: () => {
+    const { useState } = jest.requireActual<typeof import("react")>("react");
+    const [draft, setDraft] = useState(mockInitialDraft);
+    return {
+      clearDraft: mockClearDraft,
+      draft,
+      error: undefined,
+      loaded: true,
+      mentions: [],
+      setDraft: (next: string) => setDraft(next),
+    };
+  },
+}));
+// The real composer is covered by its own tests; this stand-in exposes what the screen passes.
+jest.mock("./session-composer", () => ({
+  SessionComposer: (props: {
+    agent?: string;
+    disabled?: boolean;
+    draft: string;
+    location: { directory: string };
+    model?: { id: string };
+    onDraftChange: (draft: string, mentions: never[]) => void;
+    onSubmit: (intent: { type: "prompt" }) => void;
+  }) => {
+    const { Pressable, Text, TextInput, View } =
+      jest.requireActual<typeof import("react-native")>("react-native");
+    return (
+      <View>
+        <TextInput
+          accessibilityLabel="Message"
+          onChangeText={(text) => props.onDraftChange(text, [])}
+          value={props.draft}
+        />
+        <Text testID="composer-location">{props.location.directory}</Text>
+        <Text testID="composer-agent">{props.agent ?? ""}</Text>
+        <Text testID="composer-model">{props.model?.id ?? ""}</Text>
+        <Pressable
+          accessibilityLabel="Send"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: Boolean(props.disabled) }}
+          disabled={props.disabled}
+          onPress={() => props.onSubmit({ type: "prompt" })}
+        />
+      </View>
+    );
+  },
 }));
 jest.mock("react-native-keyboard-controller", () =>
   jest.requireActual("react-native-keyboard-controller/jest"),
@@ -63,81 +144,200 @@ jest.mock("expo-haptics", () => ({
 const mockCreateSession = jest.mocked(createOpenCodeSession);
 const mockGetDefaultLocation = jest.mocked(getDefaultOpenCodeLocation);
 const mockGetLocation = jest.mocked(getOpenCodeLocation);
+const mockWriteDraft = jest.mocked(writeSessionDraft);
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockInitialDraft = "";
   mockSelection = {
-    followedProjectIds: [alpha.id],
+    followedProjectIds: [alpha.id, beta.id],
+    location: undefined,
     preferencesError: false,
     preferencesLoading: false,
     preferencesSaving: false,
-    projects: [alpha, beta],
+    projects: [alpha, beta, gamma],
     projectsError: false,
     projectsLoading: false,
     refetch: mockRefetch,
     setFollowedProjectIds: mockSetFollowedProjectIds,
   };
   mockGetDefaultLocation.mockResolvedValue(alphaLocation);
-  mockGetLocation.mockImplementation(async (_client, requested) =>
-    requested.directory === betaLocation.directory ? betaLocation : alphaLocation,
-  );
+  jest.mocked(listOpenCodeAgents).mockResolvedValue({ data: [] } as never);
+  jest.mocked(getDefaultOpenCodeAgent).mockResolvedValue(null);
+  jest.mocked(getDefaultOpenCodeModel).mockResolvedValue({ data: null } as never);
+  mockGetLocation.mockImplementation(async (_client, requested) => {
+    if (requested.directory === betaLocation.directory) return betaLocation;
+    if (requested.directory === gamma.canonical) return gammaLocation;
+    return alphaLocation;
+  });
   mockCreateSession.mockImplementation(async (_client, location) => ({
     cost: 0,
     id: "ses-created",
     location,
-    projectID: location.directory === betaLocation.directory ? beta.id : alpha.id,
+    projectID: alpha.id,
     time: { created: 2, updated: 2 },
     tokens: { cache: { read: 0, write: 0 }, input: 0, output: 0, reasoning: 0 },
   }));
 });
 
-test("shows followed projects first and reveals other projects through browse and search", async () => {
+test("lists followed projects above the composer with the first one selected", async () => {
   renderScreen();
 
-  expect(await screen.findByText("Followed projects")).toBeOnTheScreen();
-  expect(screen.getByText("Alpha")).toBeOnTheScreen();
-  expect(screen.queryByText("Beta")).toBeNull();
-
-  fireEvent.press(screen.getByRole("button", { name: "Browse all projects" }));
-  expect(await screen.findByText("Other projects")).toBeOnTheScreen();
-  expect(screen.getByText("Beta")).toBeOnTheScreen();
-  fireEvent.changeText(screen.getByLabelText("Search projects"), "beta-feature");
-  await waitFor(() => expect(screen.queryByText("Alpha")).toBeNull());
-  expect(screen.getByText("Beta")).toBeOnTheScreen();
+  const alphaRow = await screen.findByRole("button", { name: "Alpha" });
+  expect(alphaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
+  expect(screen.getByRole("button", { name: "Beta" })).toHaveProp(
+    "accessibilityState",
+    expect.objectContaining({ selected: false }),
+  );
+  expect(screen.queryByRole("button", { name: /^Gamma/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "All projects" })).toBeOnTheScreen();
+  expect(screen.getByRole("header", { name: "New session" })).toBeOnTheScreen();
+  // The selected project also reads under the title.
+  expect(screen.getAllByText("Alpha")).toHaveLength(2);
+  expect(screen.getByTestId("composer-location")).toHaveTextContent(alpha.canonical);
 });
 
-test("project rows show the project's avatar color next to the title", async () => {
-  mockSelection.projects = [{ ...alpha, icon: { color: "pink" } }, beta];
+test("starts in the project the user last worked in", async () => {
+  mockSelection.location = { directory: "/worktrees/beta-feature" };
   renderScreen();
 
-  expect(await screen.findByText("Alpha")).toBeOnTheScreen();
-  expect(screen.getByTestId("project-avatar-letter", { includeHiddenElements: true })).toHaveStyle({
-    backgroundColor: projectAvatarPalette.colors.pink.fill,
-  });
-  expect(screen.getByText("A", { includeHiddenElements: true })).toBeTruthy();
-  expect(
-    screen.getByRole("button", { name: "Alpha, followed, /projects/alpha" }),
-  ).toBeOnTheScreen();
+  const betaRow = await screen.findByRole("button", { name: "Beta" });
+  expect(betaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
+  expect(screen.getByRole("button", { name: "beta-feature, /worktrees/beta-feature" })).toHaveProp(
+    "accessibilityState",
+    expect.objectContaining({ selected: true }),
+  );
+  expect(screen.getByTestId("composer-location")).toHaveTextContent("/worktrees/beta-feature");
 });
 
-test("creates in a followed project's only location and replaces the modal", async () => {
+test("sending creates the session, hands the message over, and opens it", async () => {
   const navigation = mockNavigation();
-  mockRefetch.mockImplementationOnce(() => new Promise(() => undefined));
   renderScreen(navigation);
 
-  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
+  fireEvent.changeText(await screen.findByLabelText("Message"), "Fix the build");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
+  await sendWhenReady();
+
+  await waitFor(() =>
+    expect(mockCreateSession).toHaveBeenCalledWith({}, alphaLocation, {}, expect.anything()),
+  );
+  await waitFor(() =>
+    expect(mockWriteDraft).toHaveBeenCalledWith(
+      {},
+      {
+        connectionId: "connection-1",
+        content: "Fix the build",
+        mentions: [],
+        revision: 1,
+        sessionId: "ses-created",
+      },
+    ),
+  );
+  await waitFor(() =>
+    expect(navigation.replace).toHaveBeenCalledWith("Session", {
+      connectionId: "connection-1",
+      location: alphaLocation,
+      sendDraft: true,
+      sessionID: "ses-created",
+    }),
+  );
+  expect(mockClearDraft).toHaveBeenCalled();
+  expect(mockSetFollowedProjectIds).not.toHaveBeenCalled();
+});
+
+test("creates with the agent and model the composer shows", async () => {
+  jest.mocked(listOpenCodeAgents).mockResolvedValue({
+    data: [{ id: "build", mode: "primary", model: { id: "opus", providerID: "anthropic" } }],
+  } as never);
+  jest.mocked(getDefaultOpenCodeAgent).mockResolvedValue("build" as never);
+  jest
+    .mocked(getDefaultOpenCodeModel)
+    .mockResolvedValue({ data: { id: "sonnet", providerID: "anthropic" } } as never);
+  renderScreen();
+
+  await waitFor(() => expect(screen.getByTestId("composer-agent")).toHaveTextContent("build"));
+  expect(screen.getByTestId("composer-model")).toHaveTextContent("opus");
+  fireEvent.changeText(screen.getByLabelText("Message"), "Hello");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
+  await sendWhenReady();
+
+  await waitFor(() =>
+    expect(mockCreateSession).toHaveBeenCalledWith(
+      {},
+      alphaLocation,
+      { agent: "build", model: { id: "opus", providerID: "anthropic" } },
+      expect.anything(),
+    ),
+  );
+});
+
+test("choosing a worktree sends the session there", async () => {
+  const navigation = mockNavigation();
+  mockInitialDraft = "Ship it";
+  renderScreen(navigation);
+
+  fireEvent.press(await screen.findByRole("button", { name: "Beta" }));
+  fireEvent.press(
+    await screen.findByRole("button", { name: "beta-feature, /worktrees/beta-feature" }),
+  );
+  expect(screen.getByTestId("composer-location")).toHaveTextContent("/worktrees/beta-feature");
+  await sendWhenReady();
 
   await waitFor(() =>
     expect(mockGetLocation).toHaveBeenCalledWith(
       {},
-      { directory: alpha.canonical },
+      { directory: "/worktrees/beta-feature" },
       expect.anything(),
     ),
   );
   await waitFor(() =>
-    expect(mockCreateSession).toHaveBeenCalledWith({}, alphaLocation, {}, expect.anything()),
+    expect(mockCreateSession).toHaveBeenCalledWith({}, betaLocation, {}, expect.anything()),
   );
-  expect(mockSetFollowedProjectIds).not.toHaveBeenCalled();
+});
+
+test("an unfollowed project from search is followed before creation", async () => {
+  mockInitialDraft = "Hello";
+  renderScreen();
+
+  fireEvent.press(await screen.findByRole("button", { name: "All projects" }));
+  fireEvent.changeText(await screen.findByLabelText("Search projects"), "gam");
+  fireEvent.press(await screen.findByRole("button", { name: /^Gamma, / }));
+
+  const gammaRow = await screen.findByRole("button", { name: "Gamma, Will be added to Sessions" });
+  expect(gammaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
+  await sendWhenReady();
+
+  await waitFor(() =>
+    expect(mockSetFollowedProjectIds).toHaveBeenCalledWith([alpha.id, beta.id, gamma.id]),
+  );
+  await waitFor(() =>
+    expect(mockCreateSession).toHaveBeenCalledWith({}, gammaLocation, {}, expect.anything()),
+  );
+  expect(mockSetFollowedProjectIds.mock.invocationCallOrder[0]).toBeLessThan(
+    mockCreateSession.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+  );
+});
+
+test("does not create when adding an unfollowed project fails", async () => {
+  mockSetFollowedProjectIds.mockRejectedValueOnce(new Error("storage failed"));
+  mockInitialDraft = "Hello";
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "All projects" }));
+  fireEvent.press(await screen.findByRole("button", { name: /^Gamma, / }));
+  await sendWhenReady();
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/could not be created/i);
+  expect(mockCreateSession).not.toHaveBeenCalled();
+  expect(mockClearDraft).not.toHaveBeenCalled();
+});
+
+test("keeps the message here when it cannot be handed to the new session", async () => {
+  const navigation = mockNavigation();
+  mockWriteDraft.mockRejectedValueOnce(new Error("storage failed"));
+  mockInitialDraft = "Hello";
+  renderScreen(navigation);
+  await sendWhenReady();
+
   await waitFor(() =>
     expect(navigation.replace).toHaveBeenCalledWith("Session", {
       connectionId: "connection-1",
@@ -146,9 +346,10 @@ test("creates in a followed project's only location and replaces the modal", asy
       sessionID: "ses-created",
     }),
   );
+  expect(mockClearDraft).not.toHaveBeenCalled();
 });
 
-test("waits for the default location before enabling project selection", async () => {
+test("waits for the default location before offering projects", async () => {
   let resolveDefault: ((location: typeof alphaLocation) => void) | undefined;
   mockGetDefaultLocation.mockImplementationOnce(
     () =>
@@ -159,136 +360,39 @@ test("waits for the default location before enabling project selection", async (
   renderScreen();
 
   expect(await screen.findByLabelText("Loading projects")).toBeOnTheScreen();
-  expect(screen.queryByText("Alpha")).toBeNull();
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
   await act(async () => resolveDefault?.(alphaLocation));
-  expect(await screen.findByText("Alpha")).toBeOnTheScreen();
+  expect(await screen.findByRole("button", { name: "Alpha" })).toBeOnTheScreen();
 });
 
-test("chooses a worktree and follows an unfollowed project before creation", async () => {
-  const navigation = mockNavigation();
-  renderScreen(navigation);
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-
-  expect(await screen.findByRole("header", { name: "Choose location" })).toBeOnTheScreen();
-  expect(mockCreateSession).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: /^beta-feature,/ }));
-
-  await waitFor(() => expect(mockSetFollowedProjectIds).toHaveBeenCalledWith([alpha.id, beta.id]));
-  await waitFor(() =>
-    expect(mockCreateSession).toHaveBeenCalledWith({}, betaLocation, {}, expect.anything()),
-  );
-  expect(mockSetFollowedProjectIds.mock.invocationCallOrder[0]).toBeLessThan(
-    mockCreateSession.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
-  );
-  await waitFor(() => expect(navigation.replace).toHaveBeenCalled());
-});
-
-test("does not create when adding an unfollowed project fails", async () => {
-  mockSetFollowedProjectIds.mockRejectedValueOnce(new Error("storage failed"));
-  renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  fireEvent.press(screen.getByRole("button", { name: /^beta-feature,/ }));
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(/could not be created/i);
-  expect(mockCreateSession).not.toHaveBeenCalled();
-});
-
-test("puts Cancel on the leading side of the header", async () => {
-  renderScreen();
-  await screen.findByText("Alpha");
-  expect(screen.getAllByRole("button")[0]).toHaveAccessibleName("Cancel");
-});
-
-test("labels locations by directory name", async () => {
-  mockGetDefaultLocation.mockResolvedValue({
-    ...betaLocation,
-    directory: "/projects/beta/nested",
-  });
-  renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  expect(await screen.findByRole("button", { name: /^Main directory,/ })).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: /^Server's working directory,/ })).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: /^beta-feature, / })).toBeOnTheScreen();
-  expect(screen.queryByText(/Worktree \d/)).toBeNull();
-});
-
-test("back and the swipe gesture return from the location step to Projects", async () => {
-  const navigation = mockNavigation();
-  renderScreen(navigation);
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  await screen.findByRole("header", { name: "Choose location" });
-  expect(navigation.setOptions).toHaveBeenLastCalledWith({ gestureEnabled: false });
-
-  const back = removeEvent("GO_BACK");
-  act(() => navigation.emitBeforeRemove(back));
-  expect(back.preventDefault).toHaveBeenCalled();
-  expect(await screen.findByRole("header", { name: "New session" })).toBeOnTheScreen();
-  expect(navigation.setOptions).toHaveBeenLastCalledWith({ gestureEnabled: true });
-
-  const close = removeEvent("GO_BACK");
-  act(() => navigation.emitBeforeRemove(close));
-  expect(close.preventDefault).not.toHaveBeenCalled();
-});
-
-test("Cancel closes the sheet from the location step", async () => {
-  const navigation = mockNavigation();
-  navigation.goBack.mockImplementation(() => {
-    navigation.emitBeforeRemove(removeEvent("GO_BACK"));
-  });
-  renderScreen(navigation);
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  await screen.findByRole("header", { name: "Choose location" });
-  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
-  expect(navigation.goBack).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("header", { name: "Choose location" })).toBeOnTheScreen();
-});
-
-test("does not block leaving while a session is being created", async () => {
-  const navigation = mockNavigation();
-  mockCreateSession.mockImplementationOnce(() => new Promise(() => undefined));
-  renderScreen(navigation);
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  fireEvent.press(await screen.findByRole("button", { name: /^beta-feature,/ }));
-  await waitFor(() => expect(mockCreateSession).toHaveBeenCalled());
-  expect(navigation.setOptions).toHaveBeenLastCalledWith({ gestureEnabled: true });
-  const back = removeEvent("GO_BACK");
-  act(() => navigation.emitBeforeRemove(back));
-  expect(back.preventDefault).not.toHaveBeenCalled();
-});
-
-test("shows progress in the tapped row and announces it", async () => {
+test("shows progress and announces it while creating", async () => {
   const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility");
   mockCreateSession.mockImplementationOnce(() => new Promise(() => undefined));
+  mockInitialDraft = "Hello";
   renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
-  const row = await screen.findByRole("button", { name: /Alpha, followed.*creating session$/ });
-  expect(row).toHaveProp("accessibilityState", expect.objectContaining({ busy: true }));
+  await sendWhenReady();
+
+  expect(await screen.findByText("Creating session")).toBeOnTheScreen();
   expect(announce).toHaveBeenCalledWith("Creating session");
+  expect(screen.getByRole("button", { name: "Beta" })).toBeDisabled();
   announce.mockRestore();
 });
 
-test("a location that moved to another project returns to Projects and reloads them", async () => {
+test("a location that moved to another project asks to choose again and reloads", async () => {
   mockGetLocation.mockResolvedValue(alphaLocation);
+  mockInitialDraft = "Hello";
   renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, not followed/ }));
-  fireEvent.press(await screen.findByRole("button", { name: /^beta-feature,/ }));
+  fireEvent.press(await screen.findByRole("button", { name: "Beta" }));
+  await sendWhenReady();
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "The project list changed. Choose the project again.",
   );
-  expect(screen.getByRole("header", { name: "New session" })).toBeOnTheScreen();
   expect(mockRefetch).toHaveBeenCalled();
   expect(mockCreateSession).not.toHaveBeenCalled();
 });
 
-test("cancels a pending creation without showing an error", async () => {
+test("leaving cancels a pending creation without an error", async () => {
   mockGetLocation.mockImplementationOnce(
     (_client, _requested, options) =>
       new Promise((_resolve, reject) => {
@@ -296,58 +400,67 @@ test("cancels a pending creation without showing an error", async () => {
       }),
   );
   const navigation = mockNavigation();
+  mockInitialDraft = "Hello";
   renderScreen(navigation);
-  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
-  expect(
-    await screen.findByRole("button", { name: /Alpha, followed.*creating session$/ }),
-  ).toBeOnTheScreen();
+  await sendWhenReady();
+  await screen.findByText("Creating session");
 
-  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+  fireEvent.press(screen.getByRole("button", { name: "Back to Sessions" }));
 
   expect(navigation.goBack).toHaveBeenCalledTimes(1);
-  expect(
-    await screen.findByRole("button", { name: "Alpha, followed, /projects/alpha" }),
-  ).toBeOnTheScreen();
+  await waitFor(() => expect(screen.queryByText("Creating session")).toBeNull());
   expect(screen.queryByRole("alert")).toBeNull();
   expect(mockCreateSession).not.toHaveBeenCalled();
 });
 
-test("offers the server's working directory and returns to the project list", async () => {
-  mockGetDefaultLocation.mockResolvedValue(betaLocation);
-  mockSelection.followedProjectIds = [alpha.id, beta.id];
-  renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: /Beta, followed/ }));
+test("the swipe back gesture also cancels creation", async () => {
+  const navigation = mockNavigation();
+  mockCreateSession.mockImplementationOnce(
+    (_client, _location, _input, options) =>
+      new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new Error("aborted")));
+      }),
+  );
+  mockInitialDraft = "Hello";
+  renderScreen(navigation);
+  await sendWhenReady();
+  await waitFor(() => expect(mockCreateSession).toHaveBeenCalled());
 
-  expect(await screen.findByText("Choose location")).toBeOnTheScreen();
-  expect(screen.queryByText(/will add this project to Sessions/)).toBeNull();
-  expect(screen.getByRole("button", { name: /^Main directory,/ })).toBeOnTheScreen();
-  expect(screen.getByRole("button", { name: /^Server's working directory,/ })).toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: /^beta-feature,/ })).toBeNull();
-
-  fireEvent.press(screen.getByRole("button", { name: "Back to projects" }));
-  expect(await screen.findByText("New session")).toBeOnTheScreen();
-  expect(screen.getByText("Followed projects")).toBeOnTheScreen();
+  const back = removeEvent("GO_BACK");
+  act(() => navigation.emitBeforeRemove(back));
+  expect(back.preventDefault).not.toHaveBeenCalled();
+  await waitFor(() => expect(screen.queryByText("Creating session")).toBeNull());
+  expect(navigation.replace).not.toHaveBeenCalled();
 });
 
 test("ignores project presses while preferences are saving", async () => {
   mockSelection.preferencesSaving = true;
   renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: /Alpha, followed/ }));
+  fireEvent.press(await screen.findByRole("button", { name: "Beta" }));
 
-  expect(mockGetLocation).not.toHaveBeenCalled();
-  expect(screen.queryByText("Choose location")).toBeNull();
+  expect(screen.getByRole("button", { name: "Alpha" })).toHaveProp(
+    "accessibilityState",
+    expect.objectContaining({ selected: true }),
+  );
 });
 
-test("explains empty followed and search results", async () => {
+test("explains empty search results", async () => {
+  renderScreen();
+  fireEvent.press(await screen.findByRole("button", { name: "All projects" }));
+  fireEvent.changeText(screen.getByLabelText("Search projects"), " Delta ");
+
+  expect(await screen.findByText('No projects match "Delta"')).toBeOnTheScreen();
+  expect(screen.getByText("Try a project name or path.")).toBeOnTheScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Done" }));
+  expect(await screen.findByRole("button", { name: "Alpha" })).toBeOnTheScreen();
+});
+
+test("with nothing followed, starts in the server's default project", async () => {
   mockSelection.followedProjectIds = [];
   renderScreen();
 
-  expect(await screen.findByText("No followed projects")).toBeOnTheScreen();
-  expect(screen.getByText("Browse server projects to start a session.")).toBeOnTheScreen();
-  fireEvent.changeText(screen.getByLabelText("Search projects"), " Gamma ");
-  expect(await screen.findByText('No projects match "Gamma"')).toBeOnTheScreen();
-  expect(screen.getByText("Try a project name or path.")).toBeOnTheScreen();
-  expect(screen.queryByRole("button", { name: "Browse all projects" })).toBeNull();
+  const alphaRow = await screen.findByRole("button", { name: "Alpha, Will be added to Sessions" });
+  expect(alphaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
 });
 
 test("retries when project locations fail to load", async () => {
@@ -374,6 +487,12 @@ test("retries when the server returns no projects", async () => {
   expect(mockRefetch).toHaveBeenCalledTimes(1);
 });
 
+async function sendWhenReady() {
+  const send = await screen.findByRole("button", { name: "Send" });
+  await waitFor(() => expect(send).not.toBeDisabled());
+  fireEvent.press(send);
+}
+
 type BeforeRemoveEvent = {
   data: { action: { type: string } };
   preventDefault: jest.Mock;
@@ -385,7 +504,7 @@ function removeEvent(type: string): BeforeRemoveEvent {
 
 function mockNavigation() {
   const listeners = new Set<(event: BeforeRemoveEvent) => void>();
-  return {
+  const navigation = {
     addListener: jest.fn((_event: string, listener: (event: BeforeRemoveEvent) => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -393,10 +512,11 @@ function mockNavigation() {
     emitBeforeRemove(event: BeforeRemoveEvent) {
       for (const listener of listeners) listener(event);
     },
-    goBack: jest.fn(),
+    goBack: jest.fn(() => navigation.emitBeforeRemove(removeEvent("GO_BACK"))),
     replace: jest.fn(),
     setOptions: jest.fn(),
   };
+  return navigation;
 }
 
 function renderScreen(navigation = mockNavigation()) {
@@ -415,18 +535,3 @@ function renderScreen(navigation = mockNavigation()) {
     </QueryClientProvider>,
   );
 }
-
-test("rows show a plus when the tap creates and a chevron when a location choice follows", async () => {
-  renderScreen();
-  fireEvent.press(await screen.findByRole("button", { name: "Browse all projects" }));
-  const alphaRow = await screen.findByRole("button", { name: /Alpha, followed/ });
-  const betaRow = screen.getByRole("button", { name: /Beta, not followed/ });
-  expect(alphaRow).toHaveProp("accessibilityHint", "Creates a session here");
-  expect(within(alphaRow).getByTestId("choice-row-create")).toBeOnTheScreen();
-  expect(betaRow).toHaveProp("accessibilityHint", "Choose a location");
-  expect(within(betaRow).getByTestId("choice-row-next")).toBeOnTheScreen();
-
-  fireEvent.press(betaRow);
-  const location = await screen.findByRole("button", { name: /^beta-feature,/ });
-  expect(within(location).getByTestId("choice-row-create")).toBeOnTheScreen();
-});
