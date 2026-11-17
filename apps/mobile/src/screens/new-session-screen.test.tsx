@@ -79,7 +79,8 @@ jest.mock("../state/connection-runtime-context", () => ({
 jest.mock("../state/workspace-selection-context", () => ({
   useWorkspaceSelection: () => mockSelection,
 }));
-jest.mock("./app-shell", () => ({ isTabletShell: () => false }));
+let mockTablet = false;
+jest.mock("./app-shell", () => ({ isTabletShell: () => mockTablet }));
 jest.mock("../state/use-model-favorites", () => ({ useModelFavorites: () => undefined }));
 jest.mock("expo-sqlite", () => ({ useSQLiteContext: () => ({}) }));
 jest.mock("../storage/draft-repository", () => ({
@@ -149,6 +150,7 @@ const mockWriteDraft = jest.mocked(writeSessionDraft);
 beforeEach(() => {
   jest.clearAllMocks();
   mockInitialDraft = "";
+  mockTablet = false;
   mockSelection = {
     followedProjectIds: [alpha.id, beta.id],
     location: undefined,
@@ -390,6 +392,18 @@ test("a location that moved to another project asks to choose again and reloads"
   );
   expect(mockRefetch).toHaveBeenCalled();
   expect(mockCreateSession).not.toHaveBeenCalled();
+});
+
+test("tablets show the new session as a sheet with Cancel", async () => {
+  mockTablet = true;
+  const navigation = mockNavigation();
+  renderScreen(navigation);
+  await screen.findByText("Alpha");
+
+  expect(screen.queryByRole("button", { name: "Back to Sessions" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(navigation.goBack).toHaveBeenCalledTimes(1);
 });
 
 test("leaving cancels a pending creation without an error", async () => {
