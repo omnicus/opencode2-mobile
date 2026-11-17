@@ -422,7 +422,11 @@ test("leaving cancels a pending creation without an error", async () => {
   fireEvent.press(screen.getByRole("button", { name: "Back to Sessions" }));
 
   expect(navigation.goBack).toHaveBeenCalledTimes(1);
-  await waitFor(() => expect(screen.queryByText("Creating session")).toBeNull());
+  // The abort settles at once, but under coverage late in a full run the failed mutation can
+  // take most of a second to reach the screen, past waitFor's default limit.
+  await waitFor(() => expect(screen.queryByText("Creating session")).toBeNull(), {
+    timeout: 3000,
+  });
   expect(screen.queryByRole("alert")).toBeNull();
   expect(mockCreateSession).not.toHaveBeenCalled();
 });
