@@ -160,6 +160,10 @@ type Refetchable = { refetch: () => Promise<unknown> };
 
 const messagePageSize = 40;
 const maxTranscriptPages = 5;
+// Reopening a session, or returning after the app lock or a long background, shows the
+// last transcript, record, and branch while they refetch instead of an empty spinner.
+// React Query's 5-minute default dropped them too soon to help.
+const sessionScreenGcTimeMs = 30 * 60_000;
 const iosKeyboardTransparentTopInset = 32;
 // While following, rows ease to their new layout when the newest row grows: older text slides
 // up and new lines rise in from the bottom edge. Reanimated animates each row's frame in the
@@ -1303,6 +1307,7 @@ function useSessionRecord({
 }) {
   const sessionQuery = useQuery({
     enabled: Boolean(client && connectionId === routeConnectionId),
+    gcTime: sessionScreenGcTimeMs,
     queryFn: ({ signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return getOpenCodeSession(client, sessionID, { signal });
@@ -1385,6 +1390,7 @@ function useSessionVcsQuery(
 ) {
   return useQuery({
     enabled,
+    gcTime: sessionScreenGcTimeMs,
     queryFn: ({ signal }) => {
       if (!client) throw new Error("CONNECTION_NOT_READY");
       return getOpenCodeVcs(client, location, { signal });
@@ -1408,6 +1414,7 @@ function useSessionMessagesQuery({
 }) {
   return useInfiniteQuery({
     enabled,
+    gcTime: sessionScreenGcTimeMs,
     getNextPageParam: (lastPage: SessionMessagesResponse) => lastPage.cursor.next ?? undefined,
     initialPageParam: undefined as string | undefined,
     queryFn: ({ pageParam, signal }): Promise<SessionMessagesResponse> => {
