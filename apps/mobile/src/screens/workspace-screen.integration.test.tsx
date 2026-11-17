@@ -1049,7 +1049,10 @@ test("brief request reconciliation and history fetches do not flash banners or f
   const view = render(content());
   await screen.findByText("Session 0");
   const footer = () => screen.UNSAFE_getByType(FlatList).props.ListFooterComponent;
-  jest.useFakeTimers();
+  // React's async act() can still be flushing the first render in setImmediate steps. A fake
+  // setImmediate would swallow the next step, leave act's queue pending forever, and hang the
+  // next test's cleanup, so only the timers this test advances are faked.
+  jest.useFakeTimers({ doNotFake: ["setImmediate"] });
   try {
     mockAttentionFreshness = "reconciling";
     mockSessionsFetchingNextPage = true;
@@ -2932,8 +2935,10 @@ test("the composer stays expanded after choosing an agent on the session screen"
     location: { directory: "/workspace" },
   } as never);
   const queryClient = new QueryClient({
+    // Choosing an agent runs a mutation. Its default five-minute collection timer outlives
+    // queryClient.clear() and keeps Jest from exiting, so the test owns cleanup instead.
     defaultOptions: {
-      mutations: { networkMode: "always" },
+      mutations: { gcTime: Infinity, networkMode: "always" },
       queries: { gcTime: Infinity, retry: false },
     },
   });

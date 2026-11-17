@@ -199,7 +199,7 @@ test("aborts a pairing attempt when the screen closes", async () => {
 });
 
 test("stops waiting for OpenCode after 10 seconds", async () => {
-  jest.useFakeTimers();
+  jest.useFakeTimers({ doNotFake: ["setImmediate"] });
   mockHealth.mockImplementation(hangUntilAborted);
   await render(<NotificationPairingScreen onDone={jest.fn()} />);
   await inspectCode();
@@ -258,7 +258,7 @@ test("shows scan errors by the camera, ignores repeats, and cancels the scan", a
 });
 
 test("counts down a notification code and disables pairing once it expires", async () => {
-  jest.useFakeTimers();
+  jest.useFakeTimers({ doNotFake: ["setImmediate"] });
   jest.setSystemTime(1_000_000);
   await render(<NotificationPairingScreen onDone={jest.fn()} />);
   await fireEvent.changeText(
