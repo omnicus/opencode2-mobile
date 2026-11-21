@@ -625,8 +625,10 @@ Chat, PRs, and Approvals, and a round New session button apart on the right.
 Chat is the session list. PRs lists open GitHub pull requests for followed
 projects. Approvals shows the same permission and form requests as Needs
 attention.
-The Approvals tab shows the request count, or a dim dot while attention coverage
-is stale or incomplete. Tabs switch in place without stack navigation, and Chat
+The Approvals tab shows the request count only when requests need the user.
+Like the Settings gear's dot and the session back marker, it stays hidden while
+attention coverage is only stale, reconciling, or incomplete; the Approvals list
+and the accessibility value report that state instead. Tabs switch in place without stack navigation, and Chat
 stays mounted so its scroll position survives. Android back returns to Chat
 before it leaves the screen. The menu hides while the keyboard is up or search
 is open. During a search with pending requests, a Needs you shortcut in the list
