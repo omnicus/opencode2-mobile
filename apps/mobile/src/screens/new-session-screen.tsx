@@ -28,6 +28,7 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  Keyboard,
   Platform,
   Pressable,
   ScrollView,
@@ -66,7 +67,6 @@ import {
   createSessionFailure,
   emptyProjectListCopy,
   initialLocationKey,
-  initialProjectID,
   type LocationChoice,
   matchingProjects,
   newSessionDraftID,
@@ -104,8 +104,8 @@ type CreateRequest = {
 
 const mentionFileLimit = 20;
 
-// A new session reads like an empty chat: the projects sit above the composer, the selected
-// one is highlighted, and sending the first message creates the session there.
+// A new session reads like an empty chat: the projects sit above the composer, choosing one
+// folds the list to it, and sending the first message creates the session there.
 export function NewSessionScreen({ navigation }: Props) {
   const { fontScale, width } = useWindowDimensions();
   const largeText = usesLargeTextLayout(fontScale);
@@ -119,6 +119,9 @@ export function NewSessionScreen({ navigation }: Props) {
   const createAbortRef = useRef<AbortController>(null);
   const closedRef = useRef(false);
   const [browsing, setBrowsing] = useState(false);
+  // Choosing a project folds the list to it so the message has room; tapping that project
+  // unfolds the list again.
+  const [projectsCollapsed, setProjectsCollapsed] = useState(false);
   const [error, setError] = useState<string>();
   const [search, setSearch] = useState("");
   const [chosenProjectID, setChosenProjectID] = useState<string>();
@@ -133,6 +136,7 @@ export function NewSessionScreen({ navigation }: Props) {
     setError(undefined);
     setSearch("");
     setBrowsing(false);
+    setProjectsCollapsed(false);
     setChosenProjectID(undefined);
     setChosenLocationKey(undefined);
     return () => createAbortRef.current?.abort();
@@ -165,10 +169,15 @@ export function NewSessionScreen({ navigation }: Props) {
   function chooseProject(next: Project) {
     if (pickerDisabled) return;
     setError(undefined);
-    setChosenProjectID(next.id);
-    setChosenLocationKey(undefined);
+    const same = next.id === chosenProjectID;
+    if (!same) {
+      setChosenProjectID(next.id);
+      setChosenLocationKey(undefined);
+    }
     setBrowsing(false);
     setSearch("");
+    // A project with several locations stays open so one can be picked; that pick folds it.
+    setProjectsCollapsed(same || projectLocations(next, defaultLocationQuery.data).length <= 1);
   }
 
   function close() {
@@ -193,6 +202,7 @@ export function NewSessionScreen({ navigation }: Props) {
         <NewSessionPicker
           browserState={browserState}
           browsing={browsing}
+          collapsed={projectsCollapsed && Boolean(project)}
           deferredSearch={deferredSearch}
           disabled={pickerDisabled}
           followedProjectIds={selection.followedProjectIds}
@@ -203,11 +213,17 @@ export function NewSessionScreen({ navigation }: Props) {
             if (pickerDisabled) return;
             setError(undefined);
             setChosenLocationKey(key);
+            setProjectsCollapsed(true);
           }}
           onChooseProject={chooseProject}
           onCloseSearch={() => {
             setBrowsing(false);
             setSearch("");
+          }}
+          onExpand={() => {
+            // The full list needs the room the keyboard takes; tapping the composer folds it again.
+            Keyboard.dismiss();
+            setProjectsCollapsed(false);
           }}
           onRetry={() => {
             setError(undefined);
@@ -231,6 +247,9 @@ export function NewSessionScreen({ navigation }: Props) {
             key={connectionID ?? "unselected"}
             largeText={largeText}
             location={locationChoice?.location}
+            onFocus={() => {
+              if (ready) setProjectsCollapsed(true);
+            }}
             onSubmit={(agent, model) => {
               if (!project || !locationChoice) return;
               createMutation.mutate({
@@ -249,23 +268,15 @@ export function NewSessionScreen({ navigation }: Props) {
   );
 }
 
-// The project and location a new session would start in: the user's choice, or else the
-// project last worked in and its matching location.
+// The project and location a new session would start in. Nothing is preselected: the user
+// picks the project, and its location defaults to where they last worked in it.
 function resolveNewSessionTarget(
   selection: WorkspaceSelection,
   defaultLocation: DefaultLocationQuery["data"],
   chosenProjectID: string | undefined,
   chosenLocationKey: string | undefined,
 ) {
-  const projectID =
-    chosenProjectID ??
-    initialProjectID(
-      selection.projects,
-      selection.followedProjectIds,
-      selection.location,
-      defaultLocation,
-    );
-  const project = selection.projects.find((candidate) => candidate.id === projectID);
+  const project = selection.projects.find((candidate) => candidate.id === chosenProjectID);
   const locations = projectLocations(project, defaultLocation);
   const locationChoice =
     locations.find((choice) => choice.key === chosenLocationKey) ??
@@ -290,6 +301,7 @@ function newSessionBrowserState(
 function NewSessionPicker({
   browserState,
   browsing,
+  collapsed,
   deferredSearch,
   disabled,
   followedProjectIds,
@@ -299,6 +311,7 @@ function NewSessionPicker({
   onChooseLocation,
   onChooseProject,
   onCloseSearch,
+  onExpand,
   onRetry,
   onSearch,
   projects,
@@ -307,6 +320,7 @@ function NewSessionPicker({
 }: {
   browserState: ReturnType<typeof projectBrowserState>;
   browsing: boolean;
+  collapsed: boolean;
   deferredSearch: string;
   disabled: boolean;
   followedProjectIds: string[];
@@ -316,6 +330,7 @@ function NewSessionPicker({
   onChooseLocation: (key: string) => void;
   onChooseProject: (project: Project) => void;
   onCloseSearch: () => void;
+  onExpand: () => void;
   onRetry: () => void;
   onSearch: (search: string) => void;
   projects: Project[];
@@ -323,9 +338,32 @@ function NewSessionPicker({
   selectedProjectID: string | undefined;
 }) {
   const followed = new Set(followedProjectIds);
+  const selectedProject = projects.find((candidate) => candidate.id === selectedProjectID);
   let content: ReactNode;
   if (browserState !== "projects") {
     content = <ProjectLoadState onRetry={onRetry} state={browserState} />;
+  } else if (collapsed && !browsing && selectedProject) {
+    const location = locations.find((choice) => choice.key === locationKey);
+    content = (
+      <View accessibilityLabel="Projects" style={styles.list}>
+        <PickerRow
+          accessibilityHint="Shows all projects"
+          disabled={disabled}
+          icon="folder"
+          label={projectLabel(selectedProject)}
+          note={
+            [
+              locations.length > 1 ? location?.label : undefined,
+              followed.has(selectedProject.id) ? undefined : "Will be added to Sessions",
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined
+          }
+          onPress={onExpand}
+          selected
+        />
+      </View>
+    );
   } else if (browsing) {
     content = (
       <ProjectSearch
@@ -399,6 +437,7 @@ function NewSessionComposer({
   favorites,
   largeText,
   location,
+  onFocus,
   onSubmit,
 }: {
   client: OpenCodeClient | undefined;
@@ -409,6 +448,7 @@ function NewSessionComposer({
   favorites: ReturnType<typeof useModelFavorites>;
   largeText: boolean;
   location: LocationRef | undefined;
+  onFocus: () => void;
   onSubmit: (agent: string | undefined, model: ModelRef | undefined) => void;
 }) {
   const [agentOverride, setAgentOverride] = useState<string>();
@@ -464,6 +504,9 @@ function NewSessionComposer({
       models={catalog.models}
       onAgentChange={setAgentOverride}
       onDraftChange={draft.setDraft}
+      onFocusChange={(focused) => {
+        if (focused) onFocus();
+      }}
       onMentionSearchChange={setMentionSearch}
       onModelChange={setModelOverride}
       onSubmit={() => onSubmit(agent, model)}

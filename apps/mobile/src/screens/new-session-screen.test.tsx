@@ -9,7 +9,7 @@ import {
 } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { AccessibilityInfo } from "react-native";
+import { AccessibilityInfo, Keyboard } from "react-native";
 
 import { writeSessionDraft } from "../storage/draft-repository";
 import { NewSessionScreen } from "./new-session-screen";
@@ -109,6 +109,7 @@ jest.mock("./session-composer", () => ({
     location: { directory: string };
     model?: { id: string };
     onDraftChange: (draft: string, mentions: never[]) => void;
+    onFocusChange?: (focused: boolean) => void;
     onSubmit: (intent: { type: "prompt" }) => void;
   }) => {
     const { Pressable, Text, TextInput, View } =
@@ -117,7 +118,9 @@ jest.mock("./session-composer", () => ({
       <View>
         <TextInput
           accessibilityLabel="Message"
+          onBlur={() => props.onFocusChange?.(false)}
           onChangeText={(text) => props.onDraftChange(text, [])}
+          onFocus={() => props.onFocusChange?.(true)}
           value={props.draft}
         />
         <Text testID="composer-location">{props.location.directory}</Text>
@@ -182,39 +185,87 @@ beforeEach(() => {
   }));
 });
 
-test("lists followed projects above the composer with the first one selected", async () => {
+test("lists followed projects above the composer with nothing selected", async () => {
   renderScreen();
 
-  const alphaRow = await screen.findByRole("button", { name: "Alpha" });
-  expect(alphaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
-  expect(screen.getByRole("button", { name: "Beta" })).toHaveProp(
-    "accessibilityState",
-    expect.objectContaining({ selected: false }),
-  );
+  for (const name of ["Alpha", "Beta"]) {
+    expect(await screen.findByRole("button", { name })).toHaveProp(
+      "accessibilityState",
+      expect.objectContaining({ selected: false }),
+    );
+  }
   expect(screen.queryByRole("button", { name: /^Gamma/ })).toBeNull();
   expect(screen.getByRole("button", { name: "All projects" })).toBeOnTheScreen();
   expect(screen.getByRole("header", { name: "New session" })).toBeOnTheScreen();
+  expect(screen.getAllByText("Alpha")).toHaveLength(1);
+  expect(screen.getByTestId("composer-location")).toHaveTextContent("");
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+  // Focusing the composer before choosing keeps every project in view.
+  fireEvent(screen.getByLabelText("Message"), "focus");
+  expect(screen.getByRole("button", { name: "Beta" })).toBeOnTheScreen();
+});
+
+test("choosing a project folds the list to it, and tapping it unfolds the list", async () => {
+  renderScreen();
+  await chooseProject("Alpha");
+
+  const alphaRow = await screen.findByRole("button", { name: "Alpha" });
+  expect(alphaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
+  expect(alphaRow).toHaveProp("accessibilityHint", "Shows all projects");
+  expect(screen.queryByRole("button", { name: "Beta" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "All projects" })).toBeNull();
   // The selected project also reads under the title.
   expect(screen.getAllByText("Alpha")).toHaveLength(2);
   expect(screen.getByTestId("composer-location")).toHaveTextContent(alpha.canonical);
+
+  const dismiss = jest.spyOn(Keyboard, "dismiss");
+  fireEvent.press(alphaRow);
+  expect(dismiss).toHaveBeenCalled();
+  expect(await screen.findByRole("button", { name: "Beta" })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "All projects" })).toBeOnTheScreen();
+
+  // Choosing the same project again folds the list without changing anything.
+  await chooseProject("Alpha");
+  expect(screen.queryByRole("button", { name: "Beta" })).toBeNull();
+  expect(screen.getByTestId("composer-location")).toHaveTextContent(alpha.canonical);
 });
 
-test("starts in the project the user last worked in", async () => {
+test("a project with several locations folds once a location is chosen", async () => {
   mockSelection.location = { directory: "/worktrees/beta-feature" };
   renderScreen();
+  await chooseProject("Beta");
 
-  const betaRow = await screen.findByRole("button", { name: "Beta" });
-  expect(betaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
-  expect(screen.getByRole("button", { name: "beta-feature, /worktrees/beta-feature" })).toHaveProp(
-    "accessibilityState",
-    expect.objectContaining({ selected: true }),
-  );
-  expect(screen.getByTestId("composer-location")).toHaveTextContent("/worktrees/beta-feature");
+  // The location defaults to where the user last worked in the project.
+  expect(
+    await screen.findByRole("button", { name: "beta-feature, /worktrees/beta-feature" }),
+  ).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
+  expect(screen.getByRole("button", { name: "Alpha" })).toBeOnTheScreen();
+
+  await chooseProject("Main directory, /projects/beta");
+  const betaRow = await screen.findByRole("button", { name: "Beta, Main directory" });
+  expect(betaRow).toHaveProp("accessibilityHint", "Shows all projects");
+  expect(screen.queryByRole("button", { name: "Alpha" })).toBeNull();
+  expect(screen.getByTestId("composer-location")).toHaveTextContent(beta.canonical);
+});
+
+test("focusing the composer folds a chosen project's locations", async () => {
+  renderScreen();
+  await chooseProject("Beta");
+  await screen.findByRole("button", { name: "beta-feature, /worktrees/beta-feature" });
+
+  fireEvent(screen.getByLabelText("Message"), "focus");
+
+  expect(await screen.findByRole("button", { name: "Beta, Main directory" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: "Alpha" })).toBeNull();
+  // Dismissing the keyboard keeps the list folded.
+  fireEvent(screen.getByLabelText("Message"), "blur");
+  expect(screen.queryByRole("button", { name: "Alpha" })).toBeNull();
 });
 
 test("sending creates the session, hands the message over, and opens it", async () => {
   const navigation = mockNavigation();
   renderScreen(navigation);
+  await chooseProject("Alpha");
 
   fireEvent.changeText(await screen.findByLabelText("Message"), "Fix the build");
   await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).not.toBeDisabled());
@@ -256,6 +307,7 @@ test("creates with the agent and model the composer shows", async () => {
     .mocked(getDefaultOpenCodeModel)
     .mockResolvedValue({ data: { id: "sonnet", providerID: "anthropic" } } as never);
   renderScreen();
+  await chooseProject("Alpha");
 
   await waitFor(() => expect(screen.getByTestId("composer-agent")).toHaveTextContent("build"));
   expect(screen.getByTestId("composer-model")).toHaveTextContent("opus");
@@ -338,6 +390,7 @@ test("keeps the message here when it cannot be handed to the new session", async
   mockWriteDraft.mockRejectedValueOnce(new Error("storage failed"));
   mockInitialDraft = "Hello";
   renderScreen(navigation);
+  await chooseProject("Alpha");
   await sendWhenReady();
 
   await waitFor(() =>
@@ -372,11 +425,12 @@ test("shows progress and announces it while creating", async () => {
   mockCreateSession.mockImplementationOnce(() => new Promise(() => undefined));
   mockInitialDraft = "Hello";
   renderScreen();
+  await chooseProject("Alpha");
   await sendWhenReady();
 
   expect(await screen.findByText("Creating session")).toBeOnTheScreen();
   expect(announce).toHaveBeenCalledWith("Creating session");
-  expect(screen.getByRole("button", { name: "Beta" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Alpha" })).toBeDisabled();
   announce.mockRestore();
 });
 
@@ -416,6 +470,7 @@ test("leaving cancels a pending creation without an error", async () => {
   const navigation = mockNavigation();
   mockInitialDraft = "Hello";
   renderScreen(navigation);
+  await chooseProject("Alpha");
   await sendWhenReady();
   await screen.findByText("Creating session");
 
@@ -441,6 +496,7 @@ test("the swipe back gesture also cancels creation", async () => {
   );
   mockInitialDraft = "Hello";
   renderScreen(navigation);
+  await chooseProject("Alpha");
   await sendWhenReady();
   await waitFor(() => expect(mockCreateSession).toHaveBeenCalled());
 
@@ -456,10 +512,11 @@ test("ignores project presses while preferences are saving", async () => {
   renderScreen();
   fireEvent.press(await screen.findByRole("button", { name: "Beta" }));
 
-  expect(screen.getByRole("button", { name: "Alpha" })).toHaveProp(
+  expect(screen.getByRole("button", { name: "Beta" })).toHaveProp(
     "accessibilityState",
-    expect.objectContaining({ selected: true }),
+    expect.objectContaining({ selected: false }),
   );
+  expect(screen.getByRole("button", { name: "Alpha" })).toBeOnTheScreen();
 });
 
 test("explains empty search results", async () => {
@@ -473,12 +530,13 @@ test("explains empty search results", async () => {
   expect(await screen.findByRole("button", { name: "Alpha" })).toBeOnTheScreen();
 });
 
-test("with nothing followed, starts in the server's default project", async () => {
+test("with nothing followed, offers every project through search", async () => {
   mockSelection.followedProjectIds = [];
   renderScreen();
 
-  const alphaRow = await screen.findByRole("button", { name: "Alpha, Will be added to Sessions" });
-  expect(alphaRow).toHaveProp("accessibilityState", expect.objectContaining({ selected: true }));
+  expect(await screen.findByRole("button", { name: "All projects" })).toBeOnTheScreen();
+  expect(screen.queryByRole("button", { name: /^Alpha/ })).toBeNull();
+  expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
 });
 
 test("retries when project locations fail to load", async () => {
@@ -504,6 +562,10 @@ test("retries when the server returns no projects", async () => {
 
   expect(mockRefetch).toHaveBeenCalledTimes(1);
 });
+
+async function chooseProject(name: string) {
+  fireEvent.press(await screen.findByRole("button", { name }));
+}
 
 async function sendWhenReady() {
   const send = await screen.findByRole("button", { name: "Send" });

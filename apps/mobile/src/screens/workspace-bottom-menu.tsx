@@ -67,9 +67,9 @@ export function WorkspaceBottomMenu({
     };
   }, []);
   if (hidden || keyboardVisible) return null;
+  // Only requests that need the user earn a badge. Coverage still being checked, stale, or
+  // incomplete is reported by the Approvals screen and the accessibility value instead.
   const count = selection.pendingCount;
-  const { completeness, freshness } = selection.attentionCoverage;
-  const uncertain = freshness !== "current" || completeness === "incomplete";
 
   return (
     <View pointerEvents="box-none" style={styles.dock}>
@@ -104,16 +104,14 @@ export function WorkspaceBottomMenu({
                   name={icon}
                   size={20}
                 />
-                {approvals && (count > 0 || uncertain) ? (
+                {approvals && count > 0 ? (
                   <View
                     accessibilityElementsHidden
                     importantForAccessibility="no-hide-descendants"
-                    style={[styles.badge, count === 0 && styles.badgeUncertain]}
+                    style={styles.badge}
                     testID="workspace-approvals-badge"
                   >
-                    {count > 0 ? (
-                      <Text style={styles.badgeLabel}>{count > 99 ? "99+" : count}</Text>
-                    ) : null}
+                    <Text style={styles.badgeLabel}>{count > 99 ? "99+" : count}</Text>
                   </View>
                 ) : null}
               </View>
@@ -165,14 +163,6 @@ const styles = StyleSheet.create({
     top: -6,
   },
   badgeLabel: { ...typography.label, color: palette.background, lineHeight: undefined },
-  badgeUncertain: {
-    backgroundColor: palette.dim,
-    height: 8,
-    minHeight: 8,
-    minWidth: 8,
-    right: -4,
-    top: -2,
-  },
   dock: {
     alignItems: "center",
     bottom: space.sm,

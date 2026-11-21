@@ -64,7 +64,7 @@ test("New session sits last, on the right, apart from the three tabs", () => {
   expect(onSelect).toHaveBeenCalledWith("approvals");
 });
 
-test("Approvals shows the request count, or a dot while coverage is uncertain", () => {
+test("Approvals shows the request count, and no badge while coverage is only uncertain", () => {
   mockPendingCount = 3;
   const view = render(
     <WorkspaceBottomMenu active="chat" onNewSession={jest.fn()} onSelect={jest.fn()} />,
@@ -82,9 +82,8 @@ test("Approvals shows the request count, or a dot while coverage is uncertain", 
       <WorkspaceBottomMenu active="chat" onNewSession={jest.fn()} onSelect={jest.fn()} />,
     );
     expect(
-      screen.getByTestId("workspace-approvals-badge", { includeHiddenElements: true }),
-    ).toBeTruthy();
-    expect(screen.queryByText(/\d/, { includeHiddenElements: true })).toBeNull();
+      screen.queryByTestId("workspace-approvals-badge", { includeHiddenElements: true }),
+    ).toBeNull();
     mockFreshness = "current";
     view.rerender(
       <WorkspaceBottomMenu active="chat" onNewSession={jest.fn()} onSelect={jest.fn()} />,

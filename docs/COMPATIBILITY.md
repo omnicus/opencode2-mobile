@@ -12,6 +12,22 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-21: new session project list folds to the chosen project, pending device verification
+
+An iPhone screenshot showed every followed project staying above the composer
+while a message was typed. New session now opens with no project selected and
+sending disabled. Choosing a project folds the list to that project; tapping it
+dismisses the keyboard and unfolds the list, and choosing again folds it. A
+project with several locations stays open until a location is chosen or the
+composer takes focus.
+
+The full lint, typecheck, test, and build sequence passed, including 1586
+mobile tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Both
+native fingerprints and runtime matched the installed 0.1.6 baseline under the
+preview EAS environment, and local EAS Update publication succeeded for iOS and
+Android on preview. Still unverified on devices: folding and unfolding on iPhone
+and Android, keyboard dismissal, large text, and VoiceOver/TalkBack.
+
 ## 2026-11-17: new session as an empty chat, pending device verification
 
 On phones, New session now opens like an empty session instead of a modal
