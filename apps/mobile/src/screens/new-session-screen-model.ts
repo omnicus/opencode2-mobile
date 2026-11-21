@@ -161,31 +161,6 @@ export function pickerProjects(
   return chosen && !followed.has(chosen.id) ? [chosen, ...rows] : rows;
 }
 
-// Start where the user last worked, then the first followed project, then the server's own.
-export function initialProjectID(
-  projects: Project[],
-  followedProjectIds: string[],
-  lastLocation: LocationRef | undefined,
-  defaultLocation: DefaultLocation | undefined,
-) {
-  const followed = new Set(followedProjectIds);
-  const last = lastLocation
-    ? projects.find(
-        (project) =>
-          followed.has(project.id) &&
-          (project.canonical === lastLocation.directory ||
-            project.sandboxes.includes(lastLocation.directory)),
-      )
-    : undefined;
-  if (last) return last.id;
-  const firstFollowed = orderProjects(projects, followedProjectIds).find((project) =>
-    followed.has(project.id),
-  );
-  if (firstFollowed) return firstFollowed.id;
-  const serverDefault = projects.find((project) => project.id === defaultLocation?.project.id);
-  return (serverDefault ?? projects[0])?.id;
-}
-
 // The project's location that matches where the user last worked, or its main directory.
 export function initialLocationKey(locations: LocationChoice[], lastLocation?: LocationRef) {
   const match = lastLocation
