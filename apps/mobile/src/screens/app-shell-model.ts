@@ -88,7 +88,7 @@ export function notificationSettingDescription({
   if (!connectionID) return "Choose a connection to set up notifications.";
   if (!pairing) return "Pair this connection to get notifications for new requests.";
   if (state?.enabled) return "On for every phone paired with this connection.";
-  if (state) return "Paused. New requests will not create mobile notifications.";
+  if (state) return "Paused for every phone paired with this connection.";
   return "Notification status is unavailable.";
 }
 

@@ -12,6 +12,24 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-21: Settings regrouped after review, pending device verification
+
+iPhone screenshots of Settings were reviewed. Settings now opens with Needs you
+in its own group, then Connections before Followed projects. The Steer and Queue
+control shows its track on the card. Detailed transcript describes what turning
+it on does. App updates uses the same row layout as Diagnostics in one App and
+support group. Each setting's title and explanation are one screen reader stop.
+On Android this uses screenReaderFocusable, so static text adds no keyboard
+focus stop. At large text sizes, the Connections value wraps under its label.
+
+The full lint, typecheck, test, and build sequence passed, including 1595
+mobile tests and both Hermes exports. Expo Doctor passed 18 of 18 checks. Both
+native fingerprints and runtime matched the installed 0.1.6 baseline under the
+preview EAS environment, and local EAS Update publication succeeded for iOS and
+Android on preview. Still unverified on devices: the layout on iPhone and
+Android, large text, VoiceOver and TalkBack grouping (including Android API 24
+to 27), and whether the amber Show reasoning tile reads as an attention signal.
+
 ## 2026-11-21: new session project list folds to the chosen project, pending device verification
 
 An iPhone screenshot showed every followed project staying above the composer

@@ -12,6 +12,7 @@ import { useAppLock } from "../security/app-lock-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { useTranscriptPreferences } from "../state/transcript-preferences";
 import { useWorkspaceSelection } from "../state/workspace-selection-context";
+import { palette } from "../theme";
 import { SettingsScreen } from "./app-shell";
 
 const mockDatabase = {};
@@ -84,20 +85,31 @@ afterEach(() => {
   Dimensions.set({ window: originalWindow, screen: originalScreen });
 });
 
-test("opens Needs you, followed projects, and connections from the first group", async () => {
+test("opens Needs you, then connections and followed projects, from the first groups", async () => {
   const navigation = renderSettings();
+  expect(screen.getAllByRole("header").map((header) => header.props.children)).toEqual([
+    "Requests",
+    "Server and projects",
+    "Transcript",
+    "Security and notifications",
+    "App and support",
+  ]);
   const needsYou = screen.getByRole("button", { name: "Needs you" });
   expect(needsYou).toHaveProp("accessibilityValue", {
     text: "2 requests need you, up to date",
   });
   expect(screen.getByText("2")).toBeOnTheScreen();
+  const rows = screen
+    .getAllByRole("button")
+    .map((button) => button.props.accessibilityLabel as string | undefined);
+  expect(rows.indexOf("Connections")).toBeLessThan(rows.indexOf("Followed projects"));
   fireEvent.press(needsYou);
-  fireEvent.press(screen.getByRole("button", { name: "Followed projects" }));
   fireEvent.press(screen.getByRole("button", { name: "Connections" }));
+  fireEvent.press(screen.getByRole("button", { name: "Followed projects" }));
   expect(navigation.navigate.mock.calls).toEqual([
     ["Pending", undefined, { pop: true }],
-    ["FollowedProjects"],
     ["Connections", undefined, { pop: true }],
+    ["FollowedProjects"],
   ]);
   expect(screen.queryByRole("button", { name: "Manage followed projects" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Manage connections" })).toBeNull();
@@ -117,6 +129,24 @@ test("switches are named after their visible titles", async () => {
     "App lock",
     "Mobile notifications",
   ]);
+});
+
+test("each setting's title and explanation are one screen reader stop", async () => {
+  renderSettings();
+  await screen.findByRole("button", { name: "Pair notifications" });
+  const label = screen.getByText("Show reasoning").parent?.parent;
+  expect(label).toHaveProp("accessible", true);
+  expect(label).toHaveTextContent(
+    "Show reasoningDisplay model reasoning when provided by the server.",
+  );
+});
+
+test("the follow-up delivery track stays visible on the settings card", async () => {
+  renderSettings();
+  await screen.findByRole("button", { name: "Pair notifications" });
+  expect(screen.getByLabelText("Default follow-up delivery")).toHaveStyle({
+    backgroundColor: palette.background,
+  });
 });
 
 test("an unpaired connection offers pairing and refreshes when Settings regains focus", async () => {

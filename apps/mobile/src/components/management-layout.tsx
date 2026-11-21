@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Platform, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 
 import { palette, radius, space, typeRamp, typography, usesLargeTextLayout } from "../theme";
 
@@ -33,6 +33,40 @@ export function SettingsRow({ children, last = false }: { children: ReactNode; l
   );
 }
 
+// A setting's title and explanation. They form one screen reader stop, so a row is read as
+// "title, explanation" before its control instead of as two separate text elements.
+// On Android, `accessible` also makes a view keyboard focusable, which would add a Tab stop
+// for static text; screenReaderFocusable groups it for TalkBack only. TalkBack grouping is not
+// yet device-verified below API 28.
+export function SettingText({
+  description,
+  live = false,
+  title,
+}: {
+  description: string;
+  // Announces description changes on Android, for status that updates in place.
+  live?: boolean;
+  title: string;
+}) {
+  return (
+    <View
+      accessible={Platform.OS !== "android"}
+      // The period gives screen readers a pause between the title and its explanation.
+      accessibilityLabel={`${title}. ${description}`}
+      accessibilityLiveRegion={live ? "polite" : undefined}
+      screenReaderFocusable
+      style={managementStyles.settingLabel}
+    >
+      <Text dynamicTypeRamp={typeRamp.body} style={managementStyles.settingTitle}>
+        {title}
+      </Text>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={managementStyles.settingCopy}>
+        {description}
+      </Text>
+    </View>
+  );
+}
+
 export const managementStyles = StyleSheet.create({
   content: {
     alignSelf: "center",
@@ -62,4 +96,10 @@ export const managementStyles = StyleSheet.create({
   },
   separator: { borderBottomColor: palette.border, borderBottomWidth: StyleSheet.hairlineWidth },
   rowLargeText: { alignItems: "stretch", flexDirection: "column" },
+  // The text column beside a row's icon tile; inline actions sit under the text in it.
+  settingText: { flexGrow: 1, flexShrink: 1 },
+  settingLabel: { gap: 2 },
+  settingTitle: { ...typography.body, color: palette.ink },
+  settingCopy: { ...typography.footnote, color: palette.dim },
+  inlineAction: { marginTop: space.sm },
 });

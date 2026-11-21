@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, jest, test } from "@jest/globals";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
-import { AppState, type AppStateStatus } from "react-native";
-import { palette, typography } from "../theme";
+import { AppState, type AppStateStatus, StyleSheet, View } from "react-native";
+import { SettingsRow } from "../components/management-layout";
+import { palette, space, typography } from "../theme";
 
 import { AppUpdateCard, AppUpdatesProvider } from "./app-updates";
 
@@ -114,4 +115,33 @@ test("explains a build without updates in plain words and offers no check", () =
 
   expect(screen.getByText("This build of the app doesn't receive updates.")).toBeOnTheScreen();
   expect(screen.queryByRole("button", { name: "Check for app updates" })).toBeNull();
+});
+
+test("in Settings, updates use the setting row with its action under the text", async () => {
+  const screen = render(
+    <AppUpdatesProvider>
+      <AppUpdateCard grouped />
+    </AppUpdatesProvider>,
+  );
+  await screen.findByText("No newer update is available for this app build.");
+  expect(screen.getByText("App updates")).toHaveStyle({ ...typography.body, color: palette.ink });
+  expect(screen.getByText("No newer update is available for this app build.")).toHaveStyle({
+    ...typography.footnote,
+    color: palette.dim,
+  });
+  expect(screen.getByTestId("icon-tile-blue", { includeHiddenElements: true })).toBeOnTheScreen();
+  expect(screen.getByRole("button", { name: "Check for app updates" })).toHaveStyle({
+    marginTop: space.sm,
+  });
+});
+
+test("the update row drops its separator when it is last in the group", async () => {
+  const screen = render(
+    <AppUpdatesProvider>
+      <AppUpdateCard grouped last />
+    </AppUpdatesProvider>,
+  );
+  await screen.findByText("No newer update is available for this app build.");
+  const row = screen.UNSAFE_getByType(SettingsRow).findByType(View);
+  expect(StyleSheet.flatten(row.props.style).borderBottomWidth).toBeUndefined();
 });

@@ -125,7 +125,7 @@ test("needs a selected connection before notifications can be set up", async () 
   expect(screen.getByText("No connection selected")).toBeOnTheScreen();
   expect(screen.getByText("99+")).toBeOnTheScreen();
   expect(
-    screen.getByText("Compact: group activity and collapse routine details."),
+    screen.getByText("Show individual tool runs and system notices instead of grouped activity."),
   ).toBeOnTheScreen();
   expect(screen.queryByRole("alert")).toBeNull();
 
@@ -164,9 +164,6 @@ test("ignores delivery changes while transcript preferences are saving", async (
   const view = renderSettings();
   await screen.findByText("Choose a connection to set up notifications.");
 
-  expect(
-    screen.getByText("Detailed: individual tool executions and system notices."),
-  ).toBeOnTheScreen();
   expect(screen.getByLabelText("Detailed transcript")).toHaveProp("disabled", true);
   fireEvent.press(screen.getByRole("radio", { name: "Queue" }));
   expect(update).not.toHaveBeenCalled();
@@ -209,9 +206,7 @@ test("reads, pauses, and enables notifications for the selected connection", asy
   expect(sendNotificationDeviceCommand).toHaveBeenLastCalledWith(
     expect.objectContaining({ operation: "pause" }),
   );
-  expect(
-    screen.getByText("Paused. New requests will not create mobile notifications."),
-  ).toBeOnTheScreen();
+  expect(screen.getByText("Paused for every phone paired with this connection.")).toBeOnTheScreen();
   expect(screen.getByLabelText("Mobile notifications")).toHaveProp("disabled", false);
 
   await act(async () => {
