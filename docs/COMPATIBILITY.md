@@ -12,6 +12,24 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-21: session actions menu revised after review, pending device verification
+
+An iPhone screenshot of the session actions sheet showed a blank band above its
+title. Compact sheets docked to the bottom now skip the top safe-area inset. Dev
+tools became MCP servers, without the branch the session header already shows.
+A one-line summary sits above the menu, and an offline notice explains disabled
+rows. Archive gives a haptic and an iOS announcement. Archiving from inside a
+session leaves it, and the header subtitle marks archived sessions. A subagent
+session not opened from its parent offers Open parent session. Android back
+steps from a page to the menu; the iOS swipe always closes the sheet.
+
+The full lint, typecheck, test, and build sequence passed, including 1604
+mobile tests and both Hermes exports. Local EAS Update publication succeeded for
+iOS and Android on preview. Still unverified on devices: whether the blank band
+is gone on iPhone and Android, the other compact sheets after the inset change,
+the iOS swipe and Android back paths, and whether VoiceOver and TalkBack focus
+returns to the session actions button and hear the archive announcement.
+
 ## 2026-11-21: Settings regrouped after review, pending device verification
 
 iPhone screenshots of Settings were reviewed. Settings now opens with Needs you

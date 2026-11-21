@@ -462,7 +462,7 @@ test("shows a muted sent prompt before transcript projection and replaces it by 
   await clearSessionQueries(queryClient);
 });
 
-test("the top session menu owns dev tools and the second row has no overflow control", async () => {
+test("the top session menu owns MCP servers and the second row has no overflow control", async () => {
   const setOptions =
     jest.fn<(options: { title?: string; headerRight?: () => ReactNode }) => void>();
   const queryClient = new QueryClient({
@@ -493,7 +493,7 @@ test("the top session menu owns dev tools and the second row has no overflow con
       .at(-1);
     const headerButton = renderHeader?.() as ReactElement<{ onPress: () => void }>;
     act(() => headerButton.props.onPress());
-    fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+    fireEvent.press(screen.getByRole("button", { name: "MCP servers" }));
     expect(
       await screen.findByText("No MCP servers configured for this location."),
     ).toBeOnTheScreen();

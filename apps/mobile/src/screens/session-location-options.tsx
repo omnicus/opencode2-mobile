@@ -7,9 +7,8 @@ import {
   type OpenCodeClient,
 } from "@opencode2-mobile/opencode-adapter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as Clipboard from "expo-clipboard";
 import { type RefObject, useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, ActivityIndicator, StyleSheet, Switch, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Switch, Text, View } from "react-native";
 
 import { Button } from "../components/button";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
@@ -17,36 +16,31 @@ import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { minTouchTarget, palette, space, switchColors, typeRamp, typography } from "../theme";
 import { ActionButton } from "./app-shell";
 import {
-  type BranchCopyState,
-  branchCopyLabels,
   type McpServerChange,
   mcpChangesAllowed,
   mcpManagementUnsupported,
   mcpServerRowState,
 } from "./session-location-options-model";
 
-export function SessionDevTools({
+// The branch is not repeated here: the session header and the session row already show it.
+export function SessionMcpServers({
   connectionId,
   location,
   ready,
-  branch,
-  branchStale,
   visible,
 }: {
   connectionId: string;
   location: LocationRef;
   ready: boolean;
-  branch?: string | undefined;
-  branchStale?: boolean;
   visible: boolean;
 }) {
   const { available, canChange, changeServer, mutation, query, refresh, servers, unsupported } =
     useMcpServerControls(connectionId, location, ready, visible);
-  const copy = useBranchCopy(branch);
 
   if (!visible) return null;
   return (
     <View style={styles.content}>
+      {/* The switches change this exact location, so the page names it. */}
       <View style={styles.section}>
         <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
           Location
@@ -55,12 +49,6 @@ export function SessionDevTools({
           {location.directory}
         </Text>
       </View>
-      <BranchSection
-        branch={branch}
-        branchStale={branchStale}
-        copyLabel={copy.label}
-        onCopy={copy.copyBranch}
-      />
       <View style={styles.section}>
         <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
           MCP servers for this location
@@ -113,28 +101,6 @@ export function SessionDevTools({
       ) : null}
     </View>
   );
-}
-
-function useBranchCopy(branch: string | undefined) {
-  const [copyState, setCopyState] = useState<BranchCopyState>("idle");
-  useEffect(() => {
-    if (copyState !== "copied") return;
-    const timer = setTimeout(() => setCopyState("idle"), 2_000);
-    return () => clearTimeout(timer);
-  }, [copyState]);
-
-  async function copyBranch() {
-    if (!branch) return;
-    try {
-      await Clipboard.setStringAsync(branch);
-      setCopyState("copied");
-      AccessibilityInfo.announceForAccessibility("Branch name copied");
-    } catch {
-      setCopyState("error");
-    }
-  }
-
-  return { label: branchCopyLabels[copyState], copyBranch };
 }
 
 function useMcpServerControls(
@@ -242,42 +208,6 @@ function useMcpServerMutation(
       }
     },
   });
-}
-
-function BranchSection({
-  branch,
-  branchStale,
-  copyLabel,
-  onCopy,
-}: {
-  branch: string | undefined;
-  branchStale: boolean | undefined;
-  copyLabel: string;
-  onCopy: () => Promise<void>;
-}) {
-  return (
-    <View style={styles.section}>
-      <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.heading}>
-        Current branch
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.body} selectable style={styles.name}>
-        {branch ?? "Branch unavailable"}
-      </Text>
-      {branchStale ? (
-        <Text dynamicTypeRamp={typeRamp.footnote} style={styles.note}>
-          This branch may be outdated while the server reconnects.
-        </Text>
-      ) : null}
-      {branch ? (
-        <ActionButton
-          secondary
-          label={copyLabel}
-          onPress={() => void onCopy()}
-          style={styles.sectionAction}
-        />
-      ) : null}
-    </View>
-  );
 }
 
 function McpListStatus({
@@ -391,7 +321,6 @@ const styles = StyleSheet.create({
   error: { ...typography.footnote, color: palette.danger },
   // A heading with its body; sections are spaced by the page gap.
   section: { gap: space.xs },
-  sectionAction: { marginTop: space.xs },
   errorBlock: { alignItems: "flex-start", gap: space.sm },
   path: { ...typography.footnote, color: palette.dim, fontFamily: typography.code.fontFamily },
   serverHeader: {

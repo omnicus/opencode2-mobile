@@ -5,12 +5,14 @@ import {
   type SessionInfo,
 } from "@opencode2-mobile/opencode-adapter";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import * as Haptics from "expo-haptics";
 import { type SQLiteDatabase, useSQLiteContext } from "expo-sqlite";
 import { useEffect, useRef, useState } from "react";
-import { Alert, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Platform, StyleSheet, Text, TextInput, View } from "react-native";
 import { Button } from "../components/button";
 import { MenuGroup, MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
+import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useConnections } from "../connections/connections-context";
 import { useConnectionRuntime } from "../state/connection-runtime-context";
 import { labelProject } from "../state/followed-project-inbox";
@@ -24,27 +26,33 @@ import {
   type SessionSheetPage,
   sessionActionReady,
   sessionArchiveLabel,
+  sessionDeleteWarning,
+  sessionMenuNotice,
+  sessionSheetRequestClose,
   sessionSheetSize,
   sessionSheetTitles,
+  sessionSummary,
 } from "./session-action-sheet-model";
 import { loadOpenCodeSessionTreeIds } from "./session-deletion";
-import { SessionDevTools } from "./session-location-options";
+import { SessionMcpServers } from "./session-location-options";
 import { sanitizeTranscriptText } from "./session-transcript-model";
 
 export function SessionActionSheet({
   connectionId,
   session,
   onClose,
+  onArchived,
   onDeleted,
-  branch,
-  branchStale = false,
+  onOpenParent,
 }: {
   connectionId: string;
   session: SessionInfo;
   onClose: () => void;
+  // Runs after a confirmed archive change instead of onClose, so the caller can leave the session.
+  onArchived?: ((archived: boolean) => void) | undefined;
   onDeleted: () => void;
-  branch?: string | undefined;
-  branchStale?: boolean;
+  // Offered only for a subagent session whose parent is not already one step back.
+  onOpenParent?: (() => void) | undefined;
 }) {
   const runtime = useConnectionRuntime();
   const connections = useConnections();
@@ -61,12 +69,24 @@ export function SessionActionSheet({
     archived,
     connected,
     connectionId,
+    onArchived,
     onClose,
     onDeleted,
     runtime,
     session,
     title,
   });
+
+  function backToMenu() {
+    setPage("menu");
+    setError(undefined);
+  }
+
+  function openPage(next: SessionSheetPage) {
+    // A rename always starts from the current name, not one typed and abandoned earlier.
+    if (next === "rename") setTitle(session.title ?? "");
+    setPage(next);
+  }
 
   return (
     <ModalSheet
@@ -75,6 +95,12 @@ export function SessionActionSheet({
       visible
       onClose={() => {
         if (!controllerRef.current) onClose();
+      }}
+      // Android back steps back to the menu before closing; the iOS swipe always closes.
+      onRequestClose={() => {
+        if (controllerRef.current) return;
+        if (sessionSheetRequestClose(page, Platform.OS) === "close") onClose();
+        else backToMenu();
       }}
       size={sessionSheetSize(page)}
       // Done closes the menu; Cancel when closing abandons a rename or a delete.
@@ -86,10 +112,7 @@ export function SessionActionSheet({
           disabled={busy}
           icon="chevron-left"
           label="Session actions"
-          onPress={() => {
-            setPage("menu");
-            setError(undefined);
-          }}
+          onPress={backToMenu}
           variant="text"
         />
       ) : null}
@@ -99,8 +122,9 @@ export function SessionActionSheet({
           busy={busy}
           connected={connected}
           onArchive={() => void perform("archive")}
-          onPage={setPage}
-          sameConnection={sameConnection}
+          onOpenParent={session.parentID ? onOpenParent : undefined}
+          onPage={openPage}
+          session={session}
         />
       ) : null}
       {page === "rename" ? (
@@ -119,16 +143,15 @@ export function SessionActionSheet({
           directory={session.location.directory}
           projectName={projectName}
           serverName={serverName}
+          warning={sessionDeleteWarning}
           onConfirm={() => void perform("delete")}
         />
       ) : null}
-      <SessionDevTools
+      <SessionMcpServers
         connectionId={connectionId}
         location={session.location}
         ready={sameConnection}
-        visible={page === "devtools"}
-        branch={branch}
-        branchStale={branchStale}
+        visible={page === "mcp"}
       />
       {error ? (
         <Text accessibilityRole="alert" dynamicTypeRamp={typeRamp.subheadline} style={styles.error}>
@@ -143,6 +166,7 @@ function useSessionActionRunner({
   archived,
   connected,
   connectionId,
+  onArchived,
   onClose,
   onDeleted,
   runtime,
@@ -152,6 +176,7 @@ function useSessionActionRunner({
   archived: boolean;
   connected: boolean;
   connectionId: string;
+  onArchived: ((archived: boolean) => void) | undefined;
   onClose: () => void;
   onDeleted: () => void;
   runtime: ReturnType<typeof useConnectionRuntime>;
@@ -196,6 +221,19 @@ function useSessionActionRunner({
         title,
       });
       if (controller.signal.aborted) return;
+      if (action === "archive") {
+        // The server confirmed the change, so leave now and reconcile in the background: a
+        // refetch that fails here could close the sheet and drop the navigation.
+        void queryClient.invalidateQueries({
+          queryKey: openCodeQueryKeys.connection(connectionId),
+        });
+        // The same confirmation as archiving from the session list.
+        void Haptics.selectionAsync().catch(() => undefined);
+        announceOnIOS(archived ? "Session unarchived" : "Session archived");
+        if (onArchived) onArchived(!archived);
+        else onClose();
+        return;
+      }
       await queryClient.invalidateQueries({ queryKey: openCodeQueryKeys.connection(connectionId) });
       if (controller.signal.aborted) return;
       if (action === "delete") onDeleted();
@@ -279,18 +317,45 @@ function SessionMenuPage({
   busy,
   connected,
   onArchive,
+  onOpenParent,
   onPage,
-  sameConnection,
+  session,
 }: {
   archived: boolean;
   busy: boolean;
   connected: boolean;
   onArchive: () => void;
+  onOpenParent: (() => void) | undefined;
   onPage: (page: SessionSheetPage) => void;
-  sameConnection: boolean;
+  session: SessionInfo;
 }) {
+  const notice = sessionMenuNotice(connected);
+  useAnnouncement(notice);
   return (
     <>
+      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.summary}>
+        {sanitizeTranscriptText(sessionSummary(session), 256)}
+      </Text>
+      {notice ? (
+        <Text
+          accessibilityLiveRegion="polite"
+          dynamicTypeRamp={typeRamp.subheadline}
+          style={styles.notice}
+        >
+          {notice}
+        </Text>
+      ) : null}
+      {onOpenParent ? (
+        <MenuGroup>
+          <MenuRow
+            icon="corner-left-up"
+            last
+            label="Open parent session"
+            disabled={busy || !connected}
+            onPress={onOpenParent}
+          />
+        </MenuGroup>
+      ) : null}
       <MenuGroup>
         <MenuRow
           icon="edit-2"
@@ -310,12 +375,12 @@ function SessionMenuPage({
       </MenuGroup>
       <MenuGroup>
         <MenuRow
-          icon="tool"
+          icon="sliders"
           last
-          label="Dev tools"
-          description="Branch and MCP servers for this location"
-          disabled={busy || !sameConnection}
-          onPress={() => onPage("devtools")}
+          label="MCP servers"
+          description="On or off for every session at this location"
+          disabled={busy || !connected}
+          onPress={() => onPage("mcp")}
         />
       </MenuGroup>
       <MenuGroup>
@@ -380,6 +445,7 @@ function SessionDeletePage({
   onConfirm,
   projectName,
   serverName,
+  warning,
 }: {
   busy: boolean;
   connected: boolean;
@@ -387,11 +453,12 @@ function SessionDeletePage({
   onConfirm: () => void;
   projectName: string | undefined;
   serverName: string | undefined;
+  warning: string;
 }) {
   return (
     <>
       <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
-        This deletes the remote session and its child sessions. It cannot be undone.
+        {warning}
       </Text>
       {/* Name the full target, server, project, and location, before the destructive action. */}
       <View style={styles.deleteTarget}>
@@ -434,6 +501,8 @@ const styles = StyleSheet.create({
     borderColor: palette.border,
   },
   copy: { ...typography.subheadline, color: palette.ink },
+  notice: { ...typography.subheadline, color: palette.ink },
+  summary: { ...typography.footnote, color: palette.dim },
   deleteMeta: { ...typography.footnote, color: palette.ink },
   deleteTarget: { gap: 2 },
   deletePath: {

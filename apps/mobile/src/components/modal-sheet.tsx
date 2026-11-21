@@ -80,8 +80,9 @@ export function ModalSheet({
             testID="modal-sheet-backdrop"
           />
         ) : null}
+        {/* A panel docked to the bottom never meets the status bar, so it skips the top inset. */}
         <SafeAreaView
-          edges={["top", "bottom"]}
+          edges={bottom ? ["bottom"] : ["top", "bottom"]}
           style={[styles.safeArea, overlay && styles.panel, compact && styles.compactPanel]}
         >
           <KeyboardAvoidingView

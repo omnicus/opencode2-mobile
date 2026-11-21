@@ -1,7 +1,6 @@
 import { expect, jest, test } from "@jest/globals";
 import type { McpServer } from "@opencode2-mobile/opencode-adapter";
 import {
-  branchCopyLabels,
   mcpChangesAllowed,
   mcpManagementUnsupported,
   mcpServerRowState,
@@ -15,14 +14,6 @@ jest.mock("@opencode2-mobile/opencode-adapter", () => ({
 function server(status: McpServer["status"]["status"]) {
   return { name: "docs", status: { status } } as McpServer;
 }
-
-test("labels the branch copy states", () => {
-  expect(branchCopyLabels).toEqual({
-    idle: "Copy branch name",
-    copied: "Copied",
-    error: "Try copying again",
-  });
-});
 
 test("only incompatible failures mark MCP management unsupported", () => {
   const ok = { isError: false, error: null };

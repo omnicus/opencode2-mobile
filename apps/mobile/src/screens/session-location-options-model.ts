@@ -1,14 +1,7 @@
 import { classifyOpenCodeError, type McpServer } from "@opencode2-mobile/opencode-adapter";
 
-export type BranchCopyState = "idle" | "copied" | "error";
 export type McpServerChange = { server: string; connect: boolean };
 type RequestState = { isError: boolean; error: unknown };
-
-export const branchCopyLabels: Record<BranchCopyState, string> = {
-  idle: "Copy branch name",
-  copied: "Copied",
-  error: "Try copying again",
-};
 
 const mcpStatusLabels: Record<McpServer["status"]["status"], string> = {
   connected: "Connected",
