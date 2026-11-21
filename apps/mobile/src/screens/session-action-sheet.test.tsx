@@ -2,8 +2,11 @@ import { beforeEach, expect, jest, test } from "@jest/globals";
 import type { SessionInfo } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import * as Haptics from "expo-haptics";
+import { Alert, Modal, Platform } from "react-native";
 import { SessionActionSheet } from "./session-action-sheet";
+
+jest.mock("expo-haptics", () => ({ selectionAsync: jest.fn(async () => undefined) }));
 
 const mockRename = jest.fn<(...args: unknown[]) => Promise<void>>();
 const mockRemove = jest.fn<(...args: unknown[]) => Promise<void>>();
@@ -76,7 +79,10 @@ beforeEach(() => {
   mockMcpList.mockClear();
 });
 
-function mount(target: SessionInfo = session) {
+function mount(
+  target: SessionInfo = session,
+  props: Partial<Parameters<typeof SessionActionSheet>[0]> = {},
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity, retry: false } },
   });
@@ -89,6 +95,7 @@ function mount(target: SessionInfo = session) {
         session={target}
         onClose={onClose}
         onDeleted={onDeleted}
+        {...props}
       />
     </QueryClientProvider>
   );
@@ -145,11 +152,12 @@ test("the keyboard Done key saves the name, but not an unchanged one", async () 
   }
 });
 
-test("dev tools open within the session menu without another overflow button", async () => {
+test("MCP servers open within the session menu without another overflow button", async () => {
   const view = mount();
   try {
     expect(mockMcpList).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+    fireEvent.press(screen.getByRole("button", { name: "MCP servers" }));
+    expect(screen.getByRole("header", { name: "MCP servers" })).toBeOnTheScreen();
     expect(
       await screen.findByText("No MCP servers configured for this location."),
     ).toBeOnTheScreen();
@@ -158,6 +166,102 @@ test("dev tools open within the session menu without another overflow button", a
     fireEvent.press(screen.getByRole("button", { name: "Back to session actions" }));
     expect(screen.getByRole("button", { name: "Rename" })).toBeOnTheScreen();
   } finally {
+    view.cleanup();
+  }
+});
+
+test("Android back steps from a page to the menu, then closes", () => {
+  const platform = jest.replaceProperty(Platform, "OS", "android");
+  const view = mount();
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.changeText(screen.getByLabelText("Session name"), "Abandoned");
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(screen.getByRole("header", { name: "Session actions" })).toBeOnTheScreen();
+    expect(view.onClose).not.toHaveBeenCalled();
+    // An abandoned rename does not come back when the page reopens.
+    fireEvent.press(screen.getByRole("button", { name: "Rename" }));
+    expect(screen.getByLabelText("Session name").props.value).toBe("Original");
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(view.onClose).toHaveBeenCalledTimes(1);
+  } finally {
+    view.cleanup();
+    platform.restore();
+  }
+});
+
+test("an iOS swipe that dismissed a page closes the whole sheet", () => {
+  const platform = jest.replaceProperty(Platform, "OS", "ios");
+  const view = mount();
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Rename" }));
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(view.onClose).toHaveBeenCalledTimes(1);
+  } finally {
+    view.cleanup();
+    platform.restore();
+  }
+});
+
+test("summarizes the session above the actions", () => {
+  const view = mount({
+    ...session,
+    agent: "build",
+    model: { id: "claude-opus-5", providerID: "anthropic" },
+    time: { created: Date.now(), updated: Date.now() },
+  } as SessionInfo);
+  try {
+    expect(screen.getByText("build · claude-opus-5 · Updated just now")).toBeOnTheScreen();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("offers the parent session only to a subagent session with a handler", () => {
+  const onOpenParent = jest.fn();
+  const first = mount(session, { onOpenParent });
+  try {
+    expect(screen.queryByRole("button", { name: "Open parent session" })).toBeNull();
+  } finally {
+    first.cleanup();
+  }
+  const child = { ...session, parentID: "ses_parent" } as SessionInfo;
+  const second = mount(child, { onOpenParent });
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Open parent session" }));
+    expect(onOpenParent).toHaveBeenCalledTimes(1);
+  } finally {
+    second.cleanup();
+  }
+  const third = mount(child);
+  try {
+    expect(screen.queryByRole("button", { name: "Open parent session" })).toBeNull();
+  } finally {
+    third.cleanup();
+  }
+  mockRuntime.status = "offline";
+  const offline = mount(child, { onOpenParent });
+  try {
+    expect(screen.getByRole("button", { name: "Open parent session" })).toBeDisabled();
+  } finally {
+    offline.cleanup();
+  }
+});
+
+test("a confirmed archive leaves without waiting for the refetch", async () => {
+  // A refetch that never settles must not hold the navigation back.
+  const invalidate = jest
+    .spyOn(QueryClient.prototype, "invalidateQueries")
+    .mockReturnValue(new Promise<void>(() => undefined));
+  const onArchived = jest.fn();
+  const view = mount(session, { onArchived });
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(onArchived).toHaveBeenCalledWith(true));
+    expect(invalidate).toHaveBeenCalled();
+  } finally {
+    invalidate.mockRestore();
     view.cleanup();
   }
 });
@@ -177,12 +281,13 @@ test("failed rename retains the entered name and does not close", async () => {
   }
 });
 
-test("the menu offers rename, archive, dev tools and delete", () => {
+test("the menu offers rename, archive, MCP servers and delete", () => {
   const view = mount();
   try {
-    for (const name of ["Rename", "Archive", "Dev tools", "Delete"])
+    for (const name of ["Rename", "Archive", "MCP servers", "Delete"])
       expect(screen.getByRole("button", { name })).toBeOnTheScreen();
     expect(screen.queryByRole("button", { name: "Unarchive" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dev tools" })).toBeNull();
   } finally {
     view.cleanup();
   }
@@ -194,6 +299,19 @@ test("archives on the server and closes once it succeeds", async () => {
     fireEvent.press(screen.getByRole("button", { name: "Archive" }));
     await waitFor(() => expect(view.onClose).toHaveBeenCalled());
     expect(mockArchive).toHaveBeenCalledWith(session, true);
+    expect(Haptics.selectionAsync).toHaveBeenCalled();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("hands a confirmed archive to the caller instead of closing", async () => {
+  const onArchived = jest.fn();
+  const view = mount(session, { onArchived });
+  try {
+    fireEvent.press(screen.getByRole("button", { name: "Archive" }));
+    await waitFor(() => expect(onArchived).toHaveBeenCalledWith(true));
+    expect(view.onClose).not.toHaveBeenCalled();
   } finally {
     view.cleanup();
   }
@@ -235,7 +353,7 @@ test("a switched connection disables remote and local actions", () => {
   mockRuntime.connectionId = "other";
   const view = mount();
   try {
-    for (const name of ["Rename", "Delete", "Dev tools"])
+    for (const name of ["Rename", "Delete", "MCP servers"])
       expect(screen.getByRole("button", { name })).toBeDisabled();
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(mockRemove).not.toHaveBeenCalled();
@@ -266,6 +384,7 @@ test("titles each page and returns to the menu", () => {
     fireEvent.press(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByRole("header", { name: "Delete session?" })).toBeOnTheScreen();
     expect(screen.getByText("Cancel")).toBeOnTheScreen();
+    expect(screen.getByText(/any subagent sessions it started/)).toBeOnTheScreen();
     // The confirmation names the whole target before the destructive action.
     expect(screen.getByText("Server: Studio Mac")).toBeOnTheScreen();
     expect(screen.getByText("Project: Orbit")).toBeOnTheScreen();
@@ -299,14 +418,22 @@ test("names an untitled session and renames it", async () => {
   }
 });
 
-test("an offline connection keeps dev tools but blocks remote actions", () => {
+test("an offline connection blocks remote actions and says why", () => {
   mockRuntime.status = "offline";
   const view = mount();
   try {
-    expect(screen.getByRole("button", { name: "Rename" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Archive" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Delete" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Dev tools" })).toBeEnabled();
+    for (const name of ["Rename", "Archive", "MCP servers", "Delete"])
+      expect(screen.getByRole("button", { name })).toBeDisabled();
+    expect(screen.getByText("Reconnect to the server to use these actions.")).toBeOnTheScreen();
+  } finally {
+    view.cleanup();
+  }
+});
+
+test("a connected menu shows no reconnect notice", () => {
+  const view = mount();
+  try {
+    expect(screen.queryByText(/Reconnect to the server/)).toBeNull();
   } finally {
     view.cleanup();
   }

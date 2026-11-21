@@ -2,13 +2,12 @@ import { beforeEach, expect, jest, test } from "@jest/globals";
 import type { McpServer } from "@opencode2-mobile/opencode-adapter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import * as Clipboard from "expo-clipboard";
 import { useState } from "react";
 import { Pressable, Text } from "react-native";
 
 import { openCodeQueryKeys } from "../state/open-code-query-keys";
 import { switchColors } from "../theme";
-import { SessionDevTools } from "./session-location-options";
+import { SessionMcpServers } from "./session-location-options";
 
 const mockList = jest.fn<(...args: unknown[]) => Promise<{ data: McpServer[] }>>();
 const mockConnect = jest.fn<(...args: unknown[]) => Promise<void>>();
@@ -50,7 +49,6 @@ jest.mock("./app-shell", () => {
     ),
   };
 });
-jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => undefined) }));
 
 beforeEach(() => {
   mockRuntime = { connectionId: "connection-1", restClient: {}, status: "connected" };
@@ -59,22 +57,21 @@ beforeEach(() => {
   mockDisconnect.mockReset().mockResolvedValue(undefined);
 });
 const location = { directory: "/workspace/child" };
-function DevToolsHarness({ ready }: { ready: boolean }) {
+function McpServersHarness({ ready }: { ready: boolean }) {
   const [visible, setVisible] = useState(false);
   return (
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={visible ? "Close dev tools" : "Dev tools"}
+        accessibilityLabel={visible ? "Close MCP servers" : "MCP servers"}
         onPress={() => setVisible(!visible)}
       >
-        <Text>Toggle dev tools</Text>
+        <Text>Toggle MCP servers</Text>
       </Pressable>
-      <SessionDevTools
+      <SessionMcpServers
         connectionId="connection-1"
         location={location}
         ready={ready}
-        branch="feature/mobile"
         visible={visible}
       />
     </>
@@ -83,7 +80,7 @@ function DevToolsHarness({ ready }: { ready: boolean }) {
 function element(queryClient: QueryClient, ready = true) {
   return (
     <QueryClientProvider client={queryClient}>
-      <DevToolsHarness ready={ready} />
+      <McpServersHarness ready={ready} />
     </QueryClientProvider>
   );
 }
@@ -95,26 +92,27 @@ function setup() {
     },
   });
   const view = render(element(client));
-  fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+  fireEvent.press(screen.getByRole("button", { name: "MCP servers" }));
   return { client, view };
 }
 
-test("loads on open, states the location-wide scope, and copies the branch", async () => {
+test("loads on open, names the location, and states the location-wide scope", async () => {
   const client = new QueryClient({
     defaultOptions: { queries: { gcTime: Infinity }, mutations: { gcTime: Infinity } },
   });
   render(element(client));
   expect(mockList).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+  fireEvent.press(screen.getByRole("button", { name: "MCP servers" }));
   expect(await screen.findByText("No MCP servers configured for this location.")).toBeOnTheScreen();
+  expect(screen.getByText("/workspace/child")).toBeOnTheScreen();
   expect(screen.getByText(/Changes affect all sessions at this location/)).toBeOnTheScreen();
+  // The header and the session row own the branch; this page does not repeat it.
+  expect(screen.queryByText(/branch/i)).toBeNull();
   expect(mockList).toHaveBeenCalledWith(
     {},
     location,
     expect.objectContaining({ signal: expect.anything() }),
   );
-  fireEvent.press(screen.getByRole("button", { name: "Copy branch name" }));
-  await waitFor(() => expect(Clipboard.setStringAsync).toHaveBeenCalledWith("feature/mobile"));
 });
 
 test("keeps the on-track distinct from the thumb using shared native switch colors", async () => {
@@ -258,8 +256,8 @@ test("blocks duplicate actions across sheet reopening and aborts when leaving", 
   fireEvent(connect, "valueChange", true);
   fireEvent(connect, "valueChange", true);
   await waitFor(() => expect(mockConnect).toHaveBeenCalledTimes(1));
-  fireEvent.press(screen.getByRole("button", { name: "Close dev tools" }));
-  fireEvent.press(screen.getByRole("button", { name: "Dev tools" }));
+  fireEvent.press(screen.getByRole("button", { name: "Close MCP servers" }));
+  fireEvent.press(screen.getByRole("button", { name: "MCP servers" }));
   expect(screen.getByRole("switch", { name: "MCP server docs for this location" })).toBeDisabled();
   expect(screen.getByRole("switch", { name: "MCP server docs for this location" })).toBeChecked();
   const options = mockConnect.mock.calls[0]?.[3] as { signal: AbortSignal };
@@ -342,23 +340,7 @@ test("background polling keeps switches usable and only a user refresh says Refr
   expect(await screen.findByRole("button", { name: "Refresh MCP servers" })).toBeEnabled();
 });
 
-test("the copied label returns to Copy branch name after two seconds", async () => {
-  setup();
-  await screen.findByText("No MCP servers configured for this location.");
-  jest.useFakeTimers();
-  try {
-    await act(async () => {
-      fireEvent.press(screen.getByRole("button", { name: "Copy branch name" }));
-    });
-    expect(screen.getByRole("button", { name: "Copied" })).toBeOnTheScreen();
-    act(() => jest.advanceTimersByTime(2_000));
-    expect(screen.getByRole("button", { name: "Copy branch name" })).toBeOnTheScreen();
-  } finally {
-    jest.useRealTimers();
-  }
-});
-
-function devTools(props: Partial<Parameters<typeof SessionDevTools>[0]> = {}) {
+function mcpServers(props: Partial<Parameters<typeof SessionMcpServers>[0]> = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { gcTime: Infinity, retry: false },
@@ -367,29 +349,13 @@ function devTools(props: Partial<Parameters<typeof SessionDevTools>[0]> = {}) {
   });
   return (
     <QueryClientProvider client={client}>
-      <SessionDevTools connectionId="connection-1" location={location} ready visible {...props} />
+      <SessionMcpServers connectionId="connection-1" location={location} ready visible {...props} />
     </QueryClientProvider>
   );
 }
 
-test("explains a missing or stale branch and offers a retry after a failed copy", async () => {
-  const view = render(devTools({ branchStale: true }));
-  expect(screen.getByText("Branch unavailable")).toBeOnTheScreen();
-  expect(screen.getByText(/This branch may be outdated/)).toBeOnTheScreen();
-  expect(screen.queryByText("Copy branch name")).toBeNull();
-  await screen.findByText("No MCP servers configured for this location.");
-  view.unmount();
-  jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error("denied"));
-  render(devTools({ branch: "main" }));
-  expect(screen.queryByText(/This branch may be outdated/)).toBeNull();
-  fireEvent.press(screen.getByText("Copy branch name"));
-  expect(await screen.findByText("Try copying again")).toBeOnTheScreen();
-  fireEvent.press(screen.getByText("Try copying again"));
-  expect(await screen.findByText("Copied")).toBeOnTheScreen();
-});
-
 test("asks to reconnect before loading servers for an unready location", () => {
-  render(devTools({ ready: false }));
+  render(mcpServers({ ready: false }));
   expect(screen.getByRole("alert")).toHaveTextContent(/Reconnect to this session's server/);
   expect(screen.queryByLabelText("Loading MCP servers")).toBeNull();
   expect(mockList).not.toHaveBeenCalled();
@@ -403,7 +369,7 @@ test("shows progress while the server list loads and while refreshing", async ()
         finish = resolve;
       }),
   );
-  render(devTools());
+  render(mcpServers());
   expect(screen.getByLabelText("Loading MCP servers")).toBeOnTheScreen();
   await waitFor(() => expect(mockList).toHaveBeenCalledTimes(1));
   await act(async () => finish?.({ data: [] }));
@@ -417,7 +383,7 @@ test("shows progress while the server list loads and while refreshing", async ()
 test("treats an incompatible MCP change as unsupported management", async () => {
   mockList.mockResolvedValue({ data: [{ name: "docs", status: { status: "disabled" } }] });
   mockConnect.mockRejectedValue(new Error("unsupported"));
-  render(devTools());
+  render(mcpServers());
   fireEvent(
     await screen.findByRole("switch", { name: "MCP server docs for this location" }),
     "valueChange",

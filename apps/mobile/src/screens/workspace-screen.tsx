@@ -52,6 +52,7 @@ import { KeyboardStickyView } from "react-native-keyboard-controller";
 import Animated, { LinearTransition } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../components/button";
+import { focusAccessibility } from "../components/modal-sheet";
 import { announceOnIOS, useAnnouncement } from "../components/use-announcement";
 import { useDelayedVisibility } from "../components/use-delayed-visibility";
 import { useReducedMotion } from "../components/use-reduced-motion";
@@ -90,6 +91,7 @@ import { SessionChanges } from "./diff-screen";
 import { FormRequestList } from "./form-request-list";
 import { PullRequestList } from "./pull-request-list";
 import { SessionActionSheet } from "./session-action-sheet";
+import { sessionDeleteWarning } from "./session-action-sheet-model";
 import { SessionBackgroundTasks } from "./session-background-tasks";
 import { SessionComposer } from "./session-composer";
 import { SessionExecutionPanel, SessionWorkingStatus } from "./session-execution-panel";
@@ -784,12 +786,9 @@ function confirmSessionDelete(
   onDelete: () => void,
 ) {
   const host = hostName ?? "selected server";
-  const childWarning = session.parentID
-    ? "This is a child session."
-    : "Deleting a parent also deletes all child sessions.";
   Alert.alert(
     "Delete session?",
-    `Host: ${host}\nProject: ${projectLabel}\nLocation: ${session.location.directory}\n\n${childWarning}`,
+    `Host: ${host}\nProject: ${projectLabel}\nLocation: ${session.location.directory}\n\n${sessionDeleteWarning}`,
     [
       { style: "cancel", text: "Cancel" },
       { onPress: onDelete, style: "destructive", text: "Delete" },
@@ -913,6 +912,7 @@ function renderSearchResultsFooter({
 
 export function SessionScreen({ navigation, route }: SessionProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsButtonRef = useRef<View>(null);
   const screenFocused = useScreenFocused(navigation);
   const transcriptPreferences = useTranscriptPreferences();
   const runtime = useConnectionRuntime();
@@ -961,6 +961,7 @@ export function SessionScreen({ navigation, route }: SessionProps) {
     session,
   });
   useSessionHeaderOptions({
+    actionsButtonRef,
     navigation,
     projectName: sessionHeaderSubtitle(session, workspaceSelection.projects),
     routeSessionScope,
@@ -1261,11 +1262,11 @@ export function SessionScreen({ navigation, route }: SessionProps) {
         <ComposerDock dock={dock}>{composerDockContent}</ComposerDock>
       </View>
       <SessionScreenActionSheet
-        branch={branch}
-        currentBranch={currentBranch}
+        fromParent={Boolean(route.params.fromParent)}
         navigation={navigation}
         onClose={() => setActionsOpen(false)}
         open={actionsOpen && sessionLocationReady}
+        returnFocusRef={actionsButtonRef}
         routeConnectionId={routeConnectionId}
         routeSessionScope={routeSessionScope}
         session={sessionQuery.data}
@@ -1336,6 +1337,7 @@ function useSessionRecord({
 }
 
 function useSessionHeaderOptions({
+  actionsButtonRef,
   navigation,
   projectName,
   routeSessionScope,
@@ -1343,6 +1345,7 @@ function useSessionHeaderOptions({
   sessionTitle,
   setActionsOpen,
 }: {
+  actionsButtonRef: RefObject<View | null>;
   navigation: SessionNavigation;
   projectName: string | undefined;
   routeSessionScope: string;
@@ -1369,6 +1372,7 @@ function useSessionHeaderOptions({
     navigation.setOptions({
       headerRight: () => (
         <Pressable
+          ref={actionsButtonRef}
           accessibilityRole="button"
           accessibilityLabel="Session actions"
           accessibilityState={{ disabled: !sessionLocationReady }}
@@ -1388,7 +1392,7 @@ function useSessionHeaderOptions({
         </Pressable>
       ),
     });
-  }, [navigation, sessionLocationReady, setActionsOpen]);
+  }, [actionsButtonRef, navigation, sessionLocationReady, setActionsOpen]);
 }
 
 function useSessionVcsQuery(
@@ -1704,44 +1708,71 @@ function StaleSessionRoute({ navigation }: { navigation: SessionNavigation }) {
 }
 
 function SessionScreenActionSheet({
-  branch,
-  currentBranch,
+  fromParent,
   navigation,
   onClose,
   open,
+  returnFocusRef,
   routeConnectionId,
   routeSessionScope,
   session,
   sessionLocation,
 }: {
-  branch: ReturnType<typeof sessionBranchState>;
-  currentBranch: string | undefined;
+  fromParent: boolean;
   navigation: SessionNavigation;
   onClose: () => void;
   open: boolean;
+  returnFocusRef: RefObject<View | null>;
   routeConnectionId: string;
   routeSessionScope: string;
   session: SessionInfo | undefined;
   sessionLocation: LocationRef;
 }) {
   if (!open || !session) return null;
+  const parentID = session.parentID;
+  // The sheet unmounts when it closes, so the screen returns focus to the "..." button
+  // itself, only when the user stays on this session.
+  function closeAndRestoreFocus() {
+    onClose();
+    requestAnimationFrame(() => focusAccessibility(returnFocusRef.current));
+  }
   return (
     <SessionActionSheet
       key={JSON.stringify([routeSessionScope, sessionLocation])}
       connectionId={routeConnectionId}
       session={session}
-      branch={currentBranch}
-      branchStale={branch.state === "known" && branch.stale}
-      onClose={onClose}
+      onClose={closeAndRestoreFocus}
+      // Archiving means done with the session, so it leaves; Unarchive stays. The session list
+      // shows no subagents, so a subagent opened from its parent goes back there instead.
+      onArchived={(archived) => {
+        if (!archived) return closeAndRestoreFocus();
+        onClose();
+        if (parentID && fromParent) navigation.goBack();
+        else navigation.popTo("Workspace");
+      }}
       onDeleted={() => {
         onClose();
         navigation.popTo("Workspace");
       }}
+      // Opened from its parent, the header back button already returns there. Otherwise the
+      // parent replaces this screen, so Back still leads to Sessions as its label says.
+      onOpenParent={
+        parentID && !fromParent
+          ? () => {
+              onClose();
+              navigation.replace("Session", {
+                connectionId: routeConnectionId,
+                location: sessionLocation,
+                sessionID: parentID,
+              });
+            }
+          : undefined
+      }
     />
   );
 }
 
-// The project under the session title; a subagent's own session says so first.
+// The project under the session title; a subagent or archived session says so first.
 function sessionHeaderSubtitle(
   session: SessionInfo | undefined,
   projects: WorkspaceSelection["projects"],
@@ -1749,8 +1780,12 @@ function sessionHeaderSubtitle(
   if (!session) return undefined;
   const project = projects.find((candidate) => candidate.id === session.projectID);
   const name = project ? labelProject(project, session.projectID) : undefined;
-  if (!session.parentID) return name;
-  return name ? `Subagent · ${name}` : "Subagent";
+  const parts = [
+    session.parentID ? "Subagent" : undefined,
+    session.time.archived !== undefined ? "Archived" : undefined,
+    name,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
 function requestAttention(

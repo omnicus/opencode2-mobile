@@ -12,6 +12,7 @@ import {
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { pressedOpacity } from "../theme";
 import { ModalSheet } from "./modal-sheet";
@@ -63,6 +64,16 @@ test("tapping the backdrop closes a compact sheet", () => {
   expect(close).toHaveBeenCalledTimes(1);
   fireEvent.press(screen.getByRole("button", { name: "Close Session actions" }));
   expect(close).toHaveBeenCalledTimes(2);
+});
+
+test("only a sheet docked to the bottom drops the top safe-area inset", () => {
+  const view = render(sheet({ size: "compact" }));
+  expect(view.UNSAFE_getByType(SafeAreaView).props.edges).toEqual(["bottom"]);
+  view.rerender(sheet({ size: "page" }));
+  expect(view.UNSAFE_getByType(SafeAreaView).props.edges).toEqual(["top", "bottom"]);
+  Dimensions.set({ window: { width: 1024, height: 1366, scale: 2, fontScale: 1 } });
+  view.rerender(sheet({ size: "compact" }));
+  expect(view.UNSAFE_getByType(SafeAreaView).props.edges).toEqual(["top", "bottom"]);
 });
 
 test("page sheets have no tappable backdrop", () => {

@@ -433,6 +433,9 @@ Archive and read state live on the server and are shared with every client.
 Swiping a row, its accessibility action, and the long-press sheet archive or
 unarchive it with `PATCH /api/session/{id}` and `{ archived }`. The row moves
 at once and the lists refetch. A failure leaves the row and shows an alert.
+Archiving from the open session's own menu leaves the session: a subagent opened
+from its parent returns to the parent, and any other session returns to the
+session list. Unarchiving keeps the session open.
 `session.archived`, `session.unarchived`, and `session.viewed` events from other
 clients refetch the session lists. So does `session.execution.started`, because
 a new run's `time.busy` is the start of the working duration. A finished session is unread while
@@ -794,9 +797,9 @@ config-read operations.
 Experimental debug, migration, session-log, and undocumented operations are not
 release dependencies unless promoted into the supported generated contract.
 
-The session context bar keeps Session, Changes, and the current branch visible,
-with a trailing Location options action. Its sheet lists MCP servers with native
-on/off switches for the session's exact location. On means the server is enabled,
+The session context bar keeps Session, Changes, and the current branch visible.
+The session actions menu has an MCP servers page that lists MCP servers with
+native on/off switches for the session's exact location, named on the page. On means the server is enabled,
 not necessarily connected; connecting, authentication, and failure remain explicit
 status labels. A switch sends a runtime connect/disconnect request and reconciles
 server state, without saving a preference. These
