@@ -44,15 +44,33 @@ test("current complete coverage without requests has no attention indicator", ()
   );
 });
 
-test("shows an uncertain indicator while checking with no known requests", () => {
+test.each(["reconciling", "stale"] as const)(
+  "shows no indicator while %s with no known requests",
+  (freshness) => {
+    jest.mocked(useWorkspaceSelection).mockReturnValue({
+      attentionCoverage: { completeness: "incomplete", freshness },
+      pendingCount: 0,
+    } as never);
+    render(<WorkspaceHeaderActions navigate={jest.fn()} />);
+    expect(
+      screen.queryByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
+    ).toBeNull();
+    // Screen readers still hear that coverage is uncertain.
+    expect(
+      screen.getByRole("button", { name: "Settings" }).props.accessibilityValue.text,
+    ).toContain("some projects not checked");
+  },
+);
+
+test("session marker stays hidden while checking with no known requests", () => {
   jest.mocked(useWorkspaceSelection).mockReturnValue({
     attentionCoverage: { completeness: "incomplete", freshness: "reconciling" },
     pendingCount: 0,
   } as never);
-  render(<WorkspaceHeaderActions navigate={jest.fn()} />);
+  render(<SessionAttentionMarker />);
   expect(
-    screen.getByTestId("workspace-attention-indicator", { includeHiddenElements: true }),
-  ).toHaveStyle({ backgroundColor: palette.dim });
+    screen.queryByTestId("session-attention-marker", { includeHiddenElements: true }),
+  ).toBeNull();
 });
 
 test("session attention is a small circle rather than an approval-list action", () => {

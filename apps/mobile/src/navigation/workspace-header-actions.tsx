@@ -16,9 +16,9 @@ export function WorkspaceHeaderActions({
   onNewSession?: (() => void) | undefined;
 }) {
   const selection = useWorkspaceSelection();
+  // Only requests that need the user earn a dot. Coverage still being checked, stale, or
+  // incomplete is reported by the Approvals screen and the accessibility value instead.
   const count = selection.pendingCount;
-  const coverage = selection.attentionCoverage.completeness;
-  const freshness = selection.attentionCoverage.freshness;
 
   return (
     <View style={styles.actions}>
@@ -47,16 +47,12 @@ export function WorkspaceHeaderActions({
           name="settings"
           size={22}
         />
-        {count > 0 || freshness !== "current" || coverage === "incomplete" ? (
+        {count > 0 ? (
           <View
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             testID="workspace-attention-indicator"
-            style={[
-              styles.attentionDot,
-              styles.settingsAttentionDot,
-              count === 0 && styles.attentionDotUncertain,
-            ]}
+            style={[styles.attentionDot, styles.settingsAttentionDot]}
           />
         ) : null}
       </Pressable>
@@ -93,19 +89,13 @@ export function NewSessionButton({ onPress }: { onPress: () => void }) {
 
 export function SessionAttentionMarker() {
   const selection = useWorkspaceSelection();
-  const count = selection.pendingCount;
-  const { freshness, completeness } = selection.attentionCoverage;
-  if (count === 0 && freshness === "current" && completeness === "complete") return null;
+  if (selection.pendingCount === 0) return null;
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       testID="session-attention-marker"
-      style={[
-        styles.attentionDot,
-        styles.sessionAttentionDot,
-        count === 0 && styles.attentionDotUncertain,
-      ]}
+      style={[styles.attentionDot, styles.sessionAttentionDot]}
     />
   );
 }
@@ -118,7 +108,6 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: palette.warm,
   },
-  attentionDotUncertain: { backgroundColor: palette.dim },
   // On the gear's top-right corner rather than floating in the touch target.
   settingsAttentionDot: { right: 10, top: 10 },
   // Beside the back chevron's top edge rather than in the button's corner.
