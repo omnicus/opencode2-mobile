@@ -11,7 +11,8 @@ import { ActivityIndicator, AppState, Modal, StyleSheet, Text, View } from "reac
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "../components/button";
-import { SettingsGroup } from "../components/management-layout";
+import { IconTile } from "../components/icon-tile";
+import { managementStyles, SettingsRow, SettingText } from "../components/management-layout";
 import { useAnnouncement } from "../components/use-announcement";
 import { cardSurface, palette, space, typeRamp, typography } from "../theme";
 import { AppUpdateController } from "./app-update-controller";
@@ -74,18 +75,65 @@ function RestartOverlay({ controller }: { controller: AppUpdateController }) {
   );
 }
 
-// Settings passes grouped, so updates sit in the same section style as every other setting.
-export function AppUpdateCard({ grouped = false }: { grouped?: boolean }) {
+// Settings passes grouped and places the result inside a SettingsGroup, so updates use the
+// same icon, title, and inline action row as every other setting.
+export function AppUpdateCard({
+  grouped = false,
+  last = false,
+}: {
+  grouped?: boolean;
+  // In a group, the row drops its separator when nothing follows it.
+  last?: boolean;
+}) {
   const controller = use(AppUpdateContext);
   if (!controller) return null;
   return grouped ? (
-    <SettingsGroup title="App updates">
-      <UpdateControls controller={controller} grouped />
-    </SettingsGroup>
+    <UpdateRow controller={controller} last={last} />
   ) : (
     <UpdateControls controller={controller} />
   );
 }
+
+function UpdateRow({ controller, last }: { controller: AppUpdateController; last: boolean }) {
+  const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const ready = state.phase === "ready";
+  return (
+    <SettingsRow last={last}>
+      <IconTile align="top" icon="download" tint="blue" />
+      <View style={managementStyles.settingText}>
+        <SettingText description={updateCopy[state.phase]} live title="App updates" />
+        {state.error ? (
+          <Text
+            accessibilityRole="alert"
+            dynamicTypeRamp={typeRamp.footnote}
+            style={styles.rowError}
+          >
+            {state.error}
+          </Text>
+        ) : null}
+        {state.phase !== "disabled" ? (
+          <Button
+            busy={["checking", "downloading", "restarting"].includes(state.phase)}
+            label={ready ? "Restart to apply update" : "Check for app updates"}
+            onPress={() => void (ready ? controller.restart() : controller.check(true))}
+            style={managementStyles.inlineAction}
+            variant={ready ? "primary" : "secondary"}
+          />
+        ) : null}
+      </View>
+    </SettingsRow>
+  );
+}
+
+const updateCopy = {
+  disabled: "This build of the app doesn't receive updates.",
+  idle: "Get compatibility fixes without connecting to your OpenCode server.",
+  checking: "Checking for an app update…",
+  downloading: "Downloading an app update…",
+  current: "No newer update is available for this app build.",
+  ready: "An app update is ready. Restart when you're ready to apply it.",
+  restarting: "Saving drafts and restarting…",
+} as const;
 
 export function AppUpdateBanner() {
   const controller = use(AppUpdateContext);
@@ -99,35 +147,20 @@ function UpdateControls({
   bottomInset = 0,
   compact = false,
   controller,
-  grouped = false,
 }: {
   bottomInset?: number;
   compact?: boolean;
   controller: AppUpdateController;
-  grouped?: boolean;
 }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const ready = state.phase === "ready";
   const busy = ["checking", "downloading", "restarting"].includes(state.phase);
   if (compact && !ready && state.phase !== "restarting") return null;
-  const copy = {
-    disabled: "This build of the app doesn't receive updates.",
-    idle: "Get compatibility fixes without connecting to your OpenCode server.",
-    checking: "Checking for an app update…",
-    downloading: "Downloading an app update…",
-    current: "No newer update is available for this app build.",
-    ready: "An app update is ready. Restart when you're ready to apply it.",
-    restarting: "Saving drafts and restarting…",
-  }[state.phase];
+  const copy = updateCopy[state.phase];
 
   return (
-    <View
-      style={[
-        grouped ? styles.grouped : styles.card,
-        compact && { paddingBottom: Math.max(bottomInset, space.sm) },
-      ]}
-    >
-      {!compact && !grouped ? (
+    <View style={[styles.card, compact && { paddingBottom: Math.max(bottomInset, space.sm) }]}>
+      {!compact ? (
         <Text accessibilityRole="header" dynamicTypeRamp={typeRamp.headline} style={styles.title}>
           App updates
         </Text>
@@ -166,7 +199,7 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   card: { ...cardSurface, borderWidth: StyleSheet.hairlineWidth, gap: space.sm },
-  grouped: { alignItems: "flex-start", gap: space.sm, padding: space.md },
+  rowError: { ...typography.footnote, color: palette.danger, marginTop: space.xs },
   title: { ...typography.headline, color: palette.ink },
   copy: { ...typography.subheadline, color: palette.dim },
   error: { ...typography.subheadline, color: palette.danger },

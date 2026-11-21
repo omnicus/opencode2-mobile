@@ -1,6 +1,6 @@
 import Feather from "@expo/vector-icons/Feather";
 import type { ComponentProps, ReactNode } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import {
   disabledOpacity,
   palette,
@@ -10,6 +10,7 @@ import {
   space,
   typeRamp,
   typography,
+  usesLargeTextLayout,
 } from "../theme";
 import { IconTile, type IconTileTint } from "./icon-tile";
 
@@ -51,6 +52,10 @@ export function MenuRow({
   value?: string | undefined;
 }) {
   const chevron = expanded === undefined || !expanded ? "chevron-right" : "chevron-down";
+  // At large text sizes the value moves under the label and wraps, so a long connection name
+  // stays readable instead of being cut to a sliver beside the label.
+  const { fontScale } = useWindowDimensions();
+  const valueBelow = usesLargeTextLayout(fontScale);
   return (
     <Pressable
       accessibilityRole="button"
@@ -90,8 +95,13 @@ export function MenuRow({
             {description}
           </Text>
         ) : null}
+        {value && valueBelow ? (
+          <Text dynamicTypeRamp={typeRamp.body} style={styles.valueBelow}>
+            {value}
+          </Text>
+        ) : null}
       </View>
-      {value ? (
+      {value && !valueBelow ? (
         <Text dynamicTypeRamp={typeRamp.body} numberOfLines={1} style={styles.value}>
           {value}
         </Text>
@@ -131,6 +141,7 @@ const styles = StyleSheet.create({
   label: { ...typography.body, color: palette.ink },
   description: { ...typography.footnote, color: palette.dim },
   value: { ...typography.body, color: palette.dim, flexShrink: 1, maxWidth: "45%" },
+  valueBelow: { ...typography.body, color: palette.dim },
   danger: { color: palette.danger },
   badge: {
     alignItems: "center",

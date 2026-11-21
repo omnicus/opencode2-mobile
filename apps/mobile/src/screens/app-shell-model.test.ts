@@ -150,7 +150,7 @@ test("describes the notification setting and when to offer pairing", () => {
       pairing,
       state: { enabled: false } as never,
     }),
-  ).toBe("Paused. New requests will not create mobile notifications.");
+  ).toBe("Paused for every phone paired with this connection.");
   expect(
     notificationSettingDescription({ connectionID, loading: false, pairing, state: undefined }),
   ).toBe("Notification status is unavailable.");

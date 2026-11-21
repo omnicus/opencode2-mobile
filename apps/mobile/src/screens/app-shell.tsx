@@ -38,7 +38,12 @@ import {
   fullScreenStateStyles,
 } from "../components/full-screen-state";
 import { IconTile } from "../components/icon-tile";
-import { managementStyles, SettingsGroup, SettingsRow } from "../components/management-layout";
+import {
+  managementStyles,
+  SettingsGroup,
+  SettingsRow,
+  SettingText,
+} from "../components/management-layout";
 import { MenuRow } from "../components/menu-row";
 import { ModalSheet } from "../components/modal-sheet";
 import { ProjectAvatar } from "../components/project-avatar";
@@ -577,21 +582,20 @@ export function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
           onPair={() => navigation.navigate("Pairing")}
         />
 
-        <AppUpdateCard grouped />
-
-        <SettingsGroup title="Support">
+        <SettingsGroup title="App and support">
+          <AppUpdateCard grouped />
           <SettingsRow last>
             <IconTile align="top" icon="activity" tint="gray" />
-            <View style={styles.settingText}>
+            <View style={managementStyles.settingText}>
               <SettingText
-                description="Connection events and transcript performance counts. It leaves out credentials, server addresses, paths, titles, prompts, and content."
+                description="Connection events and performance counts. No credentials, addresses, paths, titles, prompts, or content."
                 title="Diagnostics report"
               />
               <ActionButton
                 label="Share diagnostics"
                 onPress={() => void shareDiagnostics()}
                 secondary
-                style={styles.inlineAction}
+                style={managementStyles.inlineAction}
               />
             </View>
           </SettingsRow>
@@ -617,33 +621,41 @@ function WorkspaceSettings({
   onFollowedProjects: () => void;
   pendingCount: number;
 }) {
+  // Needs you is a destination, not a preference, but the Settings gear carries the attention
+  // dot, so it stays here as its own group ahead of the settings.
   return (
-    <SettingsGroup title="Workspace">
-      <MenuRow
-        accessibilityValue={attentionAccessibilityValue(pendingCount, coverage)}
-        badge={pendingBadge(pendingCount)}
-        description="Permission and form requests"
-        icon="inbox"
-        label="Needs you"
-        onPress={() => navigate("Pending")}
-        tint="amber"
-      />
-      <MenuRow
-        description="Choose projects shown in Sessions and Needs you"
-        icon="folder"
-        label="Followed projects"
-        onPress={onFollowedProjects}
-        tint="blue"
-      />
-      <MenuRow
-        icon="server"
-        label="Connections"
-        last
-        onPress={() => navigate("Connections")}
-        tint="green"
-        value={connectionName ?? "No connection selected"}
-      />
-    </SettingsGroup>
+    <>
+      <SettingsGroup title="Requests">
+        <MenuRow
+          accessibilityValue={attentionAccessibilityValue(pendingCount, coverage)}
+          badge={pendingBadge(pendingCount)}
+          description="Permission and form requests"
+          icon="inbox"
+          label="Needs you"
+          last
+          onPress={() => navigate("Pending")}
+          tint="amber"
+        />
+      </SettingsGroup>
+      {/* Followed projects belong to the selected connection, so the connection comes first. */}
+      <SettingsGroup title="Server and projects">
+        <MenuRow
+          icon="server"
+          label="Connections"
+          onPress={() => navigate("Connections")}
+          tint="green"
+          value={connectionName ?? "No connection selected"}
+        />
+        <MenuRow
+          description="Choose projects shown in Sessions and Needs you"
+          icon="folder"
+          label="Followed projects"
+          last
+          onPress={onFollowedProjects}
+          tint="blue"
+        />
+      </SettingsGroup>
+    </>
   );
 }
 
@@ -657,7 +669,7 @@ function TranscriptSettings({
       <SettingsGroup title="Transcript">
         <SettingsRow>
           <IconTile align="top" icon="corner-down-right" tint="indigo" />
-          <View style={styles.settingText}>
+          <View style={managementStyles.settingText}>
             <SettingText
               description="Steer updates the current work. Queue waits until it finishes."
               title="Default follow-up delivery"
@@ -670,6 +682,7 @@ function TranscriptSettings({
                   if (!transcript.busy) void transcript.update({ defaultDelivery });
                 }}
                 options={deliveryOptions}
+                surface="card"
                 value={transcript.defaultDelivery}
               />
             </View>
@@ -678,13 +691,9 @@ function TranscriptSettings({
 
         <SettingsRow>
           <IconTile icon="list" tint="teal" />
-          <View style={styles.settingText}>
+          <View style={managementStyles.settingText}>
             <SettingText
-              description={
-                transcript.detailed
-                  ? "Detailed: individual tool executions and system notices."
-                  : "Compact: group activity and collapse routine details."
-              }
+              description="Show individual tool runs and system notices instead of grouped activity."
               title="Detailed transcript"
             />
           </View>
@@ -697,8 +706,8 @@ function TranscriptSettings({
           />
         </SettingsRow>
         <SettingsRow last>
-          <IconTile icon="zap" tint="indigo" />
-          <View style={styles.settingText}>
+          <IconTile icon="zap" tint="amber" />
+          <View style={managementStyles.settingText}>
             <SettingText
               description="Display model reasoning when provided by the server."
               title="Show reasoning"
@@ -742,7 +751,7 @@ function SecuritySettings({
       <SettingsGroup title="Security and notifications">
         <SettingsRow>
           <IconTile icon="lock" tint="gray" />
-          <View style={styles.settingText}>
+          <View style={managementStyles.settingText}>
             <SettingText
               description="Require device authentication after the app leaves the foreground."
               title="App lock"
@@ -800,7 +809,7 @@ function NotificationSettingRow({
   return (
     <SettingsRow last>
       <IconTile icon="bell" tint="red" />
-      <View style={styles.settingText}>
+      <View style={managementStyles.settingText}>
         <SettingText
           description={notificationSettingDescription(setting)}
           title="Mobile notifications"
@@ -810,7 +819,7 @@ function NotificationSettingRow({
             label="Pair notifications"
             onPress={onPair}
             size="compact"
-            style={styles.inlineAction}
+            style={managementStyles.inlineAction}
           />
         ) : null}
       </View>
@@ -829,19 +838,6 @@ function NotificationSettingRow({
         />
       )}
     </SettingsRow>
-  );
-}
-
-function SettingText({ description, title }: { description: string; title: string }) {
-  return (
-    <>
-      <Text dynamicTypeRamp={typeRamp.body} style={styles.settingTitle}>
-        {title}
-      </Text>
-      <Text dynamicTypeRamp={typeRamp.footnote} style={styles.settingCopy}>
-        {description}
-      </Text>
-    </>
   );
 }
 
@@ -1623,7 +1619,6 @@ const styles = StyleSheet.create({
   failureCard: { ...cardSurface, borderColor: palette.danger, gap: space.xs },
   failureLabel: { ...typography.sectionLabel, color: palette.danger },
   heading: { gap: space.xs },
-  inlineAction: { marginTop: space.sm },
   lede: { ...typography.subheadline, color: palette.dim, maxWidth: 620 },
   locationControls: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   locationControlsLargeText: { flex: 0, width: "100%" },
@@ -1673,9 +1668,6 @@ const styles = StyleSheet.create({
   // Fixed width keeps both compact segments legible beside the branch name.
   sessionTabs: { width: 176 },
   sessionTabsLargeText: { width: "100%" },
-  settingCopy: { ...typography.footnote, color: palette.dim },
-  settingText: { flexGrow: 1, flexShrink: 1, gap: 2 },
-  settingTitle: { ...typography.body, color: palette.ink },
   shell: { flex: 1 },
   stateActions: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginTop: space.sm },
   stateCard: { ...cardSurface, alignItems: "center", flexDirection: "row", gap: space.md },

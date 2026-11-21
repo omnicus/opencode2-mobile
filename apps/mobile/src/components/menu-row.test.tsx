@@ -1,7 +1,7 @@
 import Feather from "@expo/vector-icons/Feather";
 import { expect, jest, test } from "@jest/globals";
 import { fireEvent, render, screen } from "@testing-library/react-native";
-import { StyleSheet } from "react-native";
+import { Dimensions, StyleSheet } from "react-native";
 import { MenuGroup, MenuRow } from "./menu-row";
 
 test("compact menu rows keep full touch targets and readable uncapped labels", () => {
@@ -91,4 +91,25 @@ test("a visible value is also the row's accessibility value", () => {
   expect(screen.getByRole("button", { name: "Connections" })).toHaveProp("accessibilityValue", {
     text: "Studio Mac",
   });
+});
+
+test("at large text sizes the value moves under the label and wraps", () => {
+  const original = Dimensions.get("window");
+  Dimensions.set({ window: { ...original, fontScale: 1.5 } });
+  try {
+    render(
+      <MenuRow
+        icon="server"
+        label="Connections"
+        onPress={() => {}}
+        value="A long connection name"
+      />,
+    );
+    const value = screen.getByText("A long connection name");
+    expect(value.props.numberOfLines).toBeUndefined();
+    expect(StyleSheet.flatten(value.props.style).maxWidth).toBeUndefined();
+    expect(screen.getAllByText("A long connection name")).toHaveLength(1);
+  } finally {
+    Dimensions.set({ window: original });
+  }
 });
