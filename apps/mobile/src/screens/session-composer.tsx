@@ -127,6 +127,7 @@ export function SessionComposer({
   models,
   onAgentChange,
   onDraftChange,
+  onFocusChange,
   onModelChange,
   onMentionSearchChange,
   onSubmit,
@@ -163,6 +164,7 @@ export function SessionComposer({
   models: ModelInfo[];
   onAgentChange: (agent: string) => void;
   onDraftChange: (draft: string, mentions: ComposerMention[]) => void;
+  onFocusChange?: ((focused: boolean) => void) | undefined;
   onModelChange: (model: ModelRef) => void;
   onMentionSearchChange: (query: string | undefined) => void;
   onSubmit: (intent: ComposerSubmitIntent) => void;
@@ -272,6 +274,7 @@ export function SessionComposer({
             onChangeText={changeDraft}
             onFocusChange={(nextFocused) => {
               setFocused(nextFocused);
+              onFocusChange?.(nextFocused);
               // Only focus from a tap on the prompt takes over the hold. A closing sheet can
               // move focus through the prompt on its own, and that must not fold the composer.
               // Released on focus, not on touch-down, so the toolbar never folds mid-tap.

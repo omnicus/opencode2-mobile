@@ -537,9 +537,11 @@ contracts and must not be copied into the adapter.
 ### 10.2 Start work
 
 1. User starts a new session from the combined inbox. It opens like an empty
-   session: followed projects sit above the composer, the project last worked
-   in is selected, and All projects searches the rest. A project with several
-   locations lists its directories and worktrees under it.
+   session: followed projects sit above the composer with none selected, and
+   All projects searches the rest. Choosing a project folds the list to it;
+   tapping that project unfolds the list. A project with several locations
+   lists its directories and worktrees under it, with the one last worked in
+   selected, and folds once one is chosen or the composer takes focus.
 2. User selects an optional agent and model in the composer and writes the
    first message. Until it is sent, that message is an encrypted device draft
    for the new session.
