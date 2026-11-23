@@ -212,8 +212,8 @@ importers:
   packages/opencode-adapter:
     dependencies:
       '@opencode/client':
-        specifier: 2.4.0
-        version: 2.4.0(effect@4.1.0)(solid-js@1.9.18)
+        specifier: 2.4.1
+        version: 2.4.1(effect@4.1.0)(solid-js@1.9.18)
     devDependencies:
       '@opencode2-mobile/test-fixtures':
         specifier: workspace:*
@@ -1545,8 +1545,8 @@ packages:
       solid-js:
         optional: true
 
-  '@opencode/client@2.4.0':
-    resolution: {integrity: sha512-U8IKpgERCdM5JRFkaHsE1xkx+jT9IeZrVQsN4Xb7W4kcIWCNwDPNIp00ihcYECEDhejbUH/2uwIECoadDezoxQ==}
+  '@opencode/client@2.4.1':
+    resolution: {integrity: sha512-VKMsNqK8p8EplzwhS3rKBtnBR08Xiz76r6yJ/eZ/7hNF5CTdvWVEjVKZB6dTp5CJ/fyGJBaVPtSPiBaNmhWU+g==}
     peerDependencies:
       effect: 4.1.0
       solid-js: '>=1.9.0'
@@ -1585,14 +1585,14 @@ packages:
   '@opencode/protocol@2.2.5':
     resolution: {integrity: sha512-T3ET0kS1kj8sv7/d+c1T2he7TXoZ4Rki7zTqHuv8b0kWhg3Vk6o0t+T9KsEQdEat7PFksgH5haC2iSSdJOB7/w==}
 
-  '@opencode/protocol@2.4.0':
-    resolution: {integrity: sha512-SvbUy1ZIUp2L24JpZoIuoGoUxhy8c5xg2sDQk25iUqONzgK31tUpi623wOIXbNScZmOvnOOjdZ87jufhShiIfg==}
+  '@opencode/protocol@2.4.1':
+    resolution: {integrity: sha512-RYG7ZTmKMVQZifntclOzSFr+WoukftY6h46niMS1k1YJHa8PqqLPlZuXYVv3dcjWexyOTKnMrOLdNP1Fx/nifQ==}
 
   '@opencode/schema@2.2.5':
     resolution: {integrity: sha512-hlKk6cX28BwvOMOVG3Mtt4tEHxwY68Z6Gz5/cL32N8qfZexykCKsZai49Jms4/2gD8BzvVuBERnnlLDbdLstUA==}
 
-  '@opencode/schema@2.4.0':
-    resolution: {integrity: sha512-1BpbHYL7x/BRpxzg7hOM6qJPWU5bZZcUnGX3B+0WlO0F+RTAG35BRVW5Y8orYgSAORxkpjuWt682/3WNXKPZSQ==}
+  '@opencode/schema@2.4.1':
+    resolution: {integrity: sha512-lYkxvxAEbsJEf56o3P8C5ukTThhFRYqJuSGqsGr6QV9mmRxDyhI36ExuuMirXKoa3vmZOeU9tEm8U6Mp5rSnvw==}
 
   '@opencode/util@2.2.5':
     resolution: {integrity: sha512-RqbJ2EwxOs6oQMH1P4Yenkejit0oiAyxBTPXhzx4n6j4SOV0+Duz6lhftlJkAjTbq7Rw2b0Mzx4duOJUdw6s5A==}
@@ -7547,10 +7547,10 @@ snapshots:
       effect: 4.0.6
       solid-js: 1.9.18
 
-  '@opencode/client@2.4.0(effect@4.1.0)(solid-js@1.9.18)':
+  '@opencode/client@2.4.1(effect@4.1.0)(solid-js@1.9.18)':
     dependencies:
-      '@opencode/protocol': 2.4.0
-      '@opencode/schema': 2.4.0
+      '@opencode/protocol': 2.4.1
+      '@opencode/schema': 2.4.1
     optionalDependencies:
       effect: 4.1.0
       solid-js: 1.9.18
@@ -7581,9 +7581,9 @@ snapshots:
       '@opencode/schema': 2.2.5
       effect: 4.0.6
 
-  '@opencode/protocol@2.4.0':
+  '@opencode/protocol@2.4.1':
     dependencies:
-      '@opencode/schema': 2.4.0
+      '@opencode/schema': 2.4.1
       effect: 4.1.0
 
   '@opencode/schema@2.2.5':
@@ -7591,7 +7591,7 @@ snapshots:
       '@standard-schema/spec': 1.1.0
       effect: 4.0.6
 
-  '@opencode/schema@2.4.0':
+  '@opencode/schema@2.4.1':
     dependencies:
       '@standard-schema/spec': 1.1.0
       effect: 4.1.0
