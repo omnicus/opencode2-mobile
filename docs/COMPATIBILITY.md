@@ -12,7 +12,7 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
-## 2026-11-28: server 2.4 pairing links, pending device verification
+## 2026-11-28: server 2.4 pairing links, iPhone verified
 
 OpenCode 2.4 changed `opencode pair` and the built-in pairing QR. The QR now
 encodes `{"code":"…","urls":[…]}` instead of a JSON code with the server
@@ -41,8 +41,9 @@ The full lint, typecheck, test, and build sequence passed, including 1617 mobile
 tests and both Hermes exports, and Expo Doctor passed 18 of 18 checks. Both
 native fingerprints and runtime matched the installed 0.1.6 baseline under the
 preview EAS environment, and local EAS Update publication of the fix succeeded
-for iOS and Android on preview. Still unverified: a QR scan on iPhone and Android
-Hermes builds after the parser fix, notification broker pairing with a redeemed token,
+for iOS and Android on preview. The user then reported that scanning a fresh
+`opencode pair` QR paired successfully on an iPhone. Still unverified: a QR scan
+on an Android Hermes build, notification broker pairing with a redeemed token,
 and how long the token stays valid or whether the server revokes it.
 
 ## 2026-11-21: session actions menu revised after review, pending device verification
