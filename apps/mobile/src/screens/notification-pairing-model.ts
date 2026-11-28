@@ -1,20 +1,28 @@
 import {
   type NotificationPairingCode,
   parseNotificationPairingCode,
+  parseOpenCodePairingInvite,
 } from "@opencode2-mobile/notification-protocol";
 import type { ConnectionCredential } from "../connections/connection-profile";
-import { prepareOpenCodeDevicePairing } from "../notifications/notification-client";
+import {
+  prepareOpenCodeDevicePairing,
+  prepareOpenCodePairingLink,
+} from "../notifications/notification-client";
 
 export type PreparedOpenCodePairing = ReturnType<typeof prepareOpenCodeDevicePairing>;
+export type PreparedOpenCodePairingLink = ReturnType<typeof prepareOpenCodePairingLink>;
 
+// A link preview becomes an opencode preview once its single-use code is redeemed.
 export type PairingPreview =
   | { code: NotificationPairingCode; kind: "notification" }
+  | { kind: "link"; prepared: PreparedOpenCodePairingLink }
   | { kind: "opencode"; prepared: PreparedOpenCodePairing };
 
 export type PairingStage =
   | "broker-issue"
   | "broker-registration"
   | "connection-save"
+  | "link-redeem"
   | "opencode-validation"
   | "pairing-save"
   | "push-registration"
@@ -36,6 +44,14 @@ const codeErrorMessages = new Map<string, string>([
   [
     "PAIRING_UNAVAILABLE",
     "This pairing code expired or was already used. Create a new code on the server.",
+  ],
+  [
+    "PAIRING_LINK_SPENT",
+    "This pairing link expired or was already used. Run opencode pair again for a new link.",
+  ],
+  [
+    "PAIRING_LINK_UNSUPPORTED",
+    "This OpenCode server does not support pairing links. Update OpenCode, or add the server by address.",
   ],
   [
     "PAIRING_OPENCODE_TIMEOUT",
@@ -74,6 +90,10 @@ const codeErrorMessages = new Map<string, string>([
 const stageErrorMessages = new Map<PairingStage, string>([
   ["broker-issue", "The notification broker could not verify this OpenCode pairing code."],
   ["connection-save", "The validated OpenCode connection could not be saved on this device."],
+  [
+    "link-redeem",
+    "The OpenCode server could not be reached to use this pairing link. Check that it is running and reachable.",
+  ],
   ["opencode-validation", "The paired OpenCode address or credentials could not be validated."],
   ["pairing-save", "The notification key could not be saved securely on this device."],
   [
@@ -116,6 +136,14 @@ function stageErrorMessage(code: string, stage?: PairingStage) {
 }
 
 export function inspectPairingCode(value: string): { preview: PairingPreview } | { error: string } {
+  const invite = readOpenCodePairingInvite(value);
+  if (invite) {
+    try {
+      return { preview: { kind: "link", prepared: prepareOpenCodePairingLink(invite) } };
+    } catch (caught) {
+      return { error: pairingErrorMessage(caught) };
+    }
+  }
   try {
     const code = parseNotificationPairingCode(value.trim());
     if (code.expiresAtMs < Date.now()) throw new Error("PAIRING_CODE_EXPIRED");
@@ -134,6 +162,15 @@ export function inspectPairingCode(value: string): { preview: PairingPreview } |
         ),
       };
     }
+  }
+}
+
+// Other formats fall through to the notification and pre-2.4 OpenCode code parsers.
+function readOpenCodePairingInvite(value: string) {
+  try {
+    return parseOpenCodePairingInvite(value.trim());
+  } catch {
+    return undefined;
   }
 }
 
@@ -200,13 +237,23 @@ export function pairingPreviewMeta(preview: PairingPreview, secondsLeft: number 
         : `Expires in ${secondsLeft} seconds.`
     }`;
   }
-  return `${authModeDescription("basic")}${
+  const description =
+    preview.kind === "link"
+      ? "Signs in with a one-time link that expires 5 minutes after it was created."
+      : authModeDescription("basic");
+  return `${description}${
     preview.prepared.allowDevelopmentHttp ? " Uses HTTP, which is not encrypted." : ""
   }`;
 }
 
 export function pairingPreviewApprovesHttp(preview: PairingPreview | undefined) {
-  return preview?.kind === "opencode" && preview.prepared.allowDevelopmentHttp;
+  return preview !== undefined && preview.kind !== "notification"
+    ? preview.prepared.allowDevelopmentHttp
+    : false;
+}
+
+export function pairingPreviewConnectsDirectly(preview: PairingPreview) {
+  return preview.kind !== "notification";
 }
 
 function authModeDescription(mode: NotificationPairingCode["authMode"]) {

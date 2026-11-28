@@ -11,6 +11,7 @@ import {
   notificationPairingAdditionalData,
   notificationPairingResponseAdditionalData,
   notificationPushAdditionalData,
+  type OpenCodePairingInvite,
   openNotificationJson,
   parseNotificationConnectionBootstrap,
   parseNotificationDeliveryState,
@@ -101,18 +102,38 @@ export async function completeNotificationPairing(
 
 export function prepareOpenCodeDevicePairing(value: unknown) {
   const code = parseOpenCodeDevicePairingCode(value);
-  const openCodeOrigin = code.urls.find((candidate) => {
-    const hostname = new URL(candidate).hostname;
-    return !isUnusableDeviceHost(hostname);
-  });
-  if (!openCodeOrigin) throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
+  return { ...openCodePairingTarget(firstUsableOpenCodeOrigin(code.urls)), code };
+}
+
+// An `opencode pair` invite stays unspent until the person approves it; the code works only once.
+export function prepareOpenCodePairingLink(invite: OpenCodePairingInvite) {
+  const origin = firstUsableOpenCodeOrigin(invite.urls);
+  return { ...openCodePairingTarget(origin), link: { code: invite.code, origin } };
+}
+
+function firstUsableOpenCodeOrigin(urls: string[]) {
+  const origin = urls.find((candidate) => !isUnusableDeviceHost(new URL(candidate).hostname));
+  if (!origin) throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
+  return origin;
+}
+
+export function redeemedOpenCodeDevicePairing(
+  { link: _link, ...target }: ReturnType<typeof prepareOpenCodePairingLink>,
+  credential: { password: string; username: string },
+): ReturnType<typeof prepareOpenCodeDevicePairing> {
+  return {
+    ...target,
+    code: { ...credential, urls: [target.openCodeOrigin] },
+  };
+}
+
+function openCodePairingTarget(openCodeOrigin: string) {
   const openCodeUrl = new URL(openCodeOrigin);
   const brokerUrl = new URL(openCodeOrigin);
   brokerUrl.port = "37100";
   return {
     allowDevelopmentHttp: openCodeUrl.protocol === "http:",
     brokerOrigin: brokerUrl.origin,
-    code,
     name: `OpenCode on ${openCodeUrl.hostname}`.slice(0, 80),
     openCodeOrigin,
   };

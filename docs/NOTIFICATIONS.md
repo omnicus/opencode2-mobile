@@ -173,9 +173,13 @@ If the broker must run while the account is logged out, an administrator must
 also enable lingering with `loginctl enable-linger USERNAME`. Rebuild and restart
 the service after broker code changes.
 
-For the standard same-host installation, open OpenCode's built-in `/pair`
-dialog and scan that QR from `PAIR SERVER + NOTIFICATIONS`. The automatic flow
-uses the first non-loopback URL listed in the OpenCode code. It requires the
+For the standard same-host installation, run `opencode pair` (or open
+OpenCode's built-in `/pair` dialog) and scan that QR from
+`PAIR SERVER + NOTIFICATIONS`. OpenCode 2.4 and later print a single-use
+`/auth/connect/` link that expires after five minutes. The app redeems it once,
+when you choose to pair, for a session token that it uses as the Basic password
+with the username `opencode`. Older servers print a JSON code, and the automatic
+flow uses its first non-loopback URL. It requires the
 broker at the same scheme and hostname on port 37100. OpenCode port 4096 is
 allowed by default; set `--opencode-port` during broker initialization for
 another OpenCode port. A custom broker public port, a different broker hostname,
@@ -189,10 +193,11 @@ creates the existing encrypted two-minute notification challenge. The app
 requires that challenge to name the same broker and OpenCode origins shown for
 approval.
 
-The OpenCode QR contains the real server password even though the dialog masks
-the password text. Do not capture or share screenshots of it. Create the QR in a
-trusted terminal and scan it immediately. The app clears a pasted code from the
-input after parsing it.
+Before OpenCode 2.4, the QR contains the real server password even though the
+dialog masks the password text. From 2.4, it contains a single-use link that
+grants a session to whoever redeems it first. In both cases, do not capture or
+share screenshots of it. Create the QR in a trusted terminal and scan it
+immediately. The app clears a pasted code from the input after parsing it.
 
 `POST /v1/pair/opencode` is on the broker's public listener because the phone
 must reach it. Anyone who can reach that route can submit candidate credentials

@@ -12,6 +12,40 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-28: server 2.4 pairing links, iPhone verified
+
+OpenCode 2.4 changed `opencode pair` and the built-in pairing QR. The QR now
+encodes `{"code":"…","urls":[…]}` instead of a JSON code with the server
+password, and the terminal also prints a single-use `<origin>/auth/connect/<code>`
+link. Both expire after five minutes. The app rejected both as malformed codes,
+so scanning stopped working. The app now accepts either and shows the first
+non-loopback origin for approval without contacting the server. Only Pair spends
+the code. It redeems the code with `GET /auth/connect/{code}` and
+`Accept: application/json`, and keeps the redeemed result for retries. Without
+that header the server answers as it would a browser. The redeemed token becomes
+the Basic password for the existing direct and notification broker flows. The
+earlier JSON code still works for older servers.
+
+An isolated 2.4.2 server confirmed the token is accepted only with the username
+`opencode`, including when another server username is configured. It is rejected
+as a bearer token, and a spent or unknown code returns `UnauthorizedError`. The
+adapter integration suite now pairs through a real link on the pinned server.
+
+The first EAS Update still reported a malformed code on an iPhone. The QR held
+the JSON form, which that build did not read. Its link parser also read the path
+through React Native's `URL`, which appends a trailing slash and so never matched
+the expected path. Node tests did not show this. The parser now matches the raw
+link text, and a protocol test reproduces the trailing-slash behavior.
+
+The full lint, typecheck, test, and build sequence passed, including 1617 mobile
+tests and both Hermes exports, and Expo Doctor passed 18 of 18 checks. Both
+native fingerprints and runtime matched the installed 0.1.6 baseline under the
+preview EAS environment, and local EAS Update publication of the fix succeeded
+for iOS and Android on preview. The user then reported that scanning a fresh
+`opencode pair` QR paired successfully on an iPhone. Still unverified: a QR scan
+on an Android Hermes build, notification broker pairing with a redeemed token,
+and how long the token stays valid or whether the server revokes it.
+
 ## 2026-11-21: session actions menu revised after review, pending device verification
 
 An iPhone screenshot of the session actions sheet showed a blank band above its

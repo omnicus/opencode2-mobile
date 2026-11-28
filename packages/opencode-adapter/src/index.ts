@@ -1794,6 +1794,43 @@ export function normalizeOpenCodeBaseUrl(input: string) {
   return url.origin;
 }
 
+// A redeemed pairing token is a Basic password for this fixed username. 2.4.2 rejects it as a
+// bearer token and with any other username, including a configured server username.
+export const openCodePairingUsername = "opencode";
+
+const maxOpenCodePairingTokenLength = 2_048;
+
+// Redeems the code from an `opencode pair` link (2.4+), parsed by the notification protocol
+// package. Redeeming spends the code. Without a JSON Accept header the server answers as it would a
+// browser, with a session cookie instead of a token.
+export async function redeemOpenCodePairingLink(
+  link: { code: string; origin: string },
+  options: { fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {},
+) {
+  ensurePromiseWithResolvers();
+  const client = OpenCode.make({
+    baseUrl: normalizeOpenCodeBaseUrl(link.origin),
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  });
+  const session: unknown = await client.server.connect(
+    { code: link.code },
+    {
+      headers: { accept: "application/json" },
+      ...(options.signal ? { signal: options.signal } : {}),
+    },
+  );
+  const token = isRecord(session) ? session.token : undefined;
+  if (
+    typeof token !== "string" ||
+    token.length === 0 ||
+    token.length > maxOpenCodePairingTokenLength ||
+    /\s/.test(token)
+  ) {
+    throw new Error("INVALID_OPENCODE_PAIRING_TOKEN");
+  }
+  return { password: token, username: openCodePairingUsername };
+}
+
 export function classifyOpenCodeError(error: unknown) {
   if (hasTagInCause(error, "UnauthorizedError")) return "UNAUTHORIZED" as const;
   if (

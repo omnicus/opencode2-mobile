@@ -326,8 +326,9 @@ Pairing requires the user and phone. Do not display a pairing code until the use
 is ready to scan it. Pairing codes expire after two minutes and are bearer
 secrets. Never put one in chat, logs, screenshots, or the final report.
 
-For the standard same-host Basic-auth setup, ask the user to open OpenCode's
-built-in `/pair` dialog. In the installed app, the user opens Connections,
+For the standard same-host Basic-auth setup, ask the user to run `opencode pair`
+or open OpenCode's built-in `/pair` dialog. From OpenCode 2.4 its QR is a
+single-use link that expires after five minutes. In the installed app, the user opens Connections,
 chooses `PAIR SERVER + NOTIFICATIONS`, and scans the QR.
 
 For other setups, prepare the broker pairing command for a trusted interactive

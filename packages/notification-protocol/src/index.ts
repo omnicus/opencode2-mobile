@@ -219,6 +219,38 @@ export function parseOpenCodeDevicePairingCode(value: unknown): OpenCodeDevicePa
   };
 }
 
+export type OpenCodePairingInvite = { code: string; urls: string[] };
+
+const openCodePairingCodePattern = /^[A-Za-z0-9_-]{8,256}$/;
+// Matched on the raw text: React Native's URL appends a slash to the path and does not reject
+// malformed input, so its getters cannot validate the path.
+const openCodePairingLinkPattern =
+  /^(https?):\/\/([^/?#@\s]+)\/auth\/connect\/([A-Za-z0-9_-]{8,256})\/?$/;
+
+// `opencode pair` (2.4+) prints a single-use, five-minute `<origin>/auth/connect/<code>` link,
+// and its QR encodes the same code as `{"code":"…","urls":["<origin>", …]}`.
+export function parseOpenCodePairingInvite(value: unknown): OpenCodePairingInvite {
+  const error = "INVALID_OPENCODE_PAIRING_LINK";
+  if (typeof value === "string") {
+    const link = openCodePairingLinkPattern.exec(value.trim());
+    if (link) {
+      return { code: link[3] ?? "", urls: [parseOrigin(`${link[1]}://${link[2]}/`, error)] };
+    }
+  }
+  const input = typeof value === "string" ? parseJson(value, error) : value;
+  if (
+    !isRecord(input) ||
+    typeof input.code !== "string" ||
+    !openCodePairingCodePattern.test(input.code) ||
+    !Array.isArray(input.urls) ||
+    input.urls.length === 0 ||
+    input.urls.length > 16
+  ) {
+    throw new Error(error);
+  }
+  return { code: input.code, urls: input.urls.map((url) => parseOrigin(url, error)) };
+}
+
 export function parseNotificationPairingIssueRequest(
   value: unknown,
 ): NotificationPairingIssueRequest {

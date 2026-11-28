@@ -129,7 +129,9 @@ retry it later and passes the same expiry to Expo, APNs, and FCM. The broker
 does not use an OpenCode credential during normal notification processing. Its
 local pairing CLI accepts the credential and stores it in an encrypted,
 short-lived bootstrap challenge for delivery to the intended phone. When the app
-starts from OpenCode's built-in `/pair` QR, the broker receives the credential
+starts from OpenCode's built-in `/pair` QR, the app first redeems a 2.4+
+single-use `/auth/connect/` link for a session token, used as the Basic
+password for the username `opencode`. The broker receives the credential
 once, verifies authenticated health and session access against the same-host
 OpenCode origin, cancels the response bodies, and creates the same short-lived
 challenge. The pairing code is a bearer secret until the challenge expires or is
