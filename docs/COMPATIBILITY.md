@@ -40,8 +40,9 @@ link text, and a protocol test reproduces the trailing-slash behavior.
 The full lint, typecheck, test, and build sequence passed, including 1617 mobile
 tests and both Hermes exports, and Expo Doctor passed 18 of 18 checks. Both
 native fingerprints and runtime matched the installed 0.1.6 baseline under the
-preview EAS environment. Still unverified: a QR scan on iPhone and Android Hermes
-builds after the parser fix, notification broker pairing with a redeemed token,
+preview EAS environment, and local EAS Update publication of the fix succeeded
+for iOS and Android on preview. Still unverified: a QR scan on iPhone and Android
+Hermes builds after the parser fix, notification broker pairing with a redeemed token,
 and how long the token stays valid or whether the server revokes it.
 
 ## 2026-11-21: session actions menu revised after review, pending device verification
