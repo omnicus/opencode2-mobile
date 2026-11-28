@@ -1,6 +1,7 @@
 import {
   type NotificationPairingCode,
   parseNotificationPairingCode,
+  parseOpenCodePairingInvite,
 } from "@opencode2-mobile/notification-protocol";
 import type { ConnectionCredential } from "../connections/connection-profile";
 import {
@@ -135,9 +136,10 @@ function stageErrorMessage(code: string, stage?: PairingStage) {
 }
 
 export function inspectPairingCode(value: string): { preview: PairingPreview } | { error: string } {
-  if (/^https?:\/\//i.test(value.trim())) {
+  const invite = readOpenCodePairingInvite(value);
+  if (invite) {
     try {
-      return { preview: { kind: "link", prepared: prepareOpenCodePairingLink(value.trim()) } };
+      return { preview: { kind: "link", prepared: prepareOpenCodePairingLink(invite) } };
     } catch (caught) {
       return { error: pairingErrorMessage(caught) };
     }
@@ -160,6 +162,15 @@ export function inspectPairingCode(value: string): { preview: PairingPreview } |
         ),
       };
     }
+  }
+}
+
+// Other formats fall through to the notification and pre-2.4 OpenCode code parsers.
+function readOpenCodePairingInvite(value: string) {
+  try {
+    return parseOpenCodePairingInvite(value.trim());
+  } catch {
+    return undefined;
   }
 }
 

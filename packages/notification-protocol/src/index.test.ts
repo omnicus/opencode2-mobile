@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   decodeNotificationBytes,
@@ -14,7 +14,7 @@ import {
   parseNotificationPluginEvent,
   parseNotificationRoutingEnvelope,
   parseOpenCodeDevicePairingCode,
-  parseOpenCodePairingLink,
+  parseOpenCodePairingInvite,
   sealNotificationJson,
 } from "./index.js";
 
@@ -191,19 +191,50 @@ describe("notification protocol", () => {
     ).toThrow("INVALID_OPENCODE_PAIRING_CODE");
   });
 
-  it("reads the origin and code from an `opencode pair` link", () => {
+  it("reads the code and origin from an `opencode pair` link", () => {
     expect(
-      parseOpenCodePairingLink(" http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ\n"),
-    ).toEqual({ code: "U4Jdtxl7zwcnJI7yHEnUMQ", origin: "http://100.64.0.1:4096" });
-    expect(parseOpenCodePairingLink("https://code.example.test/auth/connect/abc-DEF_123")).toEqual({
-      code: "abc-DEF_123",
-      origin: "https://code.example.test",
+      parseOpenCodePairingInvite(" http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ\n"),
+    ).toEqual({ code: "U4Jdtxl7zwcnJI7yHEnUMQ", urls: ["http://100.64.0.1:4096"] });
+    expect(
+      parseOpenCodePairingInvite("https://code.example.test/auth/connect/abc-DEF_123"),
+    ).toEqual({ code: "abc-DEF_123", urls: ["https://code.example.test"] });
+  });
+
+  it("reads the code and URLs from an `opencode pair` QR", () => {
+    expect(
+      parseOpenCodePairingInvite(
+        '{"code":"U4Jdtxl7zwcnJI7yHEnUMQ","urls":["http://127.0.0.1:4096","http://100.64.0.1:4096"]}',
+      ),
+    ).toEqual({
+      code: "U4Jdtxl7zwcnJI7yHEnUMQ",
+      urls: ["http://127.0.0.1:4096", "http://100.64.0.1:4096"],
     });
+  });
+
+  // React Native's URL appends a slash to any path without one and accepts malformed input.
+  it("reads a pairing link with React Native's URL", () => {
+    const NativeUrl = globalThis.URL;
+    class ReactNativeUrl extends NativeUrl {
+      constructor(value: string) {
+        super(value.endsWith("/") || /[?#]/.test(value) ? value : `${value}/`);
+      }
+    }
+    vi.stubGlobal("URL", ReactNativeUrl);
+    try {
+      expect(
+        parseOpenCodePairingInvite("http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ"),
+      ).toEqual({ code: "U4Jdtxl7zwcnJI7yHEnUMQ", urls: ["http://100.64.0.1:4096"] });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it.each([
     "not a link",
-    '{"urls":["http://100.64.0.1:4096"]}',
+    '{"password":"secret","urls":["http://100.64.0.1:4096"],"username":"opencode"}',
+    '{"code":"short","urls":["http://100.64.0.1:4096"]}',
+    '{"code":"U4Jdtxl7zwcnJI7yHEnUMQ","urls":[]}',
+    '{"code":"U4Jdtxl7zwcnJI7yHEnUMQ","urls":["http://100.64.0.1:4096/path"]}',
     "ftp://100.64.0.1/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ",
     "http://user:secret@100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ",
     "http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ?next=/",
@@ -212,8 +243,8 @@ describe("notification protocol", () => {
     "http://100.64.0.1:4096/prefix/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ",
     "http://100.64.0.1:4096/auth/connect/short",
     "http://100.64.0.1:4096/auth/connect/has%20space",
-  ])("rejects the pairing link %s", (value) => {
-    expect(() => parseOpenCodePairingLink(value)).toThrow("INVALID_OPENCODE_PAIRING_LINK");
+  ])("rejects the pairing invite %s", (value) => {
+    expect(() => parseOpenCodePairingInvite(value)).toThrow("INVALID_OPENCODE_PAIRING_LINK");
   });
 
   it("requires explicit approval for HTTP pairing issue requests", () => {

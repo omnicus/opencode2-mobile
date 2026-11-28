@@ -194,6 +194,30 @@ test("inspects `opencode pair` links without spending them", () => {
   });
 });
 
+test("inspects the `opencode pair` QR and skips loopback addresses", () => {
+  expect(
+    inspectPairingCode(
+      '{"code":"U4Jdtxl7zwcnJI7yHEnUMQ","urls":["http://127.0.0.1:4096","http://100.64.0.1:4096"]}',
+    ),
+  ).toEqual({
+    preview: {
+      kind: "link",
+      prepared: {
+        allowDevelopmentHttp: true,
+        brokerOrigin: "http://100.64.0.1:37100",
+        link: { code: "U4Jdtxl7zwcnJI7yHEnUMQ", origin: "http://100.64.0.1:4096" },
+        name: "OpenCode on 100.64.0.1",
+        openCodeOrigin: "http://100.64.0.1:4096",
+      },
+    },
+  });
+  expect(
+    inspectPairingCode('{"code":"U4Jdtxl7zwcnJI7yHEnUMQ","urls":["http://localhost:4096"]}'),
+  ).toEqual({
+    error: "The OpenCode address points to this phone. Use the server's LAN or Tailscale address.",
+  });
+});
+
 test("rejects pairing links that are malformed or point at this phone", () => {
   expect(inspectPairingCode("https://server.test/auth/connect/")).toEqual({
     error: "The pairing code is malformed or was altered.",

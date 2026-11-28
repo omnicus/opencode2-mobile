@@ -11,6 +11,7 @@ import {
   notificationPairingAdditionalData,
   notificationPairingResponseAdditionalData,
   notificationPushAdditionalData,
+  type OpenCodePairingInvite,
   openNotificationJson,
   parseNotificationConnectionBootstrap,
   parseNotificationDeliveryState,
@@ -20,7 +21,6 @@ import {
   parseNotificationPushData,
   parseNotificationRoutingEnvelope,
   parseOpenCodeDevicePairingCode,
-  parseOpenCodePairingLink,
   sealNotificationJson,
 } from "@opencode2-mobile/notification-protocol";
 import * as Crypto from "expo-crypto";
@@ -102,21 +102,19 @@ export async function completeNotificationPairing(
 
 export function prepareOpenCodeDevicePairing(value: unknown) {
   const code = parseOpenCodeDevicePairingCode(value);
-  const openCodeOrigin = code.urls.find((candidate) => {
-    const hostname = new URL(candidate).hostname;
-    return !isUnusableDeviceHost(hostname);
-  });
-  if (!openCodeOrigin) throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
-  return { ...openCodePairingTarget(openCodeOrigin), code };
+  return { ...openCodePairingTarget(firstUsableOpenCodeOrigin(code.urls)), code };
 }
 
-// An `opencode pair` link stays unspent until the person approves it; the code works only once.
-export function prepareOpenCodePairingLink(value: string) {
-  const link = parseOpenCodePairingLink(value);
-  if (isUnusableDeviceHost(new URL(link.origin).hostname)) {
-    throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
-  }
-  return { ...openCodePairingTarget(link.origin), link };
+// An `opencode pair` invite stays unspent until the person approves it; the code works only once.
+export function prepareOpenCodePairingLink(invite: OpenCodePairingInvite) {
+  const origin = firstUsableOpenCodeOrigin(invite.urls);
+  return { ...openCodePairingTarget(origin), link: { code: invite.code, origin } };
+}
+
+function firstUsableOpenCodeOrigin(urls: string[]) {
+  const origin = urls.find((candidate) => !isUnusableDeviceHost(new URL(candidate).hostname));
+  if (!origin) throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
+  return origin;
 }
 
 export function redeemedOpenCodeDevicePairing(
