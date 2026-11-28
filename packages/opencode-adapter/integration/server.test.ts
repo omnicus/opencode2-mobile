@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 
 import { startCompatibilityProvider } from "../../test-fixtures/integration/openai-provider.mjs";
 import {
+  classifyOpenCodeError,
   createBoundedOpenCodeFetch,
   createOpenCodeClient,
   createOpenCodeSession,
@@ -21,7 +22,9 @@ import {
   listOpenCodePermissionRequests,
   listOpenCodeProjects,
   listOpenCodeSessions,
+  openCodePairingUsername,
   promptOpenCodeSession,
+  redeemOpenCodePairingLink,
   removeOpenCodeSession,
   replyOpenCodeForm,
   replyOpenCodePermissionRequest,
@@ -35,6 +38,8 @@ let provider: Awaited<ReturnType<typeof startCompatibilityProvider>> | undefined
 let client: ReturnType<typeof createOpenCodeClient>;
 const sessionIDs: string[] = [];
 let serverVersion: string;
+let serverBaseUrl: string;
+let serverPassword: string;
 
 beforeAll(async () => {
   const binary = process.env.OPENCODE_TEST_BINARY;
@@ -65,6 +70,8 @@ beforeAll(async () => {
   );
   const port = await unusedPort();
   const password = randomBytes(24).toString("hex");
+  serverBaseUrl = `http://127.0.0.1:${port}`;
+  serverPassword = password;
   // Whitelist the child's environment. Never discover the user's service or credentials.
   child = spawn(resolve(binary), ["serve", "--hostname", "127.0.0.1", "--port", String(port)], {
     cwd: workspace,
@@ -126,6 +133,33 @@ afterAll(async () => {
   }
   await provider?.close();
   if (directory) await rm(directory, { recursive: true, force: true });
+});
+
+test("redeems a single-use pairing link for a Basic credential", async () => {
+  const fetchJson = createBoundedOpenCodeFetch(createRedirectSafeOpenCodeFetch(fetch));
+  const issued = await fetch(`${serverBaseUrl}/api/pair`, {
+    headers: {
+      authorization: `Basic ${Buffer.from(`opencode:${serverPassword}`).toString("base64")}`,
+    },
+    method: "POST",
+  });
+  expect(issued.status).toBe(200);
+  const { code } = (await issued.json()) as { code: string };
+  const link = { code, origin: serverBaseUrl };
+
+  const credential = await redeemOpenCodePairingLink(link, { fetch: fetchJson });
+  expect(credential.username).toBe(openCodePairingUsername);
+  const paired = createOpenCodeClient({
+    baseUrl: serverBaseUrl,
+    authorization: `Basic ${Buffer.from(`${credential.username}:${credential.password}`).toString("base64")}`,
+    fetch: fetchJson,
+  });
+  await expect(paired.server.status()).resolves.toMatchObject({ version: serverVersion });
+
+  const spent = await redeemOpenCodePairingLink(link, { fetch: fetchJson }).catch(
+    (error: unknown) => error,
+  );
+  expect(classifyOpenCodeError(spent)).toBe("UNAUTHORIZED");
 });
 
 test("connects to the requested server release and reads scoped session snapshots", async () => {

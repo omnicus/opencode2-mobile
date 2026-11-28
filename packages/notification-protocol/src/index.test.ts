@@ -14,6 +14,7 @@ import {
   parseNotificationPluginEvent,
   parseNotificationRoutingEnvelope,
   parseOpenCodeDevicePairingCode,
+  parseOpenCodePairingLink,
   sealNotificationJson,
 } from "./index.js";
 
@@ -188,6 +189,31 @@ describe("notification protocol", () => {
         username: "open:code",
       }),
     ).toThrow("INVALID_OPENCODE_PAIRING_CODE");
+  });
+
+  it("reads the origin and code from an `opencode pair` link", () => {
+    expect(
+      parseOpenCodePairingLink(" http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ\n"),
+    ).toEqual({ code: "U4Jdtxl7zwcnJI7yHEnUMQ", origin: "http://100.64.0.1:4096" });
+    expect(parseOpenCodePairingLink("https://code.example.test/auth/connect/abc-DEF_123")).toEqual({
+      code: "abc-DEF_123",
+      origin: "https://code.example.test",
+    });
+  });
+
+  it.each([
+    "not a link",
+    '{"urls":["http://100.64.0.1:4096"]}',
+    "ftp://100.64.0.1/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ",
+    "http://user:secret@100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ",
+    "http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ?next=/",
+    "http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ#fragment",
+    "http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ/extra",
+    "http://100.64.0.1:4096/prefix/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ",
+    "http://100.64.0.1:4096/auth/connect/short",
+    "http://100.64.0.1:4096/auth/connect/has%20space",
+  ])("rejects the pairing link %s", (value) => {
+    expect(() => parseOpenCodePairingLink(value)).toThrow("INVALID_OPENCODE_PAIRING_LINK");
   });
 
   it("requires explicit approval for HTTP pairing issue requests", () => {

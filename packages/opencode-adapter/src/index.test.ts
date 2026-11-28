@@ -48,12 +48,14 @@ import {
   maxShellOutputBytes,
   normalizeOpenCodeBaseUrl,
   openCodeDirectoryExists,
+  openCodePairingUsername,
   openEventStreamGeneration,
   probeEventStream,
   probePtyTransport,
   promptOpenCodeSession,
   ptyWebSocketUrl,
   queueOpenCodeSessionInboxItem,
+  redeemOpenCodePairingLink,
   removeOpenCodeSession,
   removeOpenCodeShell,
   renameOpenCodeSession,
@@ -525,6 +527,40 @@ describe("normalizeOpenCodeBaseUrl", () => {
     "https://open.tailnet.ts.net?secret=value",
   ])("rejects unsafe or non-origin URL %s", (value) => {
     expect(() => normalizeOpenCodeBaseUrl(value)).toThrow();
+  });
+});
+
+describe("OpenCode pairing links", () => {
+  const code = "U4Jdtxl7zwcnJI7yHEnUMQ";
+
+  // The fake answers as a browser, with HTML, unless the request accepts JSON.
+  it("redeems the code once for a Basic credential and asks for JSON", async () => {
+    const fixture = createFakeOpenCodeApi({ pairingCodes: { [code]: "session-token" } });
+    const link = { code, origin: "http://fake.invalid" };
+
+    await expect(redeemOpenCodePairingLink(link, { fetch: fixture.fetch })).resolves.toEqual({
+      password: "session-token",
+      username: openCodePairingUsername,
+    });
+    expect(openCodePairingUsername).toBe("opencode");
+    expect(fixture.requests).toEqual([{ method: "GET", path: `/auth/connect/${code}`, query: {} }]);
+
+    const spent = await redeemOpenCodePairingLink(link, { fetch: fixture.fetch }).catch(
+      (error: unknown) => error,
+    );
+    expect(classifyOpenCodeError(spent)).toBe("UNAUTHORIZED");
+  });
+
+  it("rejects a response without a usable token", async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ token: "has space" }), {
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    await expect(
+      redeemOpenCodePairingLink({ code, origin: "http://fake.invalid" }, { fetch }),
+    ).rejects.toThrow("INVALID_OPENCODE_PAIRING_TOKEN");
   });
 });
 

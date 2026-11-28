@@ -13,6 +13,10 @@ const mockCreateClient = jest.fn((..._args: unknown[]) => ({
   server: { status: mockHealth },
   session: { list: jest.fn(async () => ({ data: [] })) },
 }));
+const mockRedeem = jest.fn(async (..._args: unknown[]) => ({
+  password: "link-token",
+  username: "opencode",
+}));
 const mockRegisterPush = jest.fn(
   async (): Promise<{ deviceName: string; expoPushToken: string; platform: string }> => {
     throw new Error("NOTIFICATION_PERMISSION_DENIED");
@@ -44,6 +48,7 @@ jest.mock("../connections/connections-context", () => ({
 jest.mock("../expo-open-code-fetch", () => ({ boundedOpenCodeFetch: jest.fn() }));
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
   createOpenCodeClient: (...args: unknown[]) => mockCreateClient(...args),
+  redeemOpenCodePairingLink: (...args: unknown[]) => mockRedeem(...args),
   normalizeOpenCodeBaseUrl: (value: string) => new URL(value).origin,
 }));
 jest.mock("../notifications/notification-registration", () => ({
@@ -294,6 +299,39 @@ test("closes from the Done action", async () => {
   const done = jest.fn();
   await render(<NotificationPairingScreen onDone={done} />);
   await fireEvent.press(screen.getByRole("button", { name: "Done" }));
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
+test("scans an `opencode pair` link and redeems it only when pairing", async () => {
+  const done = jest.fn();
+  await render(<NotificationPairingScreen onDone={done} />);
+  await act(async () => {
+    fireEvent.press(screen.getByRole("button", { name: "Scan QR code" }));
+  });
+  await act(async () => {
+    mockOnBarcodeScanned?.({ data: "http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ" });
+  });
+  expect(screen.getByText("OpenCode on 100.64.0.1")).toBeOnTheScreen();
+  expect(screen.getByText("http://100.64.0.1:4096")).toBeOnTheScreen();
+  expect(
+    screen.getByText(
+      "Signs in with a one-time link that expires 5 minutes after it was created. Uses HTTP, which is not encrypted.",
+    ),
+  ).toBeOnTheScreen();
+  expect(mockRedeem).not.toHaveBeenCalled();
+  await act(async () => {
+    fireEvent.press(screen.getByText("Approve HTTP and pair without notifications"));
+  });
+  expect(mockRedeem).toHaveBeenCalledTimes(1);
+  expect(mockSave).toHaveBeenCalledWith(
+    expect.objectContaining({
+      credential: { mode: "basic", password: "link-token", schemaVersion: 1, username: "opencode" },
+      draft: expect.objectContaining({
+        allowDevelopmentHttp: true,
+        baseUrl: "http://100.64.0.1:4096",
+      }),
+    }),
+  );
   expect(done).toHaveBeenCalledTimes(1);
 });
 

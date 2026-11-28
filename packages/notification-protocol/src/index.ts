@@ -219,6 +219,31 @@ export function parseOpenCodeDevicePairingCode(value: unknown): OpenCodeDevicePa
   };
 }
 
+export type OpenCodePairingLink = { code: string; origin: string };
+
+const openCodePairingCodePattern = /^[A-Za-z0-9_-]{8,256}$/;
+
+// `opencode pair` (2.4+) prints a single-use, five-minute `<origin>/auth/connect/<code>` link.
+export function parseOpenCodePairingLink(value: string): OpenCodePairingLink {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("INVALID_OPENCODE_PAIRING_LINK");
+  }
+  const code = /^\/auth\/connect\/([^/]+)$/.exec(url.pathname)?.[1];
+  if (!code || !openCodePairingCodePattern.test(code)) {
+    throw new Error("INVALID_OPENCODE_PAIRING_LINK");
+  }
+  if (url.search || url.hash || url.username || url.password) {
+    throw new Error("INVALID_OPENCODE_PAIRING_LINK");
+  }
+  return {
+    code,
+    origin: parseOrigin(`${url.protocol}//${url.host}/`, "INVALID_OPENCODE_PAIRING_LINK"),
+  };
+}
+
 export function parseNotificationPairingIssueRequest(
   value: unknown,
 ): NotificationPairingIssueRequest {

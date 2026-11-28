@@ -228,10 +228,10 @@ function FirstRunHero({
         <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.heroCopy}>
           Run{" "}
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.inlineCode}>
-            /pair
+            opencode pair
           </Text>{" "}
-          in OpenCode on your computer, then scan the code it shows to connect. Credentials stay in
-          this device's secure storage.
+          on your computer, then scan the code it shows to connect. Credentials stay in this
+          device's secure storage.
         </Text>
       </View>
       {onPair ? (

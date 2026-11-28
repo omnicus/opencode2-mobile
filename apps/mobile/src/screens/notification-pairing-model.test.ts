@@ -11,6 +11,7 @@ import {
   pairingErrorMessage,
   pairingExpiresAtMs,
   pairingPreviewApprovesHttp,
+  pairingPreviewConnectsDirectly,
   pairingPreviewMeta,
   pairingPreviewName,
   pairingPreviewOrigin,
@@ -174,6 +175,60 @@ test("inspects OpenCode /pair codes", () => {
       openCodeOrigin: "http://server.test:4096",
     },
   });
+});
+
+test("inspects `opencode pair` links without spending them", () => {
+  expect(
+    inspectPairingCode(" http://100.64.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ\n"),
+  ).toEqual({
+    preview: {
+      kind: "link",
+      prepared: {
+        allowDevelopmentHttp: true,
+        brokerOrigin: "http://100.64.0.1:37100",
+        link: { code: "U4Jdtxl7zwcnJI7yHEnUMQ", origin: "http://100.64.0.1:4096" },
+        name: "OpenCode on 100.64.0.1",
+        openCodeOrigin: "http://100.64.0.1:4096",
+      },
+    },
+  });
+});
+
+test("rejects pairing links that are malformed or point at this phone", () => {
+  expect(inspectPairingCode("https://server.test/auth/connect/")).toEqual({
+    error: "The pairing code is malformed or was altered.",
+  });
+  expect(inspectPairingCode("https://server.test/sessions")).toEqual({
+    error: "The pairing code is malformed or was altered.",
+  });
+  expect(inspectPairingCode("http://127.0.0.1:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ")).toEqual({
+    error: "The OpenCode address points to this phone. Use the server's LAN or Tailscale address.",
+  });
+});
+
+test("describes a pairing link preview", () => {
+  const result = inspectPairingCode("http://server.test:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ");
+  if (!("preview" in result)) throw new Error("expected a preview");
+  expect(pairingPreviewName(result.preview)).toBe("OpenCode on server.test");
+  expect(pairingPreviewOrigin(result.preview)).toBe("http://server.test:4096");
+  expect(pairingPreviewApprovesHttp(result.preview)).toBe(true);
+  expect(pairingPreviewConnectsDirectly(result.preview)).toBe(true);
+  expect(pairingExpiresAtMs(result.preview)).toBeUndefined();
+  expect(pairingPreviewMeta(result.preview, undefined)).toBe(
+    "Signs in with a one-time link that expires 5 minutes after it was created. Uses HTTP, which is not encrypted.",
+  );
+});
+
+test("explains pairing link redemption failures", () => {
+  expect(pairingErrorMessage(new Error("PAIRING_LINK_SPENT"), "link-redeem")).toBe(
+    "This pairing link expired or was already used. Run opencode pair again for a new link.",
+  );
+  expect(pairingErrorMessage(new Error("PAIRING_LINK_UNSUPPORTED"), "link-redeem")).toBe(
+    "This OpenCode server does not support pairing links. Update OpenCode, or add the server by address.",
+  );
+  expect(pairingErrorMessage(new Error("PAIRING_LINK_FAILED"), "link-redeem")).toBe(
+    "The OpenCode server could not be reached to use this pairing link. Check that it is running and reachable.",
+  );
 });
 
 test("reports the OpenCode error when neither code format parses", () => {

@@ -12,6 +12,31 @@ the fail-closed database backup-exclusion startup guard. Statements marked
 pending in older dated entries describe the status at the time of that probe;
 later entries supersede them.
 
+## 2026-11-28: server 2.4 pairing links, pending device verification
+
+OpenCode 2.4 changed `opencode pair` and the built-in pairing QR from a JSON
+code with the server password to a single-use `<origin>/auth/connect/<code>`
+link that expires after five minutes. The app rejected that link as a malformed
+code, so scanning stopped working. The app now accepts the link and shows the
+origin for approval without contacting the server. Only Pair spends the code. It
+redeems the code with `GET /auth/connect/{code}` and `Accept: application/json`,
+and keeps the redeemed result for retries. Without that header the server
+answers as it would a browser. The redeemed token becomes the Basic password for
+the existing direct and notification broker flows. The earlier JSON code still
+works for older servers.
+
+An isolated 2.4.2 server confirmed the token is accepted only with the username
+`opencode`, including when another server username is configured. It is rejected
+as a bearer token, and a spent or unknown code returns `UnauthorizedError`. The
+adapter integration suite now pairs through a real link on the pinned server.
+The full lint, typecheck, test, and build sequence passed, including 1616 mobile
+tests and both Hermes exports, and Expo Doctor passed 18 of 18 checks. Both
+native fingerprints and runtime matched the installed 0.1.6 baseline under the
+preview EAS environment, and local EAS Update publication succeeded for iOS and
+Android on preview. Still unverified: a QR scan on iPhone and Android Hermes
+builds, notification broker pairing with a redeemed token, and how long the
+token stays valid or whether the server revokes it.
+
 ## 2026-11-21: session actions menu revised after review, pending device verification
 
 An iPhone screenshot of the session actions sheet showed a blank band above its

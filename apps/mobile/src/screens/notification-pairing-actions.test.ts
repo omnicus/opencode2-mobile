@@ -49,6 +49,11 @@ const mockFinish = jest.fn(async (..._args: unknown[]) => undefined);
 const mockInstall = jest.fn(async (..._args: unknown[]) => undefined);
 const mockHealth = jest.fn(async (_options?: RequestOptions) => ({ pid: 42, version: "test" }));
 const mockList = jest.fn(async (_input: unknown, _options?: RequestOptions) => ({ data: [] }));
+const mockRedeem = jest.fn(async (_link: unknown, _options: unknown) => ({
+  password: "link-token",
+  username: "opencode",
+}));
+const mockClassify = jest.fn((_error: unknown) => "UNREACHABLE");
 const mockCreateClient = jest.fn((_options: unknown) => ({
   server: { status: mockHealth },
   session: { list: mockList },
@@ -57,7 +62,9 @@ const mockCreateClient = jest.fn((_options: unknown) => ({
 jest.mock("expo-crypto", () => ({ randomUUID: () => "test-id" }));
 jest.mock("../expo-open-code-fetch", () => ({ boundedOpenCodeFetch: "bounded-fetch" }));
 jest.mock("@opencode2-mobile/opencode-adapter", () => ({
+  classifyOpenCodeError: (error: unknown) => mockClassify(error),
   createOpenCodeClient: (options: unknown) => mockCreateClient(options),
+  redeemOpenCodePairingLink: (link: unknown, options: unknown) => mockRedeem(link, options),
   normalizeOpenCodeBaseUrl: (value: string) => new URL(value).origin,
 }));
 jest.mock("../notifications/notification-registration", () => ({
@@ -113,6 +120,14 @@ function openCodeCode(url = "https://server.test") {
 
 function openCodePreview(url?: string): PairingPreview {
   const result = inspectPairingCode(openCodeCode(url));
+  if (!("preview" in result)) throw new Error("expected a preview");
+  return result.preview;
+}
+
+const pairingLink = "http://server.test:4096/auth/connect/U4Jdtxl7zwcnJI7yHEnUMQ";
+
+function linkPreview(): PairingPreview {
+  const result = inspectPairingCode(pairingLink);
   if (!("preview" in result)) throw new Error("expected a preview");
   return result.preview;
 }
@@ -308,6 +323,116 @@ test("connects directly with the /pair credentials", async () => {
   expect(state.attempt.current).toBeUndefined();
   expect(jest.mocked(state.setBusy).mock.calls).toEqual([[true], [false]]);
   expect(jest.mocked(state.setCancelling).mock.calls).toEqual([[false], [false]]);
+});
+
+test("redeems a pairing link once and connects directly with its token", async () => {
+  const { actions, connections, onDone, state } = setup({ preview: linkPreview() });
+  await actions.pairWithoutNotifications();
+  expect(mockRedeem).toHaveBeenCalledTimes(1);
+  expect(mockRedeem).toHaveBeenCalledWith(
+    { code: "U4Jdtxl7zwcnJI7yHEnUMQ", origin: "http://server.test:4096" },
+    { fetch: "bounded-fetch", signal: expect.any(AbortSignal) },
+  );
+  const redeemed = {
+    kind: "opencode",
+    prepared: {
+      allowDevelopmentHttp: true,
+      brokerOrigin: "http://server.test:37100",
+      code: { password: "link-token", urls: ["http://server.test:4096"], username: "opencode" },
+      name: "OpenCode on server.test",
+      openCodeOrigin: "http://server.test:4096",
+    },
+  };
+  expect(state.setPreview).toHaveBeenCalledWith(redeemed);
+  expect(connections.save).toHaveBeenCalledWith({
+    credential: { mode: "basic", password: "link-token", schemaVersion: 1, username: "opencode" },
+    draft: {
+      allowDevelopmentHttp: true,
+      authMode: "basic",
+      baseUrl: "http://server.test:4096",
+      name: "OpenCode on server.test",
+    },
+    health: { checkedAtMs: expect.any(Number), pid: 42, version: "test" },
+  });
+  expect(onDone).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(state.setBusy).mock.calls).toEqual([[true], [false]]);
+});
+
+test.each([
+  [
+    "UNAUTHORIZED",
+    "This pairing link expired or was already used. Run opencode pair again for a new link.",
+  ],
+  [
+    "INCOMPATIBLE",
+    "This OpenCode server does not support pairing links. Update OpenCode, or add the server by address.",
+  ],
+  [
+    "UNREACHABLE",
+    "The OpenCode server could not be reached to use this pairing link. Check that it is running and reachable.",
+  ],
+])("explains a pairing link the server refused as %s", async (kind, message) => {
+  mockRedeem.mockRejectedValueOnce(new Error("HTTP transport detail"));
+  mockClassify.mockReturnValueOnce(kind);
+  const { actions, connections, onDone, state } = setup({ preview: linkPreview() });
+  await actions.pairWithoutNotifications();
+  expect(state.setError).toHaveBeenLastCalledWith(message);
+  expect(state.setPreview).not.toHaveBeenCalled();
+  expect(mockCreateClient).not.toHaveBeenCalled();
+  expect(connections.save).not.toHaveBeenCalled();
+  expect(onDone).not.toHaveBeenCalled();
+  expect(jest.mocked(state.setBusy).mock.calls).toEqual([[true], [false]]);
+});
+
+test("stops waiting for a pairing link after 10 seconds", async () => {
+  jest.useFakeTimers();
+  mockRedeem.mockImplementationOnce((_link, options) =>
+    hangUntilAborted(options as RequestOptions),
+  );
+  const { actions, state } = setup({ preview: linkPreview() });
+  const attempt = actions.pairWithoutNotifications();
+  await jest.advanceTimersByTimeAsync(10_000);
+  await attempt;
+  expect(state.setError).toHaveBeenLastCalledWith(
+    "The OpenCode server did not respond within 10 seconds. Check that it is running and reachable.",
+  );
+});
+
+test("pairs a link through the broker and falls back without redeeming it again", async () => {
+  mockComplete.mockRejectedValueOnce(new Error("BROKER_ERROR"));
+  const { actions, connections, onDone, state } = setup({ preview: linkPreview() });
+  await actions.pair();
+  expect(mockRedeem).toHaveBeenCalledTimes(1);
+  expect(mockIssue).toHaveBeenCalledWith(
+    expect.objectContaining({
+      code: { password: "link-token", urls: ["http://server.test:4096"], username: "opencode" },
+    }),
+    expect.any(AbortSignal),
+  );
+  expect(connections.save).toHaveBeenCalledWith(
+    expect.objectContaining({
+      credential: { mode: "basic", password: "link-token", schemaVersion: 1, username: "opencode" },
+    }),
+  );
+  expect(Alert.alert).toHaveBeenCalledWith(
+    "Server connected",
+    "Notification setup was unavailable. Connected without notifications.",
+  );
+  expect(onDone).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(state.setBusy).mock.calls).toEqual([[true], [false]]);
+});
+
+test("does not start notification setup when a pairing link cannot be redeemed", async () => {
+  mockRedeem.mockRejectedValueOnce(new Error("spent"));
+  mockClassify.mockReturnValueOnce("UNAUTHORIZED");
+  const { actions, onDone, state } = setup({ preview: linkPreview() });
+  await actions.pair();
+  expect(mockRegisterPush).not.toHaveBeenCalled();
+  expect(mockIssue).not.toHaveBeenCalled();
+  expect(onDone).not.toHaveBeenCalled();
+  expect(state.setError).toHaveBeenLastCalledWith(
+    "This pairing link expired or was already used. Run opencode pair again for a new link.",
+  );
 });
 
 test("reports a direct connection that could not be saved", async () => {

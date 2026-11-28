@@ -1,4 +1,9 @@
-import { createOpenCodeClient, normalizeOpenCodeBaseUrl } from "@opencode2-mobile/opencode-adapter";
+import {
+  classifyOpenCodeError,
+  createOpenCodeClient,
+  normalizeOpenCodeBaseUrl,
+  redeemOpenCodePairingLink,
+} from "@opencode2-mobile/opencode-adapter";
 import type { PermissionResponse } from "expo-camera";
 import type { SQLiteDatabase } from "expo-sqlite";
 import type { RefObject } from "react";
@@ -11,6 +16,7 @@ import {
   completeNotificationPairing,
   createNotificationPairingMaterial,
   issueNotificationPairingFromOpenCode,
+  redeemedOpenCodeDevicePairing,
   sendNotificationDeviceCommand,
 } from "../notifications/notification-client";
 import {
@@ -28,10 +34,13 @@ import {
   type PairingPreview,
   type PairingStage,
   type PreparedOpenCodePairing,
+  type PreparedOpenCodePairingLink,
   pairingErrorMessage,
 } from "./notification-pairing-model";
 
 const openCodeTimeoutMs = 10_000;
+
+type RedeemedPairingPreview = Exclude<PairingPreview, { kind: "link" }>;
 
 type Connections = ReturnType<typeof useConnections>;
 type PairingMaterial = ReturnType<typeof createNotificationPairingMaterial>;
@@ -169,12 +178,33 @@ function pairingConnectionActions(
   const { beginAttempt, cancelAttempt, finishAttempt } = pairingAttempt(state);
 
   async function pairWithoutNotifications() {
-    if (state.preview?.kind !== "opencode" || state.busy) return;
+    if (!state.preview || state.preview.kind === "notification" || state.busy) return;
     const signal = beginAttempt();
     try {
-      await connectDirectly(state.preview.prepared, signal);
+      const preview =
+        state.preview.kind === "link"
+          ? await redeemLink(state.preview.prepared, signal)
+          : state.preview;
+      if (preview?.kind === "opencode") await connectDirectly(preview.prepared, signal);
     } finally {
       finishAttempt(signal);
+    }
+  }
+
+  // Spends a pairing link's code and keeps the result, so a retry never redeems it twice.
+  async function redeemLink(
+    prepared: PreparedOpenCodePairingLink,
+    signal: AbortSignal,
+  ): Promise<RedeemedPairingPreview | undefined> {
+    try {
+      const redeemed = await redeemPairingLink(prepared, signal);
+      // The code is spent now, so keep the result even if the person cancelled meanwhile.
+      if (state.mounted.current) state.setPreview(redeemed);
+      throwIfCancelled(signal);
+      return redeemed;
+    } catch (caught) {
+      if (!signal.aborted) state.setError(pairingErrorMessage(caught, "link-redeem"));
+      return undefined;
     }
   }
 
@@ -213,12 +243,17 @@ function pairingConnectionActions(
   }
 
   async function pair() {
-    const preview = state.preview;
-    if (!preview || state.busy || state.expired) return;
+    const initial = state.preview;
+    if (!initial || state.busy || state.expired) return;
     const signal = beginAttempt();
     const progress: PairingProgress = { stage: "push-registration" };
+    let preview: PairingPreview = initial;
     try {
-      await completePairing(context, preview, progress, signal);
+      const redeemed =
+        initial.kind === "link" ? await redeemLink(initial.prepared, signal) : initial;
+      if (!redeemed) return;
+      preview = redeemed;
+      await completePairing(context, redeemed, progress, signal);
       state.pairingMaterial.current = undefined;
       if (state.mounted.current) onDone();
     } catch (caught) {
@@ -261,9 +296,35 @@ function pairingConnectionActions(
   return { cancelAttempt, pair, pairWithoutNotifications };
 }
 
+async function redeemPairingLink(
+  prepared: PreparedOpenCodePairingLink,
+  signal: AbortSignal,
+): Promise<RedeemedPairingPreview> {
+  try {
+    const credential = await withOpenCodeTimeout(signal, (timeoutSignal) =>
+      redeemOpenCodePairingLink(prepared.link, {
+        fetch: boundedOpenCodeFetch,
+        signal: timeoutSignal,
+      }),
+    );
+    return { kind: "opencode", prepared: redeemedOpenCodeDevicePairing(prepared, credential) };
+  } catch (caught) {
+    throw pairingLinkError(caught);
+  }
+}
+
+function pairingLinkError(caught: unknown) {
+  if (caught instanceof Error && caught.message === "PAIRING_OPENCODE_TIMEOUT") return caught;
+  const kind = classifyOpenCodeError(caught);
+  if (kind === "UNAUTHORIZED") return new Error("PAIRING_LINK_SPENT");
+  if (kind === "INCOMPATIBLE") return new Error("PAIRING_LINK_UNSUPPORTED");
+  // Transport messages can mention HTTP; keep them from reading as an unapproved address.
+  return new Error("PAIRING_LINK_FAILED");
+}
+
 async function completePairing(
   { connections, db, pairingMaterial }: PairingContext,
-  preview: PairingPreview,
+  preview: RedeemedPairingPreview,
   progress: PairingProgress,
   signal: AbortSignal,
 ) {
@@ -369,6 +430,20 @@ function openCodeClient(baseUrl: string, credential: ConnectionCredential | unde
 }
 
 async function checkOpenCode(client: ReturnType<typeof createOpenCodeClient>, signal: AbortSignal) {
+  return withOpenCodeTimeout(signal, async (timeoutSignal) => {
+    const options = { signal: timeoutSignal };
+    const [health] = await Promise.all([
+      client.server.status(options),
+      client.session.list({ limit: 1, order: "desc" }, options),
+    ]);
+    return health;
+  });
+}
+
+async function withOpenCodeTimeout<T>(
+  signal: AbortSignal,
+  run: (timeoutSignal: AbortSignal) => Promise<T>,
+) {
   const controller = new AbortController();
   let timedOut = false;
   const timeout = setTimeout(() => {
@@ -378,12 +453,7 @@ async function checkOpenCode(client: ReturnType<typeof createOpenCodeClient>, si
   const abort = () => controller.abort();
   signal.addEventListener("abort", abort);
   try {
-    const options = { signal: controller.signal };
-    const [health] = await Promise.all([
-      client.server.status(options),
-      client.session.list({ limit: 1, order: "desc" }, options),
-    ]);
-    return health;
+    return await run(controller.signal);
   } catch (caught) {
     throw timedOut ? new Error("PAIRING_OPENCODE_TIMEOUT") : caught;
   } finally {

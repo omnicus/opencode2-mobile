@@ -34,6 +34,7 @@ import {
   type PairingPreview,
   pairingExpiresAtMs,
   pairingPreviewApprovesHttp,
+  pairingPreviewConnectsDirectly,
   pairingPreviewMeta,
   pairingPreviewName,
   pairingPreviewOrigin,
@@ -56,11 +57,11 @@ export function NotificationPairingScreen({ onDone }: { onDone: () => void }) {
           <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.copy}>
             Run{" "}
             <Text dynamicTypeRamp={typeRamp.subheadline} style={styles.inlineCode}>
-              /pair
+              opencode pair
             </Text>{" "}
-            in OpenCode on your computer, then scan the code it shows. Notifications are set up when
-            available; otherwise the app connects without them. Credentials stay in this device's
-            secure storage.
+            on your computer, then scan the code it shows. Notifications are set up when available;
+            otherwise the app connects without them. Credentials stay in this device's secure
+            storage.
           </Text>
 
           {/* Once a code is read, its review replaces the capture controls. */}
@@ -350,7 +351,7 @@ function PairingPreviewCard({
           onPress={onPair}
           variant="primary"
         />
-        {preview.kind === "opencode" ? (
+        {pairingPreviewConnectsDirectly(preview) ? (
           <Button
             disabled={busy}
             fullWidth

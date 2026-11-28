@@ -20,6 +20,7 @@ import {
   parseNotificationPushData,
   parseNotificationRoutingEnvelope,
   parseOpenCodeDevicePairingCode,
+  parseOpenCodePairingLink,
   sealNotificationJson,
 } from "@opencode2-mobile/notification-protocol";
 import * as Crypto from "expo-crypto";
@@ -106,13 +107,35 @@ export function prepareOpenCodeDevicePairing(value: unknown) {
     return !isUnusableDeviceHost(hostname);
   });
   if (!openCodeOrigin) throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
+  return { ...openCodePairingTarget(openCodeOrigin), code };
+}
+
+// An `opencode pair` link stays unspent until the person approves it; the code works only once.
+export function prepareOpenCodePairingLink(value: string) {
+  const link = parseOpenCodePairingLink(value);
+  if (isUnusableDeviceHost(new URL(link.origin).hostname)) {
+    throw new Error("PAIRING_OPENCODE_IS_LOOPBACK");
+  }
+  return { ...openCodePairingTarget(link.origin), link };
+}
+
+export function redeemedOpenCodeDevicePairing(
+  { link: _link, ...target }: ReturnType<typeof prepareOpenCodePairingLink>,
+  credential: { password: string; username: string },
+): ReturnType<typeof prepareOpenCodeDevicePairing> {
+  return {
+    ...target,
+    code: { ...credential, urls: [target.openCodeOrigin] },
+  };
+}
+
+function openCodePairingTarget(openCodeOrigin: string) {
   const openCodeUrl = new URL(openCodeOrigin);
   const brokerUrl = new URL(openCodeOrigin);
   brokerUrl.port = "37100";
   return {
     allowDevelopmentHttp: openCodeUrl.protocol === "http:",
     brokerOrigin: brokerUrl.origin,
-    code,
     name: `OpenCode on ${openCodeUrl.hostname}`.slice(0, 80),
     openCodeOrigin,
   };

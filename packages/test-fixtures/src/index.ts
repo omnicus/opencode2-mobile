@@ -14,6 +14,8 @@ export type FakeOpenCodeApiOptions = {
   };
   models?: unknown[];
   mcpServers?: unknown[];
+  // Unspent `opencode pair` codes and the token each redeems to. Redeeming spends the code.
+  pairingCodes?: Record<string, string>;
   messagePageSize?: number;
   messages?: Record<string, unknown[]>;
   pageSize?: number;
@@ -82,6 +84,7 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     { info: Record<string, unknown>; output: string; pollsBeforeExit: number; final: string }
   >();
   const removedShells = new Set<string>();
+  const pairingCodes = new Map(Object.entries(options.pairingCodes ?? {}));
 
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const url = new URL(
@@ -115,6 +118,23 @@ export function createFakeOpenCodeApi(options: FakeOpenCodeApiOptions = {}) {
     }
     if (url.pathname === "/api/project") {
       return json(options.projects ?? []);
+    }
+    const connectMatch = url.pathname.match(/^\/auth\/connect\/([^/]+)$/);
+    if (connectMatch && method === "GET") {
+      const code = decodeURIComponent(connectMatch[1] ?? "");
+      const token = pairingCodes.get(code);
+      pairingCodes.delete(code);
+      if (token === undefined) {
+        return json(
+          { _tag: "UnauthorizedError", message: "Pairing link expired or already used" },
+          401,
+        );
+      }
+      // Like the server, answer a request that does not ask for JSON as a browser.
+      if (!new Headers(init?.headers).get("accept")?.includes("application/json")) {
+        return new Response("<!doctype html>", { headers: { "content-type": "text/html" } });
+      }
+      return json({ token });
     }
     if (url.pathname === "/api/location") {
       const requestedDirectory = url.searchParams.get("location[directory]");
